@@ -125,9 +125,7 @@ export function addMeetingParticipant(
   _input: {
     meetingId: string;
     expectedVersion: number;
-    participant:
-      | { kind: 'member'; membershipId: string }
-      | { kind: 'external'; label: string };
+    participant: { kind: 'member'; membershipId: string } | { kind: 'external'; label: string };
   },
 ): Promise<MeetingParticipantView> {
   throw new Error('NOT_IMPLEMENTED');

@@ -14,13 +14,13 @@ Four facts shape what follows:
 - **The spec names kinds of system, not vendors.** The catalog says "CRM / ticketing / accounting: read/update selected records", with the guardrail "reconciliation + provider scopes". No vendor has been chosen, and choosing one is a commercial decision that also needs contracts.
 - **The egress gateway has one target, on purpose** (ADR-027 D5). That rule is why "what can this reach?" has a one-line answer. Three more systems could easily erode it.
 - **Meetings are the first feature whose content is about people who may not use Ensemus.** Someone outside the company can be in the room, has no account here, and did not agree to anything. Names and terms can be trade secrets, too.
-- **The milestones this depends on are being written now.** M4's model gateway and egress decision, M5's knowledge pipeline and M7's pack format do not exist on this branch.
+- **The milestones this depends on are being written now.** M4's model gateway and egress decision (ADR-028), M5's knowledge pipeline (ADR-029) and M7's pack format (ADR-031) have foundations on their own branches, read here with `git show`, and they are not merged into this one.
 
 ## Decisions
 
 | # | Decision |
 |---|---|
-| **D1** | A department pack is plain, reviewable data in its own package. It has no code path, and installing one grants nothing. M7 owns installing. This milestone owns the content and the rules any pack must pass. |
+| **D1** | A department pack is data in M7's pack format, in its own package. Installing grants nothing. M7 owns the format and installing. This milestone owns the content, and rules that go further than M7's for these departments. |
 | **D2** | Connectors are one vendor-neutral adapter protocol, one kind per system type, each through its own single-target gateway instance. No vendor appears in the code. |
 | **D3** | A connector keeps an allowlist of fields. Who may read one is what the source said, mapped to people here, and being an organization admin adds nothing. Every change is a verified external action, with its approval and receipt. No tool moves money. |
 | **D4** | Meetings are off for a tenant until an administrator turns them on and names the organization's own notice. |
@@ -31,31 +31,29 @@ Four facts shape what follows:
 
 ### D1. Department packs
 
-The catalog lists what a pack holds (object and view schemas, agent definitions, skills, workflow blueprints, policy requirements, localization strings and evaluation scenarios) and the rule that matters: installing cannot grant permissions automatically, and upgrades need migration and rollback paths.
+ADR-031 D10 already says what a pack is: data shipped in the release, whose capabilities an administrator decides one at a time, and which makes object types and drafts that can do nothing until they pass Studio's own review. Upgrades go forward only, remove nothing, and bring a new capability back for review. So this milestone adds no format and no installer. **It writes content, in M7's `PackManifest`.**
 
-`@ensemus/domain/department-pack` is that list as a type, and `checkDepartmentPack` and `checkPackUpgrade` are the rules as pure functions. `@ensemus/department-packs` holds the content, one folder per pack. Lint keeps that package from the database, connectors, Temporal, secrets, sockets and the filesystem, so a pack is something you can read, diff and review.
+`PackManifest` is in `@ensemus/domain/pack` on `m7-foundation`, and that branch is not merged here. So `@ensemus/domain/department-pack` repeats its fields one for one, and the final merge deletes the copies and imports M7's. A pack written here therefore needs no change at the merge. `@ensemus/department-packs` holds the content, one folder per pack, each exporting its versions oldest first, as `salesOperationsPack` does, and lint holds it to the same rule as `@ensemus/packs`: data and domain types only.
 
-The type does some of the work. A request has `grantedOnInstall: false` as a literal, so "this pack grants that on install" cannot be written. The rule functions catch what a type cannot:
+**On top of M7's own rules.** `validatePackManifest` and `planPackUpgrade` are stubs until M7's packs slice lands, and a pack has to pass them too. `checkDepartmentPack` and `checkPackUpgrade` hold what these departments' guardrails need, whatever M7's end up holding:
 
 | Rule | What it stops |
 |---|---|
-| `AGENT_TOOL_NOT_REQUESTED`, `WORKFLOW_TOOL_NOT_REQUESTED` | Using a tool the reviewer was never asked about |
-| `AGENT_TOOL_HAS_EFFECT` | An agent holding a side effect. An agent proposes, and an effect is a workflow step behind a person's approval |
-| `WORKFLOW_EFFECT_WITHOUT_APPROVAL` | A side effect with no approval right before it. An approval is used up by the effect after it |
-| `WORKFLOW_UNBOUNDED` | Loops with no limit, which the catalog forbids |
+| `TOOL_NOT_ASKED`, `EFFECT_NOT_ASKED`, `OBJECT_NOT_ASKED`, `DATA_CLASS_NOT_ASKED` | Using something the reviewer was never asked about |
+| `AGENT_TOOL_HAS_EFFECT`, `AGENT_ACTS` | An agent holding a side effect. In a pack an agent proposes, and an effect is a process step behind a person's approval |
+| `PROCESS_EFFECT_WITHOUT_APPROVAL`, `PROCESS_CYCLE` | Any path reaching an effect with no approval, and loops, as M7's compiler refuses too. Checked here so a pack cannot ship one that would only fail at activation |
+| `AGENT_SETS_COST` | A number that would read as a price. M7's answers have no default on purpose: whoever activates it sets a limit |
 | `TOOL_MOVES_MONEY`, `TOOL_BULK_OUTREACH`, `TOOL_NEVER_ALLOWED` | Finance's and sales' guardrails, held for every pack |
-| `RESTRICTED_WITHOUT_ISOLATION` | HR's "strict employment data isolation", held for any pack asking for restricted data |
-| `STRINGS_COMPLIANCE_CLAIM` | A pack claiming compliance with legislation, which the catalog forbids |
-| `EVALUATION_NO_DENIED_SCENARIO` | A guardrail with nothing proving it |
-| `MIGRATION_*`, `UPGRADE_*` | An upgrade that cannot be undone, or that asks for more without going back to a person |
+| `RESTRICTED_NOT_ELEVATED` | HR's "strict employment data isolation" being asked for as a low-risk thing |
+| `STRINGS_COMPLIANCE_CLAIM` | A pack claiming compliance or a guarantee, which the catalog forbids |
+| `SCENARIO_NO_GUARDRAIL`, `SCENARIO_ITEM_NOT_COVERED` | A guardrail with nothing proving it. By convention a scenario's key is `{item}.{case}`, and `{item}.denied_{case}` proves one |
+| `UPGRADE_*` | Removing anything, going backwards, or a capability quietly coming to mean something else |
 
-**Which packs.** The catalog names five, and M7 builds "the first department pack". Nothing on M7's branches says which yet. The flagship workflow is deal won to client onboarding, so this assumes **sales operations is M7's**, and M11A builds **marketing, HR, finance and learning**. If M7 chooses another, the missing one is a copy of this work and the duplicate is dropped at the merge (see Open questions).
+**Which packs.** The catalog names five. ADR-031 D10 makes **sales operations M7's** (its O-5, an owner decision), so M11A builds **marketing, HR, finance and learning**.
 
-**Passing these rules means fit for a person to review, and no more.** Numbers in a pack, such as `max_cost_usd`, are limits a person sets at install, and not prices.
+**Passing these rules means fit for a person to review, and no more.**
 
-**Rejected: packs as code.** A function can do anything, so a review would have to read all of it. Data also lets the rule functions see everything.
-
-**Rejected: writing packs against a guess at M7's format.** They are written against the catalog's list, and `DepartmentPackFormat` adapts them to M7's real installer at the merge. If M7's rules go further, a pack has to pass both.
+**What M7 is waiting on from here.** Its bundled workflows name `accounting_connector` and `meeting_notes` as needs that stop honestly today. The accounting connector and meeting notes built here are what meet those needs, and the final merge connects them.
 
 ### D2. One adapter protocol, one gateway per kind
 
@@ -88,6 +86,8 @@ The type does some of the work. A request has `grantedOnInstall: false` as a lit
 A connector with no route is not on the worker's list at all, so it is clearly unavailable, as the integrations doc requires. **Air-gapped installs set no routes and make no attempts**, and the shipped stack is unchanged.
 
 **The real cost: one target per kind per deployment.** That suits BYOM and Sovereign, where one customer runs one system. In a multi-tenant Cloud deployment, every tenant shares the CRM target, so tenants with different CRMs would need an adapter service that routes between them, and that service would hold or see all of their traffic. This is deliberately not solved here, and it is the main thing to reconsider before offering these connectors in Cloud (see Open questions).
+
+M5 reached the same answer on its own (ADR-029 D11, one gateway per named route). M5 also has a small client for this on its branch, `createProviderHttpClient`, still a stub there, with fixed hosts per route. This one takes its name from a connection's settings and has our idempotency rules on top. They are close enough that the two should be looked at together once both exist, and this is noted in the slices file.
 
 **Rejected: one gateway with an allowlist.** It breaks the one-target rule to save a container. **Rejected: tenant-supplied URLs.** ADR-027 D3 closes SSRF at the source, and this keeps it closed.
 
@@ -198,12 +198,13 @@ The rule is in the database, because the worker and the web share a role (ADR-02
 
 ### D8. Ports with a default that refuses
 
-| Port | Owner | Default until merged |
-|---|---|---|
-| `MeetingModelGateway` | M4 | `noMeetingModel`: a run ends `MODEL_UNAVAILABLE`, and the page says so |
-| `MeetingEgressGate` | M4 | `denyAllMeetingEgress`: nothing leaves |
-| `MeetingKnowledgeIndex` | M5 | `noMeetingKnowledgeIndex`: notes are not indexed, which is true |
-| `DepartmentPackFormat` | M7 | None. Only tests implement it, and the packs are data until M7 installs them |
+| Port | Owner | Implemented over, at the final merge | Default until merged |
+|---|---|---|---|
+| `MeetingModelGateway` | M4 | M4's router and adapters, as M5's `KnowledgeModelPort` is, with notes in the `evidence` role | `noMeetingModel`: a run ends `MODEL_UNAVAILABLE`, and the page says so |
+| `MeetingEgressGate` | M4 | `decideEgress` and `governance.egress_decisions`, for the one profile the approval names | `denyAllMeetingEgress`: nothing leaves |
+| `MeetingKnowledgeIndex` | M5 | M5's sources, and `deleteSource` for removal | `noMeetingKnowledgeIndex`: notes are not indexed, which is true |
+
+There is no port for packs, because M7's format is what they are written in.
 
 No fake ships as a default. A deployment that has not wired M4 cannot leak meeting content, and it says why it cannot summarize.
 
@@ -217,7 +218,7 @@ No fake ships as a default. A deployment that has not wired M4 cannot leak meeti
 
 ## Consequences
 
-**Easier:** adding a kind of system is a spec and its fields. Adding a pack is a folder. The rules are in one place each, and a test can break everything above them.
+**Easier:** adding a kind of system is a spec and its fields. Adding a pack is a folder of data. The rules are in one place each, and a test can break everything above them.
 
 **Harder:** a security reviewer has a second hand-written protocol client to read. Operators who want these connectors run one more gateway per kind. People may be asked for consent often enough to tire of it, and that should be measured when real use exists.
 
@@ -227,17 +228,16 @@ No fake ships as a default. A deployment that has not wired M4 cannot leak meeti
 
 ## Open questions for the owner
 
-1. Which pack is M7's first? This assumes sales.
-2. Which systems first? The adapter protocol commits to none. A real one needs an adapter or a vendor connector, and very likely a contract.
-3. Do these connectors go in Cloud before multi-tenant routing is designed? This says not until then. BYOM and Sovereign first.
-4. Is all-party consent the rule you want everywhere? Ask counsel. It is the strictest, and easy to relax.
-5. May an organization owner or admin read meeting content they were not in? This says no. It is one function to change.
-6. How long is meeting content kept? This sets nothing, and a number needs counsel.
-7. Who supplies the notice text and the provider terms? Those are referenced here and written by you and your counsel.
+1. Which systems first? The adapter protocol commits to none. A real one needs an adapter or a vendor connector, and very likely a contract.
+2. Do these connectors go in Cloud before multi-tenant routing is designed? This says not until then. BYOM and Sovereign first.
+3. Is all-party consent the rule you want everywhere? Ask counsel. It is the strictest, and easy to relax.
+4. May an organization owner or admin read meeting content they were not in? This says no. It is one function to change.
+5. How long is meeting content kept? This sets nothing, and a number needs counsel.
+6. Who supplies the notice text and the provider terms? Those are referenced here and written by you and your counsel.
 
 ## Reversal
 
-Remove the gateway routes and no business connector exists. Leave `meetings.settings` off and no meeting can start. Packs do nothing until M7 installs one. Dropping the two tables and the schema is safe until something real depends on them. D5 and D7 become expensive to change once real consent records exist, and those should be reviewed first.
+Remove the gateway routes and no business connector exists. Leave `meetings.settings` off and no meeting can start. Packs do nothing until M7's installer activates one. Dropping the two tables and the schema is safe until something real depends on them. D5 and D7 become expensive to change once real consent records exist, and those should be reviewed first.
 
 ## Approvals
 

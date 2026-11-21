@@ -10,6 +10,7 @@ If you need a change to a file you do not own, or to anything in "Fixed" below, 
 |---|---|
 | Migrations, RLS, roles and triggers. **No builder adds a migration.** `meta/` and the journal are not edited on this milestone at all: the final merge stitches them | `packages/database/migrations/0600_*`, `0601_*`, `packages/database/src/schema-expansion.ts`, `drizzle.config.ts` |
 | Rules and names | `packages/domain/src/business-connector.ts`, `meeting.ts`, `department-pack.ts`, `expansion-events.ts` |
+| The pack catalog and its suite | `packages/department-packs/src/index.ts`, `testing.ts` |
 | Shapes on the wire and in an approval | `packages/contracts/src/business-adapter.ts`, `business-records.ts`, `meetings.ts` |
 | The adapter kit, and its fake | `packages/connectors/src/business/**`, `manifest-business.ts`, `testing/business-adapter.ts` |
 | Ports | `packages/application/src/expansion-ports.ts` |
@@ -38,6 +39,16 @@ A bug in any of these is reported, not fixed in passing.
 | Time | The owner stops at 22:00 local. Past 21:15 and not done, commit what typechecks and list the rest as not done |
 
 **Migrations are not in the journal until the final merge**, so nothing against the new tables can run here. Put every rule you can in a pure module with a unit test, and put the rest in an integration test.
+
+## Sibling milestones
+
+Their foundations exist, on their own branches, and **none is merged here**. Read them with `git show <branch>:<path>`.
+
+| You need | Read | How it reaches you here |
+|---|---|---|
+| The pack format | `m7-foundation:packages/domain/src/pack.ts`, ADR-031 D10, `m7-foundation:packages/packs/src/sales-operations/index.ts` | `DepartmentPackManifest` in `@ensemus/domain/department-pack`, the same fields, which the merge swaps for M7's |
+| The model call and egress | `m4-foundation:packages/application/src/ai/ports.ts`, `m4-foundation:packages/intelligence/src/gateway.ts`, `m5-foundation:packages/knowledge/src/ports.ts` | The ports in `expansion-ports.ts`, with defaults that refuse |
+| The knowledge pipeline | `m5-foundation:packages/application/src/knowledge/purge.ts` | `MeetingKnowledgeIndex` |
 
 ## How M3 reaches you
 
@@ -70,7 +81,10 @@ These cannot be done on this branch, because the lines they touch arrive with M3
 2. In `packages/connectors/src/manifest.ts`, add `...BUSINESS_CONNECTOR_MANIFESTS` to `CONNECTOR_MANIFESTS`.
 3. In `@ensemus/domain/connector`, add the four types to `SHIPPED_CONNECTOR_RULES`, each with `credential: { required: true }`. Their settings hold an array, which `ConfigField` cannot state, so leave `configFields` out, and `isSafeConnectorConfig` still applies. The connector's own schema checks the rest in the worker.
 4. In `packages/domain/src/external-action.ts`, add `...BUSINESS_CONNECTOR_TYPES` to `ACTION_CONNECTOR_TYPES`, so that work can ask for a receipt from one of these.
-5. In `workers/workflow/src/main.ts`, replace `noMeetingModel` and `denyAllMeetingEgress` with M4's real gateway and gate, once they exist, and implement `DepartmentPackFormat` over M7's installer.
+5. In `workers/workflow/src/main.ts`, replace `noMeetingModel` and `denyAllMeetingEgress` with implementations over M4's router and `decideEgress`, and wire `MeetingKnowledgeIndex` over M5's sources.
+5a. Delete the copied types in `@ensemus/domain/department-pack` and import M7's `PackManifest`, which also proves the copy was exact. Spread `DEPARTMENT_PACKS` into `PACK_CATALOG` in `@ensemus/packs`. In `@ensemus/department-packs/testing`, also call M7's `validatePackManifest` and `planPackUpgrade`. Add `accounting_connector` and `meeting_notes` to whatever marks M7's bundled workflows as met.
+5b. In `@ensemus/domain/tombstone-ledger`, `TARGET_TYPES` gets both M5's `knowledge_source` and this milestone's `meeting`. Add `meetings` to M4's and M5's new lines in `tests/integration/tenant-isolation.test.ts`.
+5c. Look at `business/http.ts` beside M5's `createProviderHttpClient`, once both exist.
 6. Fold `proposeBusinessActionInTx` into `proposeExternalActionInTx` behind a tool registry, and give `createWorkUnit` an `InTx` form that `acceptProposedWork` calls (ADR-033 D3 and D7). Neither is urgent, and both should happen before these drift.
 7. In `apps/web`, offer the manifests in `@ensemus/connectors/manifest-business` on the connections page.
 
@@ -82,13 +96,13 @@ Marketing operations: campaign planning and artifact review. Guardrail: claims a
 
 **Owns:** `packages/department-packs/src/marketing/**`.
 
-**Implements:** `export const MARKETING_OPERATIONS_PACK: DepartmentPack`, replacing the null. Its `id` is `marketing_operations`, its `department` is `marketing`, and its version is 1.
+**Implements:** `export const marketingOperationsPack: readonly DepartmentPackManifest[]`, replacing the empty list, with versions `1.0.0` and `1.1.0`, oldest first, so upgrade and rollback are real. Its `key` is `marketing_operations`, and its `publisher` is `ensemus`. Read `git show m7-foundation:packages/domain/src/pack.ts` first, and the rules at the bottom of `@ensemus/domain/department-pack`. Follow M7's ADR-031 D10.
 
-**Must contain:** a `campaign` and a `claim_source` object with views; a `campaign-planner` and a `claims-checker` agent, each valid against `docs/specifications/schemas/agent-definition.schema.json`, that draft and read and hold no effect; a `source-verification` skill; a `campaign_review` workflow where the claims check and a person's approval both come before any send; full `en` strings; requests for each capability and class it touches, with reasons.
+**Must contain:** object types `campaign` and `claim_source`, with capabilities for each; agent drafts `campaign_planner` and `claims_checker`, with `autonomy: 'draft_for_review'` and read and draft tools only; a `campaign_review` process graph where a claims `evidence_check` and a `human_approval` both come before any `external_action`. Version `1.1.0` adds a field, and a capability if it needs one. Every string in `strings` says what it does, in plain words, with no claim of compliance, a guarantee, a price or a result. Agents have `maxCostMicros: null`, and at least one boundary each. Every scenario is synthetic, with a key `{item}.{case}`, and at least one `{item}.denied_{case}` for the guardrail.
 
-**Tests, new `packages/department-packs/src/marketing/marketing.test.ts`:** `describePackConformance(MARKETING_OPERATIONS_PACK, { forbiddenTools: [...], next })`, with `next` a version 2 of it that adds a field, so the upgrade and rollback rules run on something real. Denied: a workflow reordered so the send comes before the claims check fails conformance. A claim with no source is a `denied` evaluation scenario. It asks for no bulk outreach tool, and a test says so.
+**Tests, new `packages/department-packs/src/marketing/marketing.test.ts`:** `describePackConformance(marketingOperationsPack, { forbiddenTools: [...], expectedNewCapabilities: {...} })`. Denied: a graph reordered so the send comes before the approval fails `PROCESS_EFFECT_WITHOUT_APPROVAL`, and a test builds that graph and says so. A claim with no source is a `denied_` scenario. It asks for no bulk tool, and a test says so.
 
-**QA:** pack review and rollback, with nothing granted on install.
+**QA:** pack review and rollback; claims reviewed by a person, with nothing granted on install. Not run: M7's own `validatePackManifest` and installer, which reach this at the final merge. Say so.
 
 ### pack-hr: `EXP-01`
 
@@ -96,13 +110,13 @@ HR operations: onboarding and internal workflows. Guardrail: strict employment d
 
 **Owns:** `packages/department-packs/src/hr/**`.
 
-**Implements:** `export const HR_OPERATIONS_PACK: DepartmentPack`, replacing the null. Its `id` is `hr_operations`, its `department` is `hr`.
+**Implements:** `export const hrOperationsPack: readonly DepartmentPackManifest[]`, replacing the empty list, with versions `1.0.0` and `1.1.0`, oldest first, so upgrade and rollback are real. Its `key` is `hr_operations`, and its `publisher` is `ensemus`. Read `git show m7-foundation:packages/domain/src/pack.ts` first, and the rules at the bottom of `@ensemus/domain/department-pack`. Follow M7's ADR-031 D10.
 
-**Must contain:** an `employee_onboarding` and a `policy_acknowledgement` object, with employment data classified `restricted` and its access request carrying `isolation: 'named_people_only'`; an `onboarding-coordinator` agent that sees checklist items and no employment records; a `new_employee_onboarding` workflow following the catalog's fourth bundled workflow, with access requests going through a person; full `en` strings.
+**Must contain:** object types `employee_onboarding`, and `employment_record` classified `restricted`, with a `data_class` capability for `restricted` at `risk: 'elevated'`; a `policy_acknowledgement` type; agent draft `onboarding_coordinator`, whose `dataClasses` hold no `confidential`, and which sees checklist items and no employment records; a `new_employee_onboarding` process following the catalog's fourth bundled workflow, with access requests going through a `human_approval`. No `external_action` on anything restricted. Every string in `strings` says what it does, in plain words, with no claim of compliance, a guarantee, a price or a result. Agents have `maxCostMicros: null`, and at least one boundary each. Every scenario is synthetic, with a key `{item}.{case}`, and at least one `{item}.denied_{case}` for the guardrail.
 
-**Tests, `packages/department-packs/src/hr/hr.test.ts`:** `describePackConformance` with `next`. Denied: any change that drops `named_people_only` fails conformance. The agent's `allowed_scopes` hold no employment scope, and its deny list holds `email.send`. A `denied` scenario proves an organization admin who is not named gets nothing from installing. No scoring of people, and a test searches the strings for "score", "rating" and "performance".
+**Tests, new `packages/department-packs/src/hr/hr.test.ts`:** `describePackConformance(hrOperationsPack, { forbiddenTools: [...], expectedNewCapabilities: {...} })`. Denied: a `restricted` capability at `low` risk fails, and a restricted process with an effect fails. The agent's tools hold nothing naming employment. A `denied_` scenario proves a read of restricted data by the agent is refused. No scoring of people: a test searches every word in the pack for "score", "rating" and "performance".
 
-**QA:** employment data isolation, pack review and rollback.
+**QA:** employment data isolation, pack review and rollback, with nothing granted on install. Not run: M7's own `validatePackManifest` and installer, which reach this at the final merge. Say so.
 
 ### pack-finance: `EXP-01`
 
@@ -110,13 +124,13 @@ Finance operations: reporting and approval preparation. Guardrail: never autonom
 
 **Owns:** `packages/department-packs/src/finance/**`.
 
-**Implements:** `export const FINANCE_OPERATIONS_PACK: DepartmentPack`, replacing the null. Its `id` is `finance_operations`, its `department` is `finance`.
+**Implements:** `export const financeOperationsPack: readonly DepartmentPackManifest[]`, replacing the empty list, with versions `1.0.0` and `1.1.0`, oldest first, so upgrade and rollback are real. Its `key` is `finance_operations`, and its `publisher` is `ensemus`. Read `git show m7-foundation:packages/domain/src/pack.ts` first, and the rules at the bottom of `@ensemus/domain/department-pack`. Follow M7's ADR-031 D10.
 
-**Must contain:** a `close_checklist` and an `invoice_handoff` object; a `reporting-assistant` agent that reads `accounting.invoices`, `accounting.bills` and `accounting.payments` and drafts, and denies every effect; a `project_to_invoice_draft` workflow following the catalog's third bundled workflow, ending in `accounting.invoice_draft.create` behind a person's approval, through `accounting_http`; full `en` strings. Financial data is at least `confidential`.
+**Must contain:** object types `close_checklist` and `invoice_handoff`, at least `confidential`, with their `data_class` capability; agent draft `reporting_assistant` that reads `accounting.invoices`, `accounting.bills` and `accounting.payments` through read tools and drafts; a `project_to_invoice_draft` process following the catalog's third bundled workflow, ending in an `external_action` with `toolId` `accounting.invoice_draft.create` behind a `human_approval`. M7's slug list reserves `invoice`, so nothing here is called that. Every string in `strings` says what it does, in plain words, with no claim of compliance, a guarantee, a price or a result. Agents have `maxCostMicros: null`, and at least one boundary each. Every scenario is synthetic, with a key `{item}.{case}`, and at least one `{item}.denied_{case}` for the guardrail.
 
-**Tests, `packages/department-packs/src/finance/finance.test.ts`:** `describePackConformance` with `next`, with `forbiddenTools` holding every money-moving name. Denied: adding `accounting.payment.create` or `bank.transfer` to its tools fails conformance, adding them to a workflow step fails, and removing the approval before the draft fails. The only side effect in the pack is the draft. A `denied` scenario proves it. It works with no accounting connection, with that step unavailable.
+**Tests, new `packages/department-packs/src/finance/finance.test.ts`:** `describePackConformance(financeOperationsPack, { forbiddenTools: [...], expectedNewCapabilities: {...} })`. `forbiddenTools` holds every money-moving name. Denied: adding `accounting.payment.create` or `bank.transfer` to an agent or a process fails `TOOL_MOVES_MONEY`, and removing the approval before the draft fails. The only `external_action` in the pack is the draft, and a test counts them. A `denied_` scenario proves it. It says plainly that the step is unavailable with no accounting connection.
 
-**QA:** no autonomous transfers, pack review and rollback.
+**QA:** no autonomous transfers, pack review and rollback, with nothing granted on install. Not run: M7's own `validatePackManifest` and installer, which reach this at the final merge. Say so.
 
 ### pack-learning: `EXP-01`
 
@@ -124,13 +138,13 @@ Learning and knowledge programs: internal skill and policy enablement. Guardrail
 
 **Owns:** `packages/department-packs/src/learning/**`.
 
-**Implements:** `export const LEARNING_PROGRAMS_PACK: DepartmentPack`, replacing the null. Its `id` is `learning_programs`, its `department` is `learning`.
+**Implements:** `export const learningProgramsPack: readonly DepartmentPackManifest[]`, replacing the empty list, with versions `1.0.0` and `1.1.0`, oldest first, so upgrade and rollback are real. Its `key` is `learning_programs`, and its `publisher` is `ensemus`. Read `git show m7-foundation:packages/domain/src/pack.ts` first, and the rules at the bottom of `@ensemus/domain/department-pack`. Follow M7's ADR-031 D10.
 
-**Must contain:** a `learning_program` and an `enrollment` object; a `program-assistant` agent that drafts material from approved knowledge; an `enablement_program` workflow where taking part is opt-in, with a step for a person agreeing before anything about them is kept; full `en` strings.
+**Must contain:** object types `learning_program` and `enrollment`; agent draft `program_assistant` that drafts material from approved knowledge; an `enablement_program` process where taking part is opt-in, with a `human_approval` by the person before anything about them is kept. No object field holds a score or a rating of a person. Every string in `strings` says what it does, in plain words, with no claim of compliance, a guarantee, a price or a result. Agents have `maxCostMicros: null`, and at least one boundary each. Every scenario is synthetic, with a key `{item}.{case}`, and at least one `{item}.denied_{case}` for the guardrail.
 
-**Tests, `packages/department-packs/src/learning/learning.test.ts`:** `describePackConformance` with `next`. An `enrollment`'s access request is scoped to the person, and no view lists one person's progress for their manager. A `denied` scenario proves it. The agent's deny list holds `email.send`. No scoring of people, and a test searches the strings for it, as `pack-hr` does.
+**Tests, new `packages/department-packs/src/learning/learning.test.ts`:** `describePackConformance(learningProgramsPack, { forbiddenTools: [...], expectedNewCapabilities: {...} })`. A `denied_` scenario proves that one person's progress is not shown to their manager, and a test checks that no field holds it. The agent has no send tool. No scoring of people: a test searches every word in the pack, as `pack-hr` does.
 
-**QA:** consent and privacy, pack review and rollback.
+**QA:** consent and privacy, pack review and rollback, with nothing granted on install. Not run: M7's own `validatePackManifest` and installer, which reach this at the final merge. Say so.
 
 ### connector-crm: `EXP-02`
 
@@ -500,7 +514,7 @@ Starts once the first wave is merged. End-to-end tests on real containers, opera
 
 **Also:**
 
-- `catalog.test.ts`: every pack is built, none is null, all pass conformance, IDs are unique, and together they cover marketing, HR, finance and learning.
+- `catalog.test.ts`: every pack is built with at least two versions, none is empty, all pass conformance, keys are unique, none is `sales_operations`, and together they cover marketing, HR, finance and learning.
 - `expansion-wiring.test.ts`: `businessConnectorsFrom` with no routes set gives none, and `main.ts` defaults to `noMeetingModel` and `denyAllMeetingEgress` until M4 replaces them, by reading the source.
 - The runbook: one gateway instance per kind, each with its own target; `ENSEMUS_EGRESS_GATEWAY_CRM` and its siblings, `ENSEMUS_BUSINESS_TLS`, `ENSEMUS_BUSINESS_CA_PEM`; that an air-gapped install sets none and makes no attempt; what a withdrawal does and does not take; the restore rule.
 - `06-integrations-and-tools.md`: add the adapter protocol and the gateway-per-kind rule, as built. `03-data-model.md`: "as built" notes for `meetings` and `business_records`. `03-decisions-and-adrs.md`: a line for ADR-033.

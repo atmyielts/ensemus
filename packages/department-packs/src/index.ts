@@ -1,25 +1,24 @@
-// The remaining department packs (EXP-01, ADR-033 D1). Plain data for an administrator to review: AGENT-14 in M7
-// installs them, and installing grants nothing. Each pack has its own folder and its own builder. One that has
-// not landed yet is null here and is simply not offered, and a test added by the stack slice requires them all.
-import type { DepartmentPack } from '@ensemus/domain/department-pack';
-import { FINANCE_OPERATIONS_PACK } from './finance';
-import { HR_OPERATIONS_PACK } from './hr';
-import { LEARNING_PROGRAMS_PACK } from './learning';
-import { MARKETING_OPERATIONS_PACK } from './marketing';
+// The remaining department packs (EXP-01, ADR-033 D1), in AGENT-14's pack format. Plain data for an administrator to
+// review: M7's installer installs them, and installing grants nothing. Each pack has its own folder and its own
+// builder, and exports every shipped version, oldest first. One that has not landed yet is empty, and is simply
+// not offered. The final merge adds this list to PACK_CATALOG in @ensemus/packs, which holds Sales operations.
+import type { DepartmentPackManifest } from '@ensemus/domain/department-pack';
+import { financeOperationsPack } from './finance';
+import { hrOperationsPack } from './hr';
+import { learningProgramsPack } from './learning';
+import { marketingOperationsPack } from './marketing';
 
-export const DEPARTMENT_PACKS: readonly DepartmentPack[] = [
-  MARKETING_OPERATIONS_PACK,
-  HR_OPERATIONS_PACK,
-  FINANCE_OPERATIONS_PACK,
-  LEARNING_PROGRAMS_PACK,
-].filter((pack): pack is DepartmentPack => pack !== null);
+export const DEPARTMENT_PACKS: readonly DepartmentPackManifest[] = [
+  ...marketingOperationsPack,
+  ...hrOperationsPack,
+  ...financeOperationsPack,
+  ...learningProgramsPack,
+];
 
-export const departmentPackById = (id: string): DepartmentPack | undefined =>
-  DEPARTMENT_PACKS.find((pack) => pack.id === id);
+export const findDepartmentPack = (
+  key: string,
+  version: string,
+): DepartmentPackManifest | undefined =>
+  DEPARTMENT_PACKS.find((pack) => pack.key === key && pack.version === version);
 
-export {
-  FINANCE_OPERATIONS_PACK,
-  HR_OPERATIONS_PACK,
-  LEARNING_PROGRAMS_PACK,
-  MARKETING_OPERATIONS_PACK,
-};
+export { financeOperationsPack, hrOperationsPack, learningProgramsPack, marketingOperationsPack };

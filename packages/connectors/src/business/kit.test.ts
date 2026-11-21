@@ -3,10 +3,7 @@
 // connectors' integration tests, which need the stack's certificates.
 import { randomUUID } from 'node:crypto';
 import { Duplex } from 'node:stream';
-import {
-  CRM_CONNECTOR_TYPE,
-  CRM_RECORD_UPDATE_TOOL,
-} from '@ensemus/domain/business-connector';
+import { CRM_CONNECTOR_TYPE, CRM_RECORD_UPDATE_TOOL } from '@ensemus/domain/business-connector';
 import { describe, expect, it, vi } from 'vitest';
 import { recordUpdatePayloadSchema } from '@ensemus/contracts/business-records';
 import type { BusinessConnectorConfig } from '@ensemus/contracts/business-records';
@@ -277,8 +274,8 @@ describe('one send (ADR-027 D2)', () => {
   it('refuses a tool or version it does not know, with no contact', async () => {
     const { adapter, connector } = setUp();
     for (const change of [{ toolName: 'crm.record.delete' }, { toolVersion: '2' }]) {
-      const failure = await connector.actions!
-        .send(contextFor(adapter), { ...updateRequest(), ...change })
+      const failure = await connector
+        .actions!.send(contextFor(adapter), { ...updateRequest(), ...change })
         .catch((error) => error);
       expect(failure).toBeInstanceOf(NotSent);
       expect(failure).toMatchObject({ code: 'PAYLOAD_CHANGED', retryable: false });
@@ -486,10 +483,7 @@ describe('a signed notice', () => {
   it('can only ask for a sync', () => {
     const { adapter, connector } = setUp();
     expect(
-      connector.webhooks!.interpret(
-        contextFor(adapter),
-        notice('{"type":"records_changed"}'),
-      ),
+      connector.webhooks!.interpret(contextFor(adapter), notice('{"type":"records_changed"}')),
     ).toEqual([{ kind: 'sync_requested' }]);
   });
 
@@ -607,9 +601,9 @@ describe('the transport', () => {
     const failure = await adapterExchange(contextFor(adapter), transport, request).catch(
       (error: Error) => error,
     );
-    expect(JSON.stringify({ message: String(failure), stack: (failure as Error).stack })).not.toContain(
-      'generated-test-credential',
-    );
+    expect(
+      JSON.stringify({ message: String(failure), stack: (failure as Error).stack }),
+    ).not.toContain('generated-test-credential');
   });
 });
 
@@ -618,10 +612,12 @@ describe('going through one gateway instance', () => {
     const { adapter, connector } = setUp({ streams: { 'crm.deals': [deal('deal-1')] } });
     const elsewhere = vi.fn();
     const routed = routeConnector(connector, adapter.network);
-    await routed.sync!.readPage(
-      contextFor(adapter, { network: { openRelay: elsewhere } }),
-      { stream: 'crm.deals', cursor: null, fullSync: true, pageSize: 2 },
-    );
+    await routed.sync!.readPage(contextFor(adapter, { network: { openRelay: elsewhere } }), {
+      stream: 'crm.deals',
+      cursor: null,
+      fullSync: true,
+      pageSize: 2,
+    });
     await routed.actions!.send(
       contextFor(adapter, { network: { openRelay: elsewhere } }),
       updateRequest(),

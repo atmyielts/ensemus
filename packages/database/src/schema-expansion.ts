@@ -20,7 +20,12 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import { memberships, organizations } from './schema';
-import { connections, externalActions, externalResources, integrationsSchema } from './schema-integrations';
+import {
+  connections,
+  externalActions,
+  externalResources,
+  integrationsSchema,
+} from './schema-integrations';
 import { workUnits } from './schema-work';
 
 const createdAt = () => timestamp({ withTimezone: true }).notNull().defaultNow();
@@ -122,7 +127,10 @@ export const meetingSettings = meetingsSchema.table(
       columns: [t.organizationId, t.updatedByMembershipId],
       foreignColumns: [memberships.organizationId, memberships.id],
     }),
-    check('meeting_settings_notice_when_enabled', sql`not ${t.enabled} or ${t.noticeRef} is not null`),
+    check(
+      'meeting_settings_notice_when_enabled',
+      sql`not ${t.enabled} or ${t.noticeRef} is not null`,
+    ),
     check(
       'meeting_settings_notice_length',
       sql`${t.noticeRef} is null or char_length(${t.noticeRef}) between 1 and 200`,

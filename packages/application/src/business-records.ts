@@ -2,10 +2,7 @@
 // fields from a connector, read through the source's own permissions, and the effects proposed on them, which
 // go through the verified external action path (ADR-027) like anything else that leaves.
 import type { AppDatabase, TenantContext, Tx } from '@ensemus/database';
-import type {
-  BusinessConnectorType,
-  RecordFields,
-} from '@ensemus/domain/business-connector';
+import type { BusinessConnectorType, RecordFields } from '@ensemus/domain/business-connector';
 
 export type BusinessRecordPage = {
   connectionId: string;
@@ -34,7 +31,10 @@ export type BusinessRecordView = {
   updatedAt: Date;
 };
 
-export type BusinessRecordList = { items: readonly BusinessRecordView[]; nextCursor: string | null };
+export type BusinessRecordList = {
+  items: readonly BusinessRecordView[];
+  nextCursor: string | null;
+};
 
 export type ProposedBusinessAction = {
   externalActionId: string;

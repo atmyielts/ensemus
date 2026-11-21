@@ -2,11 +2,7 @@
 // asks, the worker rechecks everything right before the provider sees anything, and what comes back is stored
 // as a model's guess, or thrown away if someone said no in the meantime.
 import type { AppDatabase, TenantContext } from '@ensemus/database';
-import type {
-  DerivationPurpose,
-  DerivationStatus,
-  MeetingStopCode,
-} from '@ensemus/domain/meeting';
+import type { DerivationPurpose, DerivationStatus, MeetingStopCode } from '@ensemus/domain/meeting';
 import type { Classification } from '@ensemus/domain/policy';
 import type { MeetingModelAnswer } from './expansion-ports';
 

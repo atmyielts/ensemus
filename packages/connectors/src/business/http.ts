@@ -97,7 +97,10 @@ function decodeChunked(body: Buffer): Buffer | null {
   for (;;) {
     const lineEnd = body.indexOf('\r\n', at);
     if (lineEnd === -1) return null;
-    const size = Number.parseInt(body.subarray(at, lineEnd).toString('latin1').split(';')[0] ?? '', 16);
+    const size = Number.parseInt(
+      body.subarray(at, lineEnd).toString('latin1').split(';')[0] ?? '',
+      16,
+    );
     if (!Number.isInteger(size) || size < 0) return null;
     const start = lineEnd + 2;
     if (size === 0) return Buffer.concat(parts);
@@ -120,7 +123,8 @@ function parseResponse(bytes: Buffer, ended: boolean): Parsed | 'invalid' {
   const headers = new Map<string, string>();
   for (const line of head.slice(1)) {
     const colon = line.indexOf(':');
-    if (colon > 0) headers.set(line.slice(0, colon).trim().toLowerCase(), line.slice(colon + 1).trim());
+    if (colon > 0)
+      headers.set(line.slice(0, colon).trim().toLowerCase(), line.slice(colon + 1).trim());
   }
   const body = bytes.subarray(headerEnd + 4);
   if ((headers.get('transfer-encoding') ?? '').toLowerCase().includes('chunked')) {

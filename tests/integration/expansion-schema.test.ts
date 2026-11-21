@@ -81,8 +81,8 @@ describe('expansion rules in the database', () => {
   const addMember = async (organizationId: string, label: string) => {
     const userId = await makeUser(label);
     await su.query(
-      `insert into org.memberships (organization_id, user_id, role, status) values ($1, $2, 'member', 'active')`,
-      [organizationId, userId],
+      `insert into org.memberships (organization_id, id, user_id, role, status) values ($1, $2, $3, 'member', 'active')`,
+      [organizationId, randomUUID(), userId],
     );
     return resolveTenantContext(db(), userId, organizationId);
   };
@@ -103,10 +103,10 @@ describe('expansion rules in the database', () => {
       name: 'Same Name Ltd',
       commercialMode: 'cloud',
     });
-    ctxA = await resolveTenantContext(db(), alice, orgA.id);
-    ctxB = await resolveTenantContext(db(), bob, orgB.id);
-    memberA = await addMember(orgA.id, 'carol');
-    outsiderA = await addMember(orgA.id, 'dave');
+    ctxA = await resolveTenantContext(db(), alice, orgA.organizationId);
+    ctxB = await resolveTenantContext(db(), bob, orgB.organizationId);
+    memberA = await addMember(orgA.organizationId, 'carol');
+    outsiderA = await addMember(orgA.organizationId, 'dave');
     await enableMeetings(db(), ctxA);
     await enableMeetings(db(), ctxB);
   });
@@ -205,10 +205,7 @@ describe('expansion rules in the database', () => {
       const meeting = await seedMeeting(db(), ctxA);
       await expect(
         withTenantTx(db(), ctxA, (tx) =>
-          tx
-            .update(meetings)
-            .set({ classification: 'public' })
-            .where(eq(meetings.id, meeting.id)),
+          tx.update(meetings).set({ classification: 'public' }).where(eq(meetings.id, meeting.id)),
         ),
       ).rejects.toEqual(sqlState(NOT_PERMITTED));
     });
@@ -258,17 +255,13 @@ describe('expansion rules in the database', () => {
 
   describe('turning meetings on', () => {
     it('refuses a meeting until an administrator has turned them on', async () => {
-      const carolOrg = await createOrganization(db(), {
-        userId: await makeUser('erin'),
+      const erin = await makeUser('erin');
+      const org = await createOrganization(db(), {
+        userId: erin,
         name: 'Never Enabled Ltd',
         commercialMode: 'cloud',
       });
-      const [{ userId } = { userId: '' }] = await su
-        .query('select user_id as "userId" from org.memberships where organization_id = $1', [
-          carolOrg.id,
-        ])
-        .then((result) => result.rows as { userId: string }[]);
-      const context = await resolveTenantContext(db(), userId, carolOrg.id);
+      const context = await resolveTenantContext(db(), erin, org.organizationId);
       await expect(seedMeeting(db(), context)).rejects.toEqual(sqlState(CONSENT));
     });
 
@@ -842,7 +835,9 @@ describe('expansion rules in the database', () => {
 
   describe('reading notes from a source', () => {
     it('needs an approved connection, and the one the meeting came from', async () => {
-      const connectionId = await seedConnection(db(), ctxA, { connectorType: 'meeting_notes_http' });
+      const connectionId = await seedConnection(db(), ctxA, {
+        connectorType: 'meeting_notes_http',
+      });
       const other = await seedConnection(db(), ctxA, { connectorType: 'meeting_notes_http' });
       const resourceId = randomUUID();
       await withTenantTx(db(), ctxA, (tx) =>

@@ -128,7 +128,8 @@ export function parseBusinessConfig(
 }
 
 function syncFailure(answer: AdapterAnswer): Error {
-  if (answer.status === 401 || answer.status === 403) return new SyncUnavailable('SYNC_AUTH_FAILED');
+  if (answer.status === 401 || answer.status === 403)
+    return new SyncUnavailable('SYNC_AUTH_FAILED');
   if (answer.status === 410) return new CursorExpired();
   if (answer.status === 429) return new SyncUnavailable('SYNC_RATE_LIMITED');
   return new SyncUnavailable('SYNC_UNAVAILABLE');

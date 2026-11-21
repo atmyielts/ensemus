@@ -30,10 +30,7 @@ export class MeetingNotesUnavailable extends Error {
   override name = 'MeetingNotesUnavailable';
   constructor(
     readonly code:
-      | 'CONNECTOR_UNAVAILABLE'
-      | 'SOURCE_NOT_FOUND'
-      | 'SOURCE_TOO_LARGE'
-      | 'PROVIDER_NOT_APPROVED',
+      'CONNECTOR_UNAVAILABLE' | 'SOURCE_NOT_FOUND' | 'SOURCE_TOO_LARGE' | 'PROVIDER_NOT_APPROVED',
   ) {
     super(code);
   }

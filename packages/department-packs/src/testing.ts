@@ -1,72 +1,71 @@
 // The suite every pack has to pass, in its own test file. Lint keeps this out of everything shipped, and nothing
-// here reaches past the pack's own data, so it runs with no database and no network.
+// here reaches past the pack's own data, so it runs with no database and no network. The final merge adds M7's
+// `validatePackManifest` and `planPackUpgrade` here, since a pack has to pass those as well.
 import {
   checkDepartmentPack,
   checkPackUpgrade,
-  type DepartmentPack,
+  newCapabilitiesIn,
+  type DepartmentPackManifest,
 } from '@ensemus/domain/department-pack';
-import { Ajv2020 } from 'ajv/dist/2020.js';
-import addFormats from 'ajv-formats';
 import { describe, expect, it } from 'vitest';
-import agentDefinition from '../../../docs/specifications/schemas/agent-definition.schema.json';
-
-const validateAgent = (() => {
-  const ajv = new Ajv2020({ allErrors: true, strict: false });
-  addFormats.default(ajv);
-  return ajv.compile(agentDefinition);
-})();
 
 export type PackConformanceOptions = {
   /** The tools this department must never have, on top of what every pack is refused. */
   forbiddenTools?: readonly RegExp[];
-  /** The next version of this pack, to run its upgrade and rollback rules. */
-  next?: DepartmentPack;
+  /** Capabilities each later version adds, by key, so nothing new goes unnoticed. */
+  expectedNewCapabilities?: Readonly<Record<string, readonly string[]>>;
 };
 
 /**
- * Registers the review rules for one pack. Passing means it is fit for a person to review, and nothing more,
- * so a pack's own test file adds the scenario for its guardrail.
+ * Registers the review and rollback rules for every shipped version of one pack, oldest first. Passing means
+ * it is fit for a person to review and nothing more, so a pack's own test file adds its guardrail.
  */
 export function describePackConformance(
-  pack: DepartmentPack,
+  versions: readonly DepartmentPackManifest[],
   options: PackConformanceOptions = {},
 ): void {
-  describe(`pack conformance: ${pack.id}`, () => {
-    it('passes every review rule', () => {
-      expect(checkDepartmentPack(pack)).toEqual([]);
+  describe(`pack conformance: ${versions[0]?.key ?? 'empty'}`, () => {
+    it('ships at least two versions, so upgrade and rollback are real', () => {
+      expect(versions.length).toBeGreaterThanOrEqual(2);
     });
 
-    it('asks for everything, and is granted nothing by installing', () => {
-      const requests = [...pack.requests.capabilities, ...pack.requests.dataAccess];
-      expect(requests.length).toBeGreaterThan(0);
-      for (const request of requests) expect(request.grantedOnInstall).toBe(false);
-    });
-
-    it.each(pack.agents.map((agent) => [agent.id, agent] as const))(
-      'has a valid agent definition: %s',
-      (_id, agent) => {
-        expect(validateAgent(agent), JSON.stringify(validateAgent.errors)).toBe(true);
+    it.each(versions.map((pack) => [pack.version, pack] as const))(
+      'passes every review rule at %s',
+      (_version, pack) => {
+        expect(checkDepartmentPack(pack)).toEqual([]);
       },
     );
 
-    it('asks for no tool this department must never have', () => {
-      for (const tool of pack.requests.tools) {
-        for (const forbidden of options.forbiddenTools ?? []) {
-          expect(tool).not.toMatch(forbidden);
+    it.each(versions.map((pack) => [pack.version, pack] as const))(
+      'asks for no tool this department must never have at %s',
+      (_version, pack) => {
+        const tools = [
+          ...pack.capabilities.map((capability) => capability.subject),
+          ...pack.agentDrafts.flatMap((agent) => agent.answers.toolIds),
+          ...pack.processes.flatMap((process) =>
+            process.graph.nodes.flatMap((node) => (node.toolId ? [node.toolId] : [])),
+          ),
+        ];
+        for (const tool of tools) {
+          for (const forbidden of options.forbiddenTools ?? []) expect(tool).not.toMatch(forbidden);
         }
+      },
+    );
+
+    it('passes the rollback rules between each version and the next', () => {
+      for (let index = 1; index < versions.length; index += 1) {
+        const from = versions[index - 1] as DepartmentPackManifest;
+        const to = versions[index] as DepartmentPackManifest;
+        expect(checkPackUpgrade(from, to)).toEqual([]);
+        expect(newCapabilitiesIn(from, to)).toEqual(
+          options.expectedNewCapabilities?.[to.version] ?? [],
+        );
       }
     });
 
-    it('has a denied scenario for each agent or says why its guardrail is proved elsewhere', () => {
-      expect(pack.evaluation.some((scenario) => scenario.kind === 'denied')).toBe(true);
+    it('is one pack, with one key, at distinct versions', () => {
+      expect(new Set(versions.map((pack) => pack.key)).size).toBe(1);
+      expect(new Set(versions.map((pack) => pack.version)).size).toBe(versions.length);
     });
-
-    if (options.next) {
-      const { next } = options;
-      it('passes the upgrade and rollback rules', () => {
-        expect(checkDepartmentPack(next)).toEqual([]);
-        expect(checkPackUpgrade(pack, next)).toEqual([]);
-      });
-    }
   });
 }

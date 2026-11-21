@@ -1,22 +1,20 @@
-// Ports for M11A (ADR-033). Other milestones own what sits behind these and are being written at the same time,
-// so each one names exactly what this needs and the final merge plugs the real thing in. Until then, nothing
-// behind a port pretends: the shipped default for each is to refuse, and fakes live with the tests.
+// Ports for M11A (ADR-033 D8). M4 and M5 own what sits behind these and are not on this branch, so each port names
+// exactly what this needs, and the final merge implements it over their code. Until then nothing behind a port
+// pretends: the shipped default for each is to refuse, and fakes live with the tests.
 import type { Classification } from '@ensemus/domain/policy';
 import type { DerivationPurpose } from '@ensemus/domain/meeting';
-import type {
-  DepartmentPack,
-  PackFinding,
-} from '@ensemus/domain/department-pack';
 
 /**
- * M4's egress decision (docs/04-security/02-secrets-and-egress.md §4), checked before notes reach a model.
- * This port is the deny-by-default half of it: without a real gate, nothing leaves.
+ * The egress decision (docs/04-security/02-secrets-and-egress.md §4), checked before notes reach a model. The final
+ * merge implements it over M4's `decideEgress` and its `governance.egress_decisions` log, for the one model profile
+ * the approval names, as M5's `KnowledgeModelPort.route` does for knowledge. A deny contacts nobody and unseals
+ * nothing. Without a real gate, nothing leaves.
  */
 export type MeetingEgressRequest = {
   organizationId: string;
   purpose: DerivationPurpose;
   classification: Classification;
-  /** The model profile the approval names. */
+  /** The model profile the approval names, from M4's `ProfileStore`. */
   modelProfileId: string;
 };
 
@@ -34,9 +32,10 @@ export const denyAllMeetingEgress: MeetingEgressGate = {
 };
 
 /**
- * M4's governed model call. The notes go in as data, inside whatever separation M4 gives untrusted text, and
- * what comes back is parsed against @ensemus/contracts/meetings before anything reads it. The participants
- * are given by position only, and with no names, so the model never handles an ID.
+ * The governed model call. The final merge implements it over M4's router and adapters, as M5's
+ * `KnowledgeModelPort.answer` does, with the instructions in M4's `policy` role and the notes in `evidence`, so a
+ * note cannot speak as the system. What comes back is parsed against @ensemus/contracts/meetings before anything
+ * reads it. The participants are given by position only, with no names, so the model never handles an ID.
  */
 export type MeetingModelRequest = {
   organizationId: string;
@@ -78,9 +77,9 @@ export const noMeetingModel: MeetingModelGateway = {
 };
 
 /**
- * M5's knowledge pipeline (KNOW-01). Notes join retrieval through this only after consent, and leave it when
- * consent goes. `removeMeeting` must take away every chunk, embedding, cache and summary it holds for that
- * meeting, as the deletion sequence requires.
+ * M5's knowledge pipeline (KNOW-01). Notes join retrieval through this only after consent, and leave it when consent
+ * goes. The final merge implements it over M5's sources: `addNotes` registers the notes as a source of its own, and
+ * `removeMeeting` is `deleteSource`, whose purge takes away chunks, embeddings, facts and answers (ADR-029 D3).
  */
 export interface MeetingKnowledgeIndex {
   addNotes(input: {
@@ -97,15 +96,3 @@ export const noMeetingKnowledgeIndex: MeetingKnowledgeIndex = {
   addNotes: async () => undefined,
   removeMeeting: async () => undefined,
 };
-
-/**
- * AGENT-14's pack format, from M7. M11A's packs are written against @ensemus/domain/department-pack, which is
- * the catalog's pack format as data, and this is how they reach the real installer. The final merge
- * implements it with an adapter in M7's terms. If M7's rules go further, a pack has to pass both.
- */
-export interface DepartmentPackFormat {
-  /** M7's own review rules, on top of checkDepartmentPack. */
-  review(pack: DepartmentPack): Promise<readonly PackFinding[]>;
-  /** M7's upgrade and rollback rules, on top of checkPackUpgrade. */
-  reviewUpgrade(from: DepartmentPack, to: DepartmentPack): Promise<readonly PackFinding[]>;
-}

@@ -67,7 +67,9 @@ export const businessConnectorConfigSchema = z.strictObject({
   /** The name to check the adapter's TLS certificate against, and the Host header. */
   tlsServerName: z
     .string()
-    .regex(/^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z][A-Za-z0-9-]{0,62}$/)
+    .regex(
+      /^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z][A-Za-z0-9-]{0,62}$/,
+    )
     .optional(),
   /** The selected streams. Left out means none: choosing what to keep is a decision someone makes. */
   streams: z.array(stream).max(32).default([]),

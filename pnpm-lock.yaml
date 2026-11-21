@@ -170,6 +170,12 @@ importers:
         specifier: 0.31.11
         version: 0.31.11
 
+  packages/department-packs:
+    dependencies:
+      '@ensemus/domain':
+        specifier: workspace:*
+        version: link:../domain
+
   packages/domain: {}
 
   packages/secrets:

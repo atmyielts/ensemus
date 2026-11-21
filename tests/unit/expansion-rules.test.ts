@@ -103,7 +103,11 @@ describe('the SQL and the domain', () => {
   });
 
   it.each([
-    ['consent decisions', /meeting_consent_decision" CHECK \([^)]*in \(([^)]+)\)/, CONSENT_DECISIONS],
+    [
+      'consent decisions',
+      /meeting_consent_decision" CHECK \([^)]*in \(([^)]+)\)/,
+      CONSENT_DECISIONS,
+    ],
     [
       'derivation statuses',
       /meeting_derivation_status" CHECK \([^)]*in \(([^)]+)\)/,
@@ -170,7 +174,9 @@ describe('the SQL and the domain', () => {
 
 describe('the contracts and the spec', () => {
   it('have the same consent decisions', () => {
-    expect(recordConsentSchema.shape.decision.options.sort()).toEqual([...CONSENT_DECISIONS].sort());
+    expect(recordConsentSchema.shape.decision.options.sort()).toEqual(
+      [...CONSENT_DECISIONS].sort(),
+    );
   });
 
   it('have the same derivation statuses', () => {
@@ -219,7 +225,11 @@ describe('the manifests and the domain', () => {
   });
 
   it('name no vendor', () => {
-    const everything = JSON.stringify({ BUSINESS_STREAMS, BUSINESS_TOOLS, BUSINESS_CONNECTOR_MANIFESTS });
+    const everything = JSON.stringify({
+      BUSINESS_STREAMS,
+      BUSINESS_TOOLS,
+      BUSINESS_CONNECTOR_MANIFESTS,
+    });
     expect(everything).not.toMatch(
       /salesforce|hubspot|zendesk|jira|freshdesk|quickbooks|xero|sage|netsuite|zoom|teams|gong|otter/i,
     );
@@ -269,7 +279,9 @@ describe('no tool moves money', () => {
     };
     expect(invoiceDraftCreatePayloadSchema.safeParse(invoice).success).toBe(true);
     for (const extra of [{ status: 'posted' }, { pay_now: true }, { bank_account: 'x' }]) {
-      expect(invoiceDraftCreatePayloadSchema.safeParse({ ...invoice, ...extra }).success).toBe(false);
+      expect(invoiceDraftCreatePayloadSchema.safeParse({ ...invoice, ...extra }).success).toBe(
+        false,
+      );
     }
   });
 
@@ -322,7 +334,9 @@ describe('selected fields', () => {
 
 describe('a proposed change', () => {
   it('may touch writable fields', () => {
-    expect(checkRecordChange('crm.deals', { stage: 'won', next_step: 'Call' })).toEqual({ ok: true });
+    expect(checkRecordChange('crm.deals', { stage: 'won', next_step: 'Call' })).toEqual({
+      ok: true,
+    });
   });
 
   it.each([
@@ -447,12 +461,7 @@ describe('provider approval', () => {
     ['none at all', null, wanted, 'PROVIDER_NOT_APPROVED'],
     ['another kind', { ...approval, kind: 'source' }, wanted, 'PROVIDER_NOT_APPROVED'],
     ['revoked', { ...approval, revokedAt: NOW }, wanted, 'PROVIDER_NOT_APPROVED'],
-    [
-      'another purpose',
-      approval,
-      { ...wanted, purpose: 'extract_items' },
-      'PROVIDER_NOT_APPROVED',
-    ],
+    ['another purpose', approval, { ...wanted, purpose: 'extract_items' }, 'PROVIDER_NOT_APPROVED'],
     ['expired', { ...approval, expiresAt: NOW }, wanted, 'PROVIDER_APPROVAL_EXPIRED'],
     [
       'a higher class',
@@ -541,9 +550,9 @@ describe('who reads a meeting', () => {
 
   it('shows its content to the people in the room, and nobody else', () => {
     expect(canReadMeetingContent({ ...meeting, isParticipant: true }, member)).toBe(true);
-    expect(
-      canReadMeetingContent(meeting, { membershipId: 'organizer', role: 'member' }),
-    ).toBe(true);
+    expect(canReadMeetingContent(meeting, { membershipId: 'organizer', role: 'member' })).toBe(
+      true,
+    );
     expect(canReadMeetingContent(meeting, member)).toBe(false);
     expect(canReadMeetingContent(meeting, owner)).toBe(false);
     expect(canReadMeetingContent(meeting, admin)).toBe(false);
@@ -589,7 +598,9 @@ describe('what a model can hand back', () => {
         false,
       );
     }
-    expect(meetingItemsOutputSchema.safeParse({ items: [{ kind: 'send_email', title: 'x' }] }).success).toBe(false);
+    expect(
+      meetingItemsOutputSchema.safeParse({ items: [{ kind: 'send_email', title: 'x' }] }).success,
+    ).toBe(false);
     expect(meetingSummaryOutputSchema.safeParse({ summary: 'x', actions: [] }).success).toBe(false);
   });
 
@@ -599,13 +610,13 @@ describe('what a model can hand back', () => {
         items: Array.from({ length: 101 }, () => ({ kind: 'work', title: 'x' })),
       }).success,
     ).toBe(false);
-    expect(meetingSummaryOutputSchema.safeParse({ summary: 'x'.repeat(100_001) }).success).toBe(false);
+    expect(meetingSummaryOutputSchema.safeParse({ summary: 'x'.repeat(100_001) }).success).toBe(
+      false,
+    );
   });
 
   it('leaves accepting to a person, who sends every field themselves', () => {
-    expect(
-      acceptProposedWorkSchema.safeParse({ title: 'x', due_at: null }).success,
-    ).toBe(false);
+    expect(acceptProposedWorkSchema.safeParse({ title: 'x', due_at: null }).success).toBe(false);
   });
 });
 

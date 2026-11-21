@@ -1359,6 +1359,1632 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{organization_id}/business-records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** Stored records this person has a source grant for */
+        get: {
+            parameters: {
+                query?: {
+                    connection_id?: string;
+                    stream?: string;
+                    cursor?: string;
+                };
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Records the source says this person may read, and no others */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["BusinessRecord"][];
+                            next_cursor: string | null;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/business-records/{record_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                record_id: components["parameters"]["RecordID"];
+            };
+            cookie?: never;
+        };
+        /** One record, or not found for anyone the source did not grant */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    record_id: components["parameters"]["RecordID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The record */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["BusinessRecord"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/business-records/{record_id}/updates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                record_id: components["parameters"]["RecordID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Propose changing writable fields. It waits for approval and is then a verified external action */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    record_id: components["parameters"]["RecordID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ProposeRecordUpdate"];
+                };
+            };
+            responses: {
+                /** @description Proposed, and nothing has been changed */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProposedExternalAction"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/business-records/{record_id}/ticket-comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                record_id: components["parameters"]["RecordID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Propose an internal note on a ticket. There is no customer-facing form */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    record_id: components["parameters"]["RecordID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        work_unit_id: string;
+                        /** Format: uuid */
+                        approver_membership_id: string;
+                        body: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Proposed, and nothing has been changed */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProposedExternalAction"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/invoice-drafts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Propose a draft invoice in the accounting system. It posts and pays nothing */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ProposeInvoiceDraft"];
+                };
+            };
+            responses: {
+                /** @description Proposed, and nothing has been changed */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProposedExternalAction"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/business-actions/{external_action_id}/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                external_action_id: components["parameters"]["ExternalActionID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Replace what a business action will do. The old one can never be spent, and this needs its own approval */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    external_action_id: components["parameters"]["ExternalActionID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        approver_membership_id: string;
+                        payload: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+            responses: {
+                /** @description A new intent, waiting for approval */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProposedExternalAction"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/business-actions/{external_action_id}/retries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                external_action_id: components["parameters"]["ExternalActionID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ask again for a business action that was not sent. It needs its own approval */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    external_action_id: components["parameters"]["ExternalActionID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        approver_membership_id: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description A new intent, waiting for approval */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProposedExternalAction"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/meeting-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** Whether meetings are on, and which version of the organization's notice is current */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Settings */
+                200: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MeetingSettings"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Turn meetings on or off. Owners and admins only, and turning on names a notice reference */
+        patch: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        enabled: boolean;
+                        notice_ref: string | null;
+                    };
+                };
+            };
+            responses: {
+                /** @description Settings */
+                200: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MeetingSettings"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        trace?: never;
+    };
+    "/organizations/{organization_id}/meeting-provider-approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** Which providers an administrator has approved for meeting content */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Approvals */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["MeetingProviderApproval"][];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        /** Approve one provider for named purposes up to one class, until a date. Owners and admins only */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ApproveMeetingProvider"];
+                };
+            };
+            responses: {
+                /** @description The approval */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MeetingProviderApproval"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/meeting-provider-approvals/{provider_approval_id}/revocation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                provider_approval_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Take an approval back. A run not yet started stops at its next check */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    provider_approval_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Revoked */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/meetings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** Meetings this person organized or attended. Owners and admins also see that others exist */
+        get: {
+            parameters: {
+                query?: {
+                    cursor?: string;
+                };
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Meetings */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["MeetingSummary"][];
+                            next_cursor: string | null;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        /** Start a meeting record. Refused until an administrator has turned meetings on */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        title: string;
+                        /** Format: date-time */
+                        occurred_at: string;
+                        classification?: components["schemas"]["Classification"];
+                    };
+                };
+            };
+            responses: {
+                /** @description The meeting, with its organizer listed */
+                201: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Meeting"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/meetings/from-resource": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start a meeting record from something a meeting notes connection found. Its text is not read yet */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        resource_id: string;
+                        title: string;
+                        /** Format: date-time */
+                        occurred_at: string;
+                        classification?: components["schemas"]["Classification"];
+                    };
+                };
+            };
+            responses: {
+                /** @description The meeting */
+                201: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Meeting"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/meetings/{meeting_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                meeting_id: components["parameters"]["MeetingID"];
+            };
+            cookie?: never;
+        };
+        /** One meeting. An owner or admin who was not there gets its metadata and nothing it said */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    meeting_id: components["parameters"]["MeetingID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The meeting */
+                200: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Meeting"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/meetings/{meeting_id}/organizer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                meeting_id: components["parameters"]["MeetingID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Hand a meeting on when its organizer has left. Owners and admins, who still see nothing it said */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    meeting_id: components["parameters"]["MeetingID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        organizer_membership_id: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Handed on */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/meetings/{meeting_id}/participants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                meeting_id: components["parameters"]["MeetingID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** List someone who was there. Refused once notes exist */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    meeting_id: components["parameters"]["MeetingID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AddMeetingParticipant"];
+                };
+            };
+            responses: {
+                /** @description The participant */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MeetingParticipant"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/meetings/{meeting_id}/participants/{participant_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                meeting_id: components["parameters"]["MeetingID"];
+                participant_id: components["parameters"]["ParticipantID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Take someone off the list. Refused once they have answered, or once notes exist */
+        delete: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    meeting_id: components["parameters"]["MeetingID"];
+                    participant_id: components["parameters"]["ParticipantID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Removed */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/meetings/{meeting_id}/participants/{participant_id}/consent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                meeting_id: components["parameters"]["MeetingID"];
+                participant_id: components["parameters"]["ParticipantID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record one person's answer. A withdrawal removes everything this meeting produced, at once */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    meeting_id: components["parameters"]["MeetingID"];
+                    participant_id: components["parameters"]["ParticipantID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        decision: "granted" | "declined" | "withdrawn";
+                        notice_ref: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Where consent now stands */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            consent: components["schemas"]["MeetingConsentState"];
+                            /** @enum {string} */
+                            status: "open" | "purged";
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/meetings/{meeting_id}/notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                meeting_id: components["parameters"]["MeetingID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add notes as text. Refused until everyone listed has agreed. A correction is a new version */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    meeting_id: components["parameters"]["MeetingID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        text: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Stored */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** Format: uuid */
+                            id: string;
+                            version: number;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/meetings/{meeting_id}/notes-import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                meeting_id: components["parameters"]["MeetingID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Read the notes from their source. Needs everyone's agreement and an approved connection */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    meeting_id: components["parameters"]["MeetingID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        provider_approval_id: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Asked for, and read in the background */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MeetingImportRequest"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/meetings/{meeting_id}/derivations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                meeting_id: components["parameters"]["MeetingID"];
+            };
+            cookie?: never;
+        };
+        /** Runs asked for on this meeting, and how each ended */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    meeting_id: components["parameters"]["MeetingID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Runs */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["MeetingDerivation"][];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        /** Ask one approved provider to summarize the notes or suggest items. Nothing it says is applied */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    meeting_id: components["parameters"]["MeetingID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        purpose: "summarize" | "extract_items";
+                        /** Format: uuid */
+                        provider_approval_id: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Asked for, and run in the background */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MeetingDerivation"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/meetings/{meeting_id}/summaries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                meeting_id: components["parameters"]["MeetingID"];
+            };
+            cookie?: never;
+        };
+        /** What a model made of the notes. Always marked as that, and never a fact */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    meeting_id: components["parameters"]["MeetingID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Summaries */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["MeetingSummaryText"][];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/meetings/{meeting_id}/proposed-items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                meeting_id: components["parameters"]["MeetingID"];
+            };
+            cookie?: never;
+        };
+        /** Decisions and work a model suggests. Nothing here exists until a person says so */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    meeting_id: components["parameters"]["MeetingID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Proposals */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["MeetingProposedItem"][];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/meeting-items/{item_id}/work": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                item_id: components["parameters"]["MeetingItemID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept proposed work. This is the only way one becomes a Work Unit, and it takes a person */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    item_id: components["parameters"]["MeetingItemID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        title: string;
+                        objective?: string;
+                        /** Format: uuid */
+                        owner_membership_id: string;
+                        /** Format: date-time */
+                        due_at: string | null;
+                    };
+                };
+            };
+            responses: {
+                /** @description The Work Unit this made */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** Format: uuid */
+                            work_unit_id: string;
+                            version: number;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/meeting-items/{item_id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                item_id: components["parameters"]["MeetingItemID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record a proposed decision as made. It stays with the meeting and starts no work */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    item_id: components["parameters"]["MeetingItemID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DecideMeetingItem"];
+                };
+            };
+            responses: {
+                /** @description Recorded */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["VersionOnly"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/meeting-items/{item_id}/rejection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                item_id: components["parameters"]["MeetingItemID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Say a proposal is wrong or not wanted */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    item_id: components["parameters"]["MeetingItemID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DecideMeetingItem"];
+                };
+            };
+            responses: {
+                /** @description Recorded */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["VersionOnly"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1587,6 +3213,245 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** @enum {string} */
+        Classification: "public" | "internal" | "confidential" | "restricted";
+        VersionOnly: {
+            version: number;
+        };
+        BusinessRecord: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            connection_id: string;
+            stream: string;
+            external_id: string;
+            /** @description Send this back when proposing a change */
+            external_version: string | null;
+            display_name: string | null;
+            classification: components["schemas"]["Classification"];
+            /** @description Only the fields this stream keeps, as last read from the source. The source stays authoritative. */
+            fields: {
+                [key: string]: string | number | boolean | null;
+            };
+            /** Format: date-time */
+            updated_at: string;
+        };
+        ProposeRecordUpdate: {
+            /** Format: uuid */
+            work_unit_id: string;
+            /** Format: uuid */
+            approver_membership_id: string;
+            expected_version: string | null;
+            /** @description Writable fields of this stream, and no others. */
+            changes: {
+                [key: string]: string | number | boolean | null;
+            };
+        };
+        ProposeInvoiceDraft: {
+            /** Format: uuid */
+            work_unit_id: string;
+            /** Format: uuid */
+            connection_id: string;
+            /** Format: uuid */
+            approver_membership_id: string;
+            /** @description A draft for a person in the accounting system. It has no status and no payment field. */
+            invoice: {
+                customer_ref: string;
+                currency: string;
+                due_on?: string;
+                reference?: string;
+                memo?: string;
+                lines: {
+                    description: string;
+                    quantity: string;
+                    unit_price: string;
+                }[];
+            };
+        };
+        MeetingSettings: {
+            enabled: boolean;
+            /** @description Which version of the organization's own notice is current. A reference, and never its text. */
+            notice_ref: string | null;
+            version: number;
+        };
+        MeetingProviderApproval: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "model" | "source";
+            target_ref: string;
+            purposes: ("import_notes" | "summarize" | "extract_items")[];
+            /** @enum {string} */
+            max_classification: "public" | "internal" | "confidential";
+            /** @description A reference to the organization's own record of the basis. It holds no terms. */
+            terms_ref: string;
+            /** Format: uuid */
+            approved_by_membership_id: string;
+            /** Format: date-time */
+            approved_at: string;
+            /** Format: date-time */
+            expires_at: string;
+            /** Format: date-time */
+            revoked_at: string | null;
+        };
+        ApproveMeetingProvider: {
+            /** @constant */
+            kind: "model";
+            /** Format: uuid */
+            model_profile_id: string;
+            purposes: ("summarize" | "extract_items")[];
+            /** @enum {string} */
+            max_classification: "public" | "internal" | "confidential";
+            terms_ref: string;
+            /** Format: date-time */
+            expires_at: string;
+        } | {
+            /** @constant */
+            kind: "source";
+            /** Format: uuid */
+            connection_id: string;
+            /** @enum {string} */
+            max_classification: "public" | "internal" | "confidential";
+            terms_ref: string;
+            /** Format: date-time */
+            expires_at: string;
+        };
+        /**
+         * @description `complete` means everyone listed has said yes. One no is `refused`, and nothing can go ahead. One withdrawal after a yes is `withdrawn`, and everything the meeting produced has gone.
+         * @enum {string}
+         */
+        MeetingConsentState: "none_listed" | "pending" | "complete" | "refused" | "withdrawn";
+        MeetingSummary: {
+            /** Format: uuid */
+            id: string;
+            /** @description Null for an owner or admin who was not there. */
+            title: string | null;
+            /** Format: date-time */
+            occurred_at: string;
+            /** Format: uuid */
+            organizer_membership_id: string;
+            classification: components["schemas"]["Classification"];
+            /** @enum {string} */
+            status: "open" | "purged";
+            /** @enum {string} */
+            source_kind: "manual" | "connector";
+            consent: components["schemas"]["MeetingConsentState"];
+            version: number;
+        };
+        MeetingParticipant: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "member" | "external";
+            /** Format: uuid */
+            membership_id: string | null;
+            display_name: string;
+            /** @enum {string|null} */
+            decision: "granted" | "declined" | "withdrawn" | null;
+            /**
+             * @description Whose word it is. `attested` is the organizer saying what someone outside said.
+             * @enum {string|null}
+             */
+            basis: "self" | "attested" | null;
+            /** Format: date-time */
+            decided_at: string | null;
+        };
+        AddMeetingParticipant: {
+            /** @constant */
+            kind: "member";
+            /** Format: uuid */
+            membership_id: string;
+        } | {
+            /** @constant */
+            kind: "external";
+            label: string;
+        };
+        Meeting: {
+            participants: components["schemas"]["MeetingParticipant"][];
+            /** @description Null for an owner or admin who was not there, and when no notes exist. */
+            current_notes: {
+                /** Format: uuid */
+                id: string;
+                version: number;
+                /** @description Null once consent has been withdrawn. */
+                text: string | null;
+                /** Format: date-time */
+                created_at: string;
+            } | null;
+        } & components["schemas"]["MeetingSummary"];
+        MeetingImportRequest: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            meeting_id: string;
+            /** @enum {string} */
+            status: "requested" | "completed" | "failed" | "refused";
+            /** @description A code from a fixed list. Never provider text. */
+            status_code: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            finished_at: string | null;
+        };
+        MeetingDerivation: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            meeting_id: string;
+            /** @enum {string} */
+            purpose: "summarize" | "extract_items";
+            /** @enum {string} */
+            status: "requested" | "running" | "completed" | "failed" | "refused" | "cancelled";
+            /** @description A code from a fixed list. Never model text. */
+            status_code: string | null;
+            /** Format: uuid */
+            requested_by_membership_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            finished_at: string | null;
+        };
+        MeetingSummaryText: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            run_id: string;
+            /** @description Null once consent has been withdrawn. */
+            text: string | null;
+            /** @constant */
+            trust: "model_generated";
+            /** Format: date-time */
+            created_at: string;
+        };
+        MeetingProposedItem: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            meeting_id: string;
+            /** @enum {string} */
+            kind: "decision" | "work";
+            /** @description Null once consent has been withdrawn. */
+            title: string | null;
+            detail: string | null;
+            /**
+             * Format: uuid
+             * @description A suggestion. It assigns nothing.
+             */
+            suggested_owner_membership_id: string | null;
+            suggested_due_on: string | null;
+            /** @enum {string} */
+            status: "proposed" | "accepted" | "rejected" | "withdrawn";
+            /** Format: uuid */
+            decided_by_membership_id: string | null;
+            /** Format: date-time */
+            decided_at: string | null;
+            /** Format: uuid */
+            work_unit_id: string | null;
+            version: number;
+        };
+        DecideMeetingItem: {
+            reason?: string;
+        };
     };
     responses: {
         /** @description Malformed path, query, header or body. details.fields names the fields, never their values. */
@@ -1698,6 +3563,10 @@ export interface components {
         WorkUnitID: string;
         ExternalActionID: string;
         ConnectionID: string;
+        RecordID: string;
+        MeetingID: string;
+        ParticipantID: string;
+        MeetingItemID: string;
     };
     requestBodies: never;
     headers: {
