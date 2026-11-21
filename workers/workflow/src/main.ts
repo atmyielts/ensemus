@@ -6,6 +6,7 @@ import { createOnboardingAgentRuns } from '@ensemus/application/knowledge/onboar
 import { loadSaasConfig, readSecret } from '@ensemus/config';
 import { loadSovereignConfig } from '@ensemus/config/sovereign';
 import { denyAllMeetingEgress, noMeetingModel } from '@ensemus/application';
+import { loadSkillWorkerConfig } from '@ensemus/config';
 import { openAppDatabase } from '@ensemus/database';
 import { assertLoginRole } from '@ensemus/database/service';
 import { S3ObjectStore } from '@ensemus/storage';
@@ -27,6 +28,9 @@ import { createPaymentPlatformActivities } from '@ensemus/workflows/payment-acti
 import { createRetentionActivities } from '@ensemus/workflows/retention-activities';
 import { createMeetingDerivationActivities } from '@ensemus/workflows/meeting-derivation-activities';
 import { createMeetingImportPlatformActivities } from '@ensemus/workflows/meeting-import-activities';
+import { createMarketplaceInstallActivities } from '@ensemus/workflows/marketplace-install-activities';
+import { createSandboxRunPlatformActivities } from '@ensemus/workflows/sandbox-run-activities';
+import { createSkillVerificationActivities } from '@ensemus/workflows/skill-verification-activities';
 import { createTemporalLogger } from '@ensemus/workflows/safe-logger';
 import { workflowIdFor } from '@ensemus/workflows/schemas';
 import { Client, Connection, WorkflowNotFoundError } from '@temporalio/client';
@@ -101,6 +105,14 @@ async function main() {
   const ports = createSaasPorts(store);
   const saas = loadSaasConfig();
   const billingEnabled = saas.billingEnabled;
+  // Off and empty unless an operator says otherwise. Checking a bundle needs no secret and no runner.
+  const skills = loadSkillWorkerConfig();
+  const skillDeps = {
+    database: db,
+    store,
+    ceilings: skills.ceilings,
+    reviewKeys: skills.reviewKeys,
+  };
   const worker = await Worker.create({
     connection,
     namespace: process.env.TEMPORAL_NAMESPACE ?? 'default',
@@ -159,6 +171,9 @@ async function main() {
         egress: denyAllMeetingEgress,
       }),
       ...createMeetingImportPlatformActivities({ database: db }),
+      ...createSkillVerificationActivities(skillDeps),
+      ...createSandboxRunPlatformActivities(skillDeps),
+      ...createMarketplaceInstallActivities(skillDeps),
     },
     dataConverter: {
       payloadCodecs: [new AesGcmPayloadCodec(readSecret('TEMPORAL_CODEC_KEY'))],

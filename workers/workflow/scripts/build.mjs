@@ -40,6 +40,9 @@ await build({
     'src/ops.ts',
     // The operator's live suite check, run by hand against a test tenant. Its own entry, imported by none.
     'src/live-suite-check.ts',
+    'src/sandbox-worker.ts',
+    'src/sandbox-runner.ts',
+    'src/marketplace-operator.ts',
   ].map((e) => path.join(root, e)),
   outdir: dist,
   bundle: true,

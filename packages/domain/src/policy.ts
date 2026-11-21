@@ -40,7 +40,12 @@ export type Capability =
   | 'legal_hold.manage'
   | 'offboarding.manage'
   | 'break_glass.authorize'
-  | 'support.use';
+  | 'support.use'
+  | 'marketplace.install'
+  | 'marketplace.publish'
+  | 'sandbox.run'
+  | 'skill.manage'
+  | 'skill.publish';
 
 const GRANTS: Record<Role, ReadonlySet<Capability>> = {
   owner: new Set([
@@ -79,6 +84,11 @@ const GRANTS: Record<Role, ReadonlySet<Capability>> = {
     'offboarding.manage',
     'break_glass.authorize',
     'support.use',
+    'skill.manage',
+    'skill.publish',
+    'sandbox.run',
+    'marketplace.publish',
+    'marketplace.install',
   ]),
   admin: new Set([
     'member.invite',
@@ -107,6 +117,10 @@ const GRANTS: Record<Role, ReadonlySet<Capability>> = {
     'billing.manage',
     'retention.manage',
     'support.use',
+    'skill.manage',
+    'skill.publish',
+    'sandbox.run',
+    'marketplace.install',
   ]),
   member: new Set([
     'client.manage',

@@ -35,6 +35,8 @@
     "esbuild": "0.28.2",
     "@ensemus/knowledge": "workspace:*",
     "@ensemus/packs": "workspace:*",
-    "@ensemus/saas": "workspace:*"
+    "@ensemus/saas": "workspace:*",
+    "@ensemus/sandbox": "workspace:*",
+    "@ensemus/skills": "workspace:*"
   }
 }

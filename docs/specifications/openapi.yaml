@@ -40,6 +40,9 @@ tags:
   - name: identity
   - name: business-records
   - name: meetings
+  - name: skills
+  - name: sandbox
+  - name: marketplace
 paths:
   /organizations/{organization_id}/work-units:
     parameters:
@@ -9407,6 +9410,1095 @@ paths:
           $ref: "#/components/responses/InternalError"
         "503":
           $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/skill-signers:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+    get:
+      x-ensemus-status: planned
+      tags:
+        - skills
+      summary: Public keys this organization trusts for packages it uploads
+      responses:
+        "200":
+          description: Signers
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SkillSigner"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+    post:
+      x-ensemus-status: planned
+      tags:
+        - skills
+      summary: Trust a public key. A private key has no field to go in, and Ensemus
+        never holds one
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - display_name
+                - public_key_base64
+              properties:
+                display_name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                public_key_base64:
+                  type: string
+                  maxLength: 64
+                  description: A raw 32-byte Ed25519 public key.
+      responses:
+        "201":
+          description: Signer
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillSigner"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/skill-signers/{skill_signer_id}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - $ref: "#/components/parameters/SkillSignerID"
+    delete:
+      x-ensemus-status: planned
+      tags:
+        - skills
+      summary: Revoke a key for good, and yank every version of this organization's it
+        signed
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "204":
+          description: Revoked
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/skill-packages:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+    get:
+      x-ensemus-status: planned
+      tags:
+        - skills
+      summary: Skill packages in this organization
+      parameters:
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 512
+      responses:
+        "200":
+          description: Page of packages
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                  - next_cursor
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SkillPackage"
+                  next_cursor:
+                    type:
+                      - string
+                      - "null"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+    post:
+      x-ensemus-status: planned
+      tags:
+        - skills
+      summary: Name a new package. Its versions are uploaded separately
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - name
+                - display_name
+              properties:
+                name:
+                  type: string
+                  pattern: ^[a-z][a-z0-9-]{1,63}$
+                display_name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                content_classification:
+                  $ref: "#/components/schemas/SkillContentClassification"
+      responses:
+        "201":
+          description: Package
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillPackage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/skill-packages/{skill_package_id}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - $ref: "#/components/parameters/SkillPackageID"
+    get:
+      x-ensemus-status: planned
+      tags:
+        - skills
+      summary: One package
+      responses:
+        "200":
+          description: Package
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillPackage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+    patch:
+      x-ensemus-status: planned
+      tags:
+        - skills
+      summary: Rename, disable, or change how sensitive a package's own content is
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                display_name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                state:
+                  type: string
+                  enum:
+                    - active
+                    - disabled
+                content_classification:
+                  $ref: "#/components/schemas/SkillContentClassification"
+      responses:
+        "200":
+          description: Package
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillPackage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/skill-packages/{skill_package_id}/versions:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - $ref: "#/components/parameters/SkillPackageID"
+    get:
+      x-ensemus-status: planned
+      tags:
+        - skills
+      summary: A package's versions, newest upload first
+      responses:
+        "200":
+          description: Versions
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SkillVersion"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+    post:
+      x-ensemus-status: planned
+      tags:
+        - skills
+      summary: Store a signed bundle. Nothing in it is believed until a worker has
+        checked it
+      description: The body is the bundle's bytes, up to 8 MiB, under this media type
+        alone. This answers once they are stored and the check is queued, and
+        the same bytes sent again find the same version. The web tier does not
+        parse the bundle, so a bad one is rejected later, on the version.
+      requestBody:
+        required: true
+        content:
+          application/vnd.ensemus.skill-bundle+json:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "202":
+          description: Stored, and waiting to be checked
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillVersion"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/SkillBundleTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/skill-versions/{skill_version_id}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - $ref: "#/components/parameters/SkillVersionID"
+    get:
+      x-ensemus-status: planned
+      tags:
+        - skills
+      summary: One version, with what it declares it can reach and its latest test
+        result
+      responses:
+        "200":
+          description: Version
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillVersion"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/skill-versions/{skill_version_id}/publication:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - $ref: "#/components/parameters/SkillVersionID"
+    post:
+      x-ensemus-status: planned
+      tags:
+        - skills
+      summary: Publish a verified version. Someone other than whoever uploaded it has
+        to do this
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "200":
+          description: Version
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillVersion"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/skill-versions/{skill_version_id}/yank:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - $ref: "#/components/parameters/SkillVersionID"
+    post:
+      x-ensemus-status: planned
+      tags:
+        - skills
+      summary: Stop a version being used, for good. A fix is a new version
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - code
+              properties:
+                code:
+                  type: string
+                  enum:
+                    - WITHDRAWN_BY_OWNER
+                    - SECURITY_ISSUE
+      responses:
+        "200":
+          description: Version
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillVersion"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/skill-versions/{skill_version_id}/sandbox-runs:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - $ref: "#/components/parameters/SkillVersionID"
+    post:
+      x-ensemus-status: planned
+      tags:
+        - sandbox
+      summary: Try a version's code by hand, with input you provide
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - classification
+                - input
+              properties:
+                classification:
+                  type: string
+                  enum:
+                    - public
+                    - internal
+                    - confidential
+                input: {}
+      responses:
+        "202":
+          description: Queued
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SandboxRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/sandbox-runs/{sandbox_run_id}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - $ref: "#/components/parameters/SandboxRunID"
+    get:
+      x-ensemus-status: planned
+      tags:
+        - sandbox
+      summary: One run, with its limits, what it used and how it ended
+      responses:
+        "200":
+          description: Run
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SandboxRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/sandbox-runs/{sandbox_run_id}/cancellation:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - $ref: "#/components/parameters/SandboxRunID"
+    post:
+      x-ensemus-status: planned
+      tags:
+        - sandbox
+      summary: Ask a run to stop. It is rechecked before it starts, so a run asked in
+        time never starts
+      responses:
+        "202":
+          description: Asked
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/sandbox/status:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+    get:
+      x-ensemus-status: planned
+      tags:
+        - sandbox
+      summary: Whether code can run on this deployment, and exactly how much anyone
+        can say about the limits
+      responses:
+        "200":
+          description: Status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SandboxStatus"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/marketplace/publisher:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+    get:
+      x-ensemus-status: planned
+      tags:
+        - marketplace
+      summary: This organization's publisher profile, if it has one
+      responses:
+        "200":
+          description: Publisher
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarketplacePublisher"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+    post:
+      x-ensemus-status: planned
+      tags:
+        - marketplace
+      summary: Become a publisher on this deployment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - display_name
+              properties:
+                display_name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+      responses:
+        "201":
+          description: Publisher
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarketplacePublisher"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/marketplace/submissions:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+    get:
+      x-ensemus-status: planned
+      tags:
+        - marketplace
+      summary: What this organization has asked to list, and what became of it
+      responses:
+        "200":
+          description: Submissions
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/MarketplaceSubmission"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+    post:
+      x-ensemus-status: planned
+      tags:
+        - marketplace
+      summary: Ask for a verified version of a public package to be reviewed for listing
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - skill_version_id
+                - confirm_share_with_other_organizations
+              properties:
+                skill_version_id:
+                  type: string
+                  format: uuid
+                confirm_share_with_other_organizations:
+                  type: boolean
+                  const: true
+      responses:
+        "201":
+          description: Submission
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarketplaceSubmission"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/marketplace/submissions/{submission_id}/withdrawal:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - $ref: "#/components/parameters/SubmissionID"
+    post:
+      x-ensemus-status: planned
+      tags:
+        - marketplace
+      summary: Withdraw a submission that is not listed
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "200":
+          description: Submission
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarketplaceSubmission"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/marketplace/submissions/{submission_id}/delist-request:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - $ref: "#/components/parameters/SubmissionID"
+    post:
+      x-ensemus-status: planned
+      tags:
+        - marketplace
+      summary: Ask the operator to take a listing down. A publisher cannot write a
+        listing itself
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "200":
+          description: Submission
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarketplaceSubmission"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/marketplace/listings:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+    get:
+      x-ensemus-status: planned
+      tags:
+        - marketplace
+      summary: What is on offer on this deployment. Each has been signed and reviewed
+      parameters:
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 512
+      responses:
+        "200":
+          description: Page of listings
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                  - next_cursor
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/MarketplaceListing"
+                  next_cursor:
+                    type:
+                      - string
+                      - "null"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/marketplace/listings/{listing_id}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - $ref: "#/components/parameters/ListingID"
+    get:
+      x-ensemus-status: planned
+      tags:
+        - marketplace
+      summary: One listing, with what it would be able to ask for and who reviewed it
+      responses:
+        "200":
+          description: Listing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarketplaceListing"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/marketplace/installations:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+    get:
+      x-ensemus-status: planned
+      tags:
+        - marketplace
+      summary: What this organization has taken from the marketplace
+      responses:
+        "200":
+          description: Installations
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/MarketplaceInstallation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+    post:
+      x-ensemus-status: planned
+      tags:
+        - marketplace
+      summary: Take a listing. This copies it and grants nothing, and someone still
+        has to publish it here
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - listing_id
+              properties:
+                listing_id:
+                  type: string
+                  format: uuid
+      responses:
+        "202":
+          description: Queued
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarketplaceInstallation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/marketplace/installations/{installation_id}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - $ref: "#/components/parameters/InstallationID"
+    delete:
+      x-ensemus-status: planned
+      tags:
+        - marketplace
+      summary: Remove an installed package, and stop its versions being used here
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "204":
+          description: Removed
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
 components:
   securitySchemes:
     sessionCookie:
@@ -9543,6 +10635,55 @@ components:
         format: uuid
     MeetingItemID:
       name: item_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SkillSignerID:
+      name: skill_signer_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SkillPackageID:
+      name: skill_package_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SkillVersionID:
+      name: skill_version_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SandboxRunID:
+      name: sandbox_run_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SubmissionID:
+      name: submission_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ListingID:
+      name: listing_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    InstallationID:
+      name: installation_id
       in: path
       required: true
       schema:
@@ -16278,6 +17419,611 @@ components:
           type: string
           minLength: 1
           maxLength: 2000
+    SkillContentClassification:
+      type: string
+      enum:
+        - public
+        - internal
+        - confidential
+        - restricted
+      description: How sensitive a package's own instructions are. Only public can be
+        submitted for listing.
+    SkillSigner:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - display_name
+        - key_id
+        - state
+        - version
+        - created_at
+        - revoked_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        key_id:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+          description: SHA-256 of the raw public key.
+        state:
+          type: string
+          enum:
+            - active
+            - revoked
+        version:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+    SkillPackage:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - display_name
+        - origin
+        - state
+        - content_classification
+        - listing_id
+        - version
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        display_name:
+          type: string
+        origin:
+          type: string
+          enum:
+            - tenant
+            - marketplace
+        state:
+          type: string
+          enum:
+            - active
+            - disabled
+        content_classification:
+          $ref: "#/components/schemas/SkillContentClassification"
+        listing_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        version:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+    SkillVersionState:
+      type: string
+      enum:
+        - uploaded
+        - verifying
+        - verified
+        - rejected
+        - published
+        - yanked
+    SkillTestResult:
+      type: object
+      additionalProperties: false
+      required:
+        - mode
+        - outcome
+        - fixtures_total
+        - fixtures_passed
+        - first_failed_fixture
+        - code
+        - finished_at
+      properties:
+        mode:
+          type: string
+          enum:
+            - contract
+            - sandbox
+        outcome:
+          type: string
+          enum:
+            - passed
+            - failed
+            - error
+        fixtures_total:
+          type: integer
+          minimum: 1
+        fixtures_passed:
+          type: integer
+          minimum: 0
+        first_failed_fixture:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+        code:
+          type:
+            - string
+            - "null"
+        finished_at:
+          type: string
+          format: date-time
+    SkillVersion:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - package_id
+        - state
+        - bundle_sha256
+        - size_bytes
+        - semver
+        - digest
+        - execution_kind
+        - license
+        - max_classification
+        - signer_key_id
+        - tool_boundaries
+        - reject_code
+        - yank_code
+        - latest_test
+        - uploaded_at
+        - published_at
+        - version
+      description: Everything but the bytes' hash and size is null until a worker has
+        checked the bundle. What it declares is shown so a person can see what
+        it could ask for before it goes live, and declaring a tool grants
+        nothing.
+      properties:
+        id:
+          type: string
+          format: uuid
+        package_id:
+          type: string
+          format: uuid
+        state:
+          $ref: "#/components/schemas/SkillVersionState"
+        bundle_sha256:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+        size_bytes:
+          type: integer
+          minimum: 1
+        semver:
+          type:
+            - string
+            - "null"
+        digest:
+          type:
+            - string
+            - "null"
+          pattern: ^[0-9a-f]{64}$
+        execution_kind:
+          type:
+            - string
+            - "null"
+          enum:
+            - declarative
+            - sandbox
+            - null
+        license:
+          type:
+            - string
+            - "null"
+        max_classification:
+          type:
+            - string
+            - "null"
+          enum:
+            - public
+            - internal
+            - confidential
+            - null
+        signer_key_id:
+          type:
+            - string
+            - "null"
+          pattern: ^[0-9a-f]{64}$
+        tool_boundaries:
+          type: array
+          items:
+            type: string
+        reject_code:
+          type:
+            - string
+            - "null"
+        yank_code:
+          type:
+            - string
+            - "null"
+        latest_test:
+          oneOf:
+            - $ref: "#/components/schemas/SkillTestResult"
+            - type: "null"
+        uploaded_at:
+          type: string
+          format: date-time
+        published_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        version:
+          type: integer
+          minimum: 1
+    SandboxRunStatus:
+      type: string
+      enum:
+        - queued
+        - running
+        - succeeded
+        - failed
+        - timed_out
+        - memory_exceeded
+        - output_exceeded
+        - denied
+        - cancelled
+        - runner_unavailable
+    IsolationEvidence:
+      type: string
+      enum:
+        - none
+        - probe_passed
+      description: How much anyone can say. probe_passed means a runner's own probe
+        found the limits held for one job on this server. There is no value
+        meaning isolated, because only outside review could say that.
+    SandboxLimits:
+      type: object
+      additionalProperties: false
+      required:
+        - wall_ms
+        - cpu_ms
+        - memory_mb
+        - tmpfs_mb
+        - output_kb
+        - pids
+      properties:
+        wall_ms:
+          type: integer
+          minimum: 1
+        cpu_ms:
+          type: integer
+          minimum: 1
+        memory_mb:
+          type: integer
+          minimum: 1
+        tmpfs_mb:
+          type: integer
+          minimum: 1
+        output_kb:
+          type: integer
+          minimum: 1
+        pids:
+          type: integer
+          minimum: 1
+    SandboxRun:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - skill_version_id
+        - purpose
+        - classification
+        - status
+        - outcome_code
+        - limits
+        - network
+        - isolation_evidence
+        - exit_code
+        - wall_ms
+        - cpu_ms
+        - peak_memory_kb
+        - output
+        - created_at
+        - finished_at
+        - version
+      properties:
+        id:
+          type: string
+          format: uuid
+        skill_version_id:
+          type: string
+          format: uuid
+        purpose:
+          type: string
+          enum:
+            - skill_test
+            - agent_tool
+            - operator_test
+        classification:
+          type: string
+          enum:
+            - public
+            - internal
+            - confidential
+        status:
+          $ref: "#/components/schemas/SandboxRunStatus"
+        outcome_code:
+          type:
+            - string
+            - "null"
+        limits:
+          $ref: "#/components/schemas/SandboxLimits"
+        network:
+          type: string
+          enum:
+            - none
+        isolation_evidence:
+          $ref: "#/components/schemas/IsolationEvidence"
+        exit_code:
+          type:
+            - integer
+            - "null"
+        wall_ms:
+          type:
+            - integer
+            - "null"
+        cpu_ms:
+          type:
+            - integer
+            - "null"
+        peak_memory_kb:
+          type:
+            - integer
+            - "null"
+        output:
+          description: What the code returned. Data
+          never instructions.: null
+        created_at:
+          type: string
+          format: date-time
+        finished_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        version:
+          type: integer
+          minimum: 1
+    SandboxStatus:
+      type: object
+      additionalProperties: false
+      required:
+        - enabled
+        - isolation_evidence
+        - last_probe_passed_at
+        - ceilings
+      description: What this organization has seen, from its own runs. The web tier
+        has no path to a runner, so a deployment nobody has run anything on has
+        no evidence to show.
+      properties:
+        enabled:
+          type: boolean
+        isolation_evidence:
+          $ref: "#/components/schemas/IsolationEvidence"
+        last_probe_passed_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        ceilings:
+          $ref: "#/components/schemas/SandboxLimits"
+    MarketplacePublisher:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - display_name
+        - state
+        - version
+      properties:
+        id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        state:
+          type: string
+          enum:
+            - active
+            - suspended
+        version:
+          type: integer
+          minimum: 1
+    MarketplaceSubmission:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - skill_version_id
+        - name
+        - semver
+        - digest
+        - state
+        - delist_requested_at
+        - finding_codes
+        - created_at
+        - decided_at
+        - version
+      properties:
+        id:
+          type: string
+          format: uuid
+        skill_version_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        semver:
+          type: string
+        digest:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+        state:
+          type: string
+          enum:
+            - submitted
+            - in_review
+            - approved
+            - rejected
+            - withdrawn
+        delist_requested_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        finding_codes:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        decided_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        version:
+          type: integer
+          minimum: 1
+    MarketplaceListing:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - publisher_display_name
+        - name
+        - semver
+        - display_name
+        - summary
+        - digest
+        - license
+        - execution_kind
+        - max_classification
+        - tool_boundaries
+        - signer_key_id
+        - reviewer_key_id
+        - state
+        - delist_mode
+        - listed_at
+      description: Reviewed means someone holding a review key looked and signed, on
+        the date shown. It is not a certification. There is no price here,
+        because nothing in M11B takes a payment.
+      properties:
+        id:
+          type: string
+          format: uuid
+        publisher_display_name:
+          type: string
+        name:
+          type: string
+        semver:
+          type: string
+        display_name:
+          type: string
+        summary:
+          type: string
+        digest:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+        license:
+          type: string
+        execution_kind:
+          type: string
+          enum:
+            - declarative
+            - sandbox
+        max_classification:
+          type: string
+          enum:
+            - public
+            - internal
+            - confidential
+        tool_boundaries:
+          type: array
+          items:
+            type: string
+        signer_key_id:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+        reviewer_key_id:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+        state:
+          type: string
+          enum:
+            - listed
+            - delisted
+        delist_mode:
+          type:
+            - string
+            - "null"
+          enum:
+            - stop_new
+            - revoke
+            - null
+        listed_at:
+          type: string
+          format: date-time
+    MarketplaceInstallation:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - listing_id
+        - state
+        - package_id
+        - skill_version_id
+        - failure_code
+        - created_at
+        - version
+      properties:
+        id:
+          type: string
+          format: uuid
+        listing_id:
+          type: string
+          format: uuid
+        state:
+          type: string
+          enum:
+            - requested
+            - installing
+            - installed
+            - failed
+            - removed
+        package_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        skill_version_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        failure_code:
+          type:
+            - string
+            - "null"
+        created_at:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          minimum: 1
   responses:
     BadRequest:
       description: Malformed path, query, header or body. details.fields names the
@@ -16359,6 +18105,12 @@ components:
           schema:
             type: string
             pattern: ^[1-9][0-9]{0,3}$
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SkillBundleTooLarge:
+      description: Skill bundle over the 8 MiB limit
       content:
         application/json:
           schema:

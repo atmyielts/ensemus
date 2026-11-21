@@ -44,7 +44,11 @@
     "./business-connector": "./src/business-connector.ts",
     "./meeting": "./src/meeting.ts",
     "./department-pack": "./src/department-pack.ts",
-    "./expansion-events": "./src/expansion-events.ts"
+    "./expansion-events": "./src/expansion-events.ts",
+    "./skill": "./src/skill.ts",
+    "./sandbox": "./src/sandbox.ts",
+    "./marketplace": "./src/marketplace.ts",
+    "./skill-events": "./src/skill-events.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

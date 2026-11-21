@@ -32,7 +32,9 @@
     "pg": "8.23.1",
     "@ensemus/packs": "workspace:*",
     "@ensemus/config": "workspace:*",
-    "@ensemus/saas": "workspace:*"
+    "@ensemus/saas": "workspace:*",
+    "@ensemus/sandbox": "workspace:*",
+    "@ensemus/skills": "workspace:*"
   },
   "devDependencies": {
     "@authenio/samlify-node-xmllint": "2.0.0",

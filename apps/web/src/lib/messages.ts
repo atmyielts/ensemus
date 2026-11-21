@@ -342,6 +342,42 @@ const MESSAGE_FOR = new Map<string, string>([
   ['MEETING_PURGED', 'This meeting was removed when someone withdrew their consent.'],
   ['MEETING_PARTICIPANTS_FROZEN', 'Notes exist, so who was there can no longer change.'],
   ['PROPOSAL_ALREADY_DECIDED', 'Someone has already decided this.'],
+  ['FEATURE_NOT_ENABLED', 'This is not switched on for this deployment.'],
+  ['SKILL_NAME_TAKEN', 'A skill with that name already exists here. Choose another.'],
+  ['SKILL_SIGNER_KEY_INVALID', 'That is not a valid Ed25519 public key.'],
+  [
+    'SKILL_SIGNER_EXISTS',
+    'That key is already on file. A key that was revoked cannot be trusted again.',
+  ],
+  ['SKILL_BUNDLE_TOO_LARGE', 'That bundle is larger than 8 MiB, so it was not stored.'],
+  [
+    'SKILL_VERSION_NOT_PUBLISHABLE',
+    'This version cannot be published. It has to be verified, and its signer still trusted.',
+  ],
+  [
+    'SKILL_PUBLISH_SAME_PERSON',
+    'Someone other than whoever uploaded this version has to publish it.',
+  ],
+  ['SKILL_VERSION_NOT_USABLE', 'This version cannot be used right now.'],
+  ['SANDBOX_INPUT_TOO_LARGE', 'That input is larger than 1 MiB, so it was not accepted.'],
+  ['SANDBOX_CLASSIFICATION_NOT_ALLOWED', 'This skill cannot be given data of that classification.'],
+  ['SANDBOX_RUN_NOT_CANCELLABLE', 'This run has already finished.'],
+  ['MARKETPLACE_PUBLISHER_REQUIRED', 'This organization has to become a publisher first.'],
+  ['MARKETPLACE_PUBLISHER_EXISTS', 'This organization is already a publisher.'],
+  [
+    'MARKETPLACE_NOT_PUBLIC',
+    'Only a package marked public can be submitted, because other organizations would see it.',
+  ],
+  [
+    'MARKETPLACE_VERSION_NOT_SUBMITTABLE',
+    'Only a verified version of your own package, signed by a key you still trust, can be submitted.',
+  ],
+  [
+    'MARKETPLACE_SUBMISSION_NOT_WITHDRAWABLE',
+    'This can no longer be withdrawn. If it is listed, ask for it to be delisted.',
+  ],
+  ['MARKETPLACE_LISTING_NOT_AVAILABLE', 'That listing is not available.'],
+  ['MARKETPLACE_ALREADY_INSTALLED', 'This organization already has this listing.'],
   ['UNEXPECTED', 'Something went wrong on our side. Please try again.'],
 ]);
 

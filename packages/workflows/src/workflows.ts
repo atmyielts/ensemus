@@ -183,3 +183,7 @@ export { tenantOffboardingWorkflow } from './offboarding-workflow';
 // M11A (ADR-033). Each in its own file, for the same reason.
 export { meetingDerivationWorkflow } from './meeting-derivation-workflow';
 export { meetingImportWorkflow } from './meeting-import-workflow';
+// M11B (ADR-034). The same, for the same reason.
+export { marketplaceInstallWorkflow } from './marketplace-install-workflow';
+export { sandboxRunWorkflow } from './sandbox-run-workflow';
+export { skillVerificationWorkflow } from './skill-verification-workflow';
