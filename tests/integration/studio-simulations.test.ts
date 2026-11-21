@@ -14,12 +14,15 @@ import { urls } from '../helpers/stack';
 import { pgCode } from '../../packages/application/src/errors';
 
 describe('Studio synthetic simulation snapshots', () => {
+  let worker: ReturnType<typeof openAppDatabase>;
   let app: ReturnType<typeof openAppDatabase>;
   beforeAll(() => {
     app = openAppDatabase(urls.app());
+    worker = openAppDatabase(urls.worker());
   });
   afterAll(async () => {
     await app?.close();
+    await worker?.close();
   });
   it('denies members/services and foreign subjects without creating execution authority', async () => {
     const { a, b } = await makeTwoTenants(app.db),
@@ -70,14 +73,14 @@ describe('Studio synthetic simulation snapshots', () => {
     expect(await withTenantTx(app.db, service, (tx) => tx.select().from(simulationInputs))).toEqual(
       [],
     );
-    expect(await runSimulationStep(app.db, service, { simulationId: simulation.id })).toBe(
+    expect(await runSimulationStep(worker.db, service, { simulationId: simulation.id })).toBe(
       'passed',
     );
     const result = await getSimulation(app.db, a.owner.context, simulation.id);
     expect(result.subjectSha256).toBe(draft.specSha256);
     expect(result.report?.subjectSha256).toBe(draft.specSha256);
     expect(result.report?.steps[0]?.reasonCode).toBe('MODEL_NOT_CALLED');
-    expect(await runSimulationStep(app.db, service, { simulationId: simulation.id })).toBe(
+    expect(await runSimulationStep(worker.db, service, { simulationId: simulation.id })).toBe(
       'already_finished',
     );
     expect(await getSimulation(app.db, a.owner.context, simulation.id)).toEqual(result);

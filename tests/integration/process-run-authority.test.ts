@@ -48,12 +48,15 @@ import { agentSpecV1Schema } from '@ensemus/contracts/ai';
 import { publishAgentVersion } from '@ensemus/application/ai-agents';
 
 describe('workflow execution has actual native intent, birth and completion authority', () => {
+  let worker: ReturnType<typeof openAppDatabase>;
   let app: ReturnType<typeof openAppDatabase>;
   beforeAll(() => {
     app = openAppDatabase(urls.app());
+    worker = openAppDatabase(urls.worker());
   });
   afterAll(async () => {
     await app?.close();
+    await worker?.close();
   });
   async function fixture(mode: 'work' | 'approval' | 'agent' = 'work') {
     const { a, b } = await makeTwoTenants(app.db),
@@ -114,7 +117,7 @@ describe('workflow execution has actual native intent, birth and completion auth
       subject: { kind: 'process_draft', draftId: draft.id },
       scenarioKey: 'standard.process',
     });
-    await runSimulationStep(app.db, createServiceContext(a.organizationId), {
+    await runSimulationStep(worker.db, createServiceContext(a.organizationId), {
       simulationId: simulation.id,
     });
     let review = await requestPublishReview(app.db, a.admin.context, {

@@ -90,7 +90,7 @@ describe('worker login roles (ADR-039)', () => {
       [
         'platform.check_new_tenant_mail()',
         'skills.guard_signer_administration()',
-        'objects.active_person(boolean)',
+        'app.is_web_login()',
       ].sort(),
     );
   });

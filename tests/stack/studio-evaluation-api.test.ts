@@ -20,11 +20,13 @@ import { contractProblems } from '../helpers/openapi';
 import { urls } from '../helpers/stack';
 
 describe('independent Studio evaluation through the actual HTTP route', () => {
+  let worker: ReturnType<typeof openAppDatabase>;
   let database: ReturnType<typeof openAppDatabase>, owner: Person, outsider: Person;
   let organization: string, reviewId: string, signed: ReturnType<typeof signedReport>;
   let context: Awaited<ReturnType<typeof nativePersonContext>>;
   beforeAll(async () => {
     database = openAppDatabase(urls.app());
+    worker = openAppDatabase(urls.worker());
     owner = await signUp('Generated evaluated Studio owner');
     outsider = await signUp('Generated evaluated Studio outsider');
     organization = await createOrganization(owner, 'Generated evaluated Studio company');
@@ -43,7 +45,7 @@ describe('independent Studio evaluation through the actual HTTP route', () => {
       subject: { kind: 'agent_draft', draftId: draft.id },
       scenarioKey: 'standard.draft_only',
     });
-    await runSimulationStep(database.db, createServiceContext(organization), {
+    await runSimulationStep(worker.db, createServiceContext(organization), {
       simulationId: simulation.id,
     });
     const review = await requestPublishReview(database.db, context, {
@@ -67,6 +69,7 @@ describe('independent Studio evaluation through the actual HTTP route', () => {
   });
   afterAll(async () => {
     await database?.close();
+    await worker?.close();
   });
   async function publish(person: Person, body?: unknown, key = randomUUID()) {
     const path = `/api/v1/organizations/${organization}/studio/publish-reviews/${reviewId}/publication`;

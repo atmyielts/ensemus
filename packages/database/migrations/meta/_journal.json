@@ -1030,6 +1030,13 @@
       "when": 1794201807619,
       "tag": "0737_object_native_actors",
       "breakpoints": true
+    },
+    {
+      "idx": 147,
+      "version": "7",
+      "when": 1794201807620,
+      "tag": "0738_native_human_readers",
+      "breakpoints": true
     }
   ]
 }

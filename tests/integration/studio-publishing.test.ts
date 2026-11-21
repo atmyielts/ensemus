@@ -35,12 +35,15 @@ import { createHash, randomUUID } from 'node:crypto';
 import { pgCode } from '../../packages/application/src/errors';
 
 describe('Studio publishes only the actually rehearsed and reviewed revision', () => {
+  let worker: ReturnType<typeof openAppDatabase>;
   let app: ReturnType<typeof openAppDatabase>;
   beforeAll(() => {
     app = openAppDatabase(urls.app());
+    worker = openAppDatabase(urls.worker());
   });
   afterAll(async () => {
     await app?.close();
+    await worker?.close();
   });
   async function fixture(elevated = false) {
     const { a, b } = await makeTwoTenants(app.db),
@@ -57,7 +60,7 @@ describe('Studio publishes only the actually rehearsed and reviewed revision', (
         subject: { kind: 'agent_draft', draftId: draft.id },
         scenarioKey: 'standard.draft_only',
       });
-    await runSimulationStep(app.db, createServiceContext(a.organizationId), {
+    await runSimulationStep(worker.db, createServiceContext(a.organizationId), {
       simulationId: simulation.id,
     });
     return { a, b, ports, answers, draft, simulation };
@@ -373,7 +376,7 @@ describe('Studio publishes only the actually rehearsed and reviewed revision', (
         subject: { kind: 'agent_draft', draftId: draft.id },
         scenarioKey: 'standard.draft_only',
       });
-    await runSimulationStep(app.db, createServiceContext(a.organizationId), {
+    await runSimulationStep(worker.db, createServiceContext(a.organizationId), {
       simulationId: simulation.id,
     });
     await proveSecondFactor(a.owner);

@@ -77,8 +77,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-033-expansion-packs-connectors-meetings.md",
-      "size_bytes": 27327,
-      "sha256": "c59434dda6b1583c028101759eafdce83586539b953799fc5063370a4f1001d1"
+      "size_bytes": 27514,
+      "sha256": "77040b1ad3e07eaa62ca87f9666b8a86e980e056e74831cb6f2220dd83660a1e"
     },
     {
       "path": "00-foundation/adr/ADR-034-skills-sandbox-marketplace.md",
@@ -921,6 +921,11 @@
       "sha256": "78d72e63b1332bcd8b194892296b6515078184b4b1283b186cd80f2d3e8f035b"
     },
     {
+      "path": "06-delivery/evidence/rc-native-human-readers-20261121.json",
+      "size_bytes": 5194,
+      "sha256": "99f051cbb90b8eb626e1d0a057d5a84332d76a7527deb44924d276a1cf479c92"
+    },
+    {
       "path": "06-delivery/evidence/rc-pending-module-portability-20261121.json",
       "size_bytes": 4188,
       "sha256": "9da0ee4827c6128b7a037c6457416adbb4d25d65e34a7641f4b30ac6768cea4c"
@@ -987,8 +992,8 @@
     },
     {
       "path": "06-delivery/release-candidate-2026-11-21.md",
-      "size_bytes": 30622,
-      "sha256": "f5b19faebc6b3a8ec36b3c3c599ecb0a740347ce60f5cf49483f155d68440757"
+      "size_bytes": 32688,
+      "sha256": "292f5c8379bbfd12f5ef0c2b7c801cfa0cba8e681af05ab5e04e87557c199e21"
     },
     {
       "path": "06-delivery/release-candidate-source-ledger.json",

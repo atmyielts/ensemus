@@ -1,0 +1,170 @@
+{
+  "schema_version": 1,
+  "scope": "native human readers and immutable rehearsal input",
+  "base_revision": "8bf8860",
+  "human_security_review": "pending",
+  "sources": [
+    {
+      "path": "packages/database/migrations/0738_native_human_readers.sql",
+      "sha256": "009cf0cf17e81b6006b0b057ba3350601e86f04a244cd81b325d89d48cd394cc"
+    },
+    {
+      "path": "packages/database/migrations/meta/_journal.json",
+      "sha256": "8bd68962c688f0c0bd224d42b2e638e469b7b33c3928d497b5f7b150a89513c7"
+    },
+    {
+      "path": "tests/integration/native-human-readers.test.ts",
+      "sha256": "bf0843948bde601fa1b07c3511d28beb6e6a648f30b5fff5296052c5cfdc25cc"
+    },
+    {
+      "path": "tests/helpers/studio.ts",
+      "sha256": "3f77e76e3022868a2eff858e8b2c71a873e634d506d03d06f93d9efd01a9caa8"
+    },
+    {
+      "path": "tests/integration/product-schema.test.ts",
+      "sha256": "8346ae377c696f407d328931909c6fd5e654706151c72d59b8d419a12676d32d"
+    },
+    {
+      "path": "tests/integration/onboarding.test.ts",
+      "sha256": "6701d22e5080600673ca7d7fe1f91f2fd14810d734d7608407346ca589df8268"
+    },
+    {
+      "path": "tests/integration/process-run-authority.test.ts",
+      "sha256": "368356d2bc0e958428d6ec25c72cc3652594a8d06eb687e144f034f2737c5f1f"
+    },
+    {
+      "path": "tests/integration/studio-publishing.test.ts",
+      "sha256": "e73b7a32d426f33982c131b19fbccce11d1ac58a646bd943b0a0e3ade99a00c4"
+    },
+    {
+      "path": "tests/integration/studio-simulations.test.ts",
+      "sha256": "3ee2f090c16e654f3bec8519dc4f31da3977ebe2cba7406ca19ac8506e7ba1d5"
+    },
+    {
+      "path": "tests/integration/worker-login-roles.test.ts",
+      "sha256": "da7decb10c4792c09fc5362ed5cadf763ca136898bcb490698463eb429694de1"
+    },
+    {
+      "path": "tests/unit/worker-login-roles.test.ts",
+      "sha256": "2e539d20227eed5aabc83bce5f5342aa519cfa11b4858bacb2d2dd97d4ee9a76"
+    },
+    {
+      "path": "tests/stack/studio-evaluation-api.test.ts",
+      "sha256": "6845135e10e08b1e4122c230d72e152496ca8963696202757e10dd820de02cbf"
+    }
+  ],
+  "results": {
+    "native_regression": {
+      "passed": 31,
+      "failed": 0,
+      "files": 6
+    },
+    "workflow_followup_initial": {
+      "passed": 41,
+      "failed": 2,
+      "files": 3
+    },
+    "corrected_helper_followup": {
+      "passed": 43,
+      "failed": 0,
+      "files": 3
+    },
+    "production_http": {
+      "passed": 2,
+      "failed": 0
+    },
+    "full_unit": {
+      "passed": 9534,
+      "failed": 2,
+      "expected_fail": 4,
+      "skipped": 43,
+      "files": 374,
+      "seconds": 76.9
+    },
+    "fresh_database": {
+      "database": "ensemus_rc_readers_20261121175147998",
+      "appliedMigrations": 148,
+      "functions": [
+        {
+          "name": "app.is_web_login()",
+          "prosecdef": false,
+          "proconfig": [
+            "search_path=pg_catalog"
+          ],
+          "owner": "ensemus_migrator",
+          "public_execute": false
+        },
+        {
+          "name": "experience.current_person(boolean)",
+          "prosecdef": false,
+          "proconfig": [
+            "search_path=pg_catalog"
+          ],
+          "owner": "ensemus_migrator",
+          "public_execute": false
+        },
+        {
+          "name": "objects.active_person(boolean)",
+          "prosecdef": false,
+          "proconfig": [
+            "search_path=pg_catalog"
+          ],
+          "owner": "ensemus_migrator",
+          "public_execute": false
+        },
+        {
+          "name": "studio.current_author()",
+          "prosecdef": false,
+          "proconfig": [
+            "search_path=pg_catalog"
+          ],
+          "owner": "ensemus_migrator",
+          "public_execute": false
+        },
+        {
+          "name": "studio.simulation_worker(uuid)",
+          "prosecdef": false,
+          "proconfig": [
+            "search_path=pg_catalog"
+          ],
+          "owner": "ensemus_migrator",
+          "public_execute": false
+        }
+      ],
+      "completedAt": "2026-11-21T17:51:51.943Z"
+    }
+  },
+  "local_logs": [
+    {
+      "path": ".local/rc-human-readers-all-denials-red.log",
+      "sha256": "b11882a55f78e83df8d9b44c637f5f7f38887f233962c4cb79cf5d025a5cc65b"
+    },
+    {
+      "path": ".local/rc-human-readers-native.log",
+      "sha256": "783d398504b0176e96708c47a9b2ecced093d3adccf5ff1e00112ef5a13d3ad7"
+    },
+    {
+      "path": ".local/rc-human-readers-workflows.log",
+      "sha256": "74abb868ceb4071d9c2e4561f7bad0d17de2cdf94944968db2edb1a10fc94dca"
+    },
+    {
+      "path": ".local/rc-readers-native-helper.log",
+      "sha256": "9663af3b9c1e8b5827d6c926c8ee6732d3d6f39c751509eb402417ae15c84371"
+    },
+    {
+      "path": ".local/rc-readers-studio-http.log",
+      "sha256": "b4552e1f3bbd87da5028f89b9438572117e1ca01be6cb8a864366218db1cd25c"
+    },
+    {
+      "path": ".local/rc-readers-full-unit.log",
+      "sha256": "1b1559c48b581b19134898f1c7223d1479131b40bbad3e0efe7d31f36abc7c85"
+    }
+  ],
+  "open_gates": [
+    "human security review",
+    "73 planned API operations",
+    "complete M11 portability/lifecycle handling",
+    "full joined integration on final source",
+    "built-worker/Temporal/replay and hosted/provider/human acceptance"
+  ]
+}

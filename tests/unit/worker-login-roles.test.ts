@@ -88,7 +88,8 @@ describe('migrations 0700 and 0701', () => {
         .join('\n');
       if (
         file === '0733_skill_signer_administration.sql' ||
-        file === '0737_object_native_actors.sql'
+        file === '0737_object_native_actors.sql' ||
+        file === '0738_native_human_readers.sql'
       ) {
         // These human-only paths are deliberately narrower than the shared application tier.
         // Native-role cases prove workers and agents cannot impersonate the person with SET ROLE.

@@ -394,3 +394,28 @@ The full bounded unit run on this source reached 9,534 passes, two failures, fou
 release failures still name 73 planned API operations and the same 30-table portability inventory gap.
 The previous full joined integration baseline has not been rerun, and M11 services, complete lifecycle
 handling, built-worker/Temporal, hosted/provider and human acceptance remain open.
+
+## Native human readers and rehearsal execution
+
+Migration 0738 closes the same native-login impersonation issue in Studio and personal outcomes. The
+new regression reproduced private process and personal outcome reads through user-shaped bindings and
+SET ROLE on all four native worker logins. A separate case reproduced an agent borrowing the actual
+queued simulation selector to read its immutable input. Human reader predicates now require the web
+login as well as the existing active-person and ownership checks. Simulation service access requires
+the native platform worker, no membership binding and the existing exact durable request/outbox scope.
+The shared web-login helper answers only the native login and grants no person or tenant authority.
+These helpers remain invokers, fixed-path and unavailable to PUBLIC; human security review is pending.
+
+The first six-file native regression passed all 31 cases. A further workflow run passed 41 and failed
+two legacy fixtures that still used web credentials for service execution. Those fixtures and the
+shared genuine-publication helper now use the native worker. All 43 cases in the product schema, Pulse
+and runtime-adapter follow-up passed; onboarding and process-run authority passed in the earlier run.
+The actual production-web signed-evaluation publication test passed both HTTP cases again. Generated
+evaluator facts qualify the signature protocol, not live model quality or a provider's approval.
+A fresh generated database applied all 148 migrations as the ordinary migrator and checked all five
+changed functions' ownership, invoker status, fixed search paths and revoked PUBLIC execution.
+
+The full unit run reached 9,534 passes, two failures, four expected failures and 43 skips across 374
+files in 76.90 seconds. The failures still name the 73 planned API operations and 30-table portability
+inventory gap. This source-wide run preceded the final test-helper correction, which was checked by
+the native follow-up. No broader joined integration, Temporal, hosted or human acceptance is claimed.
