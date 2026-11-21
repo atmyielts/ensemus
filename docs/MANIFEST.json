@@ -977,8 +977,8 @@
     },
     {
       "path": "06-delivery/release-candidate-2026-11-21.md",
-      "size_bytes": 14758,
-      "sha256": "28e1915bdc63a082676d889328e2043e8547aafb00f8c865d68a2da696996e0a"
+      "size_bytes": 15235,
+      "sha256": "2a30b1282d0b78a8d82041d237516a92739c50860e5bee816c286d4e532d6945"
     },
     {
       "path": "06-delivery/release-candidate-source-ledger.json",

@@ -195,3 +195,9 @@ a JSX date formatting mistake and a stale success notice. The rebuilt production
 same add/revoke journey at 375px with no horizontal overflow, no object-string date and no stale trusted
 notice after revocation. Screenshots and CLI snapshots are local evidence under `output/playwright/`
 and the ignored `.local/rc-playwright-*.log`. This is local UI evidence, not full accessibility acceptance.
+
+Compose now forwards the three explicit collector settings to web, platform worker and dispatcher, which
+are the instrumented processes. Previously setting them in the operator shell never reached those
+containers. Defaults stay empty and all exporters remain off. Agent, connector, Knowledge, mail and
+sandbox processes receive none of these settings. The deployment-boundary, native-role wiring and
+actual OTLP exporter checks passed 46 focused tests after this correction.

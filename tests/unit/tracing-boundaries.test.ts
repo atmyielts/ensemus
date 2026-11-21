@@ -4,6 +4,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 import { repoRoot } from '../helpers/stack';
 
 const read = (file: string) => readFileSync(join(repoRoot, file), 'utf8');
@@ -216,5 +217,36 @@ describe('the dispatcher', () => {
     const loopEnds = dispatcher.indexOf('await connection.close()');
     expect(loopEnds).toBeGreaterThan(-1);
     expect(dispatcher.indexOf('.shutdown()')).toBeGreaterThan(loopEnds);
+  });
+});
+
+// An operator setting that stops at Compose would leave the instrumented processes dark.
+describe('deployment telemetry admission', () => {
+  it('forwards only the explicit opt-in collector settings to the three instrumented processes', () => {
+    const compose = parse(read('infrastructure/compose/compose.yaml')) as {
+      services: Record<string, { environment?: Record<string, unknown> }>;
+    };
+    const names = [
+      'ENSEMUS_OTEL_ENDPOINT',
+      'ENSEMUS_OTEL_SAMPLE_RATIO',
+      'ENSEMUS_OTEL_METRIC_INTERVAL_SECONDS',
+    ];
+    for (const service of ['web', 'worker', 'dispatcher'])
+      for (const name of names)
+        expect(compose.services[service]?.environment?.[name], `${service}:${name}`).toBe(
+          '${' + name + ':-}',
+        );
+    for (const service of [
+      'agent-worker',
+      'connector-worker',
+      'knowledge-worker',
+      'mail-worker',
+      'sandbox-runner',
+    ])
+      for (const name of names)
+        expect(
+          compose.services[service]?.environment?.[name],
+          `${service}:${name}`,
+        ).toBeUndefined();
   });
 });
