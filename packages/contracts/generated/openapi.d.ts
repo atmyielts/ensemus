@@ -2718,6 +2718,94 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{organization_id}/notification-preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read what the caller is emailed about in this organization
+         * @description The caller's own choices, one per topic, with each topic's default where no choice was made. Everything still appears in the in-app inbox, whatever is chosen. Essential mail about the organization's access is always sent and has no topic here.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The caller's email choices */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["NotificationPreferences"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        /**
+         * Choose what the caller is emailed about in this organization
+         * @description Sets the named topics only. A topic set to its default keeps no choice, so a later default reaches it. Only a person can choose, never an agent or a service. Setting the same choices again changes nothing.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["NotificationPreferencesUpdate"];
+                };
+            };
+            responses: {
+                /** @description The caller's email choices after the change */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["NotificationPreferences"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations/{organization_id}/entitlements": {
         parameters: {
             query?: never;
@@ -9584,6 +9672,28 @@ export interface components {
             state: "active" | "disabled" | "revoked";
             /** Format: date-time */
             created_at: string;
+        };
+        /** @enum {string} */
+        NotificationTopic: "approvals" | "answers" | "billing" | "support" | "activity";
+        /**
+         * @description As it happens, one summary a day, or not by email at all.
+         * @enum {string}
+         */
+        NotificationDelivery: "immediate" | "daily" | "off";
+        NotificationPreferences: {
+            preferences: {
+                topic: components["schemas"]["NotificationTopic"];
+                delivery: components["schemas"]["NotificationDelivery"];
+                /** @description No choice was made, so this is the topic's default. */
+                isDefault: boolean;
+            }[];
+        };
+        NotificationPreferencesUpdate: {
+            approvals?: components["schemas"]["NotificationDelivery"];
+            answers?: components["schemas"]["NotificationDelivery"];
+            billing?: components["schemas"]["NotificationDelivery"];
+            support?: components["schemas"]["NotificationDelivery"];
+            activity?: components["schemas"]["NotificationDelivery"];
         };
         MemberConnectionCapabilities: {
             capabilities: ("mail" | "calendar" | "documents" | "chat")[];

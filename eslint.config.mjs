@@ -304,6 +304,17 @@ const rawNetworkForModels = {
   message: 'A model call goes out only through the guarded fetch in src/net (ADR-028 FD-10).',
 };
 
+// Platform email. The mailer role reads every tenant's member names and addresses (0571), so only the
+// mail worker's own files may open it.
+const mailerDatabase = {
+  group: ['@ensemus/database/mailer'],
+  message: 'Mail-worker only: this role reads every tenant member address (0571).',
+};
+const mailWorkerFiles = [
+  'workers/workflow/src/mail-worker.ts',
+  'workers/workflow/src/mail/**/*.ts',
+];
+
 // Files that are agent-worker's own, so they alone may name the agent database entry.
 const agentWorkerFiles = [
   'workers/workflow/src/agent-main.ts',
@@ -397,7 +408,7 @@ export default tseslint.config(
   },
   restrict(
     ['**/*.{ts,tsx}'],
-    [rawDatabase, authDatabase, vendorIssuer, agentDatabase],
+    [rawDatabase, authDatabase, vendorIssuer, agentDatabase, mailerDatabase],
     ['packages/database/**', 'packages/auth/**', 'tests/**', 'apps/web/**'],
   ),
   restrict(['packages/auth/**/*.ts'], [rawDatabase, temporal, broker, ssoOperator, vendorIssuer]),
@@ -417,13 +428,15 @@ export default tseslint.config(
       testDoubles,
       knowledgeWorkerCode,
       ssoOperator,
+      mailerDatabase,
     ],
   ),
   restrict(
     ['workers/**/*.ts', 'packages/workflows/**/*.ts'],
-    [rawDatabase, authDatabase, vendorIssuer, testDoubles, agentDatabase],
-    agentWorkerFiles,
+    [rawDatabase, authDatabase, vendorIssuer, testDoubles, agentDatabase, mailerDatabase],
+    [...agentWorkerFiles, ...mailWorkerFiles],
   ),
+  restrict(mailWorkerFiles, [rawDatabase, authDatabase, vendorIssuer, testDoubles, agentDatabase]),
   // Agent code. A rule set on the same files replaces the one before it, so each names everything.
   restrict(
     ['packages/policy/**/*.ts'],

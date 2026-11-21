@@ -37,4 +37,6 @@ export type InviteFormState = {
   values?: { email: string; role: string };
   /** A live credential. It exists only in this response, and never in a URL. */
   link?: string;
+  /** It was also emailed to the address invited (0571). False where no mail is sent. */
+  emailed?: boolean;
 };

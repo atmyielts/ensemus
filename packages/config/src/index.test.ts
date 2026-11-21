@@ -32,7 +32,15 @@ describe('loadWebConfig', () => {
       publicUrl: 'https://e.example',
       allowSignup: false,
       connectorsEnabled: false,
+      mailEnabled: false,
     });
+  });
+
+  it('turns platform email on only when asked', () => {
+    expect(loadWebConfig({ ...valid, ENSEMUS_MAIL_ENABLED: 'true' }).mailEnabled).toBe(true);
+    expect(() => loadWebConfig({ ...valid, ENSEMUS_MAIL_ENABLED: 'yes' })).toThrow(
+      'ENSEMUS_MAIL_ENABLED',
+    );
   });
 
   it('turns connectors on only when asked', () => {

@@ -904,6 +904,20 @@
       "when": 1794201807601,
       "tag": "0701_worker_role_narrowing",
       "breakpoints": true
+    },
+    {
+      "idx": 129,
+      "version": "7",
+      "when": 1794201807602,
+      "tag": "0570_platform_mail",
+      "breakpoints": true
+    },
+    {
+      "idx": 130,
+      "version": "7",
+      "when": 1794201807603,
+      "tag": "0571_platform_mail_security",
+      "breakpoints": true
     }
   ]
 }

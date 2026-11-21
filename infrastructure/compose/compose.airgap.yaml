@@ -22,6 +22,9 @@ services:
   egress-google-docs: *dns
   egress-google-sheets: *dns
   smtp-sink: *dns
+  mail-worker: *dns
+  mail-gateway: *dns
+  mailpit: *dns
   fake-model: *dns
   fake-model-test-port: *dns
   migrate: *dns

@@ -30,6 +30,7 @@ for (const role of [
   'dispatcher',
   'secrets',
   'temporal',
+  'mailer',
 ]) {
   put(`db_${role}_password`, password);
 }
@@ -43,6 +44,7 @@ for (const [name, role, file] of [
   ['db_auth_url', 'ensemus_auth', 'db_auth_password'],
   ['db_secrets_url', 'ensemus_secrets', 'db_secrets_password'],
   ['db_dispatcher_url', 'ensemus_dispatcher', 'db_dispatcher_password'],
+  ['db_mailer_url', 'ensemus_mailer', 'db_mailer_password'],
 ]) {
   const pw = await read(file);
   put(name, () => `postgres://${role}:${pw}@postgres:5432/ensemus`);
@@ -87,6 +89,8 @@ writeFileSync(
   }),
   { mode: 0o644 },
 );
+// The test mailbox (Mailpit, compose.test.yaml) takes any login, so this only has to exist.
+put('mail_relay_password', password);
 put('auth_secret', () => randomBytes(32).toString('base64'));
 put('temporal_codec_key', () => randomBytes(32).toString('base64'));
 put('next_server_actions_key', () => randomBytes(32).toString('base64'));

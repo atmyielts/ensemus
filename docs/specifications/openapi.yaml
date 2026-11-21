@@ -2201,6 +2201,69 @@ paths:
           $ref: "#/components/responses/InternalError"
         "503":
           $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/notification-preferences:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+    get:
+      tags:
+        - identity
+      summary: Read what the caller is emailed about in this organization
+      description: The caller's own choices, one per topic, with each topic's default where no choice
+        was made. Everything still appears in the in-app inbox, whatever is chosen. Essential mail
+        about the organization's access is always sent and has no topic here.
+      responses:
+        "200":
+          description: The caller's email choices
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationPreferences"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+    put:
+      tags:
+        - identity
+      summary: Choose what the caller is emailed about in this organization
+      description: Sets the named topics only. A topic set to its default keeps no choice, so a later
+        default reaches it. Only a person can choose, never an agent or a service. Setting the same
+        choices again changes nothing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationPreferencesUpdate"
+      responses:
+        "200":
+          description: The caller's email choices after the change
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationPreferences"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
   /organizations/{organization_id}/entitlements:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
@@ -8211,6 +8274,60 @@ components:
         created_at:
           type: string
           format: date-time
+    NotificationTopic:
+      type: string
+      enum:
+        - approvals
+        - answers
+        - billing
+        - support
+        - activity
+    NotificationDelivery:
+      type: string
+      description: As it happens, one summary a day, or not by email at all.
+      enum:
+        - immediate
+        - daily
+        - "off"
+    NotificationPreferences:
+      type: object
+      additionalProperties: false
+      required:
+        - preferences
+      properties:
+        preferences:
+          type: array
+          minItems: 5
+          maxItems: 5
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - topic
+              - delivery
+              - isDefault
+            properties:
+              topic:
+                $ref: "#/components/schemas/NotificationTopic"
+              delivery:
+                $ref: "#/components/schemas/NotificationDelivery"
+              isDefault:
+                type: boolean
+                description: No choice was made, so this is the topic's default.
+    NotificationPreferencesUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        approvals:
+          $ref: "#/components/schemas/NotificationDelivery"
+        answers:
+          $ref: "#/components/schemas/NotificationDelivery"
+        billing:
+          $ref: "#/components/schemas/NotificationDelivery"
+        support:
+          $ref: "#/components/schemas/NotificationDelivery"
+        activity:
+          $ref: "#/components/schemas/NotificationDelivery"
     MemberConnectionCapabilities:
       type: object
       additionalProperties: false

@@ -34,6 +34,18 @@ import { createSamlBrowserFlow } from './saml-browser-flow';
 import { createSamlSelfLinkPlugin } from './saml-self-link';
 import { createAuthRestoreAdmission } from './restore-admission';
 import { SAML_BROWSER_COOKIE, samlBrowserCookieValue } from './saml-browser-binding';
+import {
+  accountMailSettings,
+  createAccountRecovery,
+  type AccountMailOptions,
+} from './account-mail';
+
+export {
+  verificationPurposeOf,
+  type AccountMailOptions,
+  type AccountRecovery,
+  type RecoveryOutcome,
+} from './account-mail';
 
 export type OidcProvider = {
   providerId: string;
@@ -52,6 +64,11 @@ export type AuthOptions = {
   sso?: SsoCallbacks;
   /** Framework plugins, such as Next.js cookies. They run last. */
   plugins?: BetterAuthPlugin[];
+  /**
+   * Only where the mail worker runs. With it: password reset by email, verified addresses, email change,
+   * and a notice when a password changes. Without it, none of these is offered.
+   */
+  mail?: AccountMailOptions;
 };
 
 const log = createLogger('auth');
@@ -88,6 +105,7 @@ const TOO_MANY_REQUESTS = 429;
 
 export function createAuth(options: AuthOptions) {
   const { db, close } = openAuthDatabase(options.databaseUrl);
+  const mail = options.mail ? accountMailSettings(db, options.baseURL, options.mail) : null;
   let currentOidcTrust: () => Promise<OidcTrust | null> = async () => null;
   const primary = createPrimaryAuthentication(
     db,
@@ -155,6 +173,15 @@ export function createAuth(options: AuthOptions) {
         minPasswordLength: 12,
         maxPasswordLength: 128,
         disableSignUp: !allowSignup,
+        ...(mail ? mail.emailAndPassword : {}),
+      },
+      ...(mail
+        ? { emailVerification: mail.emailVerification, user: { changeEmail: mail.changeEmail } }
+        : {}),
+      // A reset token is kept only as its hash, so a database read finds nothing that would work. Other
+      // identifiers stay as they are, because ADR-031's own code reads them by value.
+      verification: {
+        storeIdentifier: { default: 'plain', overrides: { 'reset-password:': 'hashed' } },
       },
       session: { expiresIn: 60 * 60 * 24 * 7, updateAge: 60 * 60 * 24 },
       databaseHooks: {
@@ -177,6 +204,13 @@ export function createAuth(options: AuthOptions) {
           '/sign-in/email': { window: 60, max: 10 },
           '/sign-up/email': { window: 60, max: 5 },
           '/sso/link-self': { window: 60, max: 5 },
+          // Account recovery and verification (0571). The mail queue also limits each address.
+          '/request-password-reset': { window: 60 * 60, max: 5 },
+          '/reset-password': { window: 60, max: 5 },
+          '/change-password': { window: 60, max: 5 },
+          '/change-email': { window: 60, max: 3 },
+          '/send-verification-email': { window: 5 * 60, max: 3 },
+          '/verify-email': { window: 60, max: 10 },
         },
       },
       advanced: {
@@ -428,7 +462,26 @@ export function createAuth(options: AuthOptions) {
       },
     };
   }
-  return { auth, close, mfa, redeemSetupToken, sso, submitCredentials, readInteractiveSession };
+  const account = createAccountRecovery({
+    db,
+    baseURL: options.baseURL,
+    handler: (request) => auth.handler(request),
+    verifyPassword: async (password, headers) =>
+      (await auth.api.verifyPassword({ body: { password }, headers })).status === true,
+    queuePasswordChanged: mail ? mail.queuePasswordChanged : null,
+  });
+  return {
+    auth,
+    close,
+    mfa,
+    redeemSetupToken,
+    sso,
+    submitCredentials,
+    readInteractiveSession,
+    /** Account recovery and verification. Each fails closed where `mail` was not given. */
+    account,
+    mailEnabled: mail !== null,
+  };
 }
 
 export type EnsemusAuth = ReturnType<typeof createAuth>['auth'];

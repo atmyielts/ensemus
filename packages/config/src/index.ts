@@ -34,6 +34,9 @@ const webSchema = z.object({
   // Off unless the connector worker is running. Off means no connection can be made, and the webhook
   // address answers as if it does not exist, so nothing waits for a worker that is not there (ADR-027).
   ENSEMUS_CONNECTORS_ENABLED: z.enum(['true', 'false']).default('false'),
+  // Off unless the mail worker is running (the `mail` profile). Off means nobody is promised an email:
+  // password reset by email is not offered, and an invitation is a link to copy (0571).
+  ENSEMUS_MAIL_ENABLED: z.enum(['true', 'false']).default('false'),
 });
 
 const uuidValue = z.uuid();
@@ -94,6 +97,7 @@ export function loadWebConfig(env: NodeJS.ProcessEnv = process.env) {
     publicUrl: parsed.data.ENSEMUS_PUBLIC_URL,
     allowSignup: parsed.data.ENSEMUS_ALLOW_SIGNUP === 'true',
     connectorsEnabled: parsed.data.ENSEMUS_CONNECTORS_ENABLED === 'true',
+    mailEnabled: parsed.data.ENSEMUS_MAIL_ENABLED === 'true',
   };
 }
 

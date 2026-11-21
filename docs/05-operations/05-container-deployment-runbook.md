@@ -42,7 +42,33 @@ Set `ENSEMUS_ALLOW_SIGNUP=true` only if anyone who can reach this deployment sho
 
 ## Notifications
 
-In-app is the only channel for now. Approval requests and reminders appear in the person's inbox, and each reminder moves the item back to the top, up to three reminders a day apart. Someone who does not open Ensemus hears nothing until they do. This works the same in an air-gapped install. Notification email is not built, and has consent questions of its own. What M3 adds is different: outbound email as an action someone approves, and only with the connectors profile on (see [Connectors and outbound actions](#connectors-and-outbound-actions)). No approval request or reminder goes by email.
+Every notification appears in the person's inbox, and each approval reminder moves the item back to the top, up to three reminders a day apart. This works the same in an air-gapped install.
+
+**Email is off by default, and no install needs it.** Without it, nobody is promised an email: password reset by email is not offered, an invitation is a link to copy, and every notification stays in the inbox. Notification mail still queues in PostgreSQL either way, and expires unsent after three days if no mail worker comes.
+
+### Turning on platform email
+
+Ensemus's own email (password reset, email verification and change, invitations, and notifications) is not a connector and is not an action anyone approves. The web tier only queues it. The `mail-worker` sends it, from the internal `mail` network, through its own `mail-gateway` to the one relay you name. The worker has the relay password and no route out; the gateway has the route and no password. Why, and the reviewed SQL, are in `packages/database/migrations/0571_platform_mail_security.sql`, which is **flagged for human security review** like ADR-027's. Until it is reviewed, use test values against a test relay only.
+
+| Setting | What it does |
+|---|---|
+| `COMPOSE_PROFILES=mail`, or `--profile mail` | Starts `mail-worker` and `mail-gateway`. Use it on every Compose command |
+| `ENSEMUS_MAIL_ENABLED=true` | Lets `web` offer password reset, email verification and change, and email invitations. Leave it false unless the worker is running |
+| `ENSEMUS_MAIL_RELAY_TARGET=host:port` | The relay's submission port, such as `smtp.example.com:587`. The gateway refuses to start without it |
+| `ENSEMUS_MAIL_TLS_SERVER_NAME` | The name on the relay's certificate. TLS is required, and a relay that does not offer STARTTLS is refused |
+| `ENSEMUS_MAIL_TLS=none` | Only for a relay on a trusted site network. The test overlay is the only place in this repository that sets it |
+| `ENSEMUS_MAIL_FROM_ADDRESS`, `ENSEMUS_MAIL_FROM_NAME` | Who the mail is from. The name defaults to Ensemus |
+| `ENSEMUS_MAIL_USERNAME` | Who to log in to the relay as, when that is not the sender |
+| `ENSEMUS_MAIL_PASSWORD_FILE` | A file holding the relay password, mounted as a secret. Only `mail-worker` reads it |
+| `ENSEMUS_MAIL_MESSAGE_ID_DOMAIN` | The domain in each Message-ID, `<{message id}@{domain}>`, which is what someone searches the relay's log for. Empty means the host of `ENSEMUS_PUBLIC_URL` |
+
+The `ensemus_mailer` database role is created by `provision-roles`, from `.local/secrets/db_mailer_password` and `db_mailer_url` on a test stack (`pnpm stack:secrets`), or the same file names in a site's secrets folder.
+
+**What is sent, and to whom.** Account mail goes to the person's own address, at most five an hour to one address, and a reset to someone with no password (company sign-in only) is not sent. Notifications go only to confirmed addresses of active members, at the time the person chose on **Email notifications**: as it happens, once a day in the morning, or not at all. Decisions, answers, billing and support replies come at once by default, and everything else once a day. A person who gets more than twenty in an hour, or a company that sends more than five hundred, gets the rest in the next daily summary. An email never carries a company's content beyond its name: it says what happened and links to Ensemus, which checks access when the link is opened. Mail someone chose carries a one-click unsubscribe link; mail about a company's access to Ensemus does not.
+
+**When something goes wrong.** Each message is a row in `platform.mail_outbox` (tenant mail) or `platform.account_mail_outbox` (account mail). A relay that is busy or unreachable before the message is finished is tried again, up to six times over about an hour. A relay that refuses the address marks it bounced, and notification mail stops going to it until the person confirms it again. A message the relay may have taken, but did not say, is `unknown` and is never sent again: search the relay's log for its Message-ID. Settled rows are kept thirty days. The worker checks restore admission on every pass, so after a restore it sends nothing until the restore is admitted.
+
+**Testing locally.** `pnpm stack:mail:up` with `ENSEMUS_MAIL_ENABLED=true` runs a local Mailpit mailbox in the test overlay instead of a relay. Every message lands at http://127.0.0.1:58125, and nothing leaves the machine.
 
 ## Web process
 

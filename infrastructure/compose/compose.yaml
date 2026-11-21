@@ -16,6 +16,10 @@
 # Sending email adds a way out, and only for installs that ask for it (ADR-027 D5). One service has
 # credentials and no route out, one has a route out and no credentials, and neither exists without
 # the `connectors` profile. With no profile nothing here can make an outbound attempt.
+#
+# Ensemus's own email (account recovery, invitations, notifications) follows the same rule under the
+# `mail` profile: the mail worker holds the relay credential and has no route out, and its gateway has a
+# route to one relay and no credential. The web tier only queues mail in PostgreSQL.
 name: ensemus
 
 x-secret-file: &restart
@@ -67,6 +71,10 @@ services:
       # report is accepted. Public only: the signing key belongs to CI or the agent worker, never to web.
       ENSEMUS_EVALUATION_PUBLIC_KEYS: ${ENSEMUS_EVALUATION_PUBLIC_KEYS:-}
       ENSEMUS_EVALUATION_REPORT_MAX_AGE_HOURS: ${ENSEMUS_EVALUATION_REPORT_MAX_AGE_HOURS:-}
+      # On only when the mail worker runs (the `mail` profile). Off, nobody is promised an email: password
+      # reset by email is not offered and an invitation is a link to copy. Mail queued either way waits
+      # in PostgreSQL and expires unsent if no worker comes.
+      ENSEMUS_MAIL_ENABLED: ${ENSEMUS_MAIL_ENABLED:-false}
       # The operator's own Google and Microsoft apps, by public client ID only, to build the consent URL
       # (ADR-038 D2). Unset offers only an admin's own app. The secrets go to the connector worker alone.
       # Providers send the admin back to ENSEMUS_PUBLIC_URL/api/v1/oauth/callback, which must be registered.
@@ -342,192 +350,7 @@ services:
       ENSEMUS_CLICK_MERCHANT_ID: ${ENSEMUS_CLICK_MERCHANT_ID:-}
       ENSEMUS_PADDLE_ENVIRONMENT: ${ENSEMUS_PADDLE_ENVIRONMENT:-}
       ENSEMUS_PADDLE_TAX_CATEGORY: ${ENSEMUS_PADDLE_TAX_CATEGORY:-}
-      # Paddle's API key: a file an operator mounts with an overlay, read by this service only. Naming
-      # Paddle without it stops this worker at start. Its one way out is the egress-paddle route.
-      ENSEMUS_PADDLE_API_KEY_FILE: ${ENSEMUS_PADDLE_API_KEY_FILE:-}
-      ENSEMUS_EGRESS_PADDLE: egress-paddle:2525
-      # Activities at once (worker-limits.ts). Whole number from 1 to 32; anything else stops the worker.
-      # Its database pool is this plus two, so raise PostgreSQL's max_connections with it.
-      ENSEMUS_CONNECTOR_ACTIVITY_SLOTS: ${ENSEMUS_CONNECTOR_ACTIVITY_SLOTS:-8}
-    secrets:
-      - db_connector_url
-      - db_secrets_url
-      - sealing_private_key.pem
-      - temporal_codec_key
-    depends_on:
-      temporal-namespace: { condition: service_completed_successfully }
-      migrate: { condition: service_completed_successfully }
-      egress-gateway: { condition: service_healthy }
-    deploy:
-      resources: { limits: { memory: 1G } }
-
-  # Forwards bytes to the one target an operator set, and refuses to start without one. It holds no
-  # secret and reaches no database. TLS runs through it, so it sees only ciphertext.
-  egress-gateway:
-    <<: *restart
-    profiles: ['connectors']
-    build:
-      context: ../..
-      dockerfile: infrastructure/containers/Dockerfile.worker
-    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
-    command: ['node', 'dist/egress-gateway.js']
-    read_only: true
-    tmpfs: ['/tmp']
-    networks:
-      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.12' }
-      outbound: {}
-    environment:
-      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_TARGET:-}
-    deploy:
-      resources: { limits: { memory: 128M } }
-
-  # Google Workspace and Microsoft 365 (ADR-038). One gateway per route, each with no target until an
-  # operator sets one, so an install that uses neither has no way out through them. The connector worker
-  # does not wait for them: a route whose gateway is not running fails that request with a code.
-  # The www.googleapis.com route. Same image, same rules: no secret, no database, one target, ciphertext only.
-  egress-google-api:
-    <<: *restart
-    profiles: ['connectors']
-    build:
-      context: ../..
-      dockerfile: infrastructure/containers/Dockerfile.worker
-    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
-    command: ['node', 'dist/egress-gateway.js']
-    read_only: true
-    tmpfs: ['/tmp']
-    networks:
-      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.13' }
-      outbound: {}
-    environment:
-      # Empty refuses to start. www.googleapis.com:443, or a site's relay to it.
-      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_GOOGLE_API_TARGET:-}
-    deploy:
-      resources: { limits: { memory: 128M } }
-
-  # The oauth2.googleapis.com route. Same image, same rules: no secret, no database, one target, ciphertext only.
-  egress-google-oauth:
-    <<: *restart
-    profiles: ['connectors']
-    build:
-      context: ../..
-      dockerfile: infrastructure/containers/Dockerfile.worker
-    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
-    command: ['node', 'dist/egress-gateway.js']
-    read_only: true
-    tmpfs: ['/tmp']
-    networks:
-      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.14' }
-      outbound: {}
-    environment:
-      # Empty refuses to start. oauth2.googleapis.com:443, or a site's relay to it.
-      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_GOOGLE_OAUTH_TARGET:-}
-    deploy:
-      resources: { limits: { memory: 128M } }
-
-  # The graph.microsoft.com route. Same image, same rules: no secret, no database, one target, ciphertext only.
-  egress-ms-graph:
-    <<: *restart
-    profiles: ['connectors']
-    build:
-      context: ../..
-      dockerfile: infrastructure/containers/Dockerfile.worker
-    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
-    command: ['node', 'dist/egress-gateway.js']
-    read_only: true
-    tmpfs: ['/tmp']
-    networks:
-      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.15' }
-      outbound: {}
-    environment:
-      # Empty refuses to start. graph.microsoft.com:443, or a site's relay to it.
-      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_MS_GRAPH_TARGET:-}
-    deploy:
-      resources: { limits: { memory: 128M } }
-
-  # The login.microsoftonline.com route. Same image, same rules: no secret, no database, one target, ciphertext only.
-  egress-ms-login:
-    <<: *restart
-    profiles: ['connectors']
-    build:
-      context: ../..
-      dockerfile: infrastructure/containers/Dockerfile.worker
-    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
-    command: ['node', 'dist/egress-gateway.js']
-    read_only: true
-    tmpfs: ['/tmp']
-    networks:
-      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.16' }
-      outbound: {}
-    environment:
-      # Empty refuses to start. login.microsoftonline.com:443, or a site's relay to it.
-      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_MS_LOGIN_TARGET:-}
-    deploy:
-      resources: { limits: { memory: 128M } }
-
-  # The gmail.googleapis.com route (ADR-038 D6). Same image, same rules: no secret, no database, one target, ciphertext only.
-  egress-google-gmail:
-    <<: *restart
-    profiles: ['connectors']
-    build:
-      context: ../..
-      dockerfile: infrastructure/containers/Dockerfile.worker
-    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
-    command: ['node', 'dist/egress-gateway.js']
-    read_only: true
-    tmpfs: ['/tmp']
-    networks:
-      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.17' }
-      outbound: {}
-    environment:
-      # Empty refuses to start. gmail.googleapis.com:443, or a site's relay to it.
-      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_GOOGLE_GMAIL_TARGET:-}
-    deploy:
-      resources: { limits: { memory: 128M } }
-
-  # The docs.googleapis.com route (ADR-038 D6). Same image, same rules: no secret, no database, one target, ciphertext only.
-  egress-google-docs:
-    <<: *restart
-    profiles: ['connectors']
-    build:
-      context: ../..
-      dockerfile: infrastructure/containers/Dockerfile.worker
-    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
-    command: ['node', 'dist/egress-gateway.js']
-    read_only: true
-    tmpfs: ['/tmp']
-    networks:
-      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.18' }
-      outbound: {}
-    environment:
-      # Empty refuses to start. docs.googleapis.com:443, or a site's relay to it.
-      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_GOOGLE_DOCS_TARGET:-}
-    deploy:
-      resources: { limits: { memory: 128M } }
-
-  # The sheets.googleapis.com route (ADR-038 D6). Same image, same rules: no secret, no database, one target, ciphertext only.
-  egress-google-sheets:
-    <<: *restart
-    profiles: ['connectors']
-    build:
-      context: ../..
-      dockerfile: infrastructure/containers/Dockerfile.worker
-    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
-    command: ['node', 'dist/egress-gateway.js']
-    read_only: true
-    tmpfs: ['/tmp']
-    networks:
-      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.19' }
-      outbound: {}
-    environment:
-      # Empty refuses to start. sheets.googleapis.com:443, or a site's relay to it.
-      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_GOOGLE_SHEETS_TARGET:-}
-    deploy:
-      resources: { limits: { memory: 128M } }
-
-  # Paddle's API (ADR-032 D4a). Same image, same rules: no secret, no database, one target, ciphertext only.
-  # The TLS name is fixed in code by the Paddle environment: api.paddle.com, or sandbox-api.paddle.com.
-  # Payme and Click need no route: they call us, and we never call them.
-  egress-paddle:
+      egress-paddle:
     <<: *restart
     profiles: ['connectors']
     build:
@@ -546,6 +369,65 @@ services:
     deploy:
       resources: { limits: { memory: 128M } }
 
+  mail-worker:
+    <<: *restart
+    profiles: ['mail']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/mail-worker.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks: [mail]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.8.10
+      - mail-gateway:${ENSEMUS_NETWORK_PREFIX:-172.30}.8.12
+    environment:
+      DATABASE_URL_MAILER_FILE: /run/secrets/db_mailer_url
+      SECRET_SEALING_PRIVATE_KEY_FILE: /run/secrets/sealing_private_key.pem
+      ENSEMUS_MAIL_GATEWAY: mail-gateway:2525
+      ENSEMUS_PUBLIC_URL: ${ENSEMUS_PUBLIC_URL:-https://localhost:8443}
+      # The relay's TLS certificate name. `none` is for a relay on a trusted site network only.
+      ENSEMUS_MAIL_TLS: ${ENSEMUS_MAIL_TLS:-required}
+      ENSEMUS_MAIL_TLS_SERVER_NAME: ${ENSEMUS_MAIL_TLS_SERVER_NAME:-}
+      ENSEMUS_MAIL_FROM_ADDRESS: ${ENSEMUS_MAIL_FROM_ADDRESS:-}
+      ENSEMUS_MAIL_FROM_NAME: ${ENSEMUS_MAIL_FROM_NAME:-Ensemus}
+      # Who to log in to the relay as, when that is not the sender.
+      ENSEMUS_MAIL_USERNAME: ${ENSEMUS_MAIL_USERNAME:-}
+      ENSEMUS_MAIL_PASSWORD_FILE: /run/secrets/mail_relay_password
+      # Empty means the host of ENSEMUS_PUBLIC_URL.
+      ENSEMUS_MAIL_MESSAGE_ID_DOMAIN: ${ENSEMUS_MAIL_MESSAGE_ID_DOMAIN:-}
+    secrets:
+      - db_mailer_url
+      - sealing_private_key.pem
+      - mail_relay_password
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      mail-gateway: { condition: service_healthy }
+    deploy:
+      resources: { limits: { memory: 256M } }
+
+
+  mail-gateway:
+    <<: *restart
+    profiles: ['mail']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      mail: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.8.12' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. The relay's submission port, such as smtp.example.com:587.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_MAIL_RELAY_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
   provision-roles:
     image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
     user: postgres
@@ -559,10 +441,12 @@ services:
       - ./postgres/upgrade-roles.sql:/provision/upgrade-roles.sql:ro
       - ./postgres/upgrade-roles-workers.sql:/provision/upgrade-roles-workers.sql:ro
       - ./postgres/upgrade-roles-m8.sql:/provision/upgrade-roles-m8.sql:ro
+      - ./postgres/upgrade-roles-mail.sql:/provision/upgrade-roles-mail.sql:ro
     secrets:
       [
         db_superuser_password,
         db_agent_password,
+        db_mailer_password,
         db_worker_password,
         db_connector_password,
         db_knowledge_password,
@@ -664,6 +548,7 @@ services:
       temporal-db: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.4.10' }
       connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.10' }
       agents: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.10' }
+      mail: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.8.10' }
     secrets:
       - db_superuser_password
       - db_migrator_password
@@ -840,7 +725,16 @@ networks:
             subnet: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.0/24',
             ip_range: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.128/25',
           }
-  # The way out, and only the gateway is on it. A sovereign site's firewall limits it to the relay.
+  # No gateway, so nothing on it has a route out. Only the mail worker, PostgreSQL and the mail gateway.
+  mail:
+    internal: true
+    ipam:
+      config:
+        - {
+            subnet: '${ENSEMUS_NETWORK_PREFIX:-172.30}.8.0/24',
+            ip_range: '${ENSEMUS_NETWORK_PREFIX:-172.30}.8.128/25',
+          }
+  # The way out, and only the gateways are on it. A sovereign site's firewall limits it to the relays.
   outbound:
     ipam:
       config:
@@ -874,6 +768,11 @@ secrets:
   db_knowledge_url: { file: ../../.local/secrets/db_knowledge_url }
   db_auth_url: { file: ../../.local/secrets/db_auth_url }
   db_dispatcher_url: { file: ../../.local/secrets/db_dispatcher_url }
+  db_mailer_password: { file: ../../.local/secrets/db_mailer_password }
+  db_mailer_url: { file: ../../.local/secrets/db_mailer_url }
+  # The relay's password, which an operator mounts. Only the mail worker reads it.
+  mail_relay_password:
+    { file: '${ENSEMUS_MAIL_PASSWORD_FILE:-../../.local/secrets/mail_relay_password}' }
   objects_access_key: { file: ../../.local/secrets/objects_access_key }
   objects_secret_key: { file: ../../.local/secrets/objects_secret_key }
   objects_ledger_access_key: { file: ../../.local/secrets/objects_ledger_access_key }

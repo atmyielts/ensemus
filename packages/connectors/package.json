@@ -21,7 +21,9 @@
     "./microsoft": "./src/microsoft/index.ts",
     "./mcp": "./src/mcp/index.ts",
     "./payment": "./src/payment/index.ts",
-    "./checkout": "./src/payment/providers/index.ts"
+    "./checkout": "./src/payment/providers/index.ts",
+    "./email/smtp": "./src/email/smtp.ts",
+    "./email/message": "./src/email/message.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

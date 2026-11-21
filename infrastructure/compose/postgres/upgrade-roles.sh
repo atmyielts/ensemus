@@ -16,3 +16,7 @@ psql -X -q -v ON_ERROR_STOP=1 --host postgres --username postgres --dbname ensem
 # ADR-032 D3: the operator, support and eraser roles. They cannot log in and get no password here.
 psql -X -q -v ON_ERROR_STOP=1 --host postgres --username postgres --dbname ensemus \
   -f /provision/upgrade-roles-m8.sql
+# Platform email (0571): the mail worker's login, with its password from the mounted secret.
+psql -X -q -v ON_ERROR_STOP=1 --host postgres --username postgres --dbname ensemus \
+  -v mailer_password="$(cat /run/secrets/db_mailer_password)" \
+  -f /provision/upgrade-roles-mail.sql

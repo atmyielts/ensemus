@@ -75,7 +75,8 @@
     "./process-runs": "./src/product/process-runs.ts",
     "./custom-objects": "./src/product/custom-objects.ts",
     "./packs": "./src/product/packs.ts",
-    "./saas/*": "./src/saas/*.ts"
+    "./saas/*": "./src/saas/*.ts",
+    "./platform-mail": "./src/platform-mail.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

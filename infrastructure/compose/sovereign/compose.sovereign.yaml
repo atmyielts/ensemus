@@ -75,6 +75,16 @@ services:
     pull_policy: never
     build: !reset null
 
+  mail-worker:
+    image: ensemus-sovereign/worker:${ENSEMUS_RELEASE:?set by install-bundle}
+    pull_policy: never
+    build: !reset null
+
+  mail-gateway:
+    image: ensemus-sovereign/worker:${ENSEMUS_RELEASE:?set by install-bundle}
+    pull_policy: never
+    build: !reset null
+
   migrate:
     image: ensemus-sovereign/worker:${ENSEMUS_RELEASE:?set by install-bundle}
     pull_policy: never
@@ -161,6 +171,13 @@ secrets:
   db_auth_url: { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_auth_url' }
   db_dispatcher_url:
     { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_dispatcher_url' }
+  db_mailer_password:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_mailer_password' }
+  db_mailer_url:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_mailer_url' }
+  # Present even where no mail is sent, because compose names it. Only the mail worker reads it.
+  mail_relay_password:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/mail_relay_password' }
   objects_access_key:
     { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/objects_access_key' }
   objects_secret_key:

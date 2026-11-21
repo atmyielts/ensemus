@@ -341,6 +341,14 @@ export const PORTABILITY_INVENTORY = [
   // is never exported or replayed. Which capabilities members may connect is set again by an admin.
   inventory('integrations.suite_reads', 'agents', 'private_excluded'),
   inventory('integrations.suite_settings', 'connections', 'operational_excluded'),
+  // 0570 (platform email). The queues hold links with live tokens, sealed, and an unsubscribe token is a
+  // permission: none is ever exported or replayed. A bounce belongs to the address, not to a company, and
+  // a person chooses what they are emailed again after an import.
+  inventory('platform.account_mail_outbox', 'people', 'credentials_excluded'),
+  inventory('platform.mail_outbox', 'people', 'credentials_excluded'),
+  inventory('platform.mail_suppressions', 'people', 'operational_excluded'),
+  inventory('platform.mail_unsubscribe_tokens', 'people', 'credentials_excluded'),
+  inventory('org.notification_preferences', 'people', 'operational_excluded'),
 ] as const;
 
 export const PORTABILITY_INVENTORY_PROFILES = {

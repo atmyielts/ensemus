@@ -163,6 +163,37 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
+  # Ensemus's own email goes to a local test mailbox, so testers can read every message at
+  # http://127.0.0.1:58125 and nothing leaves the machine. Mailpit offers no TLS here, which is why the mail
+  # worker is told `none` here and nowhere else, and takes any login. Run with the `mail` profile and
+  # ENSEMUS_MAIL_ENABLED=true (pnpm stack:mail:up).
+  mail-worker:
+    environment:
+      ENSEMUS_MAIL_TLS: none
+      ENSEMUS_MAIL_FROM_ADDRESS: ${ENSEMUS_MAIL_FROM_ADDRESS:-ensemus@example.invalid}
+  mail-gateway:
+    extra_hosts: ['mailpit:${ENSEMUS_NETWORK_PREFIX:-172.30}.6.21']
+    environment:
+      ENSEMUS_EGRESS_TARGET: mailpit:1025
+  mailpit:
+    profiles: ['mail']
+    image: axllent/mailpit:v1.32.0@sha256:0790692be935ea4420d085694f7985b1f692ca6a8771ab0e0bd8ba75ac180498
+    read_only: true
+    tmpfs: ['/data']
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: 'true'
+      MP_SMTP_AUTH_ALLOW_INSECURE: 'true'
+      MP_MAX_MESSAGES: '5000'
+      MP_DATABASE: /data/mailpit.db
+    networks:
+      outbound: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.6.21' }
+    # The web inbox and its API, for people and tests. SMTP itself is not published.
+    ports: ['127.0.0.1:${ENSEMUS_TEST_MAILPIT_PORT:-58125}:8025']
+    healthcheck:
+      test: ['CMD', '/mailpit', 'readyz']
+      interval: 2s
+      timeout: 3s
+      retries: 30
   oidc-mock:
     profiles: ['test-oidc']
     image: ghcr.io/navikt/mock-oauth2-server:2.3.0@sha256:dfcc1b60abe7414d2754767fceaec62a5dc79a10e543804069f69287b277e314
