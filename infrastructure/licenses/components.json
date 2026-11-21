@@ -1,0 +1,68 @@
+{
+  "description": "What the license inventory (LEGAL-05) cannot read yet, typed by hand. Each image is declared for its exact digest, so moving a digest means looking at its license again. Licenses were read on 2026-11-06 from each project's default branch, not from the pinned digest and not from inside the image. Say unknown rather than guess.",
+  "images": [
+    {
+      "image": "caddy:2-alpine@sha256:f6228111e5fafa1a5238258d0858e103f10599b8d1659a146e7726681a002bb9",
+      "license": "Apache-2.0",
+      "evidence": "upstream_repository_not_the_image",
+      "homepage": "https://github.com/caddyserver/caddy",
+      "note": "Read from LICENSE in caddyserver/caddy and caddyserver/caddy-docker. Caddy's compiled-in Go modules and the image's Alpine packages have their own licenses, and are not read here."
+    },
+    {
+      "image": "pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8",
+      "license": "PostgreSQL",
+      "evidence": "upstream_repository_not_the_image",
+      "homepage": "https://github.com/pgvector/pgvector",
+      "note": "Read from LICENSE in pgvector/pgvector and COPYRIGHT in postgres/postgres. Those files do not title themselves, so the name comes from recognising their text, which counsel should confirm. The image's Debian packages have their own licenses, and are not read here."
+    },
+    {
+      "image": "temporalio/admin-tools@sha256:4a95866efba29d7e17ab012df5232795e8b0ad0f7d5f9d1ec4df321f7792a754",
+      "license": "MIT",
+      "evidence": "upstream_repository_not_the_image",
+      "homepage": "https://github.com/temporalio/temporal",
+      "note": "Read from LICENSE in temporalio/temporal and temporalio/docker-builds. It is pinned by digest with no tag, so which release this is has not been read. The tools and OS packages inside the image have their own licenses, and are not read here."
+    },
+    {
+      "image": "temporalio/server@sha256:7bf69188a6232fea14869b9cef3d94aa82a1601d99517f7e86c71f22da4e0670",
+      "license": "MIT",
+      "evidence": "upstream_repository_not_the_image",
+      "homepage": "https://github.com/temporalio/temporal",
+      "note": "Read from LICENSE in temporalio/temporal and temporalio/docker-builds. It is pinned by digest with no tag, so which release this is has not been read. The OS packages inside the image have their own licenses, and are not read here."
+    },
+    {
+      "image": "valkey/valkey:8-alpine@sha256:2602ace2be6569bc2bbb06f873776516ab9089821525be34f4305c67eb9db02a",
+      "license": "BSD-3-Clause",
+      "evidence": "upstream_repository_not_the_image",
+      "homepage": "https://github.com/valkey-io/valkey",
+      "note": "Read from COPYING in valkey-io/valkey, on its development branch rather than the 8 series, so counsel should confirm it for this version. The image's Alpine packages have their own licenses, and are not read here."
+    },
+    {
+      "image": "chrislusf/seaweedfs@sha256:c2658820e763294a9e9de7b36c81e59b879e3459148351aee4e31a126ca64860",
+      "license": "Apache-2.0",
+      "evidence": "upstream_repository_not_the_image",
+      "homepage": "https://github.com/seaweedfs/seaweedfs",
+      "note": "Read from LICENSE in seaweedfs/seaweedfs. It is pinned by digest with no tag, so which release this is has not been read. The image's compiled-in modules and OS packages have their own licenses, and are not read here."
+    },
+    {
+      "image": "node:24-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9",
+      "license": "MIT-style notice for Node.js, with externally maintained libraries under their own licenses",
+      "evidence": "upstream_repository_not_the_image",
+      "homepage": "https://github.com/nodejs/node",
+      "note": "The base of the web and worker images. Read from LICENSE in nodejs/node, on its main branch rather than the 24 series, and only its opening: the list of libraries was not read to the end. The nodejs/docker-node repository that builds the image is MIT. npm and its bundled packages and the image's Debian packages are not read here, so this one line stands for a great deal: the OS section is what lists them, once it is collected."
+    }
+  ],
+  "npm_notes": [
+    {
+      "prefix": "@img/",
+      "note": "infrastructure/containers/Dockerfile.web deletes this from the standalone output, so the image should not carry it. That has not been confirmed by reading a built image."
+    }
+  ],
+  "model_weights": {
+    "state": "none_distributed",
+    "reason": "Which weights ship, if any, is an owner decision before M6. No release distributes any until then."
+  },
+  "other": {
+    "state": "none_distributed",
+    "reason": "No font, model or vendored source is tracked outside tests. The gate looks for those at every run, and fails if one appears while this still says none."
+  }
+}

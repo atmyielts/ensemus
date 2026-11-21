@@ -1,0 +1,8 @@
+# A generated test overlay: one tool only it uses, and overrides for shipped services.
+services:
+  proxy:
+    ports: ['127.0.0.1:58080:80']
+  test-sidecar:
+    image: fixture/test-sidecar@sha256:3333333333333333333333333333333333333333333333333333333333333333
+  tools-a:
+    image: fixture/tools@sha256:2222222222222222222222222222222222222222222222222222222222222222
