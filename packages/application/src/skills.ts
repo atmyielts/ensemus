@@ -1,3 +1,8 @@
+import {
+  addTrustedSigner as addSigner,
+  listTrustedSigners as listSigners,
+  revokeTrustedSigner as revokeSigner,
+} from './skill-signers';
 // Owned by the skill-catalog slice (EXP-04). See docs/06-delivery/m11b-slices.md and ADR-034 D1, D2, D4.
 // Managing skills needs skill.manage, publishing needs skill.publish, and reading needs only membership.
 import type { AppDatabase, TenantContext } from '@ensemus/database';
@@ -73,19 +78,19 @@ export type SkillPackagePage = { items: readonly SkillPackageView[]; nextCursor:
 
 /** Stores a key's public half. Refuses anything that is not 32 bytes, and a key already on file. */
 export function addTrustedSigner(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _gate: SkillFeatureGate,
-  _input: { displayName: string; publicKey: Buffer },
+  database: AppDatabase,
+  context: TenantContext,
+  gate: SkillFeatureGate,
+  input: { displayName: string; publicKey: Buffer },
 ): Promise<SkillSignerView> {
-  throw new Error('NOT_IMPLEMENTED');
+  return addSigner(database, context, gate, input);
 }
 
 export function listTrustedSigners(
-  _database: AppDatabase,
-  _context: TenantContext,
+  database: AppDatabase,
+  context: TenantContext,
 ): Promise<readonly SkillSignerView[]> {
-  throw new Error('NOT_IMPLEMENTED');
+  return listSigners(database, context);
 }
 
 /**
@@ -93,11 +98,11 @@ export function listTrustedSigners(
  * SIGNER_REVOKED. A marketplace copy is the operator's to revoke, through its listing, so it stays.
  */
 export function revokeTrustedSigner(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: { signerId: string; expectedVersion: number },
+  database: AppDatabase,
+  context: TenantContext,
+  input: { signerId: string; expectedVersion: number },
 ): Promise<void> {
-  throw new Error('NOT_IMPLEMENTED');
+  return revokeSigner(database, context, input);
 }
 
 export function createSkillPackage(

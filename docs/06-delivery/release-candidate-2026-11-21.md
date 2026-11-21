@@ -143,3 +143,55 @@ resource fields, sanitizes instrumentation scope and forwards only exporter resu
 remains conditional. Active web/worker/dispatcher processes now use the combined metrics/traces config;
 the legacy trace-only entry retains exact endpoint semantics. Focused telemetry and wiring checks passed
 128 tests, including actual OTLP HTTP capture and disabled/startup/privacy controls.
+
+## Publisher trust administration
+
+The first catalog vertical now joins live membership and company MFA policy, native PostgreSQL
+permissions, application services, API handlers and the Publisher keys settings page. Only an active
+owner or administrator on the native web login can add or revoke trust. Members can read the documented
+public metadata; raw public-key bytes and all private keys are excluded from that response. Admission
+combines the operator switch with current company entitlements. Reading and revoking existing trust do
+not depend on admission remaining enabled.
+
+Migration 0733 adds `skill.manage` to the existing interactive policy mapping and guards inserts and
+permanent revocation. It preserves the later session, SSO and restore checks. Migration 0734 serializes
+trust changes and version transitions per company. A real concurrent transaction test first reproduced
+a verified version escaping revocation under MVCC; the serialization now prevents that outcome.
+Callers taking explicit version/signer row locks must call `skills.lock_trust()` first. Interactive
+policy precedes skill trust, which precedes row locks. Both migrations still require human security
+review.
+
+Revocation withdraws this company's verified/published tenant packages signed by the key, with audit,
+ID-only outbox events and uploader notifications committed in the same transaction. A key cannot be
+trusted again after revocation. Marketplace-origin copies retain their separate review trust. The
+publisher CLI also refuses to include its own signing key or recognizable copied private-key material
+in the package, including a copy listed under an instruction filename; bounded reads avoid allocating
+the whole bundle ceiling for every small file.
+
+Focused real-role signer/schema checks passed the six new administration cases and the existing skills
+schema cases. The worker-role suite passed four cases after updating its explicit native-boundary
+inventory. Focused feature-gate/native-role unit checks passed 20 tests; CLI/navigation/policy checks
+passed 49. Web typecheck, production standalone build and changed-source lint passed. Three actual HTTP
+cases against that production build passed with catalog admission enabled: tenant/role/origin refusals,
+public metadata, idempotency replay/conflicts, If-Match, permanent revocation and invalid/private-key
+input. This local generated-data evidence does not qualify a live provider, marketplace or runner.
+
+The canonical full integration suite runs separately against the frozen candidate at `ba8d03c`; its
+result is not yet recorded here. The publisher workflow uses a separate generated-data project,
+`ensemus-rc-signer-20261121`, PostgreSQL port 56452 and object-store port 58452. No original application
+volume or preview was replaced. Three signer operations now have actual handlers; the remaining 73
+planned operations and the new tables' portability coverage still block full-platform completion.
+
+The full unit rerun with four workers recorded 9,504 passes, two failures, four expected failures and
+43 skips across 371 files. The two failures remain the 73 planned operations and the 30-table portability
+inventory gap. An earlier high-concurrency run also timed out three source scans and caught two ID-helper
+omissions in the new web forms. Those omissions are fixed; the four source-control files passed 120
+tests on focused rerun, and the complete bounded run passed those checks too. No acceptance assertion
+was removed or relaxed.
+
+The actual browser journey created an account and company, added a generated public key, checked the
+fingerprint, opened the permanent-revocation confirmation and revoked the key. It caught and corrected
+a JSX date formatting mistake and a stale success notice. The rebuilt production page then passed the
+same add/revoke journey at 375px with no horizontal overflow, no object-string date and no stale trusted
+notice after revocation. Screenshots and CLI snapshots are local evidence under `output/playwright/`
+and the ignored `.local/rc-playwright-*.log`. This is local UI evidence, not full accessibility acceptance.

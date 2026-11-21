@@ -448,6 +448,7 @@ describe('skill, sandbox and marketplace rules in the database', () => {
             .set({
               state,
               revokedAt: state === 'revoked' ? new Date() : null,
+              revokedByMembershipId: state === 'revoked' ? ctxA.membershipId : null,
               version: sql`version + 1`,
             })
             .where(

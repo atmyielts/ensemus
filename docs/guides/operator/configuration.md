@@ -160,8 +160,10 @@ These are set by `compose.yaml` and its scripts, for the images that read them. 
 | `ENSEMUS_BREAK_GLASS_ENABLED` | `m8-foundation` | No | Default `false` |
 | `ENSEMUS_BREAK_GLASS_MAX_MINUTES` | `m8-foundation` | No | Required when the one above is `true`. There is no default length |
 | `DATABASE_URL_OPERATOR`, `DATABASE_URL_SUPPORT`, `DATABASE_URL_ERASER` | `m8-foundation` | **Yes** | Named by the operations commands there, which are not built yet. The `ensemus_eraser` role cannot log in until an operator lets it |
-| `ENSEMUS_OTEL_ENDPOINT` | `hx-foundation` | No | Your own trace collector, as an http or https URL with no credentials, query or fragment. Unset, traces go nowhere |
-| `ENSEMUS_OTEL_SAMPLE_RATIO` | `hx-foundation` | No | From 0 to 1. Default 1. Setting it with no endpoint stops the process |
+| `ENSEMUS_OTEL_ENDPOINT` | release candidate | No | Your own OTLP/HTTP collector base, such as `http://127.0.0.1:4318`, with no path, credentials, query or fragment. The process adds `/v1/traces` and `/v1/metrics`. Unset, exporters stay off |
+| `ENSEMUS_OTEL_SAMPLE_RATIO` | release candidate | No | From 0 to 1. Default 1. Setting it with no endpoint stops the process |
+| `ENSEMUS_OTEL_METRIC_INTERVAL_SECONDS` | release candidate | No | A whole number from 5 to 3600, default 60. Setting it with no endpoint stops the process |
+| `ENSEMUS_SKILL_CATALOG_ENABLED` | release candidate | No | Default `false`. Enables new publisher trust only when the current company entitlement also permits it. Existing trust metadata remains readable and revocation remains available when off |
 
 ## Test-only settings
 

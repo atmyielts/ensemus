@@ -76,7 +76,7 @@ describe('migrations 0700 and 0701', () => {
     );
   });
 
-  it('no migration after 0700 compares the caller with ensemus_app by its raw name', () => {
+  it('later tier checks use the mapped role; signer administration explicitly requires the native web login', () => {
     const later = readdirSync(migrations)
       .filter((file) => /^\d{4}_.*\.sql$/.test(file))
       .filter((file) => Number(file.slice(0, 4)) >= 701 && Number(file.slice(0, 4)) < 999);
@@ -86,7 +86,15 @@ describe('migrations 0700 and 0701', () => {
         .split(/\r?\n/)
         .filter((line) => !line.trimStart().startsWith('--'))
         .join('\n');
-      expect(RAW_TIER_CHECK.test(text), file).toBe(false);
+      if (file === '0733_skill_signer_administration.sql') {
+        // Trust administration is deliberately narrower than the shared application tier. The
+        // native-role integration test proves every worker and the agent fail this exact check.
+        const nativeBoundary = "session_user<>'ensemus_app' OR current_user<>'ensemus_app'";
+        expect(text.split(nativeBoundary)).toHaveLength(2);
+        expect(RAW_TIER_CHECK.test(text.replace(nativeBoundary, 'false')), file).toBe(false);
+      } else {
+        expect(RAW_TIER_CHECK.test(text), file).toBe(false);
+      }
     }
   });
 

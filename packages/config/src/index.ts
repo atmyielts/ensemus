@@ -248,7 +248,7 @@ const skillFeaturesSchema = z.object({
   ENSEMUS_MARKETPLACE_ENABLED: onOff,
 });
 
-/** Which of these a deployment offers. Used with M8's entitlements once those exist, not instead of them. */
+/** Operator switches only. New work also requires the current company entitlement. */
 export function loadSkillFeatures(env: NodeJS.ProcessEnv = process.env) {
   const parsed = skillFeaturesSchema.safeParse(env);
   if (!parsed.success) {

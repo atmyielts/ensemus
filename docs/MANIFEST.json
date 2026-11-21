@@ -82,8 +82,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-034-skills-sandbox-marketplace.md",
-      "size_bytes": 29072,
-      "sha256": "96a694daf6c88fcb841ec7772c4b0173457236e3cb3bbf98ba6c9be3428d3c5f"
+      "size_bytes": 29237,
+      "sha256": "b476529b3dcca55254e63eb6e21ce1b3fe9b2971d2bcf5bfac1c275719e7db68"
     },
     {
       "path": "00-foundation/adr/ADR-035-cross-org-tenants-regions.md",
@@ -977,8 +977,8 @@
     },
     {
       "path": "06-delivery/release-candidate-2026-11-21.md",
-      "size_bytes": 10635,
-      "sha256": "6b4dffa33d0f01ef22aedd67430d63688c6ad04beca5bf8c89a425d2f0e4c211"
+      "size_bytes": 14758,
+      "sha256": "28e1915bdc63a082676d889328e2043e8547aafb00f8c865d68a2da696996e0a"
     },
     {
       "path": "06-delivery/release-candidate-source-ledger.json",
@@ -1082,8 +1082,8 @@
     },
     {
       "path": "guides/operator/configuration.md",
-      "size_bytes": 18362,
-      "sha256": "367bca11b760e9d06e2cf0929c57d11d053c88b5586303c55dc94080bee48649"
+      "size_bytes": 18849,
+      "sha256": "4322e4d5529a7da3d3a761f827efe0b7c66f65e3b21e94abcae429c55be39f9c"
     },
     {
       "path": "guides/operator/connector-worker.md",
@@ -1597,8 +1597,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 563939,
-      "sha256": "121eb9788537157e2b4a2e509a685955f80c8068221c73d86ad17a77e1a1caa9"
+      "size_bytes": 563843,
+      "sha256": "52eb620fc53623a6cb1d7142145a888b2e8f4ba38e2647e2d1a2e0625828c44a"
     },
     {
       "path": "specifications/qa-scenarios.csv",

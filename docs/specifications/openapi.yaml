@@ -9419,7 +9419,6 @@ paths:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
     get:
-      x-ensemus-status: planned
       tags:
         - skills
       summary: Public keys this organization trusts for packages it uploads
@@ -9451,7 +9450,6 @@ paths:
         "503":
           $ref: "#/components/responses/RestorePending"
     post:
-      x-ensemus-status: planned
       tags:
         - skills
       summary: Trust a public key. A private key has no field to go in, and Ensemus
@@ -9510,7 +9508,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/SkillSignerID"
     delete:
-      x-ensemus-status: planned
       tags:
         - skills
       summary: Revoke a key for good, and yank every version of this organization's it

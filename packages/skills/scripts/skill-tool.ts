@@ -38,15 +38,16 @@ function readBounded(path: string, maximum: number): Buffer {
   try {
     const stat = fstatSync(fd);
     if (!stat.isFile() || stat.size > maximum) refuse('BUNDLE_TOO_LARGE');
-    const bytes = Buffer.alloc(maximum + 1);
+    const buffer = Buffer.alloc(Math.min(64 * 1024, maximum + 1));
+    const chunks: Buffer[] = [];
     let total = 0;
-    while (total <= maximum) {
-      const count = readSync(fd, bytes, total, bytes.length - total, null);
-      if (!count) return bytes.subarray(0, total);
+    for (;;) {
+      const count = readSync(fd, buffer, 0, Math.min(buffer.length, maximum - total + 1), null);
+      if (!count) return Buffer.concat(chunks, total);
       total += count;
       if (total > maximum) refuse('BUNDLE_TOO_LARGE');
+      chunks.push(Buffer.from(buffer.subarray(0, count)));
     }
-    return refuse('BUNDLE_TOO_LARGE');
   } finally {
     closeSync(fd);
   }
@@ -93,18 +94,32 @@ function pack(directory: string, keyPath: string, output: string) {
   const manifest = skillManifestSchema.safeParse(value);
   if (!manifest.success || manifest.data.files.length > SKILL_BUNDLE_MAX_FILES)
     refuse('MANIFEST_INVALID');
+  const privateKeyPem = decoder.decode(readBounded(resolve(keyPath), 16_384));
+  const privateKey = createPrivateKey(privateKeyPem);
+  if (privateKey.asymmetricKeyType !== 'ed25519') refuse('SKILL_SIGNER_KEY_INVALID');
+  const keyFile = realpathSync(resolve(keyPath));
+  const seed = privateKey.export({ format: 'jwk' }).d;
+  if (!seed) refuse('SKILL_SIGNER_KEY_INVALID');
+  const secretBytes = Buffer.from(seed, 'base64url');
+  const privateMarker = /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----/;
   const files: SkillBundle['files'] = [];
   let total = 0;
   for (const declared of manifest.data.files) {
-    const bytes = readBounded(packageFile(root, declared.path), SKILL_BUNDLE_MAX_BYTES - total);
+    const file = packageFile(root, declared.path);
+    if (file === keyFile) refuse('PRIVATE_KEY_IN_PACKAGE');
+    const bytes = readBounded(file, SKILL_BUNDLE_MAX_BYTES - total);
+    if (
+      privateMarker.test(bytes.toString('utf8')) ||
+      bytes.includes(secretBytes) ||
+      bytes.includes(Buffer.from(seed)) ||
+      bytes.includes(Buffer.from(secretBytes.toString('base64')))
+    )
+      refuse('PRIVATE_KEY_IN_PACKAGE');
     total += bytes.length;
     declared.size_bytes = bytes.length;
     declared.sha256 = createHash('sha256').update(bytes).digest('hex');
     files.push({ path: declared.path, content_base64: bytes.toString('base64') });
   }
-  const privateKeyPem = decoder.decode(readBounded(resolve(keyPath), 16_384));
-  const privateKey = createPrivateKey(privateKeyPem);
-  if (privateKey.asymmetricKeyType !== 'ed25519') refuse('SKILL_SIGNER_KEY_INVALID');
   const publicKey = createPublicKey(privateKey)
     .export({ format: 'der', type: 'spki' })
     .subarray(-32);

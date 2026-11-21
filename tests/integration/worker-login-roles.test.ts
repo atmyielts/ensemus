@@ -59,7 +59,7 @@ describe('worker login roles (ADR-039)', () => {
     }
   });
 
-  it('normalizes legacy tier checks and retains the mail invitation native-login boundary', async () => {
+  it('normalizes legacy tier checks and retains explicit native-login boundaries', async () => {
     const { rows } = await superuser.query<{ name: string; definition: string }>(
       `select p.oid::regprocedure::text as name, pg_get_functiondef(p.oid) as definition
          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
@@ -81,9 +81,12 @@ describe('worker login roles (ADR-039)', () => {
     // comparison, not the mere presence of both names. Mail invitations deliberately remain web-only.
     const rawTierCheck =
       /\b(?:session_user|current_user)\s*(?:=|<>|!=|(?:NOT\s+)?IN\s*\()\s*'ensemus_app'/i;
-    expect(rows.filter((row) => rawTierCheck.test(row.definition)).map((row) => row.name)).toEqual([
-      'platform.check_new_tenant_mail()',
-    ]);
+    expect(
+      rows
+        .filter((row) => rawTierCheck.test(row.definition))
+        .map((row) => row.name)
+        .sort(),
+    ).toEqual(['platform.check_new_tenant_mail()', 'skills.guard_signer_administration()'].sort());
   });
 
   it('lets a worker login do what ensemus_app may, and no more', async () => {

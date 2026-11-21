@@ -2,7 +2,7 @@
 
 **Status:** Proposed; implementation and qualification in progress. The release-candidate update below records what has run. D2, D3, D5 and D6 still need outside security review, and no product surface may describe the sandbox as isolated, secure or safe until that review and the runtime proofs below are complete.
 
-**Integration update, 2026-11-21:** The recovered migrations are now applied in the isolated release-candidate database; schema and role tests have run. Signed bundle parsing, signature/review verification, publisher tooling and policy admission are implemented and unit tested. Catalog, durable verification and runner journeys remain incomplete. No real sandbox enforcement or outside security review is claimed. The original code-only implementation notes below describe the November 6 checkpoint.
+**Integration update, 2026-11-21:** The recovered migrations are now applied in the isolated release-candidate database; schema and role tests have run. Signed bundle parsing, signature/review verification, publisher tooling and policy admission are implemented and unit tested. Publisher trust administration now has real-role services, a settings page and HTTP handlers; its local production-build HTTP and browser journeys have run. Package catalog, durable verification and runner journeys remain incomplete. No real sandbox enforcement or outside security review is claimed. The original code-only implementation notes below describe the November 6 checkpoint.
 
 **Date:** 2026-11-06
 **Deciders:** Project owner; security owner for D2, D3, D5 and D6.

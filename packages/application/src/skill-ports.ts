@@ -52,3 +52,14 @@ export const SKILL_SQLSTATE = {
   COPY_MISMATCH: 'ES004',
   REVIEW_GATE: 'ES005',
 } as const;
+
+/** Deployment switches never substitute for a current subscription or offline-mode entitlement. */
+export function entitledSkillFeatureGate(
+  switches: Readonly<Record<SkillFeature, boolean>>,
+  entitlements: { check(context: TenantContext, feature: string): Promise<{ ok: boolean }> },
+): SkillFeatureGate {
+  return {
+    isEnabled: async (context, feature) =>
+      switches[feature] === true && (await entitlements.check(context, feature)).ok === true,
+  };
+}

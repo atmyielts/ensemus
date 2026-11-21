@@ -76,6 +76,35 @@ describe('publisher tool on the publisher machine', () => {
     expect(readFileSync(join(keys, 'private-key.pem'), 'utf8')).toBe(privatePem);
     expect(run('pack', skill, '--key', join(keys, 'private-key.pem'), '--out', out).status).toBe(2);
   }, 60_000);
+  it('refuses to bundle the signing key even when the manifest explicitly lists it', () => {
+    const folder = temp(),
+      { skill, manifest } = source(folder);
+    expect(run('keygen', skill).status).toBe(0);
+    writeFileSync(
+      join(skill, 'manifest.json'),
+      JSON.stringify({
+        ...manifest,
+        files: [
+          ...manifest.files,
+          { path: 'private-key.pem', sha256: 'a'.repeat(64), size_bytes: 0 },
+        ],
+      }),
+    );
+    const out = join(folder, 'bundle.json');
+    const result = run('pack', skill, '--key', join(skill, 'private-key.pem'), '--out', out);
+    expect(result.status, result.stderr).toBe(2);
+    expect(result.stderr).toContain('PRIVATE_KEY_IN_PACKAGE');
+    expect(existsSync(out)).toBe(false);
+    expect(result.stdout + result.stderr).not.toContain('BEGIN PRIVATE KEY');
+    // The same key copied under an ordinary package filename is refused too.
+    writeFileSync(join(skill, 'instructions.md'), readFileSync(join(skill, 'private-key.pem')));
+    writeFileSync(join(skill, 'manifest.json'), JSON.stringify(manifest));
+    const copied = run('pack', skill, '--key', join(skill, 'private-key.pem'), '--out', out);
+    expect(copied.status).toBe(2);
+    expect(copied.stderr).toContain('PRIVATE_KEY_IN_PACKAGE');
+    expect(existsSync(out)).toBe(false);
+  }, 60_000);
+
   it('refuses a parent path and directory symlink before copying any external file into a bundle', () => {
     const folder = temp(),
       { skill, manifest } = source(folder),

@@ -108,6 +108,13 @@ export const SETTINGS_DESTINATIONS: readonly SettingsDestination[] = [
     any: ['ai.halt'],
   },
   {
+    path: 'settings/skills/signers',
+    label: 'Publisher keys',
+    description: 'Choose which publishers may provide signed skill packages for your company.',
+    icon: 'safety',
+    any: ['skill.manage'],
+  },
+  {
     path: 'settings/egress',
     label: 'Model data sharing',
     description: 'Inspect recorded sharing decisions and compare a proposed provider.',
