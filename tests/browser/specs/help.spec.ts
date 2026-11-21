@@ -70,10 +70,11 @@ test.describe('axe', () => {
 
   test('a guide has no violations in either theme, at either width', async ({ open }) => {
     test.skip(!first, NO_PAGES);
+    if (!first) throw new Error(NO_PAGES);
     const page = await open(null);
-    const response = await page.goto(`/help/${first?.slug}`);
+    const response = await page.goto(`/help/${first.slug}`);
     expect(response?.status()).toBe(200);
-    await expect(page.getByRole('heading', { level: 1, name: first?.title })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: first.title })).toBeVisible();
     expect(await scanEverywhere(page, 'help-page')).toEqual({});
   });
 
