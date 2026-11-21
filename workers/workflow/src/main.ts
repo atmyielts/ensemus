@@ -2,7 +2,7 @@
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readSecret } from '@ensemus/config';
+import { loadTracingConfig, readSecret } from '@ensemus/config';
 import { openAppDatabase } from '@ensemus/database';
 import { S3ObjectStore } from '@ensemus/storage';
 import { createLogger, errorCode } from '@ensemus/telemetry';
@@ -14,6 +14,7 @@ import { createTemporalLogger } from '@ensemus/workflows/safe-logger';
 import { workflowIdFor } from '@ensemus/workflows/schemas';
 import { Client, Connection, WorkflowNotFoundError } from '@temporalio/client';
 import { NativeConnection, Runtime, Worker } from '@temporalio/worker';
+import { activityTracing } from './activity-tracing';
 
 const log = createLogger('worker');
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -26,6 +27,14 @@ async function main() {
     logger: createTemporalLogger(log),
     telemetryOptions: { logging: { filter: 'WARN', forward: {} } },
   });
+  const tracingConfig = loadTracingConfig();
+  const release = process.env.ENSEMUS_RELEASE;
+  // Only when an operator named a collector, so that a default install never loads the SDK (ADR-037 D3).
+  const tracing = tracingConfig.enabled
+    ? await (
+        await import('@ensemus/telemetry/tracing-sdk')
+      ).startTracing('worker', tracingConfig, release ? { release } : {})
+    : null;
   const connection = await NativeConnection.connect({
     address: process.env.TEMPORAL_ADDRESS ?? 'temporal:7233',
   });
@@ -72,6 +81,7 @@ async function main() {
       payloadCodecs: [new AesGcmPayloadCodec(readSecret('TEMPORAL_CODEC_KEY'))],
       failureConverterPath: path.join(here, 'failure-converter.cjs'),
     },
+    interceptors: { activity: [activityTracing()] },
   });
 
   // The container health check reads this file. Crashes stop updates, so they are never hidden.
@@ -86,6 +96,10 @@ async function main() {
   await close();
   await clientConnection.close();
   await connection.close();
+  // Last, and losing the last spans is not a failed stop, so it says so and stops anyway.
+  await tracing?.shutdown().catch((error: unknown) => {
+    log.warn('worker.tracing_shutdown_failed', { errorCode: errorCode(error) });
+  });
 }
 
 main().catch((error: unknown) => {
