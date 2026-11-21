@@ -350,7 +350,189 @@ services:
       ENSEMUS_CLICK_MERCHANT_ID: ${ENSEMUS_CLICK_MERCHANT_ID:-}
       ENSEMUS_PADDLE_ENVIRONMENT: ${ENSEMUS_PADDLE_ENVIRONMENT:-}
       ENSEMUS_PADDLE_TAX_CATEGORY: ${ENSEMUS_PADDLE_TAX_CATEGORY:-}
-      egress-paddle:
+      # Paddle's API key: a file an operator mounts with an overlay, read by this service only. Naming
+      # Paddle without it stops this worker at start. Its one way out is the egress-paddle route.
+      ENSEMUS_PADDLE_API_KEY_FILE: ${ENSEMUS_PADDLE_API_KEY_FILE:-}
+      ENSEMUS_EGRESS_PADDLE: egress-paddle:2525
+      # Activities at once (worker-limits.ts). Whole number from 1 to 32; anything else stops the worker.
+      # Its database pool is this plus two, so raise PostgreSQL's max_connections with it.
+      ENSEMUS_CONNECTOR_ACTIVITY_SLOTS: ${ENSEMUS_CONNECTOR_ACTIVITY_SLOTS:-8}
+    secrets:
+      - db_connector_url
+      - db_secrets_url
+      - sealing_private_key.pem
+      - temporal_codec_key
+    depends_on:
+      temporal-namespace: { condition: service_completed_successfully }
+      migrate: { condition: service_completed_successfully }
+      egress-gateway: { condition: service_healthy }
+    deploy:
+      resources: { limits: { memory: 1G } }
+
+  # Forwards bytes to the one target an operator set, and refuses to start without one. It holds no
+  # secret and reaches no database. TLS runs through it, so it sees only ciphertext.
+  egress-gateway:
+    <<: *restart
+    profiles: ['connectors']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.12' }
+      outbound: {}
+    environment:
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  # Google Workspace and Microsoft 365 (ADR-038). One gateway per route, each with no target until an
+  # operator sets one, so an install that uses neither has no way out through them. The connector worker
+  # does not wait for them: a route whose gateway is not running fails that request with a code.
+  # The www.googleapis.com route. Same image, same rules: no secret, no database, one target, ciphertext only.
+  egress-google-api:
+    <<: *restart
+    profiles: ['connectors']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.13' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. www.googleapis.com:443, or a site's relay to it.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_GOOGLE_API_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  # The oauth2.googleapis.com route. Same image, same rules: no secret, no database, one target, ciphertext only.
+  egress-google-oauth:
+    <<: *restart
+    profiles: ['connectors']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.14' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. oauth2.googleapis.com:443, or a site's relay to it.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_GOOGLE_OAUTH_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  # The graph.microsoft.com route. Same image, same rules: no secret, no database, one target, ciphertext only.
+  egress-ms-graph:
+    <<: *restart
+    profiles: ['connectors']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.15' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. graph.microsoft.com:443, or a site's relay to it.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_MS_GRAPH_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  # The login.microsoftonline.com route. Same image, same rules: no secret, no database, one target, ciphertext only.
+  egress-ms-login:
+    <<: *restart
+    profiles: ['connectors']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.16' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. login.microsoftonline.com:443, or a site's relay to it.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_MS_LOGIN_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  # The gmail.googleapis.com route (ADR-038 D6). Same image, same rules: no secret, no database, one target, ciphertext only.
+  egress-google-gmail:
+    <<: *restart
+    profiles: ['connectors']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.17' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. gmail.googleapis.com:443, or a site's relay to it.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_GOOGLE_GMAIL_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  # The docs.googleapis.com route (ADR-038 D6). Same image, same rules: no secret, no database, one target, ciphertext only.
+  egress-google-docs:
+    <<: *restart
+    profiles: ['connectors']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.18' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. docs.googleapis.com:443, or a site's relay to it.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_GOOGLE_DOCS_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  # The sheets.googleapis.com route (ADR-038 D6). Same image, same rules: no secret, no database, one target, ciphertext only.
+  egress-google-sheets:
+    <<: *restart
+    profiles: ['connectors']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.19' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. sheets.googleapis.com:443, or a site's relay to it.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_GOOGLE_SHEETS_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  egress-paddle:
     <<: *restart
     profiles: ['connectors']
     build:
@@ -407,7 +589,6 @@ services:
       mail-gateway: { condition: service_healthy }
     deploy:
       resources: { limits: { memory: 256M } }
-
 
   mail-gateway:
     <<: *restart
@@ -531,7 +712,8 @@ services:
       OBJECT_STORAGE_BUCKET: ensemus
       OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
       OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
-    secrets: [db_worker_url, db_dispatcher_url, db_agent_url, objects_access_key, objects_secret_key]
+    secrets:
+      [db_worker_url, db_dispatcher_url, db_agent_url, objects_access_key, objects_secret_key]
 
   postgres:
     <<: *restart

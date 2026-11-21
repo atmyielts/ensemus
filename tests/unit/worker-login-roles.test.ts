@@ -20,12 +20,12 @@ describe('migrations 0700 and 0701', () => {
       const sql = readFileSync(join(migrations, `${name}.sql`), 'utf8');
       expect(sql.split(/\r?\n/)[0]).toBe('-- FLAGGED FOR HUMAN SECURITY REVIEW');
       const journal = JSON.parse(readFileSync(join(migrations, 'meta/_journal.json'), 'utf8')) as {
-        entries: { tag: string; when: number }[];
+        entries: { idx: number; tag: string; when: number }[];
       };
       const entry = journal.entries.find((e) => e.tag === name);
       expect(entry).toBeDefined();
-      // Drizzle applies what is newer than the last applied, so these must come after everything else.
-      const others = journal.entries.filter((e) => !e.tag.startsWith('070'));
+      // Each joined migration must be newer than its predecessors. Other RC features can follow it.
+      const others = journal.entries.filter((e) => e.idx < entry!.idx);
       expect(entry!.when).toBeGreaterThan(Math.max(...others.map((e) => e.when)));
     });
   }
@@ -36,7 +36,9 @@ describe('migrations 0700 and 0701', () => {
   it('0700 refuses to run until every worker login exists, belongs to ensemus_app alone and is ordinary', () => {
     for (const role of WORKERS) expect(sql0700).toContain(`'${role}'`);
     expect(sql0700).toContain('WORKER_ROLE_MISSING');
-    expect(sql0700).toMatch(/rolsuper OR rolcreatedb OR rolcreaterole OR rolbypassrls OR rolreplication/);
+    expect(sql0700).toMatch(
+      /rolsuper OR rolcreatedb OR rolcreaterole OR rolbypassrls OR rolreplication/,
+    );
     expect(sql0700).toContain("p.rolname<>'ensemus_app'");
   });
 
@@ -109,7 +111,9 @@ describe('provisioning the worker logins', () => {
     for (const role of WORKERS) {
       const short = role.replace('ensemus_', '');
       expect(provision).toMatch(
-        new RegExp(`CREATE ROLE ${role} LOGIN PASSWORD :'${short}_password'[^;]*IN ROLE ensemus_app;`),
+        new RegExp(
+          `CREATE ROLE ${role} LOGIN PASSWORD :'${short}_password'[^;]*IN ROLE ensemus_app;`,
+        ),
       );
       expect(upgrade).toContain(`ALTER ROLE ${role} WITH LOGIN PASSWORD :'${short}_password';`);
       for (const script of [firstBoot, job])

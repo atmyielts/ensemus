@@ -176,11 +176,13 @@ export function createWebLatencyProcessor(
  */
 export function metricViews(): ViewOptions[] {
   return [
-    { instrumentName: '*', aggregation: { type: AggregationType.DROP } },
     ...Object.values(METRICS).map((definition) => ({
       instrumentName: definition.name,
       attributesProcessors: [createAllowListAttributesProcessor([...definition.attributes])],
     })),
+    // The SDK reuses the first storage for a matching descriptor, so the fallback must follow
+    // the named streams or it replaces their aggregation with DROP as well.
+    { instrumentName: '*', aggregation: { type: AggregationType.DROP } },
   ];
 }
 

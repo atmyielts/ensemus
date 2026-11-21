@@ -21,10 +21,24 @@ import { parseBackupMetadata } from '../../infrastructure/scripts/pg-backup-rule
 import { repoRoot } from '../helpers/stack';
 
 const SCRIPTS = join(repoRoot, 'infrastructure', 'compose', 'postgres', 'backup');
+// Windows' system bash is a WSL launcher and does not inherit this fixture's environment.
+// Prefer Git's native shells, which use the /c paths that the fixture supplies below.
+const nativeShell = (name: string) => {
+  if (process.platform !== 'win32') return name;
+  const gitShell = join(
+    process.env.ProgramFiles ?? 'C:\\Program Files',
+    'Git',
+    'bin',
+    `${name}.exe`,
+  );
+  return existsSync(gitShell) ? gitShell : name;
+};
+const sh = nativeShell('sh');
+const bash = nativeShell('bash');
 const has = (shell: string, tools: string) =>
   spawnSync(shell, ['-c', `command -v ${tools} >/dev/null`], { stdio: 'ignore' }).status === 0;
-const shReady = has('sh', 'cmp cp mv touch');
-const bashReady = has('bash', 'tar sha256sum stat sed find mapfile');
+const shReady = has(sh, 'cmp cp mv touch');
+const bashReady = has(bash, 'tar sha256sum stat sed find mapfile');
 
 // Git's sh on Windows reads C:\... in a variable, but tar takes "C:" for a remote host, so paths go in POSIX form.
 const shellPath = (path: string) =>
@@ -52,7 +66,7 @@ afterEach(() => {
 
 describe.skipIf(!shReady)('archive-wal.sh', () => {
   const run = (source: string, name: string) => {
-    const result = spawnSync('sh', ['-s', '--', shellPath(source), name], {
+    const result = spawnSync(sh, ['-s', '--', shellPath(source), name], {
       input: readFileSync(join(SCRIPTS, 'archive-wal.sh'), 'utf8'),
       encoding: 'utf8',
       env: {
@@ -148,7 +162,7 @@ describe.skipIf(!bashReady)('base-backup.sh', { timeout: 60_000 }, () => {
     };
     for (const [name, value] of Object.entries(settings))
       if (value !== undefined) env[name] = value;
-    const result = spawnSync('bash', ['-s'], {
+    const result = spawnSync(bash, ['-s'], {
       input: readFileSync(join(SCRIPTS, 'base-backup.sh'), 'utf8'),
       encoding: 'utf8',
       env,
@@ -360,7 +374,7 @@ describe.skipIf(!shReady)('offsite.sh', { timeout: 60_000 }, () => {
       if (value === undefined) delete env[name];
       else env[name] = value;
     }
-    const result = spawnSync('sh', ['-s', '--', ...args], {
+    const result = spawnSync(sh, ['-s', '--', ...args], {
       input: readFileSync(join(SCRIPTS, 'offsite.sh'), 'utf8'),
       encoding: 'utf8',
       env,

@@ -155,6 +155,7 @@ const STOP_REASON = new Map<string, string>(
     TURN_LIMIT: 'It reached the most steps this agent is allowed.',
     TOOL_LIMIT: 'It reached the most tool uses this agent is allowed.',
     TOKEN_LIMIT: 'It reached the most text this agent is allowed to process.',
+    CONTEXT_TOO_LONG: 'The information needed for the next step did not fit the approved model.',
     COST_LIMIT: 'It reached the most this agent is allowed to spend on one run.',
     TIME_LIMIT: 'It reached this agent’s time limit.',
     BUDGET_EXHAUSTED: 'The budget for this has been used up.',

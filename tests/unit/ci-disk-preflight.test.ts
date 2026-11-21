@@ -223,23 +223,28 @@ describe('CI disk preparation preserves the full Linux gate workflow', () => {
   const jobs = [...workflow.matchAll(/^ {2}([a-z-]+):\n/gm)].filter(
     (match) => match.index! > workflow.indexOf('\njobs:'),
   );
-  it('prepares all four build jobs without changing the seven existing jobs', () => {
+  it('prepares all five image build jobs, including reproducibility', () => {
     expect(jobs.map((match) => match[1])).toEqual([
       'quality',
       'integration',
       'proxy',
       'stack',
+      'reproducible',
       'connectors',
       'browser',
       'upgrade',
     ]);
-    expect(workflow.match(/infrastructure\/scripts\/ci-disk-preflight\.mjs/g)).toHaveLength(4);
-    for (const name of ['stack', 'connectors', 'browser', 'upgrade']) {
+    expect(workflow.match(/infrastructure\/scripts\/ci-disk-preflight\.mjs/g)).toHaveLength(5);
+    for (const name of ['stack', 'reproducible', 'connectors', 'browser', 'upgrade']) {
       const at = jobs.findIndex((match) => match[1] === name);
       const section = workflow.slice(jobs[at]!.index, jobs[at + 1]?.index);
       const preflight = section.indexOf('infrastructure/scripts/ci-disk-preflight.mjs');
       const build = section.indexOf(
-        name === 'upgrade' ? 'node infrastructure/scripts/upgrade-gate.mjs' : 'pnpm stack:secrets',
+        name === 'upgrade'
+          ? 'node infrastructure/scripts/upgrade-gate.mjs'
+          : name === 'reproducible'
+            ? 'node infrastructure/scripts/reproducible-gate.mjs'
+            : 'pnpm stack:secrets',
       );
       expect(preflight).toBeGreaterThan(0);
       expect(preflight).toBeLessThan(build);

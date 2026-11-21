@@ -6,6 +6,9 @@ import {
   AggregationTemporality,
   InMemoryMetricExporter,
   PeriodicExportingMetricReader,
+  type DataPoint,
+  type ExponentialHistogram,
+  type Histogram,
   type ResourceMetrics,
 } from '@opentelemetry/sdk-metrics';
 import { InMemorySpanExporter } from '@opentelemetry/sdk-trace';
@@ -55,7 +58,7 @@ const points = (exports: ResourceMetrics[], name: string) =>
     .flatMap((r) => r.scopeMetrics)
     .flatMap((s) => s.metrics)
     .filter((m) => m.descriptor.name === name)
-    .flatMap((m) => m.dataPoints);
+    .flatMap<DataPoint<number | Histogram | ExponentialHistogram>>((m) => m.dataPoints);
 const names = (exports: ResourceMetrics[]) =>
   new Set(
     exports
