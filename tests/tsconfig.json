@@ -8,6 +8,7 @@
     "contract",
     "security",
     "temporal",
-    "eval"
+    "eval",
+    "parity"
   ]
 }

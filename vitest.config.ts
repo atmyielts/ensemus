@@ -64,6 +64,16 @@ export default defineConfig({
           hookTimeout: 120_000,
         },
       },
+      {
+        // Runs against a stack that infrastructure/scripts/parity-gate.mjs started in one mode.
+        test: {
+          name: 'parity',
+          include: ['tests/parity/**/*.parity.ts'],
+          fileParallelism: false,
+          testTimeout: 180_000,
+          hookTimeout: 120_000,
+        },
+      },
     ],
   },
 });

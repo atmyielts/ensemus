@@ -224,6 +224,8 @@ Every milestone must meet the spec's [Definition of Done](../06-delivery/03-acce
 
 **Tickets:** `SEC-07`, `COMM-06`, `UX-23`, `LEGAL-04/05`, `DOC-01/02`.
 
+**M9P** is the part agents can build: the parity suite, the guides and the license inventory, in [ADR-036](../00-foundation/adr/ADR-036-release-readiness.md) and [its slices](m9p-slices.md). The penetration test, the accessibility audit, legal review and the people who follow the guides stay outside it.
+
 **Exit:** no unresolved critical findings. Gates A–F are signed with named evidence. Book vendors well ahead, because their calendars become your critical path.
 
 ### M10: Launch all three modes (S)

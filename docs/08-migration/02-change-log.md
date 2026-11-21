@@ -6,6 +6,7 @@
 - Added [ADR-026](../00-foundation/adr/ADR-026-tombstones-survive-restore.md), which keeps tombstones in a ledger outside the database and re-applies them after a restore, with backup and restore steps in the runbook (M2).
 - Changed ADR-026 so that re-applying the ledger destroys a file that is still whole only once an operator confirms that entry, with a way to quarantine a forged or damaged entry, and added a backlog drain to the runbook's restore (M2).
 - Added [ADR-027](../00-foundation/adr/ADR-027-verified-external-actions.md), proposed, which decides the external action lifecycle, the effect boundary, the connector SDK, webhook verification in a worker, and the network path, with the `integrations` schema and the M3 slice plan (M3).
+- Added [ADR-036](../00-foundation/adr/ADR-036-release-readiness.md), proposed, which decides the mode parity gate, how guides state what is true and reach people, and the license inventory for counsel, with stubs for every guide, the parity harness and the M9P slice plan. Nothing in it has run on a deployed stack (M9P).
 - Moved the suite into the product repository under `docs/`.
 - Added the [M1 evidence report](../06-delivery/evidence/M1-report.md) and updated ticket statuses from test results.
 

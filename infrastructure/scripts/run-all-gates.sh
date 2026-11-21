@@ -78,6 +78,8 @@ gate "backlog and traceability" pnpm check:backlog
 gate "contracts match the spec" pnpm check:contracts
 gate "licenses" pnpm check:licenses
 gate "tools, images and actions are pinned" pnpm check:pins
+gate "license inventory for counsel" pnpm check:inventory
+gate "guides are well formed and accounted for" pnpm check:guides
 # Throwaway containers with no network, and no stack, so it needs no clearing either side.
 gate "deployed proxy: forged address, trusted proxy, hostname" node infrastructure/scripts/check-proxy.mjs
 gate "docs manifest is current" manifest_is_current
@@ -97,6 +99,8 @@ gate "reproducible images (report only)" node infrastructure/scripts/reproducibl
 gate "browser tests in Chromium" fresh browser_tests
 gate "connector effects, receipts and browser" fresh connectors_tests
 gate "connector air-gap: relay only, zero outbound" fresh node infrastructure/scripts/air-gap-gate.mjs --connectors
+# Fails if anything contradicts parity. Says NOT PROVEN, and still passes, until M3 to M8 are wired in.
+gate "mode parity: one release in Cloud, BYOM and Sovereign" fresh node infrastructure/scripts/parity-gate.mjs
 # main holds only the specification so far. Drop --from once a release is on main.
 gate "paused approval across a release upgrade" node infrastructure/scripts/upgrade-gate.mjs --from a603fc9
 
