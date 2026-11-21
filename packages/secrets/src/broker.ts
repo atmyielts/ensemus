@@ -99,6 +99,12 @@ export function openSealed(
 }
 
 /**
+ * The one purpose whose value may be replaced in place, because providers rotate refresh tokens (0562).
+ * The database refuses any other with EN124; this refuses it first, as a read of a missing secret would.
+ */
+export const RESEALABLE_PURPOSE = 'connector_credential';
+
+/**
  * The new seal for a rotated secret, or null when the value sealed now is not the one the caller started
  * from. The caller names what it read by its SHA-256, so a refresh that lost a race to another refresh
  * never overwrites the newer token with its own. The new seal has a fresh data key under the active key,
@@ -112,7 +118,9 @@ export function resealIfCurrent(
   expectedSha256: string,
   replacement: Buffer,
 ): ResealedFields | null {
-  if (row.purpose !== binding.purpose) throw new SecretUnavailable();
+  if (binding.purpose !== RESEALABLE_PURPOSE || row.purpose !== binding.purpose) {
+    throw new SecretUnavailable();
+  }
   const current = openSealed(provider, row, binding);
   try {
     if (!/^[0-9a-f]{64}$/.test(expectedSha256)) return null;
@@ -164,14 +172,16 @@ export class SecretBroker {
 
   /**
    * Replaces a connector credential's value after the provider rotated it (0562). 'stale' when the value
-   * sealed now is not the one the caller read, and nothing is written. A secret that is gone, revoked or
-   * of another purpose throws, as reading it would. `replacement` stays the caller's to wipe.
+   * sealed now is not the one the caller read, and nothing is written. A secret that is gone, revoked,
+   * of another purpose than the binding names, or of any purpose but a connector credential throws, as
+   * reading a missing one would. `replacement` stays the caller's to wipe.
    */
   async reseal(
     binding: { organizationId: string; secretId: string; purpose: string },
     expectedSha256: string,
     replacement: Buffer,
   ): Promise<'stored' | 'stale'> {
+    if (binding.purpose !== RESEALABLE_PURPOSE) throw new SecretUnavailable();
     const result = await resealSecret(this.#db, binding, (row) =>
       resealIfCurrent(this.#provider, row, binding, expectedSha256, replacement),
     );

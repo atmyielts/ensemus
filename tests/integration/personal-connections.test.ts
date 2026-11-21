@@ -32,16 +32,12 @@ import { decideConnectionUse } from '@ensemus/policy';
 import { and, eq, sql } from 'drizzle-orm';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { urls } from '../helpers/stack';
+import { storeSecret } from '@ensemus/secrets/seal';
+import { inFixtureTenant } from '../helpers/fixture-tenant';
+import { secret, urls } from '../helpers/stack';
 
 const google = (scope: string) => `https://www.googleapis.com/auth/${scope}`;
 const MAIL_SCOPES = [google('gmail.readonly'), google('gmail.compose'), google('gmail.send')];
-
-const web: OAuthWebSide = {
-  seal: async () => randomUUID(),
-  redirectUri: 'https://ensemus.example.invalid/api/v1/oauth/callback',
-  platformClientId: () => 'generated-client.apps.example.invalid',
-};
 
 const gmailSend = (TOOL_MANIFESTS as readonly ToolManifest[]).find(
   (tool) => tool.id === 'gmail.send',
@@ -53,6 +49,34 @@ describe('personal connections (ADR-038 D5)', () => {
   /** Writes a member's own connection, which only a consent may make under the application roles. */
   let superuser: pg.Client;
   const db = () => app.db;
+
+  /**
+   * A superuser fixture write, bound to the row's tenant the way every tenant trigger requires, as the
+   * other suites do (tests/helpers/fixture-tenant.ts). Reads stay plain superuser queries.
+   */
+  const fixture = <R extends pg.QueryResultRow = pg.QueryResultRow>(
+    organizationId: string,
+    text: string,
+    values: unknown[],
+  ) => inFixtureTenant(superuser, organizationId, () => superuser.query<R>(text, values));
+
+  const publicKeyPem = secret('sealing_public_key.pem');
+  /**
+   * The web tier's port for this member, sealing for real in their tenant: the attempt's sealed IDs are
+   * foreign keys, so an ID that names no sealed value is refused as a foreign reference.
+   */
+  const webFor = (context: TenantContext): OAuthWebSide => ({
+    seal: async (purpose, plaintext) =>
+      (
+        await storeSecret(db(), context, {
+          publicKeyPem,
+          purpose,
+          plaintext: plaintext.toString('utf8'),
+        })
+      ).secretRef,
+    redirectUri: 'https://ensemus.example.invalid/api/v1/oauth/callback',
+    platformClientId: () => 'generated-client.apps.example.invalid',
+  });
 
   beforeAll(async () => {
     app = openAppDatabase(urls.app());
@@ -100,7 +124,8 @@ describe('personal connections (ADR-038 D5)', () => {
     const sam = await member('sam');
     const connection = async (ownerId: string | null, name: string, scopes: string[]) => {
       const id = randomUUID();
-      await superuser.query(
+      await fixture(
+        organizationId,
         `insert into integrations.connections
            (organization_id, id, connector_type, display_name, state, granted_scopes, owner_membership_id)
          values ($1, $2, 'google_workspace', $3, 'active', $4, $5)`,
@@ -119,7 +144,7 @@ describe('personal connections (ADR-038 D5)', () => {
       db(),
       context,
       { connectorType: 'google_workspace', displayName: 'My account', capabilities },
-      web,
+      webFor(context),
     );
 
   const stateOf = async (context: TenantContext, connectionId: string) => {

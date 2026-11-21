@@ -25,6 +25,15 @@ import { generatedSamlIdp } from '../helpers/saml-idp';
 import { urls } from '../helpers/stack';
 const base = 'https://generated-ensemus.example.invalid',
   password = 'generated self link password with length';
+// Each request comes from an address of its own. better-auth lets one address make three /sign-in
+// requests in ten seconds, so addresses drawn at random from 200 now and then repeated and the
+// start was refused with 429. 198.19.0.0/16, in the benchmarking range, is used by no other suite.
+let addresses = 0;
+const nextAddress = () => {
+  addresses += 1;
+  return `198.19.${Math.floor(addresses / 254) % 256}.${(addresses % 254) + 1}`;
+};
+
 describe('explicit native SAML self-link authority (0421)', () => {
   const app = openAppDatabase(urls.app()),
     authDriver = new pg.Client({ connectionString: urls.auth() });
@@ -64,7 +73,7 @@ describe('explicit native SAML self-link authority (0421)', () => {
           origin: base,
           'content-type': 'application/json',
           cookie,
-          'x-forwarded-for': `192.0.2.${1 + Math.floor(Math.random() * 200)}`,
+          'x-forwarded-for': nextAddress(),
         },
         body: JSON.stringify(body),
       }),
@@ -288,7 +297,7 @@ describe('explicit native SAML self-link authority (0421)', () => {
         incoming = new Headers({
           cookie: attempt.cookie,
           'user-agent': 'Generated real native switch',
-          'x-forwarded-for': `192.0.2.${1 + Math.floor(Math.random() * 200)}`,
+          'x-forwarded-for': nextAddress(),
         });
       const outcome = await runtime.submitCredentials(
         mode === 'sign-in'

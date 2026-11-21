@@ -14,6 +14,13 @@ services:
   dispatcher: *dns
   connector-worker: *dns
   egress-gateway: *dns
+  egress-google-api: *dns
+  egress-google-oauth: *dns
+  egress-ms-graph: *dns
+  egress-ms-login: *dns
+  egress-google-gmail: *dns
+  egress-google-docs: *dns
+  egress-google-sheets: *dns
   smtp-sink: *dns
   fake-model: *dns
   fake-model-test-port: *dns

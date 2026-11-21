@@ -585,11 +585,14 @@ describe('usage and budgets, as the real roles', () => {
 
     it('keeps one row per scope and month, leaves spending alone, and audits with no amount', async () => {
       const tenant = await freshTenant();
-      const first = await setBudget(app.db, tenant.owner, organizationBudget(100));
-      const again = await setBudget(app.db, tenant.owner, organizationBudget(200));
+      // Amounts no ID or timestamp in an audit row could hold by chance, as a time ending .200Z once did.
+      const FIRST = 314_159_265;
+      const SECOND = 271_828_182;
+      const first = await setBudget(app.db, tenant.owner, organizationBudget(FIRST));
+      const again = await setBudget(app.db, tenant.owner, organizationBudget(SECOND));
       expect(again.budgetId).toBe(first.budgetId);
       expect(await budgetRow(tenant, first.budgetId)).toMatchObject({
-        limitMicros: 200,
+        limitMicros: SECOND,
         reservedMicros: 0,
         spentMicros: 0,
       });
@@ -605,7 +608,9 @@ describe('usage and budgets, as the real roles', () => {
           ),
       );
       expect(audits).toHaveLength(2);
-      expect(JSON.stringify(audits)).not.toContain('200');
+      const audited = JSON.stringify(audits);
+      expect(audited).not.toContain(String(FIRST));
+      expect(audited).not.toContain(String(SECOND));
     });
 
     it('refuses a budget on another tenant’s agent version, as it would a mistyped one', async () => {
