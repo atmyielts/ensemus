@@ -58,6 +58,7 @@ import { SIGNATURE_SCHEMES } from '@ensemus/domain/webhook';
 import { storeSecret } from '@ensemus/secrets/seal';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import { z } from 'zod';
+import { noteClientAddress } from './client-address';
 import { getRestoreGate, getRuntime } from './runtime';
 
 // The shared wrapper for /api/v1 (API-10). Every route gets the same order of checks: who is this,
@@ -228,6 +229,7 @@ export function apiRoute<S extends z.ZodType<{ organizationId: string }>>(
       const { app, readInteractiveSession, config } = getRuntime();
       const session = await readInteractiveSession(request.headers);
       if (!session) throw unauthenticated();
+      noteClientAddress(request.headers.get('x-forwarded-for'), session.user.id);
       if (!READ_METHODS.has(request.method)) assertOwnOrigin(request, config.publicUrl);
 
       const params = paramsSchema.safeParse(await route.params);
