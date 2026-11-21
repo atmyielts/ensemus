@@ -19,7 +19,7 @@ import { createServiceContext } from '@ensemus/database/service';
 import { eq, sql } from 'drizzle-orm';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { seedBillingAccount, seedPlan } from '../helpers/saas';
+import { seedBillingAccount, seedPlan, seedTaxTreatment } from '../helpers/saas';
 import { urls } from '../helpers/stack';
 import { paymentAgents, paymentTenant } from './saas-payment-fixture';
 
@@ -34,7 +34,10 @@ const settings: CheckoutSettings = {
 describe('hosted checkout is moved only by an attested provider word', () => {
   const database = openAppDatabase(urls.app()),
     auth = new pg.Client({ connectionString: urls.auth() });
-  beforeAll(() => auth.connect());
+  beforeAll(async () => {
+    await auth.connect();
+    await seedTaxTreatment();
+  });
   afterAll(async () => {
     await auth.end();
     await database.close();
@@ -49,7 +52,7 @@ describe('hosted checkout is moved only by an attested provider word', () => {
       planVersionId: plan.planVersionId,
       startsAt: new Date(Date.now() - 40 * 86400000),
     });
-    await draftDuePeriodInvoices(
+    const drafted = await draftDuePeriodInvoices(
       database.db,
       service,
       {
@@ -61,6 +64,7 @@ describe('hosted checkout is moved only by an attested provider word', () => {
       },
       new Date(),
     );
+    expect(drafted.refusedCode).toBeNull();
     const invoice = (await listInvoices(database.db, owner, {})).items[0]!;
     await issueInvoice(database.db, service, {
       invoiceId: invoice.id,

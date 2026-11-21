@@ -95,7 +95,7 @@ describe('platform mail', () => {
     if (options.password !== false)
       await auth.query(
         `insert into identity.accounts (user_id, account_id, provider_id, password)
-         values ($1, $1::text, 'credential', 'not-a-real-hash')`,
+         values ($1::uuid, $1::text, 'credential', 'not-a-real-hash')`,
         [id],
       );
     return { id, email };

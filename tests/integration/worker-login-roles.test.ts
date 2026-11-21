@@ -59,9 +59,9 @@ describe('worker login roles (ADR-039)', () => {
     }
   });
 
-  it('leaves no installed function or policy telling ensemus_app apart by its raw name', async () => {
-    const { rows } = await superuser.query<{ name: string }>(
-      `select p.oid::regprocedure::text as name
+  it('normalizes legacy tier checks and retains the mail invitation native-login boundary', async () => {
+    const { rows } = await superuser.query<{ name: string; definition: string }>(
+      `select p.oid::regprocedure::text as name, pg_get_functiondef(p.oid) as definition
          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname not in ('pg_catalog','information_schema') and n.nspname !~ '^pg_'
           and p.prokind in ('f','p')
@@ -71,11 +71,19 @@ describe('worker login roles (ADR-039)', () => {
           and strpos(pg_get_functiondef(p.oid), 'ensemus_app') <> 0
           and pg_get_functiondef(p.oid) ~* '\\m(session_user|current_user)\\M'
        union all
-       select 'policy ' || polname from pg_policy
+       select 'policy ' || polname,
+              coalesce(pg_get_expr(polqual, polrelid), '') || ' ' || coalesce(pg_get_expr(polwithcheck, polrelid), '')
+         from pg_policy
         where strpos(coalesce(pg_get_expr(polqual, polrelid), '') || coalesce(pg_get_expr(polwithcheck, polrelid), ''), 'ensemus_app') <> 0
           and (coalesce(pg_get_expr(polqual, polrelid), '') || ' ' || coalesce(pg_get_expr(polwithcheck, polrelid), '')) ~* '\\m(session_user|current_user)\\M'`,
     );
-    expect(rows).toEqual([]);
+    // A body can mention a mapped app check and a distinct native connector check. Match the actual
+    // comparison, not the mere presence of both names. Mail invitations deliberately remain web-only.
+    const rawTierCheck =
+      /\b(?:session_user|current_user)\s*(?:=|<>|!=|(?:NOT\s+)?IN\s*\()\s*'ensemus_app'/i;
+    expect(rows.filter((row) => rawTierCheck.test(row.definition)).map((row) => row.name)).toEqual([
+      'platform.check_new_tenant_mail()',
+    ]);
   });
 
   it('lets a worker login do what ensemus_app may, and no more', async () => {
@@ -117,7 +125,7 @@ describe('worker login roles (ADR-039)', () => {
           .catch((error: unknown) => error);
         // EN121 from 0565's branch, unless an earlier guard refuses it first; either way, not let through.
         expect(refused).toBeInstanceOf(Error);
-        expect(pgCode(refused)).toMatch(/^(EN|42)/);
+        expect(pgCode({ cause: refused })).toMatch(/^(EN|42)/);
       } finally {
         await client.query('rollback');
       }

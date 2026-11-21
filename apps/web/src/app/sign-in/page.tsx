@@ -60,7 +60,9 @@ export default async function SignInPage({
           Does your company have its own sign-in?{' '}
           <Link href="/sign-in/sso">Sign in through your company</Link>
         </li>
-        <li><Link href="/help">Help</Link></li>
+        <li>
+          <Link href="/help">Help</Link>
+        </li>
       </ul>
     </main>
   );
