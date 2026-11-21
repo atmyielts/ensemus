@@ -652,3 +652,32 @@ repository LF rule. Pre-normalization bytes are preserved under ignored local ev
 files now exactly match their committed blobs; SQL is unchanged. A second fresh ordinary-migrator
 installation matched all 159 committed source hashes. The evidence above now records this final
 proof and source hashes. No existing database migration ledger was rewritten.
+
+
+## Caller-private replay responses (API-12, ADR-024 D4)
+
+A generated native-role reproduction found that platform.idempotency_keys protected company identity
+but did not enforce the documented per-person response boundary. Same-company members and native
+workers with copied human bindings could read a generated private response, and a person could insert
+a replay row for another member. Migration 0750 adds restrictive SELECT and INSERT policies requiring
+the native web login, user actor, exact membership/user match and active membership. It leaves
+existing erasure metadata and DELETE paths intact and adds no security-definer function, grant,
+configuration, API or event. Human SQL security review is pending. The same SQL applies to all modes.
+
+All 22 native cases across private replay readers, existing replay/race semantics and business actions
+passed. The stricter denied-insert assertions verify PostgreSQL 42501. A second run passed all ten
+private-reader/replay cases but exposed seven failures in the existing erasure suite: the joined
+expansion table inventory is not classified/granted for erasure, first naming
+integrations.business_record_actions. The erasure path correctly refuses incomplete grants. This is
+a separate outstanding joined-platform integration gap, not a passing lifecycle qualification.
+All five production business HTTP cases still passed after 0750. Test TypeScript and focused ESLint
+passed. A fresh ordinary-migrator installation applied 160 migrations and matched all 160 source
+hashes, including canonical LF bytes for 0750; both policies are restrictive. Evidence and hashes are
+in evidence/rc-idempotency-person-20261121.json. No real stored response or credential was inspected;
+the reproduction used generated marker data only. No tenant data was erased.
+
+The complete unit rerun after 0750 again passed 9,669 cases with the same two release gates, four
+expected failures and 43 skips across 379 files, in 53.48 seconds. A catalog-only audit names 24 joined
+content tables without erasure reach across business records, federation, marketplace, meetings,
+sandbox, skills and residency requirements; this needs deliberate lifecycle integration, not a blanket
+grant. No real content or tenant rows were read by that inventory query.
