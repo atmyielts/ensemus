@@ -961,6 +961,11 @@
       "sha256": "e9a868c1fc85ab4eb0525f2e35796612b4333e7b510ef641d1b62311f28795a1"
     },
     {
+      "path": "06-delivery/evidence/rc-suite-tools-native-20261121.json",
+      "size_bytes": 1183,
+      "sha256": "b7d889e636cb135d083fcbae116a505004461e826c2a8bd5c2615ac506e5d8b7"
+    },
+    {
       "path": "06-delivery/hx-slices.md",
       "size_bytes": 34346,
       "sha256": "602a6120f9760700bdc06c510ce706a9ef9f46292a0f7a06b422dbc8035b3273"
@@ -1022,8 +1027,8 @@
     },
     {
       "path": "06-delivery/release-candidate-2026-11-21.md",
-      "size_bytes": 57212,
-      "sha256": "fdfa0c825643b3bccabae57d4025447610d9765cdbced41f7293b64d635d0826"
+      "size_bytes": 58251,
+      "sha256": "05b796335d0a156eb7553766c6ca3bb7210922299e6559480a415035bd518f72"
     },
     {
       "path": "06-delivery/release-candidate-source-ledger.json",

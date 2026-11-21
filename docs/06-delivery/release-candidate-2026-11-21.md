@@ -718,3 +718,17 @@ connection case in suite-tools on 2026-11-11. These are historical branch result
 CI acceptance. The repository is currently public; no new candidate source was pushed or published.
 The candidate still needs current joined integration/CI, complete portability and erasure coverage,
 customer connector setup and the wider implementation and external acceptance gates above.
+
+
+## Current suite connector regression (ADR-038 D6, QA-007)
+
+Running the complete current suite-tools native file reproduced six failures: the test dispatch helper
+used the web login with service-shaped bindings, which the native Work/effect reader boundary now
+refuses. The helper and worker classification read now use the actual connector login. An explicit
+negative check verifies the same web-login dispatch is refused with no attempt row before the actual
+connector succeeds. All 24 final cases passed in 25.06 seconds, including initiator deactivation,
+provider scope loss, revoked connection, lost source/folder access and member-owned consent. The
+historical PR #2 consent case also passed. Test TypeScript and focused lint passed. This change is to
+the fixture and denied-role coverage only; no production grant, policy, service or assertion was
+weakened. Exact test/log hashes are in evidence/rc-suite-tools-native-20261121.json. It does not stand
+in for a current candidate Actions run or a complete joined integration rerun.

@@ -416,7 +416,7 @@ describe('suite tools (ADR-038 D6)', () => {
       await synced(t.organizationId, orgDocs, 'lunch-menu', 'internal');
       const service = createServiceContext(t.organizationId);
       const classes = (ids: string[], connectorType = 'google_workspace') =>
-        withTenantTx(db(), service, (tx) =>
+        withTenantTx(connector.db, service, (tx) =>
           sourceClassesInTenant(tx, { connectorType, externalIds: ids }),
         );
       // Alex's own connection synced nothing: the organization's sync is what decides.
@@ -478,7 +478,7 @@ describe('suite tools (ADR-038 D6)', () => {
       return proposed.externalActionId;
     }
     const begin = (t: Tenant, id: string) =>
-      beginAttempt(db(), createServiceContext(t.organizationId), {
+      beginAttempt(connector.db, createServiceContext(t.organizationId), {
         externalActionId: id,
         runId: randomUUID(),
       });
@@ -491,6 +491,14 @@ describe('suite tools (ADR-038 D6)', () => {
     it('sends what nothing has changed, with the connection’s scopes for the connector', async () => {
       const t = await tenant();
       const id = await approved(t, mailOf(t));
+      // A service-shaped actor on the web login is not a connector worker (0741–0746).
+      await expect(
+        beginAttempt(db(), createServiceContext(t.organizationId), {
+          externalActionId: id,
+          runId: randomUUID(),
+        }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      expect(await attempts(id)).toBe(0);
       expect(await begin(t, id)).toMatchObject({
         kind: 'send',
         attempt: {
