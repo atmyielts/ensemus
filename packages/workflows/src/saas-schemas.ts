@@ -61,3 +61,15 @@ export type OffboardingStepResult =
   | { kind: 'continue' }
   | { kind: 'wait'; untilMs: number }
   | { kind: 'stop'; outcome: OffboardingOutcome };
+
+/** ADR-032 D4a. A Paddle checkout: made once, then reconciled against Paddle's own transaction. */
+export const checkoutInputSchema = z.strictObject({
+  organizationId: z.uuid(),
+  sessionId: z.uuid(),
+});
+export type CheckoutInput = z.infer<typeof checkoutInputSchema>;
+export const checkoutWorkflowIdFor = (input: CheckoutInput) =>
+  `checkout-${input.organizationId}-${input.sessionId}`;
+export type CheckoutOpenStep = 'open' | 'cancelled' | 'settled';
+export type CheckoutLookupStep = 'settled' | 'still_open' | 'needs_person';
+export type CheckoutResult = { sessionId: string; outcome: CheckoutOpenStep | CheckoutLookupStep };

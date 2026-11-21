@@ -3,6 +3,7 @@
 // checkout row, and the exact protocol answer. No price, fee, rate or time limit of ours is here. The only
 // number below that is not a currency rule is Payme's own 12-hour transaction timeout, from its protocol.
 import type {
+  CheckoutCallback,
   CheckoutProvider,
   CheckoutState,
   ClickCall,
@@ -10,6 +11,7 @@ import type {
   PaddleFact,
   PaymeCall,
 } from '@ensemus/domain/checkout';
+import { isOrderRef } from '@ensemus/domain/checkout';
 import type { Micros } from './money';
 
 export type { CheckoutProvider, CheckoutState };
@@ -651,20 +653,19 @@ export function decidePaddleLookup(
 
 // --- What the web tier answers by itself, before or without the worker. None of these reveals a row.
 
-/** Payme: not POST, not JSON, refused credentials, or no answer in time. */
+/** Payme: not POST, not JSON, not a JSON-RPC call, refused credentials, or no answer in time. */
 export function paymeFallbackReply(
-  kind: 'not_post' | 'parse' | 'unauthorized' | 'unavailable',
+  kind: 'not_post' | 'parse' | 'invalid_request' | 'unauthorized' | 'unavailable',
   rpcId: JsonRpcId = null,
 ): string {
-  const code =
-    kind === 'not_post'
-      ? PAYME_ERRORS.notPost
-      : kind === 'parse'
-        ? PAYME_ERRORS.parse
-        : kind === 'unauthorized'
-          ? PAYME_ERRORS.insufficientPrivilege
-          : PAYME_ERRORS.system;
-  return paymeErrorReply(rpcId, code);
+  const codes = {
+    not_post: PAYME_ERRORS.notPost,
+    parse: PAYME_ERRORS.parse,
+    invalid_request: PAYME_ERRORS.invalidRequest,
+    unauthorized: PAYME_ERRORS.insufficientPrivilege,
+    unavailable: PAYME_ERRORS.system,
+  } as const;
+  return paymeErrorReply(rpcId, codes[kind]);
 }
 
 /** Click: a refused signature, a request that could not be read, or no answer in time. */
@@ -699,4 +700,153 @@ export function checkoutDisplay(state: CheckoutState): CheckoutDisplay {
     case 'refunded':
       return 'refunded';
   }
+}
+
+// --- The links a customer is sent to. Built here, with no contact, from values checked so none can add a
+// parameter of its own.
+
+export const PAYME_CHECKOUT_ORIGINS = {
+  live: 'https://checkout.paycom.uz',
+  sandbox: 'https://test.paycom.uz',
+} as const;
+export type CheckoutEnvironment = keyof typeof PAYME_CHECKOUT_ORIGINS;
+
+/**
+ * The checkout page link: base64 of `m=…;ac.order_id=…;a=…;c=…;l=…`, appended to the checkout origin.
+ * Every value is checked so none can add a parameter of its own.
+ */
+export function paymeCheckoutUrl(input: {
+  environment: CheckoutEnvironment;
+  merchantId: string;
+  orderRef: string;
+  amountTiyin: bigint;
+  returnUrl: string;
+  language: 'ru' | 'uz' | 'en';
+}): string {
+  if (
+    !/^[A-Za-z0-9]{1,64}$/.test(input.merchantId) ||
+    !isOrderRef(input.orderRef) ||
+    input.amountTiyin <= 0n ||
+    !/^https:\/\/[^;\s]{1,1024}$/.test(input.returnUrl) ||
+    !['ru', 'uz', 'en'].includes(input.language)
+  )
+    throw new Error('PAYME_CHECKOUT_INVALID');
+  const params = [
+    `m=${input.merchantId}`,
+    `ac.${PAYME_ACCOUNT_FIELD}=${input.orderRef}`,
+    `a=${input.amountTiyin}`,
+    `c=${input.returnUrl}`,
+    `l=${input.language}`,
+  ].join(';');
+  return `${PAYME_CHECKOUT_ORIGINS[input.environment]}/${Buffer.from(params).toString('base64')}`;
+}
+
+export const CLICK_PAY_ORIGIN = 'https://my.click.uz';
+const CLICK_DIGITS = /^[0-9]{1,20}$/;
+
+/** The payment page link. `transaction_param` is our order reference, which Click sends back. */
+export function clickCheckoutUrl(input: {
+  serviceId: string;
+  merchantId: string;
+  orderRef: string;
+  amountTiyin: bigint;
+  returnUrl: string;
+}): string {
+  if (
+    !CLICK_DIGITS.test(input.serviceId) ||
+    !CLICK_DIGITS.test(input.merchantId) ||
+    !isOrderRef(input.orderRef) ||
+    input.amountTiyin <= 0n ||
+    !/^https:\/\/\S{1,1024}$/.test(input.returnUrl)
+  )
+    throw new Error('CLICK_CHECKOUT_INVALID');
+  const url = new URL('/services/pay', CLICK_PAY_ORIGIN);
+  url.searchParams.set('service_id', input.serviceId);
+  url.searchParams.set('merchant_id', input.merchantId);
+  url.searchParams.set('amount', tiyinToClickAmount(input.amountTiyin));
+  url.searchParams.set('transaction_param', input.orderRef);
+  url.searchParams.set('return_url', input.returnUrl);
+  return url.toString();
+}
+
+// --- What the connector worker attests for one verified call, before any row is read.
+
+/**
+ * The facts of a call that the secrets-role attestation binds: which move it can justify (`action`), the
+ * row it can reach (`route`: an order or a provider transaction), and the provider's own reference, amount
+ * and currency. `route` is computed by the caller with the same digest as SQL's `billing.checkout_route`.
+ */
+export type CheckoutAttestationFacts = {
+  processor: CheckoutProvider;
+  action: string;
+  route: { kind: 'order' | 'txn'; ref: string } | null;
+  txnRef: string | null;
+  amountMinor: bigint | null;
+  currency: string | null;
+};
+
+const ORDER = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+export function checkoutAttestationFacts(
+  callback: CheckoutCallback,
+): CheckoutAttestationFacts | null {
+  if (callback.provider === 'payme') {
+    switch (callback.method) {
+      case 'CheckPerformTransaction':
+        return null;
+      case 'CreateTransaction':
+        return {
+          processor: 'payme',
+          action: 'payme.CreateTransaction',
+          route:
+            callback.orderRef && ORDER.test(callback.orderRef)
+              ? { kind: 'order', ref: callback.orderRef }
+              : null,
+          txnRef: callback.paymeTxnId,
+          amountMinor: parseMinor(callback.amount),
+          currency: 'UZS',
+        };
+      case 'PerformTransaction':
+      case 'CancelTransaction':
+        return {
+          processor: 'payme',
+          action: `payme.${callback.method}`,
+          route: { kind: 'txn', ref: callback.paymeTxnId },
+          txnRef: callback.paymeTxnId,
+          amountMinor: null,
+          currency: null,
+        };
+      case 'GetStatement':
+        return {
+          processor: 'payme',
+          action: 'payme.GetStatement',
+          route: null,
+          txnRef: null,
+          amountMinor: null,
+          currency: null,
+        };
+      default:
+        return null;
+    }
+  }
+  if (callback.provider === 'click') {
+    if ((callback.action !== 0 && callback.action !== 1) || !ORDER.test(callback.orderRef))
+      return null;
+    return {
+      processor: 'click',
+      action: callback.action === 0 ? 'click.prepare' : 'click.complete',
+      route: { kind: 'order', ref: callback.orderRef },
+      txnRef: callback.clickTransId,
+      amountMinor: clickAmountToTiyin(callback.amount),
+      currency: 'UZS',
+    };
+  }
+  return {
+    processor: 'paddle',
+    action: `paddle.${callback.kind}`,
+    route: { kind: 'txn', ref: callback.transactionId },
+    txnRef: callback.transactionId,
+    amountMinor: callback.kind === 'paid' ? parseMinor(callback.grandTotalMinor) : null,
+    currency: callback.kind === 'paid' ? callback.currency : null,
+  };
 }

@@ -45,6 +45,7 @@
     "./credit-activities": "./src/credit-activities.ts",
     "./tax-activities": "./src/tax-activities.ts",
     "./payment-activities": "./src/payment-activities.ts",
+    "./checkout-activities": "./src/checkout-activities.ts",
     "./retention-activities": "./src/retention-activities.ts",
     "./offboarding-activities": "./src/offboarding-activities.ts"
   },

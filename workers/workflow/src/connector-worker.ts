@@ -40,6 +40,9 @@ import {
 } from './connector-composition';
 import { createPaymentRuntimeOptions } from './payment-composition';
 import { createPaymentWebhookAttester } from './payment-webhook-attester';
+import { composeCheckout, createCheckoutAttesters } from './checkout-composition';
+import { createStandingAgentHaltPort } from '@ensemus/application/saas/standing-agent-port';
+import { createCheckoutConnectorActivities } from '@ensemus/workflows/checkout-activities';
 
 const log = createLogger('connector-worker');
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -74,6 +77,9 @@ async function main() {
     platformClients,
     messageIdDomain,
   });
+  // Hosted checkout (ADR-032 D4a). Nothing unless the server names a provider; then only what it names.
+  const checkout = composeCheckout();
+  const checkoutAttesters = createCheckoutAttesters(secretsDb.db);
   const deps = {
     database: app.db,
     registry: createConnectorRegistry([
@@ -84,22 +90,26 @@ async function main() {
       createInboundConnector(),
       createGoogleWorkspaceConnector(suiteDeps),
       createMicrosoft365Connector(suiteDeps),
+      ...checkout.connectors,
     ]),
     secrets,
     network: connectorNetwork(),
   };
-  // M8 (ADR-032 D4). Nothing here until the owner chooses a processor and a tax provider, and both have been
-  // through outside security review. So a charge is refused, and `get` answering null is what says why.
+  // M8 (ADR-032 D4, D4a). The owner chose Paddle, Payme and Click (2026-11-11), all customer-initiated: the
+  // registry answers only the ones this server names, and each answers a merchant-initiated charge with
+  // `not_sent` and no contact. Unconfigured, `get` answers null and every charge is refused as before.
+  // Paddle's tax applies only to Paddle's currencies; any other invoice keeps its approved treatment.
   const saas = loadSaasConfig();
   const paymentDeps = {
     ...deps,
     billingEnabled: saas.billingEnabled,
     paymentProcessor: saas.paymentProcessor,
-    processors: { get: () => null },
+    processors: checkout.processors,
     billingOrganizationId: saas.billingOrganizationId,
     billingConnectionId: saas.billingConnectionId,
-    tax: null,
+    tax: checkout.tax,
   };
+  const agents = createStandingAgentHaltPort();
   const worker = await Worker.create({
     connection,
     namespace: process.env.TEMPORAL_NAMESPACE ?? 'default',
@@ -109,6 +119,8 @@ async function main() {
       ...createWebhookActivities({
         ...deps,
         attestPaymentWebhook: createPaymentWebhookAttester(secretsDb.db),
+        checkoutWebhook: { billingOrganizationId: saas.billingOrganizationId, agents },
+        attestCheckoutCallback: checkoutAttesters.callback,
         paymentWebhook: {
           billingOrganizationId: saas.billingOrganizationId,
           billingConnectionId: saas.billingConnectionId,
@@ -141,6 +153,12 @@ async function main() {
         createPaymentRuntimeOptions(paymentDeps, secretsDb.db),
       ),
       ...createTaxActivities(paymentDeps),
+      ...createCheckoutConnectorActivities({
+        database: app.db,
+        paddle: checkout.paddle,
+        attestLookup: checkoutAttesters.lookup,
+        agents,
+      }),
     },
     dataConverter: {
       payloadCodecs: [new AesGcmPayloadCodec(readSecret('TEMPORAL_CODEC_KEY'))],

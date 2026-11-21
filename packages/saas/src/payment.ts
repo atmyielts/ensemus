@@ -62,6 +62,12 @@ export const PAYMENT_CODES = [
   'REFUSED_BY_EVENT',
   'CONFIRMED_BY_PERSON',
   'DENIED_BY_PERSON',
+  /** Hosted checkout (ADR-032 D4a): closed by the customer before any provider transaction existed. */
+  'CHECKOUT_CLOSED',
+  /** Hosted checkout: the provider ended its transaction without taking the money. */
+  'CHECKOUT_CANCELLED',
+  /** Hosted checkout: the provider's attested word that it took the money. */
+  'CHECKOUT_PAID',
 ] as const;
 export type PaymentCode = (typeof PAYMENT_CODES)[number];
 

@@ -7,14 +7,14 @@ import { isOrderRef, type JsonRpcId, type PaymeCall } from '@ensemus/domain/chec
 import { PAYME_AUTHORIZATION_DIGEST_HEADER } from '@ensemus/domain/webhook';
 import type { PaymentProcessor } from '@ensemus/saas/payment';
 import { boundedRpcId, PAYME_ACCOUNT_FIELD } from '@ensemus/saas/checkout';
+export {
+  PAYME_CHECKOUT_ORIGINS,
+  paymeCheckoutUrl,
+  type CheckoutEnvironment,
+} from '@ensemus/saas/checkout';
 import { MalformedWebhook, type WebhookVerification } from '../../index';
 
 export const PAYME_LOGIN = 'Paycom';
-export const PAYME_CHECKOUT_ORIGINS = {
-  live: 'https://checkout.paycom.uz',
-  sandbox: 'https://test.paycom.uz',
-} as const;
-export type CheckoutEnvironment = keyof typeof PAYME_CHECKOUT_ORIGINS;
 
 const sha256 = (value: string | Uint8Array) => createHash('sha256').update(value).digest('hex');
 
@@ -123,36 +123,6 @@ export function parsePaymeCall(body: Uint8Array): PaymeCall {
       // an owner decision this release does not make (see the runbook).
       return { provider: 'payme', rpcId, method: 'unsupported' };
   }
-}
-
-/**
- * The checkout page link: base64 of `m=…;ac.order_id=…;a=…;c=…;l=…`, appended to the checkout origin.
- * Every value is checked so none can add a parameter of its own.
- */
-export function paymeCheckoutUrl(input: {
-  environment: CheckoutEnvironment;
-  merchantId: string;
-  orderRef: string;
-  amountTiyin: bigint;
-  returnUrl: string;
-  language: 'ru' | 'uz' | 'en';
-}): string {
-  if (
-    !/^[A-Za-z0-9]{1,64}$/.test(input.merchantId) ||
-    !isOrderRef(input.orderRef) ||
-    input.amountTiyin <= 0n ||
-    !/^https:\/\/[^;\s]{1,1024}$/.test(input.returnUrl) ||
-    !['ru', 'uz', 'en'].includes(input.language)
-  )
-    throw new Error('PAYME_CHECKOUT_INVALID');
-  const params = [
-    `m=${input.merchantId}`,
-    `ac.${PAYME_ACCOUNT_FIELD}=${input.orderRef}`,
-    `a=${input.amountTiyin}`,
-    `c=${input.returnUrl}`,
-    `l=${input.language}`,
-  ].join(';');
-  return `${PAYME_CHECKOUT_ORIGINS[input.environment]}/${Buffer.from(params).toString('base64')}`;
 }
 
 /**

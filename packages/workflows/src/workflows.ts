@@ -176,5 +176,7 @@ export { organizationExportWorkflow } from './portability-workflow';
 // M8 (ADR-032). The same reason.
 export { billingCycleWorkflow } from './billing-cycle-workflow';
 export { paymentEventWorkflow, paymentWorkflow } from './payment-workflow';
+// ADR-032 D4a. Its own file and its own history.
+export { checkoutWorkflow } from './checkout-workflow';
 export { retentionSweepWorkflow } from './retention-workflow';
 export { tenantOffboardingWorkflow } from './offboarding-workflow';

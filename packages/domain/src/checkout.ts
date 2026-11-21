@@ -7,8 +7,12 @@ export type CheckoutProvider = (typeof CHECKOUT_PROVIDERS)[number];
 export const isCheckoutProvider = (value: unknown): value is CheckoutProvider =>
   typeof value === 'string' && (CHECKOUT_PROVIDERS as readonly string[]).includes(value);
 
-/** A connection of this type, in the deployment's own organization, owns a provider's inbound address. */
-export const CHECKOUT_CONNECTOR_PREFIX = 'checkout_';
+/**
+ * A connection of this type, in the deployment's own organization, owns a provider's inbound address. It
+ * starts with `payment_` so the reviewed payment webhook envelope check (0512) covers it unchanged, and the
+ * rest can never equal a charge processor's `payment_<processor>`.
+ */
+export const CHECKOUT_CONNECTOR_PREFIX = 'payment_checkout_';
 
 /**
  * `opening`: a Paddle transaction is being created. `open`: the customer can pay. `reserved`: the provider

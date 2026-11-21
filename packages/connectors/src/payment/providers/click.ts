@@ -4,12 +4,11 @@
 // + sign_time), the prepare id only on Complete. Amounts are so'm with up to two decimals. We can ask Click
 // about one payment through the Merchant API, with `Auth: merchant_user_id:sha1(timestamp + key):timestamp`.
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { isOrderRef, type ClickCall } from '@ensemus/domain/checkout';
+import type { ClickCall } from '@ensemus/domain/checkout';
 import type { PaymentProcessor } from '@ensemus/saas/payment';
-import { tiyinToClickAmount } from '@ensemus/saas/checkout';
+export { CLICK_PAY_ORIGIN, clickCheckoutUrl } from '@ensemus/saas/checkout';
 import { MalformedWebhook, type WebhookVerification } from '../../index';
 
-export const CLICK_PAY_ORIGIN = 'https://my.click.uz';
 /** The Merchant API's host, fixed in code as the TLS name its egress route may reach. */
 export const CLICK_API_TLS_NAME = 'api.click.uz';
 
@@ -115,31 +114,6 @@ export function parseClickCall(body: Uint8Array, expectedServiceId: string): Cli
     amount: form.amount,
     error: Number(form.error),
   };
-}
-
-/** The payment page link. `transaction_param` is our order reference, which Click sends back. */
-export function clickCheckoutUrl(input: {
-  serviceId: string;
-  merchantId: string;
-  orderRef: string;
-  amountTiyin: bigint;
-  returnUrl: string;
-}): string {
-  if (
-    !DIGITS.test(input.serviceId) ||
-    !DIGITS.test(input.merchantId) ||
-    !isOrderRef(input.orderRef) ||
-    input.amountTiyin <= 0n ||
-    !/^https:\/\/\S{1,1024}$/.test(input.returnUrl)
-  )
-    throw new Error('CLICK_CHECKOUT_INVALID');
-  const url = new URL('/services/pay', CLICK_PAY_ORIGIN);
-  url.searchParams.set('service_id', input.serviceId);
-  url.searchParams.set('merchant_id', input.merchantId);
-  url.searchParams.set('amount', tiyinToClickAmount(input.amountTiyin));
-  url.searchParams.set('transaction_param', input.orderRef);
-  url.searchParams.set('return_url', input.returnUrl);
-  return url.toString();
 }
 
 /** The Merchant API's `Auth` header for one request. */

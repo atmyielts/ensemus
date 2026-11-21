@@ -29,6 +29,7 @@ import {
   webhookInboxEventId,
   webhookRequestDigest,
   type SignatureScheme,
+  type StoredSignatureScheme,
   type WebhookDeliveryState,
   type WebhookEffect,
   type WebhookIngressOutcome,
@@ -68,14 +69,34 @@ export async function ingestWebhookDelivery(
     assertServing?: (context: TenantContext) => Promise<void>;
   } = {},
 ): Promise<WebhookIngressOutcome> {
-  if (input.body.byteLength > WEBHOOK_MAX_BODY_BYTES) return 'too_large';
-  if (!isWebhookTokenShape(input.token)) return 'not_found';
+  return (await ingestWebhookDeliveryWithId(database, input, options)).outcome;
+}
+
+/**
+ * The same door, also naming the stored delivery, new or an exact repeat. Hosted checkout providers that
+ * wait for an answer (ADR-032 D4a) need it to find the answer the worker writes for those bytes.
+ */
+export async function ingestWebhookDeliveryWithId(
+  database: AppDatabase,
+  input: IngestWebhookInput,
+  options: {
+    assertServing?: (context: TenantContext) => Promise<void>;
+    /** Only an endpoint with this scheme answers, so one provider's address cannot take another's calls. */
+    scheme?: string;
+  } = {},
+): Promise<{ outcome: WebhookIngressOutcome; deliveryId: string | null }> {
+  if (input.body.byteLength > WEBHOOK_MAX_BODY_BYTES)
+    return { outcome: 'too_large', deliveryId: null };
+  if (!isWebhookTokenShape(input.token)) return { outcome: 'not_found', deliveryId: null };
   const size = input.body.byteLength;
   try {
     const outcome = await withWebhookEndpointTx(
       database,
       hashWebhookToken(input.token),
-      async (tx, { endpoint, context }): Promise<WebhookIngressOutcome> => {
+      async (
+        tx,
+        { endpoint, context },
+      ): Promise<{ outcome: WebhookIngressOutcome; deliveryId: string | null }> => {
         // A revoked connection's address answers as if it never existed, whatever its endpoint says.
         const [connection] = await tx
           .select({ state: connections.state })
@@ -86,9 +107,13 @@ export async function ingestWebhookDelivery(
               eq(connections.id, endpoint.connectionId),
             ),
           );
-        if (connection?.state !== 'active') return 'not_found';
+        if (
+          connection?.state !== 'active' ||
+          (options.scheme !== undefined && endpoint.signatureScheme !== options.scheme)
+        )
+          return { outcome: 'not_found', deliveryId: null };
         await options.assertServing?.(context);
-        if (size > endpoint.maxBodyBytes) return 'too_large';
+        if (size > endpoint.maxBodyBytes) return { outcome: 'too_large', deliveryId: null };
 
         const headers = storedWebhookHeaders(endpoint.signatureScheme, input.headers);
         const deliveryId = randomUUID();
@@ -107,7 +132,19 @@ export async function ingestWebhookDelivery(
           .onConflictDoNothing()
           .returning({ id: webhookDeliveries.id });
         // The same bytes again: nothing new to do, and the sender hears what it heard the first time.
-        if (inserted.length === 0) return 'accepted';
+        if (inserted.length === 0) {
+          const [existing] = await tx
+            .select({ id: webhookDeliveries.id })
+            .from(webhookDeliveries)
+            .where(
+              and(
+                eq(webhookDeliveries.organizationId, endpoint.organizationId),
+                eq(webhookDeliveries.endpointId, endpoint.id),
+                eq(webhookDeliveries.requestDigest, webhookRequestDigest(input.body, headers)),
+              ),
+            );
+          return { outcome: 'accepted', deliveryId: existing?.id ?? null };
+        }
 
         const admission = await tx.execute(
           sql`select integrations.admit_webhook_delivery(${endpoint.id}::uuid, ${size}::integer) as admitted`,
@@ -122,12 +159,12 @@ export async function ingestWebhookDelivery(
           classification: 'internal',
           payload: { endpoint_id: endpoint.id, size_bytes: size },
         });
-        return 'accepted';
+        return { outcome: 'accepted', deliveryId };
       },
     );
-    return outcome ?? 'not_found';
+    return outcome ?? { outcome: 'not_found', deliveryId: null };
   } catch (error) {
-    if (error instanceof NotAdmitted) return 'rate_limited';
+    if (error instanceof NotAdmitted) return { outcome: 'rate_limited', deliveryId: null };
     throw error;
   }
 }
@@ -405,7 +442,7 @@ export async function loadStoredDelivery(
       endpointId: endpoint.id,
       connectionId: endpoint.connectionId,
       connectorType: row.connectorType,
-      scheme: endpoint.signatureScheme as SignatureScheme,
+      scheme: endpoint.signatureScheme as StoredSignatureScheme,
       body,
       headers: (delivery.headers ?? {}) as Record<string, string>,
       sizeBytes: delivery.sizeBytes,
@@ -463,6 +500,7 @@ export async function applyVerifiedDelivery(
     providerEventId: string;
     effects: readonly WebhookEffect[];
     paymentVerificationToken?: string;
+    checkoutVerificationToken?: string;
   },
   handlers: WebhookEffectHandlers,
 ): Promise<DeliveryStep> {
@@ -551,6 +589,24 @@ export async function applyVerifiedDelivery(
                 ...(input.paymentVerificationToken
                   ? { paymentVerificationToken: input.paymentVerificationToken }
                   : {}),
+              }),
+            );
+          } else if (effect.kind === 'checkout_callback') {
+            // ADR-032 D4a. One call per delivery, and only with a handler that knows checkout.
+            if (input.effects.length !== 1 || !handlers.applyCheckoutCallback)
+              throw new AppError('INVALID_INPUT');
+            if (
+              input.checkoutVerificationToken !== undefined &&
+              !/^[0-9a-f]{64}$/.test(input.checkoutVerificationToken)
+            )
+              throw new AppError('INVALID_INPUT');
+            await handlers.applyCheckoutCallback(
+              tx,
+              context,
+              effect,
+              Object.freeze({
+                deliveryId: delivery.id,
+                checkoutVerificationToken: input.checkoutVerificationToken ?? null,
               }),
             );
           } else throw new AppError('INVALID_INPUT');

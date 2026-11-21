@@ -10,7 +10,11 @@ info:
     other operation are validated against this file by tests/stack/api.test.ts, and
     tests/unit/openapi-contract.test.ts keeps the two lists honest. The public webhook address, POST
     /api/webhooks/{token}, is not here: it takes no session, it is not a client API, and it answers
-    only 202, 404, 413 and 429 with no body, so a stranger learns nothing (ADR-027 D4)."
+    only 202, 404, 413 and 429 with no body, so a stranger learns nothing (ADR-027 D4). For the same
+    reasons the hosted checkout callbacks, POST /api/payments/payme/{token} and POST
+    /api/payments/click/{token}, are not here either: they take no session, and they speak Payme's
+    Merchant API and Click's SHOP API wire formats, answering only with those providers' own protocol
+    codes (ADR-032 D4a)."
 servers:
   - url: https://ensemus.example.invalid/api/v1
     description: Illustrative placeholder; not a live endpoint.

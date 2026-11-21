@@ -255,3 +255,60 @@ export function attestNativePaymentLookup(
     return paymentAttestation(result.rows);
   });
 }
+
+/** ADR-032 D4a. A hosted checkout provider's call this worker verified, for one stored delivery. */
+export function attestCheckoutCallback(
+  db: EnsemusDrizzle,
+  input: {
+    organizationId: string;
+    deliveryId: string;
+    rowVersion: string;
+    restoreGeneration: string;
+    endpointId: string;
+    connectionId: string;
+    signingSecretId: string;
+    processor: string;
+    bodySha256: string;
+    requestDigest: string;
+    action: string;
+    routeSha256: string | null;
+    txnRef: string | null;
+    amountMinor: bigint | null;
+    currency: string | null;
+  },
+): Promise<PaymentAttestation> {
+  return db.transaction(async (tx) => {
+    await assertPaymentGeneration(tx, input.restoreGeneration);
+    await tx.execute(sql`select set_config('app.organization_id',${input.organizationId},true)`);
+    const result =
+      await tx.execute<PaymentAttestationRow>(sql`select * from billing.attest_checkout_callback(
+      ${input.deliveryId}::uuid,${input.rowVersion},${input.endpointId}::uuid,${input.connectionId}::uuid,${input.signingSecretId}::uuid,
+      ${input.processor},${input.bodySha256},${input.requestDigest},${input.action},${input.routeSha256},${input.txnRef},
+      ${input.amountMinor === null ? null : input.amountMinor.toString()}::bigint,${input.currency},${input.restoreGeneration}::uuid)`);
+    return paymentAttestation(result.rows);
+  });
+}
+
+/** ADR-032 D4a. What Paddle's own transaction said, read by this worker for one open checkout. */
+export function attestCheckoutLookup(
+  db: EnsemusDrizzle,
+  input: {
+    organizationId: string;
+    sessionId: string;
+    restoreGeneration: string;
+    action: 'paddle.lookup_paid' | 'paddle.lookup_cancelled';
+    txnRef: string;
+    amountMinor: bigint | null;
+    currency: string | null;
+  },
+): Promise<PaymentAttestation> {
+  return db.transaction(async (tx) => {
+    await assertPaymentGeneration(tx, input.restoreGeneration);
+    await tx.execute(sql`select set_config('app.organization_id',${input.organizationId},true)`);
+    const result =
+      await tx.execute<PaymentAttestationRow>(sql`select * from billing.attest_checkout_lookup(
+      ${input.sessionId}::uuid,${input.action},${input.txnRef},
+      ${input.amountMinor === null ? null : input.amountMinor.toString()}::bigint,${input.currency},${input.restoreGeneration}::uuid)`);
+    return paymentAttestation(result.rows);
+  });
+}

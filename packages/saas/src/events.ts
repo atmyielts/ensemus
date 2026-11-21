@@ -11,6 +11,7 @@ export const AGGREGATE_OFFBOARDING = 'offboarding';
 export const AGGREGATE_TICKET = 'ticket';
 export const AGGREGATE_BREAK_GLASS = 'break_glass';
 export const AGGREGATE_ORGANIZATION = 'organization';
+export const AGGREGATE_CHECKOUT = 'checkout_session';
 
 /** A live subscription exists. The dispatcher makes sure this tenant's billing schedule does. */
 export const SUBSCRIPTION_STARTED = 'subscription.started';
@@ -34,6 +35,8 @@ export const PAYMENT_FAILED = 'payment.failed';
 export const PAYMENT_UNKNOWN = 'payment.unknown';
 /** A verified event reached the operator's organization. The dispatcher starts paymentEventWorkflow. */
 export const PAYMENT_EVENT_RECEIVED = 'payment_event.received';
+/** A Paddle checkout needs its transaction made. The dispatcher starts checkoutWorkflow, once (ADR-032 D4a). */
+export const CHECKOUT_REQUESTED = 'checkout.requested';
 
 export const CREDITS_LOW = 'credits.low';
 export const CREDITS_EXHAUSTED = 'credits.exhausted';
