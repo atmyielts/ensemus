@@ -732,3 +732,38 @@ historical PR #2 consent case also passed. Test TypeScript and focused lint pass
 the fixture and denied-role coverage only; no production grant, policy, service or assertion was
 weakened. Exact test/log hashes are in evidence/rc-suite-tools-native-20261121.json. It does not stand
 in for a current candidate Actions run or a complete joined integration rerun.
+
+
+## Broader integration diagnostic and native restore fixture (QA-007, ADR-026)
+
+The actual current integration command with --bail=15 stopped early at 129.43 seconds. Its summary was
+three failed files, one passed file, 30 passing and ten failing cases (179 files registered, 43 cases
+reported). This is a bounded diagnostic, not a complete joined qualification. All six knowledge
+retrieval cases passed, including the unchanged 20,050-chunk HNSW/hidden-nearest-source case in 58.869
+seconds. The current broader run therefore provides a positive result for that case without widening
+its 300-second limit or weakening its ACL assertions. It is not a load benchmark.
+
+The failure group included incomplete expansion erasure reach and a restore preparation fixture that
+constructed actual workflow activities with the web login. That fixture now opens the actual workflow
+worker login, explicitly verifies web-login preparation is denied, and runs the real preparation and
+artifact production through the worker. Its complete final file passed 11 cases and failed two in
+28.55 seconds. The remaining failures are the erasure inventory refusal and the subsequent assertion
+that its uncreated erasure witness exists. Generated artifact restore, raw source restore, current
+proof drift, writer isolation and later restore debt cases now pass. Test TypeScript and focused lint
+passed. No production policy, service, timeout or assertion was loosened.
+
+The delegated-offboarding command also remains blocked: its native eraser catalog preflight runs
+before delegated purge scheduling and refuses the joined tables without DELETE coverage. Merely
+adding grants would not finish integration: skills/marketplace and federation have separate object
+keys, and global listings reference tenant submissions/publishers and installations in other tenants.
+The metadata inventory and those references need deliberate lifecycle/retention, blob proof and
+cross-tenant treatment. No retention or external legal decision has been invented and no foreign
+installation or user content was deleted. The exact 24-table catalog-only inventory is retained in
+local evidence. The frozen /3 export still refuses tenants with pending module data; its 30-table
+new-profile gate and 66 planned API operations remain open.
+
+Evidence and exact native logs/source hashes are in evidence/rc-integration-current-20261121.json.
+The temporary production server and the two task-owned generated browser sessions were stopped after
+validation; their fixture data, source, screenshots and logs remain. The candidate is local and not
+launch-ready. No source was pushed, production deployed or real provider contacted. About 27.8 GiB
+remained free, so no disk cleanup was required and no original worktree, branch or volume was removed.

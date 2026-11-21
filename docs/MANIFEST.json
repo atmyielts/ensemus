@@ -946,6 +946,11 @@
       "sha256": "9628bd69399e6f0ea97a4fe88458ee466b782fd9c215bb73de5dd1f6f37413db"
     },
     {
+      "path": "06-delivery/evidence/rc-integration-current-20261121.json",
+      "size_bytes": 6704,
+      "sha256": "b872e45b9922132d706e1b8d5523fe10112cc9dc2c8aa7d84daa5c877b15551d"
+    },
+    {
       "path": "06-delivery/evidence/rc-native-human-readers-20261121.json",
       "size_bytes": 5194,
       "sha256": "99f051cbb90b8eb626e1d0a057d5a84332d76a7527deb44924d276a1cf479c92"
@@ -1027,8 +1032,8 @@
     },
     {
       "path": "06-delivery/release-candidate-2026-11-21.md",
-      "size_bytes": 58251,
-      "sha256": "05b796335d0a156eb7553766c6ca3bb7210922299e6559480a415035bd518f72"
+      "size_bytes": 61047,
+      "sha256": "d950ed69565688507990477b15cb5cb136ee3b60d3c3af806ff55b1624baad25"
     },
     {
       "path": "06-delivery/release-candidate-source-ledger.json",

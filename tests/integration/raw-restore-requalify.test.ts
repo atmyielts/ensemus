@@ -116,11 +116,13 @@ const SERVICE_ENTRY_POINTS = [
 
 describe('restore debt requalification (0543, 0545)', () => {
   let app: ReturnType<typeof openAppDatabase>,
+    worker: ReturnType<typeof openAppDatabase>,
     agent: ReturnType<typeof openAgentDatabase>,
     migrator: pg.Client,
     control: pg.Client;
   beforeAll(async () => {
     app = openAppDatabase(urls.app());
+    worker = openAppDatabase(urls.worker());
     agent = openAgentDatabase(urls.agent());
     migrator = new pg.Client({ connectionString: urls.migrator() });
     control = new pg.Client({ connectionString: urls.superuser() });
@@ -132,6 +134,7 @@ describe('restore debt requalification (0543, 0545)', () => {
     await control?.end();
     await agent?.close();
     await app?.close();
+    await worker?.close();
   });
 
   const owed = async (context: TenantContext) =>
@@ -578,7 +581,9 @@ describe('restore debt requalification (0543, 0545)', () => {
         workUnitId: work.id,
         runId: randomUUID(),
       };
-      const activities = createActivities({ database: app.db, store: dStore() });
+      const webActivities = createActivities({ database: app.db, store: dStore() });
+      await expect(webActivities.prepareWork(run)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      const activities = createActivities({ database: worker.db, store: dStore() });
       expect(await activities.prepareWork(run)).toMatchObject({ status: 'running' });
       d.artifactId = (await activities.produceChecklistArtifact(run)).artifactId;
       d.key = `${dTenant.organizationId}/artifacts/${d.artifactId}`;
