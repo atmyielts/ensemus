@@ -9,7 +9,7 @@
     "0749_business_team_grant_lock"
   ],
   "freshMigration": {
-    "database": "ensemus_rc_business_change_20261121204247141",
+    "database": "ensemus_rc_business_change_20261121205250223",
     "appliedMigrations": 159,
     "matchingMigrationHashes": 159,
     "functions": [
@@ -68,7 +68,7 @@
         "cmd": "SELECT"
       }
     ],
-    "completedAt": "2026-11-21T20:42:51.304Z"
+    "completedAt": "2026-11-21T20:52:54.291Z"
   },
   "validation": {
     "nativeBusinessActions": {
@@ -170,9 +170,9 @@
     "packages/application/src/external-actions.ts": "970ed48303ecc007b7df8cd0804e2ad9c49f08766acce135bb84a4d4c9b04e08",
     "packages/connectors/src/business/implementations.test.ts": "1c7995c16e92d727cd91048cb70a6fcaca4b6cafb5cdec734163b8cf53170500",
     "packages/connectors/src/business/payload.ts": "96f8eb008057a2b992f0110900b30ca68c22400e7e5d47967b921612adfb2dbe",
-    "packages/database/migrations/0747_business_change_authority.sql": "f92243367c514e6c8afe1f3b512d01462e680ccaf86a5db2e1e2b6d5727e6984",
-    "packages/database/migrations/0748_business_lock_source_facts.sql": "78634b488e54d6fbabb6efa2fc66ee1ea30b8e6f79a63803cb63d6d4bec1c1b5",
-    "packages/database/migrations/0749_business_team_grant_lock.sql": "1a9c22303567e8b54738b7cef637c169f7bfe9f7d2d2e038d1d68e150ea74342",
+    "packages/database/migrations/0747_business_change_authority.sql": "83632b42ecbd8ebcbb538b012fefe22ea4a9fee62971e6f5eab6c56dd3f2c8fc",
+    "packages/database/migrations/0748_business_lock_source_facts.sql": "f45685345d205d4e222eb4d0c45194dba48f9116f0f4f750ed9444ab49583f52",
+    "packages/database/migrations/0749_business_team_grant_lock.sql": "90a6952773d41f5976690bfd42c6b0d806f00cd79765b9835a33d98979a8c723",
     "packages/database/migrations/meta/_journal.json": "bf57110035d72d213e00d86f92e18d1d866f2d0b97350d4416ac57da42fcd304",
     "packages/domain/src/business-connector.ts": "0b59291ce7d5ce6cebd1584e5e88e2f17512bef0656edbb3be60e62e088f9527",
     "packages/domain/src/external-action.ts": "c8ac2c3cdb303e081bdf5b9191535dcd7849e3072a794ad684cd1a6a6626d7a5",
@@ -192,7 +192,7 @@
     ".local/rc-business-actions-connector-types.log": "67f0b7c8df8e3b71bd2609594d32659147e9c7ea8e140f0afc6a09cb8258c834",
     ".local/rc-business-actions-build-final.log": "d6eb916b6c43d66df9f08b93a223fc85d26cbd91b7a87eaf5d4f1febaa64e569",
     ".local/rc-business-actions-guides-final.log": "c98d9949764c3fc911fe7f102100e0984d7031850d4f05c624a0f6b3b6ca1675",
-    ".local/rc-business-actions-fresh-migration.json": "d73400c3f5689115a35e189e1f6dd966cb5a6c11214c70dba43cff92a73fa5c2",
+    ".local/rc-business-actions-fresh-migration.json": "053ed2ae8b4436cdc1aa1174d5026ecbb6aa053941e0ccd8ce1d5f66ab75e8f1",
     ".local/rc-business-actions-fresh-final.log": "43d6a0db5438465d1fc43e2a77eb9c98f69ebde71339c31861b66ee6e7aa9cfd",
     ".local/rc-business-browser-no-script.log": "14126e0269bec1a144199cc35a2f89793e9136d236cbeb4f8e21fe0a62e823b6",
     ".local/rc-business-browser-layout.log": "093f305ee714f236d3d147b6e4382d4b9e2b3eaf31b53bf9d41a251c3842fc10",
@@ -203,6 +203,14 @@
     ".local/rc-business-browser-retry-result.log": "727f84d0f77b9013fbdf7c980ae23805199c2ca948b2bf320fbf0e25e7878122",
     "output/playwright/business-crm-receipt-mobile-final.png": "0d1206735a0246fcc0fb97163f2f15650b84dc4b1354b4e039f72962fbc41547",
     "output/playwright/business-human-finding-mobile-final.png": "1e1e65e7f32361febe67a1e30c85bcd2129219157be1f812ed15d26ce9b7cda9",
-    "output/playwright/business-invoice-review-mobile.png": "ba64b8b87b33843d0657a7355ccd0a3f17831dff2721b7da5aa5c0d6a0933cfc"
+    "output/playwright/business-invoice-review-mobile.png": "ba64b8b87b33843d0657a7355ccd0a3f17831dff2721b7da5aa5c0d6a0933cfc",
+    ".local/rc-business-actions-fresh-committed-bytes.log": "2e3e4875e5faec90258d6cbf71e691026c573ec68c7c6ca86b49bd8029b5f55b"
+  },
+  "committedBytesQualification": {
+    "migrationSourceMatchesGitBlob": true,
+    "preservedPreNormalizationBytes": ".local/business-migration-pre-lf/",
+    "change": "Only one CRLF per new migration normalized to repository-required LF by Git; SQL unchanged",
+    "appliedMigrationLedgerRewritten": false,
+    "freshMatchingHashes": 159
   }
 }

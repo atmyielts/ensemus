@@ -917,8 +917,8 @@
     },
     {
       "path": "06-delivery/evidence/rc-business-actions-20261121.json",
-      "size_bytes": 11864,
-      "sha256": "45e70ddcaec17517095bfae2060c0826102721881a1278c0f428d60cbac26878"
+      "size_bytes": 12335,
+      "sha256": "9e8b6ebd1f1e1f094e22b502909060b1f82cca798f5331d1f7d1027f19e098dd"
     },
     {
       "path": "06-delivery/evidence/rc-business-connectors-20261121.json",
@@ -1012,8 +1012,8 @@
     },
     {
       "path": "06-delivery/release-candidate-2026-11-21.md",
-      "size_bytes": 51455,
-      "sha256": "affec50879649157f13e313d75803901167653ef3bbfc5115b8e229416770956"
+      "size_bytes": 51929,
+      "sha256": "9bd44e8d654bf079ad92f03fea006ba60f086ef39778f786c3b7473ac606007f"
     },
     {
       "path": "06-delivery/release-candidate-source-ledger.json",

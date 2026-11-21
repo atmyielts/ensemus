@@ -645,3 +645,10 @@ Customer business-connection catalog/setup, the browser revision editor, real pr
 credentials, Cloud routing, durable built-worker/Temporal acceptance, hosted/human/load/offline,
 restore/upgrade acceptance and the broader platform backlog remain open. There was no production
 deployment, provider contact, original-source deletion or volume cleanup. About 28.6 GiB remained free.
+
+
+The business-action commit check caught one CRLF in each new SQL file that Git normalized under the
+repository LF rule. Pre-normalization bytes are preserved under ignored local evidence. The working
+files now exactly match their committed blobs; SQL is unchanged. A second fresh ordinary-migrator
+installation matched all 159 committed source hashes. The evidence above now records this final
+proof and source hashes. No existing database migration ledger was rewritten.
