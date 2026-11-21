@@ -244,6 +244,8 @@ If one mode fails its gate, it waits while the others launch. It can't launch on
 
 These stay in scope. The catalog already marks several as later or advanced, and all can be reordered by demand: remaining department packs, CRM/ticketing/accounting connectors, meetings, skills catalog, user-code sandbox, marketplace, cross-org collaboration, dedicated tenant tiers and specialized regions.
 
+**M11C (`EXP-07`, `EXP-08`, `EXP-09`):** cross-org collaboration, dedicated tiers and regions. See [ADR-035](../00-foundation/adr/ADR-035-cross-org-tenants-regions.md) and the [slices](m11c-slices.md). Off by default, and which tiers and regions are offered stay owner decisions.
+
 ## Pilot gates
 
 Each pilot needs more than working software:

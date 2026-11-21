@@ -155,6 +155,8 @@ export { connectorSyncWorkflow } from './connector-sync-workflow';
 export { oauthExchangeWorkflow } from './oauth-exchange-workflow';
 export { suiteUpkeepWorkflow } from './suite-upkeep-workflow';
 export { externalActionWorkflow } from './external-action-workflow';
+// M11C (ADR-035 D3).
+export { federationDeliveryWorkflow, federationPurgeWorkflow } from './federation-workflow';
 export { webhookDeliveryWorkflow } from './webhook-workflow';
 
 // M4 (ADR-028). The same rule: their own files, their own histories.

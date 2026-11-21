@@ -149,7 +149,19 @@ export type ErrorCode =
   | 'MARKETPLACE_VERSION_NOT_SUBMITTABLE'
   | 'MARKETPLACE_SUBMISSION_NOT_WITHDRAWABLE'
   | 'MARKETPLACE_LISTING_NOT_AVAILABLE'
-  | 'MARKETPLACE_ALREADY_INSTALLED';
+  | 'MARKETPLACE_ALREADY_INSTALLED'
+  | 'FEDERATION_NOT_AVAILABLE'
+  | 'FEDERATION_DISABLED'
+  | 'FEDERATION_OPEN_GRANTS'
+  | 'FEDERATION_INVITATION_INVALID'
+  | 'FEDERATION_TERMS_CHANGED'
+  | 'FEDERATION_GRANT_NOT_OPEN'
+  | 'FEDERATION_KIND_NOT_ALLOWED'
+  | 'FEDERATION_CLASSIFICATION_TOO_HIGH'
+  | 'FEDERATION_ITEM_NOT_WITHDRAWABLE'
+  | 'RESIDENCY_REGION_NOT_OFFERED'
+  | 'RESIDENCY_DENIED'
+  | 'TENANCY_SINGLE_ORGANIZATION';
 
 const MESSAGES: Record<ErrorCode, string> = {
   IDEMPOTENCY_KEY_REUSED: 'This request key was already used with different details.',
@@ -330,6 +342,19 @@ const MESSAGES: Record<ErrorCode, string> = {
     'This can no longer be withdrawn. If it is listed, ask for it to be delisted.',
   MARKETPLACE_LISTING_NOT_AVAILABLE: 'That listing is not available.',
   MARKETPLACE_ALREADY_INSTALLED: 'This organization already has this listing.',
+  FEDERATION_NOT_AVAILABLE: 'Working with other organizations is not available on this deployment.',
+  FEDERATION_DISABLED: 'Your organization has not turned on working with other organizations.',
+  FEDERATION_OPEN_GRANTS: 'End what is shared with other organizations before turning this off.',
+  FEDERATION_INVITATION_INVALID: 'This invitation is not valid. Ask for a new one.',
+  FEDERATION_TERMS_CHANGED: 'What was shared for review changed. Read it again before agreeing.',
+  FEDERATION_GRANT_NOT_OPEN: 'This arrangement with the other organization is not open.',
+  FEDERATION_KIND_NOT_ALLOWED: 'This arrangement does not cover sending that.',
+  FEDERATION_CLASSIFICATION_TOO_HIGH:
+    'This is more sensitive than this arrangement allows, so it was not sent.',
+  FEDERATION_ITEM_NOT_WITHDRAWABLE: 'This can no longer be withdrawn.',
+  RESIDENCY_REGION_NOT_OFFERED: 'This deployment does not run in that region.',
+  RESIDENCY_DENIED: 'Your organization requires its data to stay in a region this would leave.',
+  TENANCY_SINGLE_ORGANIZATION: 'This deployment is dedicated to one organization.',
 };
 
 export class AppError extends Error {
@@ -499,6 +524,18 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   MARKETPLACE_SUBMISSION_NOT_WITHDRAWABLE: 409,
   MARKETPLACE_LISTING_NOT_AVAILABLE: 409,
   MARKETPLACE_ALREADY_INSTALLED: 409,
+  FEDERATION_NOT_AVAILABLE: 404,
+  FEDERATION_DISABLED: 409,
+  FEDERATION_OPEN_GRANTS: 409,
+  FEDERATION_INVITATION_INVALID: 400,
+  FEDERATION_TERMS_CHANGED: 409,
+  FEDERATION_GRANT_NOT_OPEN: 409,
+  FEDERATION_KIND_NOT_ALLOWED: 403,
+  FEDERATION_CLASSIFICATION_TOO_HIGH: 403,
+  FEDERATION_ITEM_NOT_WITHDRAWABLE: 409,
+  RESIDENCY_REGION_NOT_OFFERED: 409,
+  RESIDENCY_DENIED: 403,
+  TENANCY_SINGLE_ORGANIZATION: 403,
 };
 
 /**

@@ -40,7 +40,7 @@ Export full organization-owned structured records, custom object schemas, relati
 
 ## 7. Data residency and regions
 
-Record residence requirements per organization, per provider profile, and per data class. Region restrictions must cover storage, backups, support access, embeddings, inference, and telemetry—not only primary PostgreSQL. Do not claim an all-in-region product if a connected AI model sends content elsewhere.
+Record residence requirements per organization, per provider profile, and per data class. Region restrictions must cover storage, backups, support access, embeddings, inference, and telemetry—not only primary PostgreSQL. Do not claim an all-in-region product if a connected AI model sends content elsewhere. [ADR-035](../00-foundation/adr/ADR-035-cross-org-tenants-regions.md) D6 holds this in code. Which regions are offered stays an owner decision.
 
 ## 8. BYOM nuance
 

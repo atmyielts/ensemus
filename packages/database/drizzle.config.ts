@@ -30,6 +30,8 @@ export default defineConfig({
     './src/schema-mail.ts',
     './src/schema-expansion.ts',
     './src/schema-skills.ts',
+    './src/schema-tenancy.ts',
+    './src/schema-federation.ts',
   ],
   out: './migrations',
   casing: 'snake_case',

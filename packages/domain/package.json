@@ -48,7 +48,11 @@
     "./skill": "./src/skill.ts",
     "./sandbox": "./src/sandbox.ts",
     "./marketplace": "./src/marketplace.ts",
-    "./skill-events": "./src/skill-events.ts"
+    "./skill-events": "./src/skill-events.ts",
+    "./federation": "./src/federation.ts",
+    "./federation-events": "./src/federation-events.ts",
+    "./tenancy": "./src/tenancy.ts",
+    "./residency": "./src/residency.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

@@ -87,6 +87,12 @@ export function loadSaasConfig(env: NodeJS.ProcessEnv = process.env) {
         : { enabled: false as const },
   };
 }
+export {
+  deploymentProfileHash,
+  loadResidencyPolicy,
+  loadTenancyConfig,
+  type TenancyConfig,
+} from './tenancy';
 
 export function loadWebConfig(env: NodeJS.ProcessEnv = process.env) {
   const parsed = webSchema.safeParse(env);

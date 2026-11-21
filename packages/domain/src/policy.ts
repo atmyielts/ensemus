@@ -45,7 +45,12 @@ export type Capability =
   | 'marketplace.publish'
   | 'sandbox.run'
   | 'skill.manage'
-  | 'skill.publish';
+  | 'skill.publish'
+  | 'federation.end'
+  | 'federation.manage'
+  | 'federation.share'
+  | 'federation.view'
+  | 'tenancy.view';
 
 const GRANTS: Record<Role, ReadonlySet<Capability>> = {
   owner: new Set([
@@ -89,6 +94,11 @@ const GRANTS: Record<Role, ReadonlySet<Capability>> = {
     'sandbox.run',
     'marketplace.publish',
     'marketplace.install',
+    'federation.manage',
+    'federation.share',
+    'federation.end',
+    'federation.view',
+    'tenancy.view',
   ]),
   admin: new Set([
     'member.invite',
@@ -121,6 +131,10 @@ const GRANTS: Record<Role, ReadonlySet<Capability>> = {
     'skill.publish',
     'sandbox.run',
     'marketplace.install',
+    'federation.share',
+    'federation.end',
+    'federation.view',
+    'tenancy.view',
   ]),
   member: new Set([
     'client.manage',

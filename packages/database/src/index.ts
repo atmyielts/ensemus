@@ -21,6 +21,7 @@ export {
   resolveInteractiveTenantContext,
   interactiveSessionOf,
   TenantAccessDenied,
+  withGrantInvitationTx,
   withInvitationTx,
   withNewTenantTx,
   withTenantTx,
@@ -73,3 +74,5 @@ export * from './schema-saas';
 export * from './schema-mail';
 export * from './schema-expansion';
 export * from './schema-skills';
+export * from './schema-tenancy';
+export * from './schema-federation';

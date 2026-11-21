@@ -60,6 +60,13 @@ export const KNOWLEDGE_MODEL_TASK_QUEUE = 'ensemus-agent';
 export const SANDBOX_TASK_QUEUE = 'ensemus-sandbox';
 
 /**
+ * Activities that use the one role that crosses tenants. Only the federation worker polls this, and it
+ * runs only where an operator turned cross-organization work on (ADR-035 D2). If it is not running, they
+ * wait, and nothing crosses.
+ */
+export const FEDERATION_TASK_QUEUE = 'ensemus-federation';
+
+/**
  * For every gRPC client connection to Temporal. By default the client looks up a DNS TXT record for
  * the server's name, to fetch a service config we do not use. Docker cannot answer that for a
  * container name, so it forwards the query to the host's resolver and it leaves the network, which

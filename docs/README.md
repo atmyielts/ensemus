@@ -68,6 +68,7 @@
 - [ADR-032: SaaS operations and billing](00-foundation/adr/ADR-032-saas-operations-and-billing.md)
 - [ADR-036: release readiness: parity suite, guides and license inventory](00-foundation/adr/ADR-036-release-readiness.md)
 - [Guides for people using Ensemus and for operators](guides/README.md)
+- [ADR-035: cross-organization work, dedicated tenants and regions](00-foundation/adr/ADR-035-cross-org-tenants-regions.md)
 - [Document governance and implementation discipline](00-foundation/04-doc-governance.md)
 
 ### Product and commercial UX

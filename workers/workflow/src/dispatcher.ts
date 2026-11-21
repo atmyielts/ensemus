@@ -20,6 +20,13 @@ import {
   MODEL_PROFILE_PROBE_REQUESTED,
 } from '@ensemus/domain/ai-events';
 import {
+  AGGREGATE_FEDERATION_GRANT,
+  AGGREGATE_FEDERATION_ITEM,
+  FEDERATION_GRANT_ENDED,
+  FEDERATION_ITEM_PUBLISHED,
+  FEDERATION_ITEM_WITHDRAWN,
+} from '@ensemus/domain/federation-events';
+import {
   AGGREGATE_CONNECTION,
   AGGREGATE_EXTERNAL_ACTION,
   AGGREGATE_WEBHOOK_DELIVERY,
@@ -146,6 +153,11 @@ import {
   meetingDerivationWorkflowIdFor,
   meetingImportInputSchema,
   meetingImportWorkflowIdFor,
+  federationDeliveryWorkflowIdFor,
+  federationGrantEndedInputSchema,
+  federationItemInputSchema,
+  federationPurgeWorkflowIdFor,
+  federationWithdrawalWorkflowIdFor,
   reminderScheduleIdFor,
   suiteUpkeepScheduleIdFor,
   suiteUpkeepWorkflowIdFor,
@@ -815,6 +827,41 @@ async function main() {
             installationId: event.aggregateId,
           }),
           workflowIdFor: marketplaceInstallWorkflowIdFor,
+        });
+        return;
+
+      // Cross-organization work (ADR-035 D3). No event like these exists unless someone turned it on,
+      // and nothing runs but the workflows' code until the federation worker polls its queue.
+      case FEDERATION_ITEM_PUBLISHED:
+        if (event.aggregateType !== AGGREGATE_FEDERATION_ITEM) return;
+        await startOnce('federationDeliveryWorkflow', {
+          input: federationItemInputSchema.parse({
+            organizationId: event.organizationId,
+            itemId: event.aggregateId,
+          }),
+          workflowIdFor: federationDeliveryWorkflowIdFor,
+        });
+        return;
+
+      case FEDERATION_ITEM_WITHDRAWN:
+        if (event.aggregateType !== AGGREGATE_FEDERATION_ITEM) return;
+        await startOnce('federationPurgeWorkflow', {
+          input: federationItemInputSchema.parse({
+            organizationId: event.organizationId,
+            itemId: event.aggregateId,
+          }),
+          workflowIdFor: federationWithdrawalWorkflowIdFor,
+        });
+        return;
+
+      case FEDERATION_GRANT_ENDED:
+        if (event.aggregateType !== AGGREGATE_FEDERATION_GRANT) return;
+        await startOnce('federationPurgeWorkflow', {
+          input: federationGrantEndedInputSchema.parse({
+            organizationId: event.organizationId,
+            grantId: event.aggregateId,
+          }),
+          workflowIdFor: federationPurgeWorkflowIdFor,
         });
         return;
 

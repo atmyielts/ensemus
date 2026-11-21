@@ -78,6 +78,15 @@ const authDatabase = {
   group: ['@ensemus/database/auth'],
   message: 'Only @ensemus/auth may use the auth database role.',
 };
+const bridge = {
+  group: ['@ensemus/database/federation'],
+  message:
+    'The one role that crosses tenants belongs to the federation worker alone (ADR-035 D2). Everything else stays in its tenant.',
+};
+const deployJobs = {
+  group: ['@ensemus/database/deployment'],
+  message: 'Only deploy jobs may change what a deployment is (ADR-035 D5).',
+};
 const connectorCode = {
   regex: '^@ensemus/connectors(/(?!(manifest|knowledge-manifests|manifest-business)$).*)?$',
   message:
@@ -404,6 +413,16 @@ const saasBoundarySelectors = [
   })),
 ];
 
+const BRIDGE_FILES = [
+  'workers/workflow/src/federation-worker.ts',
+  'packages/workflows/src/federation-activities.ts',
+  'packages/workflows/src/federation-deps.ts',
+];
+const DEPLOY_JOB_FILES = [
+  'workers/workflow/src/apply-deployment-profile.ts',
+  'workers/workflow/src/isolation-report.ts',
+];
+
 export default tseslint.config(
   {
     files: ['**/*.{ts,tsx}'],
@@ -469,7 +488,16 @@ export default tseslint.config(
   },
   restrict(
     ['**/*.{ts,tsx}'],
-    [rawDatabase, authDatabase, vendorIssuer, agentDatabase, mailerDatabase, operatorDatabase],
+    [
+      rawDatabase,
+      authDatabase,
+      bridge,
+      deployJobs,
+      vendorIssuer,
+      agentDatabase,
+      mailerDatabase,
+      operatorDatabase,
+    ],
     ['packages/database/**', 'packages/auth/**', 'tests/**', 'apps/web/**'],
   ),
   restrict(['packages/auth/**/*.ts'], [rawDatabase, temporal, broker, ssoOperator, vendorIssuer]),
@@ -479,6 +507,8 @@ export default tseslint.config(
     [
       rawDatabase,
       authDatabase,
+      bridge,
+      deployJobs,
       temporal,
       broker,
       vendorIssuer,
@@ -499,6 +529,8 @@ export default tseslint.config(
     [
       rawDatabase,
       authDatabase,
+      bridge,
+      deployJobs,
       vendorIssuer,
       testDoubles,
       agentDatabase,
@@ -507,19 +539,45 @@ export default tseslint.config(
     ],
     [...agentWorkerFiles, ...mailWorkerFiles],
   ),
-  restrict(mailWorkerFiles, [rawDatabase, authDatabase, vendorIssuer, testDoubles, agentDatabase]),
+  restrict(mailWorkerFiles, [
+    rawDatabase,
+    authDatabase,
+    bridge,
+    deployJobs,
+    vendorIssuer,
+    testDoubles,
+    agentDatabase,
+  ]),
   // Agent code. A rule set on the same files replaces the one before it, so each names everything.
   restrict(
     ['packages/policy/**/*.ts'],
-    [rawDatabase, authDatabase, vendorIssuer, policyReach, aiCore, rawNetworkForModels],
+    [
+      rawDatabase,
+      authDatabase,
+      bridge,
+      deployJobs,
+      vendorIssuer,
+      policyReach,
+      aiCore,
+      rawNetworkForModels,
+    ],
   ),
   restrict(
     ['packages/commercial/**/*.ts'],
-    [rawDatabase, authDatabase, vendorIssuer, agentDatabase, serviceContext],
+    [rawDatabase, authDatabase, bridge, deployJobs, vendorIssuer, agentDatabase, serviceContext],
   ),
   restrict(
     ['packages/application/src/ai/**/*.ts'],
-    [rawDatabase, authDatabase, vendorIssuer, agentDatabase, serviceContext, temporal],
+    [
+      rawDatabase,
+      authDatabase,
+      bridge,
+      deployJobs,
+      vendorIssuer,
+      agentDatabase,
+      serviceContext,
+      temporal,
+    ],
     agentWorkerFiles,
   ),
   restrict(agentWorkerFiles, [
@@ -534,11 +592,30 @@ export default tseslint.config(
   // exact terminal run/Work/fence/Temporal/version. Ordinary agent logic stays service-forbidden.
   restrict(
     ['packages/application/src/ai/terminal-work-control.ts'],
-    [rawDatabase, authDatabase, vendorIssuer, agentDatabase, temporal, testDoubles],
+    [
+      rawDatabase,
+      authDatabase,
+      bridge,
+      deployJobs,
+      vendorIssuer,
+      agentDatabase,
+      temporal,
+      testDoubles,
+    ],
   ),
   restrict(
     ['packages/agent-runtime/**/*.ts'],
-    [rawDatabase, authDatabase, vendorIssuer, anyDatabase, serviceContext, temporal, aiCore],
+    [
+      rawDatabase,
+      authDatabase,
+      bridge,
+      deployJobs,
+      vendorIssuer,
+      anyDatabase,
+      serviceContext,
+      temporal,
+      aiCore,
+    ],
     ['packages/agent-runtime/src/reducer.ts'],
   ),
   restrict(['packages/agent-runtime/src/reducer.ts'], [anything]),
@@ -547,6 +624,8 @@ export default tseslint.config(
     [
       rawDatabase,
       authDatabase,
+      bridge,
+      deployJobs,
       vendorIssuer,
       anyDatabase,
       serviceContext,
@@ -558,12 +637,31 @@ export default tseslint.config(
   ),
   restrict(
     ['packages/intelligence/src/net/**', 'packages/intelligence/src/testing/**'],
-    [rawDatabase, authDatabase, vendorIssuer, anyDatabase, serviceContext, temporal, aiCore],
+    [
+      rawDatabase,
+      authDatabase,
+      bridge,
+      deployJobs,
+      vendorIssuer,
+      anyDatabase,
+      serviceContext,
+      temporal,
+      aiCore,
+    ],
   ),
   // The agent's workflow files are workflow code: nothing but the SDK, types and the reducer.
   restrict(
     ['packages/workflows/src/agent-run.ts', 'packages/workflows/src/model-probe.ts'],
-    [rawDatabase, authDatabase, vendorIssuer, agentDatabase, serviceContext, testDoubles],
+    [
+      rawDatabase,
+      authDatabase,
+      bridge,
+      deployJobs,
+      vendorIssuer,
+      agentDatabase,
+      serviceContext,
+      testDoubles,
+    ],
   ),
   // packages/connectors, in two parts. A rule set on the same files replaces the one before it, so
   // the first has to name everything: its testing folder may use a socket, and network.ts must.
@@ -661,13 +759,24 @@ export default tseslint.config(
   // M11B. Later rule sets replace earlier ones on the same files, so each names everything it means.
   restrict(
     ['workers/workflow/src/marketplace-operator.ts', 'workers/workflow/src/marketplace-command.ts'],
-    [rawDatabase, authDatabase, vendorIssuer, testDoubles, agentDatabase, mailerDatabase],
+    [
+      rawDatabase,
+      authDatabase,
+      bridge,
+      deployJobs,
+      vendorIssuer,
+      testDoubles,
+      agentDatabase,
+      mailerDatabase,
+    ],
   ),
   restrict(
     ['workers/workflow/src/sandbox-worker.ts', 'packages/workflows/src/sandbox-run-activities.ts'],
     [
       rawDatabase,
       authDatabase,
+      bridge,
+      deployJobs,
       vendorIssuer,
       testDoubles,
       agentDatabase,
@@ -692,4 +801,24 @@ export default tseslint.config(
       { group: ['node:child_process', 'child_process'], message: 'Reading a bundle runs nothing.' },
     ],
   ),
+  restrict(BRIDGE_FILES, [
+    rawDatabase,
+    authDatabase,
+    vendorIssuer,
+    testDoubles,
+    agentDatabase,
+    mailerDatabase,
+    operatorDatabase,
+    deployJobs,
+  ]),
+  restrict(DEPLOY_JOB_FILES, [
+    rawDatabase,
+    authDatabase,
+    vendorIssuer,
+    testDoubles,
+    agentDatabase,
+    mailerDatabase,
+    operatorDatabase,
+    bridge,
+  ]),
 );

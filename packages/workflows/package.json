@@ -53,7 +53,9 @@
     "./skill-deps": "./src/skill-deps.ts",
     "./skill-verification-activities": "./src/skill-verification-activities.ts",
     "./sandbox-run-activities": "./src/sandbox-run-activities.ts",
-    "./marketplace-install-activities": "./src/marketplace-install-activities.ts"
+    "./marketplace-install-activities": "./src/marketplace-install-activities.ts",
+    "./federation-deps": "./src/federation-deps.ts",
+    "./federation-activities": "./src/federation-activities.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

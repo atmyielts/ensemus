@@ -35,7 +35,7 @@ Prefer envelope encryption with isolated tenant data-encryption keys and managed
 
 ## 7. Cross-company collaboration
 
-Never join organizations' data implicitly, even when the same individual belongs to both. A future federated work feature must use explicit cross-org invitation, principal authorization at both ends, limited shared objects, signed consent/approval, purpose restriction, export controls, and revocation semantics. Disabled by default.
+Never join organizations' data implicitly, even when the same individual belongs to both. A future federated work feature must use explicit cross-org invitation, principal authorization at both ends, limited shared objects, signed consent/approval, purpose restriction, export controls, and revocation semantics. Disabled by default. [ADR-035](../00-foundation/adr/ADR-035-cross-org-tenants-regions.md) designs this: one grant table and one optional narrow role, proposed and not yet reviewed.
 
 ## 8. Testing
 

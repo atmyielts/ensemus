@@ -22,7 +22,9 @@
     "./support": "./src/support.ts",
     "./eraser": "./src/eraser.ts",
     "./mailer": "./src/mailer.ts",
-    "./marketplace-operator": "./src/marketplace-operator.ts"
+    "./marketplace-operator": "./src/marketplace-operator.ts",
+    "./federation": "./src/federation.ts",
+    "./deployment": "./src/deployment.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
