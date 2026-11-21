@@ -84,7 +84,7 @@ const concrete = (template: string) => `/api/v1${template.replaceAll(/\{[^}]+\}/
 // refusalFromDatabase maps every 55P03 to TENANT_BUSY on every route and server action, so every operation
 // must accept the answer. tests/unit/openapi-contract.test.ts checks how each declares it.
 describe('the busy answer on every operation', () => {
-  const all = operations();
+  const all = operations().filter((operation) => operation.status !== 'planned');
 
   it('fills every parameter of a path', () => {
     expect(concrete('/organizations/{organization_id}/work-units/{work_unit_id}')).toBe(

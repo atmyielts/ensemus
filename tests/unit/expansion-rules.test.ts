@@ -66,7 +66,10 @@ const security = readFileSync(
   join(repoRoot, 'packages/database/migrations/0601_expansion_security.sql'),
   'utf8',
 );
-const schemas = spec.components.schemas as Record<string, { properties: Record<string, any> }>;
+const schemas = spec.components.schemas as Record<
+  string,
+  { properties: Record<string, { enum: string[]; items: { enum: string[] } }> }
+>;
 
 const NOW = new Date('2026-11-06T12:00:00Z');
 const LATER = new Date('2026-12-06T12:00:00Z');
@@ -180,19 +183,19 @@ describe('the contracts and the spec', () => {
   });
 
   it('have the same derivation statuses', () => {
-    expect([...schemas.MeetingDerivation!.properties.status.enum].sort()).toEqual(
+    expect([...schemas.MeetingDerivation!.properties.status!.enum].sort()).toEqual(
       [...DERIVATION_STATUSES].sort(),
     );
   });
 
   it('have the same item statuses', () => {
-    expect([...schemas.MeetingProposedItem!.properties.status.enum].sort()).toEqual(
+    expect([...schemas.MeetingProposedItem!.properties.status!.enum].sort()).toEqual(
       [...PROPOSED_ITEM_STATUSES].sort(),
     );
   });
 
   it('have the same purposes', () => {
-    expect([...schemas.MeetingProviderApproval!.properties.purposes.items.enum].sort()).toEqual(
+    expect([...schemas.MeetingProviderApproval!.properties.purposes!.items.enum].sort()).toEqual(
       [...MEETING_PURPOSES].sort(),
     );
   });

@@ -2,7 +2,7 @@
 title: What you are running
 audience: operator
 area: op-install
-tickets: [PLAT-12]
+tickets: [PLAT-12, SEC-14]
 modes: [cloud, byom, sovereign]
 status: written_untested
 sources: [infrastructure/compose/compose.yaml, infrastructure/compose/postgres/provision.sql, infrastructure/compose/proxy/Caddyfile, infrastructure/containers/Dockerfile.web, infrastructure/containers/Dockerfile.worker, apps/web/src/server/runtime.ts, apps/web/src/app/page.tsx, apps/web/start.mjs, workers/workflow/src/main.ts, workers/workflow/src/dispatcher.ts, workers/workflow/src/connector-worker.ts, tests/stack/platform.test.ts, docs/00-foundation/adr/ADR-024-build-start-runtime-contracts.md, docs/00-foundation/adr/ADR-025-m1-implementation-decisions.md, docs/00-foundation/adr/ADR-026-tombstones-survive-restore.md, docs/05-operations/05-container-deployment-runbook.md, m3-verified-actions:infrastructure/compose/compose.yaml]
@@ -39,7 +39,7 @@ These are the services in `infrastructure/compose/compose.yaml`.
 | `valkey` | A cache with nothing saved to disk. It runs and is health-checked, and no code connects to it yet | All the time |
 | `objects` | SeaweedFS, as S3-compatible file storage | All the time |
 
-The `connectors` profile adds `connector-worker` and `egress-gateway`. That profile is on the branch `m3-verified-actions` and is off unless you turn it on. See [The connector worker](connector-worker.md).
+The `connectors` profile adds `connector-worker` and `egress-gateway`. It is off unless you turn it on. The release candidate also includes separate model, knowledge and mail worker paths. Each uses its own login role and restricted networks; an optional gateway is not general internet access. See [The connector worker](connector-worker.md).
 
 ## The networks
 
@@ -136,3 +136,7 @@ If any of these answers differently, stop and treat it as a security problem, no
 - [Configuration reference](configuration.md)
 - [Backup and restore](backup-and-restore.md)
 - [Upgrading a release](upgrade.md)
+
+## Model worker boundary
+
+The model worker is separated from the web tier, workflow worker and dispatcher. Sealing keys and model egress belong only to their designated workers. Check the rendered Compose configuration and the egress-denial tests after changing a profile, network or role. A deployment with no external access must pass the zero-egress qualification; a disabled UI option alone does not establish isolation. The release candidate's integration record lists the checks actually run.

@@ -75,6 +75,7 @@ describe('one transaction for a live status poll', () => {
   async function join(context: TenantContext, label: string) {
     const user = await makeUser(label);
     const { token } = await createInvitation(db(), context, { email: user.email, role: 'member' });
+    await auth.query('update identity.users set email_verified=true where id=$1', [user.id]);
     await acceptInvitation(db(), {
       token,
       userId: user.id,
@@ -200,9 +201,9 @@ describe('one transaction for a live status poll', () => {
       const { org } = await scene();
       const outsider = await makeUser('outsider');
       const fn = vi.fn(async () => 'ran');
-      await expect(
-        withMemberTenantTx(db(), outsider.id, org.organizationId, fn),
-      ).rejects.toThrow('Not found or not permitted');
+      await expect(withMemberTenantTx(db(), outsider.id, org.organizationId, fn)).rejects.toThrow(
+        'Not found or not permitted',
+      );
       await expect(withMemberTenantTx(db(), outsider.id, randomUUID(), fn)).rejects.toThrow(
         'Not found or not permitted',
       );
@@ -435,9 +436,7 @@ describe('one transaction for a live status poll', () => {
       const left = await withUserTx(db(), userId, async (tx) => ({
         bound: await settings(tx, ['app.organization_id', ...OTHER_BINDINGS]),
         work: await tx.select({ id: workUnits.id }).from(workUnits),
-        members: await tx
-          .select({ organizationId: memberships.organizationId })
-          .from(memberships),
+        members: await tx.select({ organizationId: memberships.organizationId }).from(memberships),
       }));
       expect(left.bound['app.organization_id']).toBe('');
       expect(left.work).toEqual([]);

@@ -28,6 +28,7 @@ import {
 import { createWorkUnit } from '@ensemus/application';
 import { modelProfileRef } from '@ensemus/domain/meeting';
 import { eq } from 'drizzle-orm';
+import { inFixtureTenant } from '../helpers/fixture-tenant';
 import {
   enableMeetings,
   recordConsent,
@@ -80,9 +81,11 @@ describe('expansion rules in the database', () => {
 
   const addMember = async (organizationId: string, label: string) => {
     const userId = await makeUser(label);
-    await su.query(
-      `insert into org.memberships (organization_id, id, user_id, role, status) values ($1, $2, $3, 'member', 'active')`,
-      [organizationId, randomUUID(), userId],
+    await inFixtureTenant(su, organizationId, () =>
+      su.query(
+        `insert into org.memberships (organization_id, id, user_id, role, status) values ($1, $2, $3, 'member', 'active')`,
+        [organizationId, randomUUID(), userId],
+      ),
     );
     return resolveTenantContext(db(), userId, organizationId);
   };
@@ -845,6 +848,7 @@ describe('expansion rules in the database', () => {
           organizationId: ctxA.organizationId,
           id: resourceId,
           connectionId,
+          stream: 'notes',
           resourceType: 'meetings.notes',
           externalId: 'note-1',
         }),

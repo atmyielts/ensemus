@@ -287,6 +287,7 @@ describeParity('modes', {
 
     const own = MODE_WORDS[mode];
     const deployment = statedDeployment(html);
+    if (deployment === undefined) throw new Error('The page did not state its deployment mode');
     expect(deployment).toBe(own.deployment);
     for (const words of own.says) expect(statement).toContain(words);
     for (const words of own.neverSays) expect(statement).not.toContain(words);

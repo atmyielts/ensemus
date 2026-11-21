@@ -2,7 +2,7 @@
 title: Agents and runs
 audience: user
 area: agents
-tickets: [AGENT-01, AGENT-02, AGENT-06, AI-13]
+tickets: [AGENT-01, AGENT-02, AGENT-06, AI-13, AGENT-15, AGENT-16]
 modes: [cloud, byom, sovereign]
 status: written_untested
 sources: [m4-agents:apps/web/src/app/o/[organizationId]/settings/agents/page.tsx, m4-agents:apps/web/src/app/o/[organizationId]/settings/agents/publish-form.tsx, m4-agents:apps/web/src/app/o/[organizationId]/settings/agents/actions.ts, m4-agents:apps/web/src/app/api/v1/organizations/[organizationId]/agent-versions/route.ts, m4-agents:apps/web/src/app/api/v1/organizations/[organizationId]/agent-versions/[agentVersionId]/route.ts, m4-agents:packages/application/src/ai/agents.ts, m4-agents:packages/policy/src/agent-spec-lint.ts, m4-agents:packages/contracts/src/ai.ts]
@@ -13,13 +13,23 @@ tests: []
 
 > **Not yet tested end to end.** This page was written from the code, and nobody has followed it on a running system yet.
 
-You can publish a version of an agent. **You cannot run one yet:** nothing starts a run, and no page shows one. This page covers publishing.
+You can publish a fixed version of an agent and start a run on a Work Unit. A run uses the initiating person's access and the limits of its published version. This guide describes the current code; running it on the release candidate is still an acceptance check.
+
+## Start and follow a run
+
+Open a Work Unit's **Assistant activity** page (`/work/{workUnitId}/run` under your organization). Choose an available published assistant and **Start a run**. If no version is available, ask an owner or admin to publish one and configure an eligible model route.
+
+The timeline shows the run's state, steps, usage and any reason it stopped. **Pause**, **Resume** and **Stop this run** appear when your access and the run's state allow them. A pause does not undo finished work. Starting again creates a new run; it does not silently repeat an uncertain external action.
+
+The context compiler reads as the initiator, applies source permissions and size limits, and keeps evidence separate from instructions. Permission to start a run does not grant it access to other people's private material. A run that cannot fit safe context or satisfy its budget stops with an explanation.
+
+Publishing requires a passing evaluation bound to the exact manifest digest and policy version. An evaluation is evidence for that version, not evidence for every future answer. Changing the definition requires a new version and a matching evaluation.
 
 ## What a published version is
 
 A version is one agent definition, fixed for good. It cannot be edited or deleted. To change an agent, you publish a new version, and new runs will use that one. **Agents** marks it **Used for new runs**. Each version shows when it was published, under which policy version, and its SHA-256, which identifies its exact content.
 
-The page is at `/settings/agents` under your organization's address. The main navigation has no link to it yet.
+The page is at `/settings/agents` under your organization's address. Open the agents settings page to manage published versions.
 
 ## Who can use it
 

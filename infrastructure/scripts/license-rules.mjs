@@ -1,3 +1,5 @@
+import { parseDocument } from 'yaml';
+
 // What the license inventory decides (LEGAL-05, ADR-036 D7), apart from the files and processes it
 // reads, so that a unit test can check each decision. See tests/unit/license-rules.test.ts.
 //
@@ -25,15 +27,14 @@ export const ATTENTION = [
   'has_reviewed_exception_in_check_licenses',
 ];
 export const KINDS = ['npm', 'container_image', 'os_package', 'runtime', 'model_weights', 'other'];
-export const EVIDENCE = [
-  'package_metadata',
-  'license_file',
-  'sbom',
-  HAND_EVIDENCE,
-  'not_found',
-];
+export const EVIDENCE = ['package_metadata', 'license_file', 'sbom', HAND_EVIDENCE, 'not_found'];
 export const ARTIFACTS = ['web_image', 'worker_image', 'third_party_image', 'sovereign_bundle'];
-export const SECTION_STATES = ['collected', 'declared_by_hand', 'not_collected', 'none_distributed'];
+export const SECTION_STATES = [
+  'collected',
+  'declared_by_hand',
+  'not_collected',
+  'none_distributed',
+];
 
 /** Which components each section answers for. A count that disagrees is refused. */
 export const SECTION_KINDS = {
@@ -52,6 +53,8 @@ export const REVIEWED_EXCEPTIONS = [
   'LGPL-3.0-or-later',
   'CC-BY-4.0',
   'MPL-2.0',
+  '(AFL-2.1 OR BSD-3-Clause)',
+  'MIT License',
 ];
 const REVIEWED_UNKNOWN_PACKAGE = 'unionfs';
 
@@ -233,51 +236,29 @@ export function mergeComponents(lists) {
   return [...merged.values()];
 }
 
-const scalar = (value) =>
-  value
-    .replace(/\s+#.*$/, '')
-    .trim()
-    .replace(/^(['"])(.*)\1$/, '$2');
-
-/**
- * The `image:` of each service in a Compose file. Read by indentation, with no YAML library, because
- * the gate runs with the root package's dependencies. It looks only at a service's own keys, so text
- * in a block scalar or a nested mapping cannot pass for an image. A service written on one line could
- * hide its image, so that is refused rather than skipped.
- */
+/** Read resolved service images, including inline mappings and inherited YAML anchors. */
 export function composeImages(composeYamlText) {
-  const images = [];
-  let inServices = false;
-  let serviceIndent = null;
-  let keyIndent = null;
-  let service = null;
-  for (const line of composeYamlText.split(/\r?\n/)) {
-    if (!line.trim() || line.trimStart().startsWith('#')) continue;
-    const indent = line.length - line.trimStart().length;
-    if (indent === 0) {
-      inServices = /^services:\s*(#.*)?$/.test(line);
-      serviceIndent = keyIndent = service = null;
-      continue;
+  const document = parseDocument(composeYamlText, { merge: true, uniqueKeys: true });
+  if (document.errors.length)
+    throw new Error(`invalid Compose YAML: ${document.errors[0].message}`);
+  const compose = document.toJS({ maxAliasCount: 100 });
+  if (compose == null) return [];
+  if (typeof compose !== 'object' || Array.isArray(compose))
+    throw new Error('Compose must be a mapping');
+  const services = compose.services;
+  if (services == null) return [];
+  if (typeof services !== 'object' || Array.isArray(services))
+    throw new Error('services must be a mapping');
+  return Object.entries(services).flatMap(([service, definition]) => {
+    if (!definition || typeof definition !== 'object' || Array.isArray(definition)) {
+      throw new Error(`service ${service} must be a mapping`);
     }
-    if (!inServices) continue;
-    serviceIndent ??= indent;
-    if (indent === serviceIndent) {
-      const named = line.match(/^\s+([^\s:#]+):\s*(.*)$/);
-      if (!named) throw new Error(`cannot read this line under services: ${line.trim()}`);
-      const rest = scalar(named[2]);
-      if (rest && !rest.startsWith('&')) {
-        throw new Error(`service ${named[1]} is written on one line, so its image cannot be read`);
-      }
-      service = named[1];
-      keyIndent = null;
-      continue;
+    if (definition.image === undefined) return [];
+    if (typeof definition.image !== 'string' || !definition.image.trim()) {
+      throw new Error(`service ${service} image must be a nonempty string`);
     }
-    keyIndent ??= indent;
-    if (indent !== keyIndent) continue;
-    const image = line.match(/^\s+image:\s*(.+)$/);
-    if (image) images.push({ image: scalar(image[1]), service });
-  }
-  return images;
+    return [{ image: definition.image, service }];
+  });
 }
 
 /** The image a Dockerfile's final stage starts from, which is the one that ships. */
@@ -330,7 +311,13 @@ export function imageComponents(images, declarations) {
     declared.set(declaration.image, declaration);
   }
 
-  const thirdParty = images.filter(({ image }) => !image.startsWith('ensemus/'));
+  // These two interpolation points select our own built artifacts; their third-party bases are
+  // inventoried from the Dockerfiles below. The release gate separately verifies selected images.
+  const firstParty = (image) =>
+    image.startsWith('ensemus/') ||
+    image === '${ENSEMUS_WEB_IMAGE:-ensemus/web:local}' ||
+    image === '${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}';
+  const thirdParty = images.filter(({ image }) => !firstParty(image));
   const used = new Map();
   for (const entry of thirdParty) {
     const usage = used.get(entry.image) ?? { services: [], artifacts: [] };
@@ -530,10 +517,7 @@ export function buildInventory({ release, sections, components }) {
       ...(release.release ? { release: release.release } : {}),
     },
     sections: Object.fromEntries(
-      Object.keys(SECTION_KINDS).map((name) => [
-        name,
-        { ...sections[name], count: countOf(name) },
-      ]),
+      Object.keys(SECTION_KINDS).map((name) => [name, { ...sections[name], count: countOf(name) }]),
     ),
     components: ordered,
   };
@@ -599,7 +583,8 @@ export function checkProblems(inventory) {
       problems.push(`section ${name} says ${section.count} components, and lists ${real}`);
     }
     const absent = section.state === 'not_collected' || section.state === 'none_distributed';
-    if (absent && !section.reason) problems.push(`section ${name} is ${section.state} with no reason`);
+    if (absent && !section.reason)
+      problems.push(`section ${name} is ${section.state} with no reason`);
     if (absent && (section.count !== 0 || real !== 0)) {
       problems.push(`section ${name} is ${section.state}, with a non-zero count`);
     }

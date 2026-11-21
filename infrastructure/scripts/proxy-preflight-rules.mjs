@@ -1,3 +1,5 @@
+import { URL } from 'node:url';
+
 // What the proxy preflight decides, apart from the file it reads, so that a unit test can check each
 // decision. See tests/unit/proxy-preflight-rules.test.ts and ADR-037 D9. A finding names a setting and
 // never quotes its value, so its output is safe to paste anywhere.
@@ -75,7 +77,7 @@ function unquoted(raw) {
 /** Reads an env file. A later line wins over an earlier one. */
 export function parseEnvFile(text) {
   const entries = [];
-  for (const line of text.replace(/^﻿/, '').split(/\r?\n/)) {
+  for (const line of text.replace(/^\uFEFF/, '').split(/\r?\n/)) {
     const assignment = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/.exec(line);
     if (assignment) entries.push([assignment[1], unquoted(assignment[2])]);
   }

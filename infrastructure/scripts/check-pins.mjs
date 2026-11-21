@@ -44,6 +44,8 @@ function* filesUnder(root, folder = root) {
 }
 
 function kindOf(path) {
+  // These files intentionally contain invalid images to test the inventory parsers; none is built.
+  if (path.startsWith('tests/unit/fixtures/')) return null;
   const name = basename(path);
   if (/^Dockerfile(\..+)?$|\.Dockerfile$/.test(name)) return 'Dockerfile';
   if (/^(docker-)?compose(\..+)?\.ya?ml$/.test(name)) return 'Compose file';

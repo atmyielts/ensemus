@@ -67,7 +67,9 @@ function listLicenses(filter) {
       maxBuffer: 64 * 1024 * 1024,
     });
   } catch (error) {
-    throw new Error(`pnpm licenses list failed for ${filter}: ${error.stderr || error.message}`);
+    throw new Error(`pnpm licenses list failed for ${filter}: ${error.stderr || error.message}`, {
+      cause: error,
+    });
   }
   try {
     return JSON.parse(printed);
@@ -120,7 +122,10 @@ function collectImages(declarations) {
     service: `the final stage of ${file}`,
     distributedIn: [artifact],
   }));
-  const leftOut = testOnlyImages(read('infrastructure', 'compose', 'compose.test.yaml'), compose);
+  const leftOut = testOnlyImages(read('infrastructure', 'compose', 'compose.test.yaml'), [
+    ...compose,
+    ...bases,
+  ]);
   const { components, problems } = imageComponents([...compose, ...bases], declarations);
   return {
     components,
@@ -181,9 +186,7 @@ function main() {
       out: { type: 'string' },
     },
   });
-  const out = values.out
-    ? resolve(values.out)
-    : join(root, '.local', 'release', 'licenses');
+  const out = values.out ? resolve(values.out) : join(root, '.local', 'release', 'licenses');
 
   // Clear the last run first. A failed run must not leave an older inventory looking current.
   for (const file of Object.values(OUTPUTS)) rmSync(join(out, file), { force: true });
@@ -217,7 +220,13 @@ function main() {
       model_weights: weights.section,
       other: other.section,
     },
-    components: [...npm, ...images.components, ...os.components, ...weights.components, ...other.components],
+    components: [
+      ...npm,
+      ...images.components,
+      ...os.components,
+      ...weights.components,
+      ...other.components,
+    ],
   });
 
   const tracked = git('ls-files').split(/\r?\n/).filter(Boolean);
@@ -225,9 +234,7 @@ function main() {
   const unaccounted = (saysNone ? filesNeedingAnEntry(tracked) : []).map(
     (file) => `${file} looks distributed, but the other section says nothing is`,
   );
-  const problems = [
-    ...new Set([...images.problems, ...checkProblems(inventory), ...unaccounted]),
-  ];
+  const problems = [...new Set([...images.problems, ...checkProblems(inventory), ...unaccounted])];
 
   const rendered = {
     json: `${JSON.stringify(inventory, null, 2)}\n`,
@@ -246,21 +253,28 @@ function main() {
   }
 
   mkdirSync(out, { recursive: true });
-  for (const [name, text] of Object.entries(rendered)) writeFileSync(join(out, OUTPUTS[name]), text);
+  for (const [name, text] of Object.entries(rendered))
+    writeFileSync(join(out, OUTPUTS[name]), text);
 
   console.log(`${inventory.components.length} components, review: ${inventory.review}.`);
   for (const [name, section] of Object.entries(inventory.sections)) {
     console.log(`- ${name}: ${section.state}, ${section.count}`);
   }
-  console.log(`Wrote ${Object.values(OUTPUTS).join(', ')}. This is a draft for counsel, not a review.`);
+  console.log(
+    `Wrote ${Object.values(OUTPUTS).join(', ')}. This is a draft for counsel, not a review.`,
+  );
 
   if (problems.length) {
-    const says = values.check ? 'FAILED: the inventory cannot be trusted:' : 'Problems --check refuses:';
+    const says = values.check
+      ? 'FAILED: the inventory cannot be trusted:'
+      : 'Problems --check refuses:';
     console.error(`\n${says}`);
     for (const problem of problems) console.error(`- ${problem}`);
     if (values.check) process.exitCode = 1;
   } else {
-    console.log('OK: every distributed component is accounted for. That says nothing about review.');
+    console.log(
+      'OK: every distributed component is accounted for. That says nothing about review.',
+    );
   }
 }
 

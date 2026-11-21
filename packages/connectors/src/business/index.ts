@@ -8,7 +8,7 @@ export {
   type AdapterAnswer,
   type AdapterRequest,
   type AdapterTransport,
-} from './http';
+} from './gateway-http';
 export {
   ADAPTER_ANSWER_MS,
   ADAPTER_BEFORE_COMMIT_MS,

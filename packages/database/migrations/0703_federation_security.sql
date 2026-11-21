@@ -234,12 +234,12 @@ BEGIN
   IF bound IS NULL THEN
     RAISE EXCEPTION 'FEDERATION_NOT_A_PARTY' USING ERRCODE = 'EN711';
   END IF;
-  IF NOT CASE OLD.status
+  IF NOT (CASE OLD.status
     WHEN 'proposed' THEN NEW.status IN ('accepted','ended')
     WHEN 'accepted' THEN NEW.status IN ('active','ended')
     WHEN 'active' THEN NEW.status IN ('ended')
     ELSE false
-  END THEN
+  END) THEN
     RAISE EXCEPTION 'FEDERATION_INVALID_TRANSITION' USING ERRCODE = 'EN716';
   END IF;
   IF NEW.version <> OLD.version + 1 THEN
@@ -417,11 +417,11 @@ CREATE FUNCTION federation.check_outbound_change() RETURNS trigger
   LANGUAGE plpgsql
   AS $$
 BEGIN
-  IF NOT CASE OLD.state
+  IF NOT (CASE OLD.state
     WHEN 'queued' THEN NEW.state IN ('delivered','refused','withdrawn')
     WHEN 'delivered' THEN NEW.state IN ('withdrawn')
     ELSE false
-  END THEN
+  END) THEN
     RAISE EXCEPTION 'FEDERATION_INVALID_TRANSITION' USING ERRCODE = 'EN716';
   END IF;
   IF NEW.version <> OLD.version + 1 THEN
@@ -537,11 +537,11 @@ CREATE FUNCTION federation.check_inbound_change() RETURNS trigger
   LANGUAGE plpgsql
   AS $$
 BEGIN
-  IF NOT CASE OLD.disposition
+  IF NOT (CASE OLD.disposition
     WHEN 'pending' THEN NEW.disposition IN ('accepted','rejected')
     WHEN 'accepted' THEN NEW.disposition IN ('accepted')
     ELSE false
-  END THEN
+  END) THEN
     RAISE EXCEPTION 'FEDERATION_INVALID_TRANSITION' USING ERRCODE = 'EN716';
   END IF;
   IF NEW.version <> OLD.version + 1 THEN

@@ -20,16 +20,15 @@ describe('working workspace navigation', () => {
       'Organization',
       'Account',
     ]);
-    expect(groups.flatMap((group) => group.items)).toHaveLength(13);
+    expect(groups.flatMap((group) => group.items)).toHaveLength(14);
     const items = groups.flatMap((group) =>
       group.items.flatMap((item) => [item, ...(item.children ?? [])]),
     );
     for (const item of items) {
-      const path = item.href.slice(base.length);
-      const page = new URL(
-        `../../apps/web/src/app/o/[organizationId]${path}/page.tsx`,
-        import.meta.url,
-      );
+      const path = item.href.startsWith(base)
+        ? `/o/[organizationId]${item.href.slice(base.length)}`
+        : item.href;
+      const page = new URL(`../../apps/web/src/app${path}/page.tsx`, import.meta.url);
       expect(existsSync(fileURLToPath(page)), item.href).toBe(true);
       expect(item.href).not.toBe(`${base}/agents`);
     }

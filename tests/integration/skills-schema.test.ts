@@ -569,7 +569,9 @@ describe('skill, sandbox and marketplace rules in the database', () => {
         exitCode: 0,
         output: { ok: true },
       });
-      await expect(change(id, { status: 'queued' })).rejects.toThrow(sqlState('ES001'));
+      await expect(change(id, { status: 'queued', output: null })).rejects.toThrow(
+        sqlState('ES001'),
+      );
     });
   });
 
@@ -743,6 +745,11 @@ describe('skill, sandbox and marketplace rules in the database', () => {
       const { values, publisherId } = await seedSubmission();
       const operator = await client(operatorUrl);
       const reviewerKeyId = randomHex();
+      await operator.query(
+        `update marketplace.submissions set state = 'in_review', version = version + 1
+          where organization_id = $1 and id = $2`,
+        [ctxA.organizationId, values.id],
+      );
       const attestationSignature = randomBytes(64);
       const { rows } = await operator.query(
         `insert into marketplace.security_reviews

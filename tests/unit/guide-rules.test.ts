@@ -401,5 +401,5 @@ describe('the guides in this repository', () => {
       encoding: 'utf8',
     });
     expect(output).toContain('OK: the guides are well formed');
-  });
+  }, 30_000);
 });

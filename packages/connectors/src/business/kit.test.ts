@@ -15,7 +15,7 @@ import {
   type FakeAdapter,
   type FakeAdapterOptions,
 } from '../testing/business-adapter';
-import { adapterExchange, AdapterNoAnswer, AdapterNotContacted } from './http';
+import { adapterExchange, AdapterNoAnswer, AdapterNotContacted } from './gateway-http';
 import { createBusinessConnector, type BusinessRecordSink } from './kit';
 import { routeConnector } from './route';
 

@@ -2,7 +2,7 @@
 
 An AI-native company operating system, in which people and permissioned agents coordinate, carry out, verify and remember company work.
 
-**Status: M2, core work product under verification.** Organizations, people, clients, projects, work, files, approvals and deterministic checklist execution are implemented. M1's outside security review and owner decisions remain open; use throwaway test data and credentials. See the [delivery plan](docs/06-delivery/06-end-to-end-delivery-plan.md), [M2 evidence report](docs/06-delivery/evidence/M2-report.md) and [M1 review requirements](docs/06-delivery/evidence/M1-report.md#what-stops-m1-closing).
+**Status: pre-release integration.** The core platform is implemented, with newer provider, Knowledge, mail, checkout and operations work being qualified together on `codex/release-candidate`. Preserved department-pack, meeting, skill, sandbox and federation foundations are also being developed; their presence is not completed functionality. See the [current release-candidate record](docs/06-delivery/release-candidate-2026-11-21.md) and [delivery plan](docs/06-delivery/06-end-to-end-delivery-plan.md). Independent security review, real-provider acceptance and launch approval remain open. Use generated test data and credentials during qualification.
 
 ## Layout
 

@@ -288,7 +288,7 @@ export function workspaceNavigation(input: {
     : [];
   if (can(role, 'support.use'))
     account.push({ href: `${base}/account`, label: 'Account and support', icon: 'usage' });
-  account.push({ href: '/help', label: 'Help', icon: 'arrow' });
+  if (isRole(role)) account.push({ href: '/help', label: 'Help', icon: 'arrow' });
   if (account.length > 0) groups.push({ label: 'Account', items: account });
   return groups;
 }

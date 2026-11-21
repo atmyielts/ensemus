@@ -41,7 +41,7 @@ import {
   AdapterNotContacted,
   type AdapterAnswer,
   type AdapterTransport,
-} from './http';
+} from './gateway-http';
 
 /** One record's kept fields, handed to the sink before its page's cursor commits. */
 export type BusinessRecordWrite = {

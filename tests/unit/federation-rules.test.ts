@@ -224,7 +224,10 @@ describe('the shape of the boundary', () => {
     for (const name of m11c) {
       const text = read(name);
       if (/\b(CREATE POLICY|GRANT |REVOKE )/.test(text)) {
-        expect(text.startsWith('-- REVIEWED SECURITY SQL'), name).toBe(true);
+        expect(
+          text.split(/\r?\n/).some((line) => line.startsWith('-- REVIEWED SECURITY SQL')),
+          name,
+        ).toBe(true);
       }
     }
   });

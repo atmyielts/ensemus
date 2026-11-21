@@ -3,7 +3,6 @@
 // person's choice at the moment a message is due.
 import { createHash, randomUUID } from 'node:crypto';
 import {
-  mailOutbox,
   mailUnsubscribeTokens,
   notificationPreferences,
   withMailUnsubscribeTx,
@@ -55,24 +54,18 @@ export async function queueInvitationMail(
     purpose: MAIL_LINK_PURPOSE,
     plaintext: JSON.stringify({ link: `${mail.publicUrl}${invitationPath(input.token)}` }),
   });
-  const [row] = await tx
-    .insert(mailOutbox)
-    .values({
-      id,
-      organizationId: context.organizationId,
-      kind: 'invitation',
-      idempotencyKey: `invitation:${context.organizationId}:${input.invitationId}`,
-      invitationId: input.invitationId,
-      recipientAddress: input.email,
-      linkKeyId: sealed.keyId,
-      linkWrappedKey: sealed.wrappedKey,
-      linkIv: sealed.iv,
-      linkCiphertext: sealed.ciphertext,
-      linkAuthTag: sealed.authTag,
-      // Set by 0571 from the kind. Named because the column has no default.
-      sendBefore: sql`now() + interval '7 days'`,
-    })
-    .returning({ status: mailOutbox.status });
+  // Column grants deliberately exclude worker progress fields. Drizzle's insert builder lists
+  // omitted columns as DEFAULT, which still requires INSERT permission on those columns in PG.
+  const { rows } = await tx.execute<{ status: string }>(sql`
+    insert into platform.mail_outbox
+      (id, organization_id, kind, idempotency_key, invitation_id, recipient_address,
+       link_key_id, link_wrapped_key, link_iv, link_ciphertext, link_auth_tag, send_before)
+    values (${id}, ${context.organizationId}, 'invitation',
+      ${`invitation:${context.organizationId}:${input.invitationId}`}, ${input.invitationId}, ${input.email},
+      ${sealed.keyId}, ${sealed.wrappedKey}, ${sealed.iv}, ${sealed.ciphertext}, ${sealed.authTag},
+      now() + interval '7 days')
+    returning status`);
+  const row = rows[0];
   return row?.status === 'queued';
 }
 

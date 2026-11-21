@@ -2,7 +2,7 @@
 title: People and teams
 audience: user
 area: start
-tickets: [UX-15]
+tickets: [UX-15, CONNECT-08]
 modes: [cloud, byom, sovereign]
 status: written_untested
 sources: [apps/web/src/app/o/[organizationId]/people/page.tsx, apps/web/src/components/confirm-form.tsx, apps/web/src/server/work-actions.ts, apps/web/src/lib/messages.ts, packages/application/src/people.ts, packages/application/src/work.ts, packages/domain/src/policy.ts, tests/stack/product-flows.test.ts]
@@ -86,3 +86,7 @@ Everyone sees which teams there are, how they nest, and how many people each has
 ## What another organization can see
 
 Nothing here. Members, teams and invitations are visible only inside their own organization. A form that names a person or a team from another organization is refused with one of the messages above, and the answer is the same whether or not they exist.
+
+## Teams mirrored from a provider
+
+A connected Google Workspace or Microsoft 365 directory can mirror groups as teams. Sync controls their membership; change the source group rather than editing its mirrored team. Nested membership is bounded and cycles are cut. Access changes take effect after a successful sync, and revoking the connection removes its mirrored teams. A provider test-tenant acceptance run is still required for the release candidate.

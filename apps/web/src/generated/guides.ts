@@ -3138,6 +3138,25 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
             "v": "Nothing here. Members, teams and invitations are visible only inside their own organization. A form that names a person or a team from another organization is refused with one of the messages above, and the answer is the same whether or not they exist."
           }
         ]
+      },
+      {
+        "b": "h",
+        "level": 2,
+        "inline": [
+          {
+            "t": "text",
+            "v": "Teams mirrored from a provider"
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "A connected Google Workspace or Microsoft 365 directory can mirror groups as teams. Sync controls their membership; change the source group rather than editing its mirrored team. Nested membership is bounded and cycles are cut. Access changes take effect after a successful sync, and revoking the connection removes its mirrored teams. A provider test-tenant acceptance run is still required for the release candidate."
+          }
+        ]
       }
     ]
   },
@@ -15003,6 +15022,384 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
     ]
   },
   {
+    "slug": "google-workspace",
+    "title": "Google Workspace",
+    "section": "connections",
+    "modes": [
+      "cloud",
+      "byom",
+      "sovereign"
+    ],
+    "status": "written_untested",
+    "blocks": [
+      {
+        "b": "quote",
+        "inline": [
+          {
+            "t": "strong",
+            "v": "Not yet tested end to end."
+          },
+          {
+            "t": "text",
+            "v": " This page was written from the code, and nobody has followed it on a running system yet."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "This guide describes the current implementation. Consent and provider wire formats still need acceptance with a provider test tenant; local checks do not establish that your account is connected."
+          }
+        ]
+      },
+      {
+        "b": "h",
+        "level": 2,
+        "inline": [
+          {
+            "t": "text",
+            "v": "Connect company files and groups"
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "An owner or admin opens "
+          },
+          {
+            "t": "strong",
+            "v": "Connections"
+          },
+          {
+            "t": "text",
+            "v": ", then "
+          },
+          {
+            "t": "strong",
+            "v": "Connect Google Workspace or Microsoft 365"
+          },
+          {
+            "t": "text",
+            "v": ", and chooses "
+          },
+          {
+            "t": "strong",
+            "v": "Google Workspace"
+          },
+          {
+            "t": "text",
+            "v": ". Name the connection and select "
+          },
+          {
+            "t": "strong",
+            "v": "Read files"
+          },
+          {
+            "t": "text",
+            "v": ", "
+          },
+          {
+            "t": "strong",
+            "v": "Read groups"
+          },
+          {
+            "t": "text",
+            "v": ", or both. Expand "
+          },
+          {
+            "t": "strong",
+            "v": "Exactly what Google Workspace will ask you to allow"
+          },
+          {
+            "t": "text",
+            "v": " to review the requested scopes."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Choose Ensemus's configured app or your own app. Your own app requires its client details and the callback address shown in the form. Continue to the provider's consent page. Ensemus does not ask for your provider password. Finish within ten minutes; an expired or denied attempt does not create a connection. The page shows "
+          },
+          {
+            "t": "strong",
+            "v": "Finishing"
+          },
+          {
+            "t": "text",
+            "v": " until the worker completes the exchange, and "
+          },
+          {
+            "t": "strong",
+            "v": "Connected"
+          },
+          {
+            "t": "text",
+            "v": " only after it succeeds."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Files remain limited to people who can open them at the provider. Directory groups are mirrored as teams, and are controlled by sync rather than manual membership edits. Revoking the connection ends its use; a provider membership change is reflected on the next successful sync."
+          }
+        ]
+      },
+      {
+        "b": "h",
+        "level": 2,
+        "inline": [
+          {
+            "t": "text",
+            "v": "Connect your own account for assistant tools"
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Open your personal "
+          },
+          {
+            "t": "strong",
+            "v": "Connections"
+          },
+          {
+            "t": "text",
+            "v": " settings. The organization decides which capabilities people may connect. Select only the mail, calendar, document or chat capabilities you need and finish the provider's consent. Available capabilities vary by provider and configuration; an unavailable capability cannot be granted by changing a form value."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Assistant reads use the initiating person's access. An external change requires review of its exact payload and records a receipt or an explicit uncertain result. If the result is uncertain, check the provider before trying again; an uncertain send is not safe to repeat automatically."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "An owner or admin can revoke company or member connections from "
+          },
+          {
+            "t": "strong",
+            "v": "Connections"
+          },
+          {
+            "t": "text",
+            "v": ". A revoked connection cannot be resumed; its owner must connect again."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "slug": "microsoft-365",
+    "title": "Microsoft 365",
+    "section": "connections",
+    "modes": [
+      "cloud",
+      "byom",
+      "sovereign"
+    ],
+    "status": "written_untested",
+    "blocks": [
+      {
+        "b": "quote",
+        "inline": [
+          {
+            "t": "strong",
+            "v": "Not yet tested end to end."
+          },
+          {
+            "t": "text",
+            "v": " This page was written from the code, and nobody has followed it on a running system yet."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "This guide describes the current implementation. Consent and provider wire formats still need acceptance with a provider test tenant; local checks do not establish that your account is connected."
+          }
+        ]
+      },
+      {
+        "b": "h",
+        "level": 2,
+        "inline": [
+          {
+            "t": "text",
+            "v": "Connect company files and groups"
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "An owner or admin opens "
+          },
+          {
+            "t": "strong",
+            "v": "Connections"
+          },
+          {
+            "t": "text",
+            "v": ", then "
+          },
+          {
+            "t": "strong",
+            "v": "Connect Google Workspace or Microsoft 365"
+          },
+          {
+            "t": "text",
+            "v": ", and chooses "
+          },
+          {
+            "t": "strong",
+            "v": "Microsoft 365"
+          },
+          {
+            "t": "text",
+            "v": ". Name the connection and select "
+          },
+          {
+            "t": "strong",
+            "v": "Read files"
+          },
+          {
+            "t": "text",
+            "v": ", "
+          },
+          {
+            "t": "strong",
+            "v": "Read groups"
+          },
+          {
+            "t": "text",
+            "v": ", or both. Expand "
+          },
+          {
+            "t": "strong",
+            "v": "Exactly what Microsoft 365 will ask you to allow"
+          },
+          {
+            "t": "text",
+            "v": " to review the requested scopes."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Choose Ensemus's configured app or your own app. Your own app requires its client details and the callback address shown in the form. Continue to the provider's consent page. Ensemus does not ask for your provider password. Finish within ten minutes; an expired or denied attempt does not create a connection. The page shows "
+          },
+          {
+            "t": "strong",
+            "v": "Finishing"
+          },
+          {
+            "t": "text",
+            "v": " until the worker completes the exchange, and "
+          },
+          {
+            "t": "strong",
+            "v": "Connected"
+          },
+          {
+            "t": "text",
+            "v": " only after it succeeds."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Files remain limited to people who can open them at the provider. Directory groups are mirrored as teams, and are controlled by sync rather than manual membership edits. Revoking the connection ends its use; a provider membership change is reflected on the next successful sync."
+          }
+        ]
+      },
+      {
+        "b": "h",
+        "level": 2,
+        "inline": [
+          {
+            "t": "text",
+            "v": "Connect your own account for assistant tools"
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Open your personal "
+          },
+          {
+            "t": "strong",
+            "v": "Connections"
+          },
+          {
+            "t": "text",
+            "v": " settings. The organization decides which capabilities people may connect. Select only the mail, calendar, document or chat capabilities you need and finish the provider's consent. Available capabilities vary by provider and configuration; an unavailable capability cannot be granted by changing a form value."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Assistant reads use the initiating person's access. An external change requires review of its exact payload and records a receipt or an explicit uncertain result. If the result is uncertain, check the provider before trying again; an uncertain send is not safe to repeat automatically."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "An owner or admin can revoke company or member connections from "
+          },
+          {
+            "t": "strong",
+            "v": "Connections"
+          },
+          {
+            "t": "text",
+            "v": ". A revoked connection cannot be resumed; its owner must connect again."
+          }
+        ]
+      }
+    ]
+  },
+  {
     "slug": "usage-and-budgets",
     "title": "Usage and budgets",
     "section": "agents",
@@ -15674,6 +16071,68 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
     ]
   },
   {
+    "slug": "data-classes-and-egress",
+    "title": "Data classes and what leaves",
+    "section": "agents",
+    "modes": [
+      "cloud",
+      "byom",
+      "sovereign"
+    ],
+    "status": "written_untested",
+    "blocks": [
+      {
+        "b": "quote",
+        "inline": [
+          {
+            "t": "strong",
+            "v": "Not yet tested end to end."
+          },
+          {
+            "t": "text",
+            "v": " This page was written from the code, and nobody has followed it on a running system yet."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "This guide describes the current code and has not yet been followed end to end on the release candidate."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Each source carries a data class: public, internal, confidential or restricted. Model routing applies the company's policy to the class of the context it would send. A model connection alone does not authorize every source to leave the company."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Before sending, a deterministic scan checks known secret formats, private-key blocks and configured canaries. A match raises that content to restricted. Refusal and audit records use codes rather than copying the detected secret. This scan catches known shapes; it does not promise that all sensitive text can be recognized automatically."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "If a run reports that its context cannot leave, ask an owner to check the source classification and permitted model routes. Do not paste the blocked material into a less restricted field to get around the refusal. Access at the source and permission to send are both required."
+          }
+        ]
+      }
+    ]
+  },
+  {
     "slug": "agents-and-runs",
     "title": "Agents and runs",
     "section": "agents",
@@ -15702,15 +16161,101 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
         "inline": [
           {
             "t": "text",
-            "v": "You can publish a version of an agent. "
+            "v": "You can publish a fixed version of an agent and start a run on a Work Unit. A run uses the initiating person's access and the limits of its published version. This guide describes the current code; running it on the release candidate is still an acceptance check."
+          }
+        ]
+      },
+      {
+        "b": "h",
+        "level": 2,
+        "inline": [
+          {
+            "t": "text",
+            "v": "Start and follow a run"
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Open a Work Unit's "
           },
           {
             "t": "strong",
-            "v": "You cannot run one yet:"
+            "v": "Assistant activity"
           },
           {
             "t": "text",
-            "v": " nothing starts a run, and no page shows one. This page covers publishing."
+            "v": " page ("
+          },
+          {
+            "t": "code",
+            "v": "/work/{workUnitId}/run"
+          },
+          {
+            "t": "text",
+            "v": " under your organization). Choose an available published assistant and "
+          },
+          {
+            "t": "strong",
+            "v": "Start a run"
+          },
+          {
+            "t": "text",
+            "v": ". If no version is available, ask an owner or admin to publish one and configure an eligible model route."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "The timeline shows the run's state, steps, usage and any reason it stopped. "
+          },
+          {
+            "t": "strong",
+            "v": "Pause"
+          },
+          {
+            "t": "text",
+            "v": ", "
+          },
+          {
+            "t": "strong",
+            "v": "Resume"
+          },
+          {
+            "t": "text",
+            "v": " and "
+          },
+          {
+            "t": "strong",
+            "v": "Stop this run"
+          },
+          {
+            "t": "text",
+            "v": " appear when your access and the run's state allow them. A pause does not undo finished work. Starting again creates a new run; it does not silently repeat an uncertain external action."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "The context compiler reads as the initiator, applies source permissions and size limits, and keeps evidence separate from instructions. Permission to start a run does not grant it access to other people's private material. A run that cannot fit safe context or satisfy its budget stops with an explanation."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Publishing requires a passing evaluation bound to the exact manifest digest and policy version. An evaluation is evidence for that version, not evidence for every future answer. Changing the definition requires a new version and a matching evaluation."
           }
         ]
       },
@@ -15762,7 +16307,7 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
           },
           {
             "t": "text",
-            "v": " under your organization's address. The main navigation has no link to it yet."
+            "v": " under your organization's address. Open the agents settings page to manage published versions."
           }
         ]
       },

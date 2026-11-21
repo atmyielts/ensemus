@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     projects: [
       {
+        oxc: { jsx: { runtime: 'automatic' } },
         test: {
           name: 'unit',
           include: [

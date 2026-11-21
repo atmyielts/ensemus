@@ -117,13 +117,19 @@ function goodInventory() {
 }
 
 describe('attentionFor', () => {
-  it.each([['Unknown'], ['unknown'], [''], ['   '], ['NOASSERTION'], ['NONE'], [undefined], [null]])(
-    'reads %j as declaring nothing',
-    (license) => {
-      expect(flagsOf(license)).toContain('no_license_declared');
-      expect(declaredLicense(license)).toBe('unknown');
-    },
-  );
+  it.each([
+    ['Unknown'],
+    ['unknown'],
+    [''],
+    ['   '],
+    ['NOASSERTION'],
+    ['NONE'],
+    [undefined],
+    [null],
+  ])('reads %j as declaring nothing', (license) => {
+    expect(flagsOf(license)).toContain('no_license_declared');
+    expect(declaredLicense(license)).toBe('unknown');
+  });
 
   it.each([['UNLICENSED'], ['SEE LICENSE IN LICENSE.md'], ['Custom: https://example.invalid']])(
     'keeps %j word for word, and flags that it names no license',
@@ -279,9 +285,10 @@ describe('check-licenses.mjs stays the source of its exceptions', () => {
 
 describe('npmComponents', () => {
   it('makes one component per version', () => {
-    expect(
-      named(webComponents(), 'shared-lib').map((component) => component.version),
-    ).toEqual(['1.0.0', '2.0.0']);
+    expect(named(webComponents(), 'shared-lib').map((component) => component.version)).toEqual([
+      '1.0.0',
+      '2.0.0',
+    ]);
   });
 
   it('flags a missing text', () => {
@@ -423,8 +430,25 @@ describe('composeImages', () => {
     expect(expected.length).toBeGreaterThan(0);
   });
 
-  it('refuses a service written on one line, which could hide its image', () => {
-    expect(() => composeImages('services:\n  sneaky: { image: "a/b:1" }\n')).toThrow(/one line/);
+  it('reads inline services and inherited image anchors', () => {
+    expect(
+      composeImages(
+        'x-base: &base { image: "a/b:1" }\nservices:\n  inherited: { <<: *base }\n  override: { <<: *base, image: "a/c:2" }\n',
+      ),
+    ).toEqual([
+      { image: 'a/b:1', service: 'inherited' },
+      { image: 'a/c:2', service: 'override' },
+    ]);
+  });
+
+  it('refuses malformed YAML, duplicate keys and non-string images', () => {
+    for (const yaml of [
+      'services: [',
+      'services: { a: { image: x, image: y } }',
+      'services: { a: { image: 1 } }',
+    ]) {
+      expect(() => composeImages(yaml)).toThrow();
+    }
   });
 
   it('reads nothing from a file with no services', () => {
@@ -483,9 +507,7 @@ describe('imageComponents', () => {
   });
 
   it('treats a moved digest as undeclared, because a project can change license', () => {
-    const moved = [
-      { image: `fixture/proxy:2-alpine@sha256:${'9'.repeat(64)}`, service: 'proxy' },
-    ];
+    const moved = [{ image: `fixture/proxy:2-alpine@sha256:${'9'.repeat(64)}`, service: 'proxy' }];
     const { problems } = imageComponents(moved, DECLARATIONS.slice(0, 1));
     expect(problems.join()).toContain('fixture/proxy has no declaration');
     expect(problems.join()).toContain('which nothing distributed uses');
@@ -562,10 +584,10 @@ describe('the real declarations', () => {
   });
 
   it('do not list a test tool, or one of our own images', () => {
-    const test = testOnlyImages(
-      repoText('infrastructure', 'compose', 'compose.test.yaml'),
-      compose,
-    );
+    const test = testOnlyImages(repoText('infrastructure', 'compose', 'compose.test.yaml'), [
+      ...compose,
+      ...bases,
+    ]);
     expect(test.length).toBeGreaterThan(0);
     const listed = declared.images.map((entry: { image: string }) => entry.image);
     for (const image of test) expect(listed).not.toContain(image);
@@ -677,7 +699,11 @@ describe('filesNeedingAnEntry', () => {
         'tests/fixtures/model.gguf',
         'apps/web/src/page.tsx',
       ]),
-    ).toEqual(['apps/web/public/fonts/a.woff2', 'models/embed.safetensors', 'packages/x/vendor/y.js']);
+    ).toEqual([
+      'apps/web/public/fonts/a.woff2',
+      'models/embed.safetensors',
+      'packages/x/vendor/y.js',
+    ]);
   });
 });
 
@@ -817,7 +843,9 @@ describe('checkProblems refuses', () => {
       sections: SECTIONS,
       components: goodInventory().components.filter((c: { kind: string }) => c.kind !== 'npm'),
     });
-    expect(checkProblems(inventory).join()).toContain('section npm is collected, and lists nothing');
+    expect(checkProblems(inventory).join()).toContain(
+      'section npm is collected, and lists nothing',
+    );
   });
 
   it('a section not marked collected for npm', () => {
@@ -1085,11 +1113,7 @@ describe('the command', { timeout: 120_000 }, () => {
     return spawnSync(process.execPath, [script, ...args], { cwd: root, env, encoding: 'utf8' });
   }
   const outDir = (name: string) => join(work, name);
-  const FILES = [
-    'license-inventory.json',
-    'license-inventory.csv',
-    'THIRD-PARTY-NOTICES.draft.md',
-  ];
+  const FILES = ['license-inventory.json', 'license-inventory.csv', 'THIRD-PARTY-NOTICES.draft.md'];
 
   it.each([
     ['fail', /ERR_PNPM_FIXTURE/],

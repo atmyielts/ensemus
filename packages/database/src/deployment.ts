@@ -1,6 +1,6 @@
 // For one-shot deploy jobs only, which connect as the migrator (ADR-035 D5). Lint keeps this out of the web tier
 // and out of Activities. No request can reach it, so no tenant can change what tier or region it is in.
-import { drizzle } from 'drizzle-orm/node-postgres';
+import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { eq } from 'drizzle-orm';
 import pg from 'pg';
 import { deploymentProfile, isolationEvidence } from './schema-tenancy';
@@ -15,7 +15,7 @@ export class PinChangeRefused extends Error {
 
 async function withMigrator<T>(
   url: string,
-  fn: (db: ReturnType<typeof drizzle>) => Promise<T>,
+  fn: (db: NodePgDatabase<Record<string, unknown>>) => Promise<T>,
 ): Promise<T> {
   const client = new pg.Client({ connectionString: url, application_name: 'ensemus-deploy' });
   await client.connect();

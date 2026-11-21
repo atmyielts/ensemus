@@ -232,6 +232,7 @@ describe('CI disk preparation preserves the full Linux gate workflow', () => {
       'reproducible',
       'connectors',
       'browser',
+      'parity',
       'upgrade',
     ]);
     expect(workflow.match(/infrastructure\/scripts\/ci-disk-preflight\.mjs/g)).toHaveLength(5);
