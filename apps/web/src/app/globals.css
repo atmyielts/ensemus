@@ -2668,3 +2668,73 @@ dl.approval-pairs dt {
 .row-titled tr:last-child th {
   border-bottom: 0;
 }
+
+/* The Help pages. Wider than the other pages outside an organization, because they are for reading. */
+.centered.help {
+  max-width: 48rem;
+}
+.help .back {
+  margin-bottom: 0.75rem;
+}
+.help-section {
+  margin-top: 1.5rem;
+}
+.help-section .list {
+  margin: 0;
+}
+.guide h2,
+.guide h3 {
+  margin: 1.5rem 0 0.5rem;
+}
+.guide > :first-child {
+  margin-top: 0;
+}
+.guide > :last-child {
+  margin-bottom: 0;
+}
+.guide ul,
+.guide ol {
+  margin: 0 0 0.75rem;
+  padding-inline-start: 1.25rem;
+}
+.guide li + li {
+  margin-top: 0.25rem;
+}
+.guide blockquote {
+  margin: 0 0 1rem;
+  padding: 0.625rem 0.875rem;
+  background: var(--surface-2);
+  border-inline-start: 3px solid var(--line-strong);
+  border-radius: var(--radius-small);
+}
+.guide code {
+  font-size: 0.875em;
+  overflow-wrap: anywhere;
+}
+.guide p code,
+.guide li code,
+.guide td code {
+  padding: 0.0625rem 0.25rem;
+  background: var(--surface-2);
+  border-radius: 4px;
+}
+.guide pre {
+  margin: 0 0 0.75rem;
+}
+.guide pre code {
+  font-size: inherit;
+}
+/* The cells wrap instead of the table scrolling, so no table needs a tab stop of its own to be read. */
+.guide table {
+  margin: 0 0 0.75rem;
+}
+.guide th,
+.guide td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* A link in a sentence in a table is not a title being scanned, so it keeps its line. */
+.guide td a {
+  font-weight: inherit;
+  text-decoration: underline;
+}
