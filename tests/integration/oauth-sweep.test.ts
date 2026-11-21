@@ -24,7 +24,8 @@ const REDIRECT = 'https://ensemus.example.invalid/api/v1/oauth/callback';
 const GOOGLE_CLIENT = 'generated-platform.apps.googleusercontent.com';
 
 describe('the consent sweep', () => {
-  const app = openAppDatabase(urls.app(), { max: 4 });
+  // The exchange, the sweep and the rotation run in the connector worker, under its own login (0701).
+  const app = openAppDatabase(urls.connector(), { max: 4 });
   const secretsDb = openSecretsDatabase(urls.secrets());
   const observer = new pg.Client({ connectionString: urls.superuser() });
   const db = () => app.db;

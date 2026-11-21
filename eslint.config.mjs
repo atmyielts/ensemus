@@ -309,6 +309,8 @@ const agentWorkerFiles = [
   'workers/workflow/src/agent-main.ts',
   'workers/workflow/src/kill-switch.ts',
   'workers/workflow/src/halt-global.ts',
+  // Restore reconciliation fences and purges private transcripts through the agent role (ADR-026).
+  'workers/workflow/src/restore-reconcile.ts',
   'packages/workflows/src/agent-activities.ts',
   'packages/workflows/src/model-probe-activities.ts',
   'packages/application/src/ai/runs.ts',

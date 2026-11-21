@@ -53,7 +53,8 @@ const granted = (scope: string) => ({
 });
 
 describe('the OAuth code exchange', () => {
-  const app = openAppDatabase(urls.app(), { max: 4 });
+  // The exchange, the sweep and the rotation run in the connector worker, under its own login (0701).
+  const app = openAppDatabase(urls.connector(), { max: 4 });
   const secretsDb = openSecretsDatabase(urls.secrets());
   const broker = new SecretBroker(
     secretsDb.db,

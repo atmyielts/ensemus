@@ -13,6 +13,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
 import { assertDiskHeadroom } from './disk-headroom.mjs';
+import { NETSHOOT } from './tool-images.mjs';
 import { disposableAirgapProject } from './test-stack-settings.mjs';
 import {
   containersOffTheSubnet,
@@ -53,7 +54,7 @@ if (connectorsRound) {
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CHAIN = 'DOCKER-USER';
 // A pinned image that includes iptables. It needs host networking to reach the engine's firewall.
-const TOOLS = 'nicolaka/netshoot:v0.14';
+const TOOLS = NETSHOOT.image;
 const composeFiles = [
   'infrastructure/compose/compose.yaml',
   'infrastructure/compose/compose.test.yaml',

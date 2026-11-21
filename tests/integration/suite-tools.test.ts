@@ -1,8 +1,9 @@
 // ADR-038 D5 and D6 against the real database and migrations 0563 and 0565: the connection rule on M3's
 // intent path and again at the send, drafts that ask nobody, a file's class across every connection that
 // syncs it, the suite read table nobody but the agent role and the connector worker can see, the members'
-// capability setting, and a member's own consent and the connection its exchange makes. Generated values
-// only. Written, not yet run: owed to the first stack run.
+// capability setting, and a member's own consent and the connection its exchange makes. 0701 (ADR-039):
+// only the connector worker's own login reads or answers a suite read, or exchanges a consent, so the web
+// tier's role is refused both even as a service. Generated values only. Written, not yet run.
 import { randomUUID } from 'node:crypto';
 import {
   beginAttempt,
@@ -41,6 +42,8 @@ const message = { to: ['someone@example.invalid'], subject: 'Hello', text_body: 
 
 describe('suite tools (ADR-038 D6)', () => {
   let app: ReturnType<typeof openAppDatabase>;
+  /** The connector worker's own login (ADR-039 D1). */
+  let connector: ReturnType<typeof openAppDatabase>;
   let auth: pg.Client;
   /** Writes a member's own connection, which only a consent may make under the application roles. */
   let superuser: pg.Client;
@@ -76,6 +79,7 @@ describe('suite tools (ADR-038 D6)', () => {
 
   beforeAll(async () => {
     app = openAppDatabase(urls.app());
+    connector = openAppDatabase(urls.connector());
     auth = new pg.Client({ connectionString: urls.auth() });
     superuser = new pg.Client({ connectionString: urls.superuser() });
     await auth.connect();
@@ -85,6 +89,7 @@ describe('suite tools (ADR-038 D6)', () => {
     await auth.end();
     await superuser.end();
     await app.close();
+    await connector.close();
   });
 
   const makeUser = async (label: string) => {
@@ -243,36 +248,51 @@ describe('suite tools (ADR-038 D6)', () => {
     });
   });
 
-  describe('0563: the suite read table', () => {
-    it('shows a person nothing and lets neither a person nor the worker write a request', async () => {
+  describe('0563 and 0701: the suite read table', () => {
+    const request = (t: Awaited<ReturnType<typeof tenant>>) => ({
+      organizationId: t.organizationId,
+      proposalId: randomUUID(),
+      runId: randomUUID(),
+      stepId: randomUUID(),
+      connectionId: t.alexMail,
+      toolId: 'gmail.search',
+      toolVersion: '1',
+      args: {},
+    });
+
+    it('lets the web tier neither read nor write one, as a person or as a service', async () => {
       const t = await tenant();
-      // The application role reads every column but the output, and RLS shows a person no row of them.
+      for (const context of [t.owner, createServiceContext(t.organizationId)]) {
+        // ensemus_app holds no grant on the table at all since 0701, whatever the session binds.
+        const read = await withTenantTx(db(), context, (tx) =>
+          tx.select({ proposalId: suiteReads.proposalId }).from(suiteReads),
+        ).catch((error: unknown) => error);
+        expect(pgCode(read)).toBe('42501');
+        const refused = await withTenantTx(db(), context, (tx) =>
+          tx.insert(suiteReads).values(request(t)),
+        ).catch((error: unknown) => error);
+        expect(pgCode(refused)).toBe('42501');
+      }
+    });
+
+    it('lets the connector worker read it as a service, and still write no request', async () => {
+      const t = await tenant();
+      const service = createServiceContext(t.organizationId);
       await expect(
-        withTenantTx(db(), t.owner, (tx) =>
+        withTenantTx(connector.db, service, (tx) =>
           tx.select({ proposalId: suiteReads.proposalId }).from(suiteReads),
         ),
       ).resolves.toEqual([]);
-      // The output is the agent role's alone: the application role cannot even name the column.
-      const output = await withTenantTx(db(), t.owner, (tx) =>
+      // Never the output: only the agent role reads that back.
+      const output = await withTenantTx(connector.db, service, (tx) =>
         tx.select({ output: suiteReads.output }).from(suiteReads),
       ).catch((error: unknown) => error);
       expect(pgCode(output)).toBe('42501');
-      for (const context of [t.owner, createServiceContext(t.organizationId)]) {
-        const refused = await withTenantTx(db(), context, (tx) =>
-          tx.insert(suiteReads).values({
-            organizationId: t.organizationId,
-            proposalId: randomUUID(),
-            runId: randomUUID(),
-            stepId: randomUUID(),
-            connectionId: t.alexMail,
-            toolId: 'gmail.search',
-            toolVersion: '1',
-            args: {},
-          }),
-        ).catch((error: unknown) => error);
-        // No INSERT grant to the application role: only the agent role writes a request.
-        expect(pgCode(refused)).toBe('42501');
-      }
+      const refused = await withTenantTx(connector.db, service, (tx) =>
+        tx.insert(suiteReads).values(request(t)),
+      ).catch((error: unknown) => error);
+      // No INSERT grant: only the agent role writes a request.
+      expect(pgCode(refused)).toBe('42501');
     });
   });
 
@@ -688,8 +708,12 @@ describe('suite tools (ADR-038 D6)', () => {
         `update integrations.oauth_authorizations set status = 'exchanging' where id = $1`,
         [own.id],
       );
-      const exchange = (authorizationId: string, ownerMembershipId: string) =>
-        withTenantTx(db(), createServiceContext(t.organizationId), async (tx) => {
+      const exchangeAs = (
+        database: ReturnType<typeof openAppDatabase>,
+        authorizationId: string,
+        ownerMembershipId: string,
+      ) =>
+        withTenantTx(database.db, createServiceContext(t.organizationId), async (tx) => {
           await tx.execute(
             sql`select set_config('ensemus.oauth_exchange', ${authorizationId}, true)`,
           );
@@ -706,8 +730,12 @@ describe('suite tools (ADR-038 D6)', () => {
             ownerMembershipId,
           });
         }).catch((error: unknown) => error);
+      const exchange = (authorizationId: string, ownerMembershipId: string) =>
+        exchangeAs(connector, authorizationId, ownerMembershipId);
       expect(pgCode(await exchange(own.id, t.sam.membershipId))).toBe('EN121');
-      // The same exchange for the member who started it still connects.
+      // The web tier's role is refused the same exchange even as a service (0701).
+      expect(pgCode(await exchangeAs(app, own.id, t.alex.membershipId))).toBe('EN121');
+      // The same exchange for the member who started it, by the connector worker, still connects.
       expect(await exchange(own.id, t.alex.membershipId)).toBeUndefined();
     });
   });

@@ -22,6 +22,10 @@ for (const role of [
   'migrator',
   'app',
   'agent',
+  // ADR-039: each worker's own login.
+  'worker',
+  'connector',
+  'knowledge',
   'auth',
   'dispatcher',
   'secrets',
@@ -33,6 +37,9 @@ for (const [name, role, file] of [
   ['db_migrator_url', 'ensemus_migrator', 'db_migrator_password'],
   ['db_app_url', 'ensemus_app', 'db_app_password'],
   ['db_agent_url', 'ensemus_agent', 'db_agent_password'],
+  ['db_worker_url', 'ensemus_worker', 'db_worker_password'],
+  ['db_connector_url', 'ensemus_connector', 'db_connector_password'],
+  ['db_knowledge_url', 'ensemus_knowledge', 'db_knowledge_password'],
   ['db_auth_url', 'ensemus_auth', 'db_auth_password'],
   ['db_secrets_url', 'ensemus_secrets', 'db_secrets_password'],
   ['db_dispatcher_url', 'ensemus_dispatcher', 'db_dispatcher_password'],
@@ -44,6 +51,9 @@ put('objects_access_key', () => randomBytes(12).toString('hex'));
 put('objects_secret_key', () => randomBytes(24).toString('hex'));
 put('objects_ledger_access_key', () => randomBytes(12).toString('hex'));
 put('objects_ledger_secret_key', () => randomBytes(24).toString('hex'));
+// The backup overlay's own credential (compose.backup.yaml): its bucket and nothing else.
+put('objects_backup_access_key', () => randomBytes(12).toString('hex'));
+put('objects_backup_secret_key', () => randomBytes(24).toString('hex'));
 const credentials = (access, secret) => ({
   accessKey: readFileSync(join(dir, access), 'utf8'),
   secretKey: readFileSync(join(dir, secret), 'utf8'),
@@ -65,6 +75,13 @@ writeFileSync(
         name: 'ensemus-ledger',
         credentials: [credentials('objects_ledger_access_key', 'objects_ledger_secret_key')],
         actions: ['Read:ensemus/tombstone-ledger/*', 'Write:ensemus/tombstone-ledger/*'],
+      },
+      {
+        // Backups go to a bucket of their own, which this identity can read, write and list, and no
+        // other (11-postgres-backup-and-pitr.md). It cannot create or delete a bucket.
+        name: 'ensemus-backup',
+        credentials: [credentials('objects_backup_access_key', 'objects_backup_secret_key')],
+        actions: ['Read:ensemus-backups', 'Write:ensemus-backups', 'List:ensemus-backups'],
       },
     ],
   }),

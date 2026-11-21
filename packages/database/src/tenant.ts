@@ -453,6 +453,27 @@ export function withRunLookupTx<T>(
   return database.transaction({ 'app.organization_id': organizationId.toLowerCase() }, fn);
 }
 
+/** The login role a worker must hold (ADR-039 D1). Each worker has its own; the web tier keeps ensemus_app. */
+export type WorkerLoginRole = 'ensemus_worker' | 'ensemus_connector' | 'ensemus_knowledge';
+
+/**
+ * Refuses to go on unless this process logged in as `expected`. A worker started with the web tier's
+ * credentials would pass every shared rule and then fail, one at a time, each rule only its own login
+ * passes (0701), so it stops at the start instead, saying which. Reads no tenant data.
+ */
+export async function assertLoginRole(
+  database: AppDatabase,
+  expected: WorkerLoginRole,
+): Promise<void> {
+  const result = await database.run((tx) =>
+    tx.execute<{ role: string }>(sql`select session_user::text as role`),
+  );
+  if (result.rows[0]?.role !== expected)
+    throw Object.assign(new Error('WORKER_LOGIN_ROLE_MISMATCH'), {
+      code: 'WORKER_LOGIN_ROLE_MISMATCH',
+    });
+}
+
 /** Confirms the database answers. Reads no tenant data. */
 export async function pingDatabase(database: AppDatabase): Promise<void> {
   await database.run((tx) => tx.execute(sql`select 1`));

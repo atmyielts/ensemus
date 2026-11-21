@@ -13,6 +13,7 @@ import { createMicrosoft365Connector } from '@ensemus/connectors/microsoft';
 import { createProviderHttpClient } from '@ensemus/connectors/provider-http';
 import { createConnectorRegistry } from '@ensemus/connectors/runtime';
 import { openAppDatabase } from '@ensemus/database';
+import { assertLoginRole } from '@ensemus/database/service';
 import { openSecretsDatabase } from '@ensemus/database/secrets';
 import { OAUTH_CALLBACK_PATH } from '@ensemus/domain/workspace-suites';
 import { FileKeyProvider, SecretBroker } from '@ensemus/secrets/broker';
@@ -43,11 +44,20 @@ import { createPaymentWebhookAttester } from './payment-webhook-attester';
 import { composeCheckout, createCheckoutAttesters } from './checkout-composition';
 import { createStandingAgentHaltPort } from '@ensemus/application/saas/standing-agent-port';
 import { createCheckoutConnectorActivities } from '@ensemus/workflows/checkout-activities';
+import {
+  assertActivityCapacity,
+  connectorActivitySlots,
+  connectorDatabasePool,
+} from './worker-limits';
 
 const log = createLogger('connector-worker');
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 async function main() {
+  // A bad cap stops the worker before it connects to anything (worker-limits.ts).
+  const activitySlots = connectorActivitySlots();
+  const databasePool = connectorDatabasePool(activitySlots);
+  assertActivityCapacity(databasePool, activitySlots);
   // Must run first. The SDK's default logger would print activity error messages.
   Runtime.install({
     logger: createTemporalLogger(log),
@@ -56,7 +66,9 @@ async function main() {
   const connection = await NativeConnection.connect({
     address: process.env.TEMPORAL_ADDRESS ?? 'temporal:7233',
   });
-  const app = openAppDatabase(readSecret('DATABASE_URL_APP'));
+  const app = openAppDatabase(readSecret('DATABASE_URL_APP'), { max: databasePool });
+  // Its own login, never the web tier's (ADR-039 D1).
+  await assertLoginRole(app.db, 'ensemus_connector');
   const secretsDb = openSecretsDatabase(readSecret('DATABASE_URL_SECRETS'));
   const sealingKey = readSecret('SECRET_SEALING_PRIVATE_KEY');
   const secrets = new SecretBroker(secretsDb.db, new FileKeyProvider([sealingKey]));
@@ -114,6 +126,7 @@ async function main() {
     connection,
     namespace: process.env.TEMPORAL_NAMESPACE ?? 'default',
     taskQueue: CONNECTOR_TASK_QUEUE,
+    maxConcurrentActivityTaskExecutions: activitySlots,
     activities: {
       ...createExternalActionConnectorActivities(deps),
       ...createWebhookActivities({
@@ -172,7 +185,7 @@ async function main() {
   const timer = setInterval(beat, 5_000);
   timer.unref();
 
-  log.info('connector_worker.started', { taskQueue: CONNECTOR_TASK_QUEUE });
+  log.info('connector_worker.started', { taskQueue: CONNECTOR_TASK_QUEUE, count: activitySlots });
   await worker.run();
   log.info('connector_worker.stopped');
   await app.close();

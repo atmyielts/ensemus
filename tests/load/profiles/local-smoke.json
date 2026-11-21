@@ -1,0 +1,6 @@
+{
+  "concurrencyPerTenant": 2,
+  "requestsPerTenant": 40,
+  "workUnits": 20,
+  "scenarioTimeoutMs": 30000
+}

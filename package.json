@@ -2,7 +2,7 @@
   "name": "ensemus",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@10.17.0",
+  "packageManager": "pnpm@10.17.0+sha512.fce8a3dd29a4ed2ec566fb53efbb04d8c44a0f05bc6f24a73046910fb9c3ce7afa35a0980500668fa3573345bd644644fa98338fa168235c80f4aa17aa17fbef",
   "engines": {
     "node": ">=24.0.0 <25"
   },
@@ -21,8 +21,14 @@
     "check:contracts": "pnpm --filter @ensemus/contracts generate && git diff --exit-code packages/contracts/generated",
     "check:licenses": "node infrastructure/scripts/check-licenses.mjs",
     "check:proxy": "node infrastructure/scripts/check-proxy.mjs",
+    "check:pins": "node infrastructure/scripts/check-pins.mjs",
     "measure:m2": "vitest run --project measure",
     "measure:knowledge-recall": "vitest run --project measure tests/measure/knowledge-recall.measure.ts",
+    "load:seed": "node tests/load/seed-fixture.mjs",
+    "load:run": "node tests/load/run.mjs",
+    "load:local": "node tests/load/local.mjs",
+    "backup:prune": "node infrastructure/scripts/pg-backup-prune.mjs",
+    "backup:drill": "node infrastructure/scripts/pg-pitr-drill.mjs",
     "stack:secrets": "node infrastructure/scripts/generate-test-secrets.mjs",
     "stack:up": "docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml up -d --build --wait",
     "stack:down": "docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml down -v",

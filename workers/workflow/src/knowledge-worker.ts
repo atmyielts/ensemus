@@ -11,6 +11,7 @@ import {
   refuseUnadmittedDeletes,
 } from '@ensemus/application/saas/object-deletion';
 import { openAppDatabase } from '@ensemus/database';
+import { assertLoginRole } from '@ensemus/database/service';
 import { withRawKnowledgeObjects } from '@ensemus/application/knowledge/raw-objects';
 import { S3ObjectStore } from '@ensemus/storage';
 import { createLogger, errorCode } from '@ensemus/telemetry';
@@ -37,6 +38,8 @@ async function main() {
     address: process.env.TEMPORAL_ADDRESS ?? 'temporal:7233',
   });
   const app = openAppDatabase(readSecret('DATABASE_URL_APP'));
+  // Its own login, never the web tier's (ADR-039 D1).
+  await assertLoginRole(app.db, 'ensemus_knowledge');
   const store = new S3ObjectStore({
     endpoint: process.env.OBJECT_STORAGE_ENDPOINT ?? 'http://objects:8333',
     bucket: process.env.OBJECT_STORAGE_BUCKET ?? 'ensemus',

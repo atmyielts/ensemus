@@ -28,6 +28,11 @@ export const urls = {
   secrets: () => dbUrl('ensemus_secrets', 'db_secrets_password'),
   // Needs the provisioning step recorded in ADR-028 under "Role provisioning".
   agent: () => dbUrl('ensemus_agent', 'db_agent_password'),
+  // ADR-039 D1: each worker's own login, a member of ensemus_app. A test acting as a worker uses the one
+  // that worker holds, since the rules only that worker passes (0701) refuse the web tier's.
+  worker: () => dbUrl('ensemus_worker', 'db_worker_password'),
+  connector: () => dbUrl('ensemus_connector', 'db_connector_password'),
+  knowledge: () => dbUrl('ensemus_knowledge', 'db_knowledge_password'),
   superuser: () => dbUrl('postgres', 'db_superuser_password'),
 };
 

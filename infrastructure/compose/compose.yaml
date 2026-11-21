@@ -127,7 +127,8 @@ services:
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_NAMESPACE: default
       TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
-      DATABASE_URL_APP_FILE: /run/secrets/db_app_url
+      # Its own login, a member of ensemus_app (ADR-039). The name keeps the code unchanged.
+      DATABASE_URL_APP_FILE: /run/secrets/db_worker_url
       OBJECT_STORAGE_ENDPOINT: http://objects:8333
       OBJECT_STORAGE_BUCKET: ensemus
       OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
@@ -139,7 +140,7 @@ services:
       ENSEMUS_BILLING_ENABLED: ${ENSEMUS_BILLING_ENABLED:-false}
     secrets:
       - temporal_codec_key
-      - db_app_url
+      - db_worker_url
       - db_secrets_url
       - sealing_private_key.pem
       - objects_access_key
@@ -169,14 +170,15 @@ services:
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_NAMESPACE: default
       TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
-      DATABASE_URL_APP_FILE: /run/secrets/db_app_url
+      # Its own login, a member of ensemus_app (ADR-039). The name keeps the code unchanged.
+      DATABASE_URL_APP_FILE: /run/secrets/db_knowledge_url
       OBJECT_STORAGE_ENDPOINT: http://objects:8333
       OBJECT_STORAGE_BUCKET: ensemus
       OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
       OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
     secrets:
       - temporal_codec_key
-      - db_app_url
+      - db_knowledge_url
       - objects_access_key
       - objects_secret_key
     depends_on:
@@ -295,7 +297,8 @@ services:
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_NAMESPACE: default
       TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
-      DATABASE_URL_APP_FILE: /run/secrets/db_app_url
+      # Its own login (ADR-039). Only this login answers a suite read or exchanges a consent (0701).
+      DATABASE_URL_APP_FILE: /run/secrets/db_connector_url
       DATABASE_URL_SECRETS_FILE: /run/secrets/db_secrets_url
       SECRET_SEALING_PRIVATE_KEY_FILE: /run/secrets/sealing_private_key.pem
       ENSEMUS_EGRESS_GATEWAY: egress-gateway:2525
@@ -343,8 +346,11 @@ services:
       # Paddle without it stops this worker at start. Its one way out is the egress-paddle route.
       ENSEMUS_PADDLE_API_KEY_FILE: ${ENSEMUS_PADDLE_API_KEY_FILE:-}
       ENSEMUS_EGRESS_PADDLE: egress-paddle:2525
+      # Activities at once (worker-limits.ts). Whole number from 1 to 32; anything else stops the worker.
+      # Its database pool is this plus two, so raise PostgreSQL's max_connections with it.
+      ENSEMUS_CONNECTOR_ACTIVITY_SLOTS: ${ENSEMUS_CONNECTOR_ACTIVITY_SLOTS:-8}
     secrets:
-      - db_app_url
+      - db_connector_url
       - db_secrets_url
       - sealing_private_key.pem
       - temporal_codec_key
@@ -551,8 +557,16 @@ services:
     volumes:
       - ./postgres/upgrade-roles.sh:/provision/upgrade-roles.sh:ro
       - ./postgres/upgrade-roles.sql:/provision/upgrade-roles.sql:ro
+      - ./postgres/upgrade-roles-workers.sql:/provision/upgrade-roles-workers.sql:ro
       - ./postgres/upgrade-roles-m8.sql:/provision/upgrade-roles-m8.sql:ro
-    secrets: [db_superuser_password, db_agent_password]
+    secrets:
+      [
+        db_superuser_password,
+        db_agent_password,
+        db_worker_password,
+        db_connector_password,
+        db_knowledge_password,
+      ]
     depends_on:
       postgres: { condition: service_healthy }
 
@@ -623,13 +637,17 @@ services:
     environment:
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_NAMESPACE: default
-      DATABASE_URL_APP_FILE: /run/secrets/db_app_url
+      # Its own login, a member of ensemus_app (ADR-039). The name keeps the code unchanged.
+      DATABASE_URL_APP_FILE: /run/secrets/db_worker_url
       DATABASE_URL_DISPATCHER_FILE: /run/secrets/db_dispatcher_url
+      # The two M4 contributors fence and purge private transcripts, which only the agent role may do
+      # (ADR-026, ADR-028). Without it they stay unbound and report attention, so nobody is admitted.
+      DATABASE_URL_AGENT_FILE: /run/secrets/db_agent_url
       OBJECT_STORAGE_ENDPOINT: http://objects:8333
       OBJECT_STORAGE_BUCKET: ensemus
       OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
       OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
-    secrets: [db_app_url, db_dispatcher_url, objects_access_key, objects_secret_key]
+    secrets: [db_worker_url, db_dispatcher_url, db_agent_url, objects_access_key, objects_secret_key]
 
   postgres:
     <<: *restart
@@ -651,6 +669,9 @@ services:
       - db_migrator_password
       - db_app_password
       - db_agent_password
+      - db_worker_password
+      - db_connector_password
+      - db_knowledge_password
       - db_auth_password
       - db_dispatcher_password
       - db_secrets_password
@@ -711,6 +732,11 @@ services:
     image: temporalio/admin-tools@sha256:4a95866efba29d7e17ab012df5232795e8b0ad0f7d5f9d1ec4df321f7792a754
     entrypoint: ['/bin/sh', '/provision/setup-namespace.sh']
     networks: [temporal]
+    environment:
+      # How long a closed run's history stays (ADR-037 D6). Whole hours of at least 24, written <n>h. The
+      # job applies it to an existing namespace too, and refuses anything else before touching Temporal.
+      # A technical default, not a promise: no safety property depends on it.
+      ENSEMUS_TEMPORAL_RETENTION: ${ENSEMUS_TEMPORAL_RETENTION:-72h}
     extra_hosts:
       - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10
     volumes:
@@ -833,6 +859,9 @@ secrets:
   db_migrator_password: { file: ../../.local/secrets/db_migrator_password }
   db_app_password: { file: ../../.local/secrets/db_app_password }
   db_agent_password: { file: ../../.local/secrets/db_agent_password }
+  db_worker_password: { file: ../../.local/secrets/db_worker_password }
+  db_connector_password: { file: ../../.local/secrets/db_connector_password }
+  db_knowledge_password: { file: ../../.local/secrets/db_knowledge_password }
   db_auth_password: { file: ../../.local/secrets/db_auth_password }
   db_dispatcher_password: { file: ../../.local/secrets/db_dispatcher_password }
   db_secrets_password: { file: ../../.local/secrets/db_secrets_password }
@@ -840,6 +869,9 @@ secrets:
   db_migrator_url: { file: ../../.local/secrets/db_migrator_url }
   db_app_url: { file: ../../.local/secrets/db_app_url }
   db_agent_url: { file: ../../.local/secrets/db_agent_url }
+  db_worker_url: { file: ../../.local/secrets/db_worker_url }
+  db_connector_url: { file: ../../.local/secrets/db_connector_url }
+  db_knowledge_url: { file: ../../.local/secrets/db_knowledge_url }
   db_auth_url: { file: ../../.local/secrets/db_auth_url }
   db_dispatcher_url: { file: ../../.local/secrets/db_dispatcher_url }
   objects_access_key: { file: ../../.local/secrets/objects_access_key }

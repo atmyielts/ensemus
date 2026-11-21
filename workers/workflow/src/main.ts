@@ -6,6 +6,7 @@ import { createOnboardingAgentRuns } from '@ensemus/application/knowledge/onboar
 import { loadSaasConfig, readSecret } from '@ensemus/config';
 import { loadSovereignConfig } from '@ensemus/config/sovereign';
 import { openAppDatabase } from '@ensemus/database';
+import { assertLoginRole } from '@ensemus/database/service';
 import { S3ObjectStore } from '@ensemus/storage';
 import { withRawKnowledgeObjects } from '@ensemus/application/knowledge/raw-objects';
 import { createLogger, errorCode } from '@ensemus/telemetry';
@@ -55,6 +56,8 @@ async function main() {
   const { db, close } = openAppDatabase(readSecret('DATABASE_URL_APP'), {
     max: PLATFORM_DATABASE_POOL,
   });
+  // Its own login, never the web tier's (ADR-039 D1).
+  await assertLoginRole(db, 'ensemus_worker');
   const nativeStore = new S3ObjectStore({
     endpoint: process.env.OBJECT_STORAGE_ENDPOINT ?? 'http://objects:8333',
     bucket: process.env.OBJECT_STORAGE_BUCKET ?? 'ensemus',

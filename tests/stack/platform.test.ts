@@ -440,6 +440,9 @@ describe('web tier isolation (ADR-024 D3, D5)', () => {
     expect(mounted).not.toContain('db_secrets_url');
     expect(mounted).not.toContain('db_agent_url');
     expect(mounted).not.toContain('db_dispatcher_url');
+    // Each worker's own login stays with that worker (ADR-039), so the web tier cannot act as one.
+    for (const worker of ['db_worker_url', 'db_connector_url', 'db_knowledge_url'])
+      expect(mounted).not.toContain(worker);
     // The endpoint allowlist is public configuration. Check secret-bearing names and actual key
     // material, without printing all environment values when an assertion fails.
     const inspected = JSON.parse(
@@ -583,5 +586,36 @@ describe('database in the deployed stack', () => {
     );
     expect(rows[0].n).toBeGreaterThanOrEqual(2);
     await client.end();
+  });
+
+  // ADR-039 D1: the workers stopped sharing the web tier's login. Each worker refuses to start under any
+  // login but its own, so a running worker configured with its own name has logged in as itself. Only the
+  // user name in each URL is printed, never the URL.
+  it('has each worker logged in as itself, and the web tier as ensemus_app', async () => {
+    const userIn = (service: string) =>
+      nodeIn(
+        service,
+        `process.stdout.write(new URL(require('fs').readFileSync(process.env.DATABASE_URL_APP_FILE,'utf8').trim()).username)`,
+      );
+    expect(userIn('web')).toBe('ensemus_app');
+    expect(userIn('worker')).toBe('ensemus_worker');
+    expect(userIn('knowledge-worker')).toBe('ensemus_knowledge');
+    const client = new pg.Client({ connectionString: urls.superuser() });
+    await client.connect();
+    try {
+      const { rows: roles } = await client.query<{ rolname: string; parents: string[] }>(
+        `select r.rolname, array(select p.rolname from pg_auth_members m join pg_roles p on p.oid = m.roleid
+                                  where m.member = r.oid order by 1) as parents
+           from pg_roles r where r.rolname in ('ensemus_worker','ensemus_connector','ensemus_knowledge')
+          order by 1`,
+      );
+      expect(roles).toEqual([
+        { rolname: 'ensemus_connector', parents: ['ensemus_app'] },
+        { rolname: 'ensemus_knowledge', parents: ['ensemus_app'] },
+        { rolname: 'ensemus_worker', parents: ['ensemus_app'] },
+      ]);
+    } finally {
+      await client.end();
+    }
   });
 });
