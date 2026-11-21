@@ -207,13 +207,13 @@
     },
     {
       "path": "03-intelligence/07-evaluation-and-observability.md",
-      "size_bytes": 3466,
-      "sha256": "769939e9b5eb1d2a7e22f4328d317003b45626913b2241d272d821eef0986f71"
+      "size_bytes": 4157,
+      "sha256": "aa5851dde992d702cbe3236df297d8a9198013b1c0ee3ed33dafdbd938238309"
     },
     {
       "path": "03-intelligence/08-agent-safety.md",
-      "size_bytes": 3569,
-      "sha256": "fdd9fb8f02be3aa40ef6b95746550f66d20a2cbac500217556d7599061810244"
+      "size_bytes": 4558,
+      "sha256": "6573404de1e23545798192ccd092c17b4c8c974dd4c8a99bc6db3f7aed8b8fa0"
     },
     {
       "path": "03-intelligence/09-typescript-worker-runtime.md",
@@ -277,8 +277,8 @@
     },
     {
       "path": "05-operations/05-container-deployment-runbook.md",
-      "size_bytes": 34794,
-      "sha256": "13ecc0886ed8bcdfe12781fee0fc23f3a0779d943741ef5c85b1eb0fbe4247d6"
+      "size_bytes": 36914,
+      "sha256": "44687c4ef737644e716da48f74383247bc30cb6470dfde011fd13b8242845190"
     },
     {
       "path": "05-operations/06-performance-and-load-plan.md",
@@ -1077,13 +1077,13 @@
     },
     {
       "path": "specifications/model-conformance-matrix.csv",
-      "size_bytes": 543,
-      "sha256": "897f7ac6334ea97a6f6194752f71450a845edcca2107c3c03a5d9b7d8320686f"
+      "size_bytes": 1839,
+      "sha256": "4b3d07de1eac02ce1fb20b9367cfceb07842cbda7b0fcec8a4d2ded9493044a9"
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 399211,
-      "sha256": "e46f39f08bfb3516bd7fa1bde33ddc8afc9b11001bc8a680e8d7566b9b2e49c9"
+      "size_bytes": 399974,
+      "sha256": "4090724fd24f0c507ae1178e8d4b6e5dcf2a59fe202f52a447a8cfb1d9b9bdb2"
     },
     {
       "path": "specifications/qa-scenarios.csv",
@@ -1097,8 +1097,8 @@
     },
     {
       "path": "specifications/schemas/agent-definition.schema.json",
-      "size_bytes": 3592,
-      "sha256": "81535cb004f8c2cc948ad1c1bc566c0212c64a96c59462b5eb656ebc207a1f00"
+      "size_bytes": 3800,
+      "sha256": "faa07ed7f77f9f42fdf92ba40d881125107969f27a6e857303771c3e9251a0b4"
     },
     {
       "path": "specifications/schemas/client-brief.schema.json",

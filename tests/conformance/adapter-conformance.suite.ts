@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import {
   createEndpointGuard,
   createModelAdapter,
+  MALFORMATIONS,
   type AdapterCall,
   type AdapterResult,
 } from '@ensemus/intelligence';
@@ -144,8 +145,6 @@ export const WIRE_FORMATS: readonly WireFormat[] = [
     host: () => GEMINI_HOST,
     endpoint: (fake) => `http://${GEMINI_HOST}:${fake.port}/v1beta`,
     prompt: geminiPrompt,
-    // failureForStatus does not yet read Gemini's wording, so this is a plain bad request for now.
-    contextTooLong: 'bad_request',
   },
   {
     ...onFake,
@@ -233,6 +232,12 @@ const ANSWER_SCHEMA = {
 };
 
 const FAILURE_KEYS = ['failure', 'kind', 'mayHaveBilled', 'usage'];
+/** Codes a failure may add: the provider's capped Retry-After, and what was wrong with a whole answer. */
+const OPTIONAL_FAILURE_KEYS = ['malformation', 'retryAfterMs'];
+const requiredKeys = (result: object) =>
+  Object.keys(result)
+    .filter((key) => !OPTIONAL_FAILURE_KEYS.includes(key))
+    .sort();
 
 function sinks() {
   const lines: string[] = [];
@@ -368,6 +373,7 @@ export function describeAdapterConformance() {
           kind: 'failure',
           failure: 'malformed_response',
           mayHaveBilled: true,
+          malformation: 'unknown_tool',
         });
         expect(JSON.stringify(result)).not.toContain('secrets');
       });
@@ -379,12 +385,20 @@ export function describeAdapterConformance() {
 
       it('refuses several tool calls in one turn, rather than dropping all but one', async () => {
         const result = await run('tool_many', { tools: [READ_TOOL] });
-        expect(result).toMatchObject({ kind: 'failure', failure: 'malformed_response' });
+        expect(result).toMatchObject({
+          kind: 'failure',
+          failure: 'malformed_response',
+          malformation: 'multiple_tool_calls',
+        });
       });
 
       it('an empty answer is not an answer', async () => {
         const result = await run('empty');
-        expect(result).toMatchObject({ kind: 'failure', failure: 'malformed_response' });
+        expect(result).toMatchObject({
+          kind: 'failure',
+          failure: 'malformed_response',
+          malformation: 'empty_output',
+        });
       });
 
       it('maps malformed JSON to a code', async () => {
@@ -425,10 +439,11 @@ export function describeAdapterConformance() {
             { role: 'evidence', partId: 'e1', text: long, classification: 'internal' },
           ],
         });
+        // A 400 turned the request away before the model ran, so nothing was billed.
         expect(result).toEqual({
           kind: 'failure',
           failure: format.contextTooLong,
-          mayHaveBilled: true,
+          mayHaveBilled: false,
           usage: null,
         });
         expect(fake.hits).toBe(1);
@@ -439,11 +454,13 @@ export function describeAdapterConformance() {
 
       it('maps a 429 to rate_limited, with no retry even when told to come back', async () => {
         const result = await run('rate_limited');
+        // The wait is handed up, for the workflow's durable retry. The adapter itself sends once.
         expect(result).toEqual({
           kind: 'failure',
           failure: 'rate_limited',
-          mayHaveBilled: true,
+          mayHaveBilled: false,
           usage: null,
+          retryAfterMs: 7_000,
         });
         expect(fake.hits).toBe(1);
       });
@@ -455,6 +472,7 @@ export function describeAdapterConformance() {
           failure: 'server_error',
           mayHaveBilled: true,
           usage: null,
+          retryAfterMs: null,
         });
         expect(fake.hits).toBe(1);
       });
@@ -673,7 +691,14 @@ export function describeAdapterConformance() {
           expect(holdsCanary(surfaces, key)).toBe(false);
           expect(holdsCanary(surfaces, prompt)).toBe(false);
           expect(result.kind).toBe('failure');
-          expect(Object.keys(result).sort()).toEqual(FAILURE_KEYS);
+          expect(requiredKeys(result)).toEqual(FAILURE_KEYS);
+          // What else a failure carries is a number or a code from a fixed list, never text.
+          const extra = result as { retryAfterMs?: unknown; malformation?: unknown };
+          if ('retryAfterMs' in extra)
+            expect(extra.retryAfterMs === null || Number.isSafeInteger(extra.retryAfterMs)).toBe(
+              true,
+            );
+          if ('malformation' in extra) expect(MALFORMATIONS).toContain(extra.malformation);
           // Control: the prompt really went out, so its absence above means something.
           expect(holdsCanary(fake.requests[0]?.raw ?? '', prompt)).toBe(true);
         });
@@ -684,7 +709,7 @@ export function describeAdapterConformance() {
           expect(result).toEqual({
             kind: 'failure',
             failure: 'auth_failed',
-            mayHaveBilled: true,
+            mayHaveBilled: false,
             usage: null,
           });
           expect(holdsCanary(JSON.stringify(result), key)).toBe(false);
@@ -779,7 +804,7 @@ export function describeAdapterConformance() {
       expect(result).toEqual({
         kind: 'failure',
         failure: 'auth_failed',
-        mayHaveBilled: true,
+        mayHaveBilled: false,
         usage: null,
       });
       expect(fake.requests[0]?.sigv4).toBe('unknown_key');

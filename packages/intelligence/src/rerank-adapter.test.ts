@@ -180,7 +180,9 @@ describe('failures are codes, with no provider text and no retry', () => {
       json(status, { message: `Echo: ${PROMPT} ${KEY}` }, { 'retry-after': '0' }),
     );
     const result = await rerank(value);
-    expect(result).toEqual({ kind: 'failure', failure, mayHaveBilled: true, usage: null });
+    // A provider that turned the request away (4xx) ran nothing, so it bills nothing.
+    const mayHaveBilled = status >= 500;
+    expect(result).toEqual({ kind: 'failure', failure, mayHaveBilled, usage: null });
     expect(sent).toHaveLength(1);
     expect(JSON.stringify(result)).not.toContain(PROMPT);
     expect(JSON.stringify(result)).not.toContain(KEY);

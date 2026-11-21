@@ -5,6 +5,7 @@
 // forgotten.
 import {
   decideNext,
+  retryDelayMs,
   stopForDirective,
   stopForFailure,
   type LastStep,
@@ -44,6 +45,7 @@ import {
   AGENT_SCHEDULE_TO_START,
   AGENT_TASK_QUEUE,
   CONNECTOR_TASK_QUEUE,
+  MODEL_RETRY_PATCH,
   SUITE_READ_PATCH,
   TOOL_WAIT_POLL,
 } from './constants';
@@ -212,6 +214,11 @@ export async function agentRunWorkflow(
   let waiting = false;
   /** A stop found while a call was out, which is why that call was cancelled. */
   let stopFound: 'stop' | 'halted' | null = null;
+  /**
+   * When a held model retry may go, in workflow time. Kept across passes of the loop, so a signal that
+   * wakes the wait early only makes the loop look at PostgreSQL, and the wait then resumes where it was.
+   */
+  let retryNotBefore: number | null = null;
   /** Unknown after continue-as-new, and setting it twice does nothing. */
   let status: FinishRunInput['status'] | RunStatusMove | 'preparing' | null = carry
     ? null
@@ -331,10 +338,60 @@ export async function agentRunWorkflow(
           if (workflowInfo().continueAsNewSuggested) await carryOn();
           await moveTo('running');
           const stepNumber = nextStep++;
-          const turn = await abortable(() => modelCalls.runModelTurn({ ...ref, stepNumber }));
+          // A run started before durable retries never asked the gateway to hold, so its turns end as
+          // they did. One that asks may be told to come back later, which the reducer turns into a retry.
+          const retries = patched(MODEL_RETRY_PATCH);
+          const turn = await abortable(() =>
+            modelCalls.runModelTurn({
+              ...ref,
+              stepNumber,
+              ...(retries ? { retry: { round: 0, final: false } } : {}),
+            }),
+          );
           counters = turn.counters;
           lastStopCode = turn.stopCode;
-          last = { kind: 'model', outcome: turn.outcome };
+          last = {
+            kind: 'model',
+            outcome: turn.outcome,
+            ...(retries && turn.retry
+              ? { retry: { round: 0, retryAfterMs: turn.retry.afterMs } }
+              : {}),
+          };
+          continue;
+        }
+
+        case 'retry_model': {
+          // Never continued as new in here: the step rows would show only the outage, and a resumed run
+          // would stop on it. A retry is a few timers and calls at most, so history barely grows.
+          waiting = false;
+          retryNotBefore ??=
+            Date.now() + retryDelayMs(next.round, next.retryAfterMs, Math.random());
+          const left = retryNotBefore - Date.now();
+          if (left > 0) {
+            // A durable timer, so a worker that restarts loses nothing. Any signal cuts it short, and
+            // the loop reads PostgreSQL before coming back here to wait out the rest.
+            await condition(() => woken, left);
+            continue;
+          }
+          retryNotBefore = null;
+          await moveTo('running');
+          const stepNumber = nextStep++;
+          const turn = await abortable(() =>
+            modelCalls.runModelTurn({
+              ...ref,
+              stepNumber,
+              retry: { round: next.round, final: next.final },
+            }),
+          );
+          counters = turn.counters;
+          lastStopCode = turn.stopCode;
+          last = {
+            kind: 'model',
+            outcome: turn.outcome,
+            ...(turn.retry
+              ? { retry: { round: next.round, retryAfterMs: turn.retry.afterMs } }
+              : {}),
+          };
           continue;
         }
 

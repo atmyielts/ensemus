@@ -12,6 +12,9 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   decideNext,
+  MODEL_RETRY_CAP_MS,
+  MODEL_RETRY_LIMIT,
+  retryDelayMs,
   stopForDirective,
   stopForFailure,
   type LastStep,
@@ -340,5 +343,90 @@ describe('stops that come from outside the loop', () => {
   ] as const)('failure %s', (code, status, stopCode) => {
     expect(stopForFailure(code)).toEqual(stopped(status, stopCode));
     expect(STOP_CODES).toContain(stopCode);
+  });
+});
+
+describe('a passing outage is retried as a new turn, within every limit', () => {
+  const outage = (round: number, retryAfterMs: number | null = null): LastStep => ({
+    kind: 'model',
+    outcome: 'model_unavailable',
+    retry: { round, retryAfterMs },
+  });
+
+  it('retries round by round, and only the last round may fall back', () => {
+    expect(decideNext(state(), outage(0))).toEqual({
+      kind: 'retry_model',
+      round: 1,
+      final: false,
+      retryAfterMs: null,
+    });
+    expect(decideNext(state(), outage(MODEL_RETRY_LIMIT - 1, 5_000))).toEqual({
+      kind: 'retry_model',
+      round: MODEL_RETRY_LIMIT,
+      final: true,
+      retryAfterMs: 5_000,
+    });
+  });
+
+  it('stops as before once the rounds are used up', () => {
+    expect(decideNext(state(), outage(MODEL_RETRY_LIMIT))).toEqual(
+      stopped('failed', 'MODEL_UNAVAILABLE'),
+    );
+  });
+
+  it('stops as before without a hint, which is every history written before retries', () => {
+    expect(decideNext(state(), model('model_unavailable'))).toEqual(
+      stopped('failed', 'MODEL_UNAVAILABLE'),
+    );
+  });
+
+  it.each([-1, 1.5, Number.NaN])('treats a round it cannot trust (%s) as no retry', (round) => {
+    expect(decideNext(state(), outage(round))).toEqual(stopped('failed', 'MODEL_UNAVAILABLE'));
+  });
+
+  it.each([
+    [{ modelTurns: 5 }, 'budget_exhausted', 'TURN_LIMIT'],
+    [{ costMicros: 1_000 }, 'budget_exhausted', 'COST_LIMIT'],
+    [{ outputTokens: 1_000 }, 'budget_exhausted', 'TOKEN_LIMIT'],
+    [{ activeMs: 60_000 }, 'timed_out', 'TIME_LIMIT'],
+  ] as const)('never retries past a limit: %j', (used, status, code) => {
+    expect(decideNext(state(used), outage(0))).toEqual(stopped(status, code));
+  });
+
+  it('only retries an outage, never another outcome that happens to carry a hint', () => {
+    expect(
+      decideNext(state(), {
+        kind: 'model',
+        outcome: 'invalid_output',
+        retry: { round: 0, retryAfterMs: null },
+      }),
+    ).toEqual(stopped('failed', 'INVALID_OUTPUT'));
+  });
+});
+
+describe('retry backoff', () => {
+  it('doubles each round, with half of each wait random', () => {
+    expect(retryDelayMs(1, null, 0)).toBe(1_000);
+    expect(retryDelayMs(1, null, 0.999_999)).toBeLessThanOrEqual(2_000);
+    expect(retryDelayMs(2, null, 0)).toBe(2_000);
+    expect(retryDelayMs(3, null, 0)).toBe(4_000);
+  });
+
+  it('honours a provider Retry-After as a floor, and caps it', () => {
+    expect(retryDelayMs(1, 10_000, 0)).toBe(10_000);
+    expect(retryDelayMs(1, 3_600_000, 0)).toBe(MODEL_RETRY_CAP_MS);
+    expect(retryDelayMs(20, null, 0.9)).toBeLessThanOrEqual(MODEL_RETRY_CAP_MS);
+  });
+
+  it.each([
+    [0, null, 0.5],
+    [1, -5, 0.5],
+    [1, Number.NaN, 0.5],
+    [1, null, Number.NaN],
+    [1, null, 7],
+  ])('stays within bounds for odd inputs (%s, %s, %s)', (round, after, unit) => {
+    const delay = retryDelayMs(round, after, unit);
+    expect(delay).toBeGreaterThan(0);
+    expect(delay).toBeLessThanOrEqual(MODEL_RETRY_CAP_MS);
   });
 });

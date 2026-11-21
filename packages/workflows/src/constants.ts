@@ -29,6 +29,12 @@ export const AGENT_RUN_CONTROL_SIGNAL = 'agentRunControl';
  * branch, and the marker keeps any later change to that branch replay-safe.
  */
 export const SUITE_READ_PATCH = 'agent-suite-read-v1';
+/**
+ * Durable retries of a model turn after a passing outage (a rate limit, a 5xx, a timeout): the workflow
+ * asks the gateway to hold its fallback list, waits on a timer, and tries again as a new step. A history
+ * written before this never asked, so its turns end the way they always did, and it replays unchanged.
+ */
+export const MODEL_RETRY_PATCH = 'agent-model-retry-v1';
 /** How often a workflow re-checks a send M3 is carrying out, on a durable timer. */
 export const TOOL_WAIT_POLL = '30 seconds';
 /** How long an Activity waits for agent-worker to pick it up before the run says so (FD-2). */

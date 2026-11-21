@@ -90,6 +90,8 @@ export const STOP_CODES = [
   'MODEL_UNAVAILABLE',
   'CREDENTIAL_UNAVAILABLE',
   'INVALID_OUTPUT',
+  /** The request did not fit the model's input even after the oldest parts were left out once. */
+  'CONTEXT_TOO_LONG',
   'HALTED',
   'STOPPED_BY_PERSON',
   'WORK_STOPPED',

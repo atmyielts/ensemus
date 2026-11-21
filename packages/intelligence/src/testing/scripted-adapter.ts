@@ -1,7 +1,13 @@
 // A deterministic model for tests. It obeys its script exactly, so a red-team test that scripts it to obey
 // an injection proves the controls, not a model's refusal. It counts every call, so "denied before egress"
 // can be asserted as zero hits. It reaches no network.
-import type { AdapterCall, AdapterResult, AdapterUsage, ModelAdapter } from '../types';
+import type {
+  AdapterCall,
+  AdapterResult,
+  AdapterUsage,
+  Malformation,
+  ModelAdapter,
+} from '../types';
 
 export type ScriptStep =
   | { kind: 'final'; text: string; usage?: AdapterUsage }
@@ -10,6 +16,10 @@ export type ScriptStep =
       kind: 'failure';
       failure: Extract<AdapterResult, { kind: 'failure' }>['failure'];
       mayHaveBilled?: boolean;
+      /** A provider's Retry-After, as an adapter would hand it up. */
+      retryAfterMs?: number | null;
+      /** What was wrong with a whole answer, for a repair turn to correct. */
+      malformation?: Malformation;
     }
   /** Waits until the signal aborts, for cancel tests. */
   | { kind: 'hang' }
@@ -52,6 +62,8 @@ export class ScriptedModelAdapter implements ModelAdapter {
           failure: step.failure,
           mayHaveBilled: step.mayHaveBilled ?? false,
           usage: null,
+          ...(step.retryAfterMs !== undefined ? { retryAfterMs: step.retryAfterMs } : {}),
+          ...(step.malformation ? { malformation: step.malformation } : {}),
         };
       case 'hang':
         await new Promise<void>((resolve) => {

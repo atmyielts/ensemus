@@ -403,7 +403,7 @@ async function respond(req, res, scenario, format, body, seen, state) {
     case 'rate_limited':
       // Says when to come back, which a client that retries would obey. The hit count catches it.
       json(res, 429, errorBody(format, 'rate_limit_error', `Slow down. ${quoted(body)}`), {
-        'retry-after': '0',
+        'retry-after': '7',
       });
       return;
     case 'server_error':

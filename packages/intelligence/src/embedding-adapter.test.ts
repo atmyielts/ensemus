@@ -211,7 +211,8 @@ describe('Gemini native embeddings', () => {
     expect(result).toEqual({
       kind: 'failure',
       failure: 'rate_limited',
-      mayHaveBilled: true,
+      // A rate limit turns the request away before anything runs, so nothing was billed.
+      mayHaveBilled: false,
       usage: null,
     });
     expect(sent).toHaveLength(1);

@@ -5,7 +5,7 @@ import type { AiReasonCode } from '@ensemus/domain/ai';
 import { scanForSecrets } from '@ensemus/policy';
 import { Ajv2020, type ValidateFunction } from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
-import type { AdapterResult, AdapterTool } from '../types';
+import type { AdapterResult, AdapterTool, Malformation } from '../types';
 
 export type OutputSchema = { validate: ValidateFunction } | null;
 
@@ -23,9 +23,20 @@ export function compileOutputSchema(
   }
 }
 
-export type OutputCheck = { ok: true } | { ok: false; decisionCode: AiReasonCode | null };
+/**
+ * `malformation` is set only where the answer's shape alone was wrong, which a repair turn may correct. A
+ * refusal for what an answer holds (a secret, markup that fetches, a tool nobody offered) never has one,
+ * so it is never offered a second try.
+ */
+export type OutputCheck =
+  { ok: true } | { ok: false; decisionCode: AiReasonCode | null; malformation?: Malformation };
 
 const INVALID: OutputCheck = { ok: false, decisionCode: null };
+const misshapen = (malformation: Malformation): OutputCheck => ({
+  ok: false,
+  decisionCode: null,
+  malformation,
+});
 
 function holdsSecret(text: string, canaries: readonly string[]): boolean {
   return scanForSecrets([{ id: 'output', text }], canaries).hits.length > 0;
@@ -73,7 +84,8 @@ export function checkOutput(
     return { ok: true };
   }
 
-  if (typeof result.text !== 'string' || result.text.trim().length === 0) return INVALID;
+  if (typeof result.text !== 'string') return INVALID;
+  if (result.text.trim().length === 0) return misshapen('empty_output');
   if (holdsSecret(result.text, canaries)) {
     return { ok: false, decisionCode: 'SECRET_FOUND_IN_PAYLOAD' };
   }
@@ -83,9 +95,9 @@ export function checkOutput(
     try {
       parsed = JSON.parse(result.text);
     } catch {
-      return INVALID;
+      return misshapen('output_not_json');
     }
-    if (!schema.validate(parsed)) return INVALID;
+    if (!schema.validate(parsed)) return misshapen('output_schema_mismatch');
   }
   return { ok: true };
 }

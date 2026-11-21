@@ -64,6 +64,15 @@ export const stepInputSchema = runRefSchema.extend({
 });
 export type StepInput = z.infer<typeof stepInputSchema>;
 
+/**
+ * A model step, and which retry round it is. Absent on every turn a workflow asked for before durable
+ * retries, which then behaves exactly as it did: no hold, so an outage moves down the fallback list.
+ */
+export const modelStepInputSchema = stepInputSchema.extend({
+  retry: z.strictObject({ round: z.int().min(0).max(16), final: z.boolean() }).optional(),
+});
+export type ModelStepInput = z.infer<typeof modelStepInputSchema>;
+
 /** A tool step, and whether this call comes back for a suite read the connector worker has finished. */
 export const toolStepInputSchema = stepInputSchema.extend({
   collect: z.literal(true).optional(),
@@ -89,6 +98,11 @@ export const modelTurnResultSchema = z.strictObject({
     .regex(/^[A-Z][A-Z0-9_]{1,63}$/)
     .nullable(),
   counters: runCountersSchema,
+  /**
+   * Set when the turn ended on a passing outage the workflow asked to hold: a number of milliseconds the
+   * provider asked for, already capped, or null. Never provider text. Absent from every older result.
+   */
+  retry: z.strictObject({ afterMs: z.int().min(0).max(60_000).nullable() }).optional(),
 });
 export type ModelTurnResult = z.infer<typeof modelTurnResultSchema>;
 
