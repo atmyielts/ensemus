@@ -21,6 +21,7 @@ import { RecordRefused } from './portability-sections-import';
 import { CORE_PORTABILITY_SECTIONS } from './portability-sections';
 import { queryRows } from './portability-sql';
 import { M7_PORTABLE_READERS, type PortableReader } from './portability-m7-readers';
+import { PENDING_PORTABILITY_TABLES } from './portability-pending-modules';
 
 const portableId = (text: string) => {
   const hex = createHash('sha256').update(text).digest('hex');
@@ -384,6 +385,9 @@ const readers: Readonly<Partial<Record<ExportSection, readonly Reader[]>>> = {
   ],
 };
 
+// Distinguish actual unsupported tenant material from an unknown/missing schema at interactive admission.
+export class PendingModuleData extends RecordRefused {}
+
 export async function assertJoinedPortabilitySchema(tx: Tx): Promise<void> {
   const required = PORTABILITY_INVENTORY.map((entry) => entry.table);
   const rows = await queryRows<{ table_name: string | null }>(
@@ -399,7 +403,13 @@ export async function assertJoinedPortabilitySchema(tx: Tx): Promise<void> {
     from pg_catalog.pg_tables where schemaname NOT LIKE 'pg_%'
       AND schemaname NOT IN ('information_schema','drizzle')`,
   );
-  if (present.some((row) => !required.includes(row.table_name))) throw new RecordRefused();
+  const known = new Set<string>([...required, ...PENDING_PORTABILITY_TABLES]);
+  if (present.some((row) => !known.has(row.table_name))) throw new RecordRefused();
+  const [pending] = await queryRows<{ empty: boolean }>(
+    tx,
+    sql`select sovereign.pending_modules_empty() as empty`,
+  );
+  if (pending?.empty !== true) throw new PendingModuleData();
 }
 
 async function assertExportViewer(tx: Tx) {

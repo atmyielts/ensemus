@@ -627,6 +627,8 @@ function fakeDatabase(row: Record<string, unknown>) {
           ],
         };
       }
+      // This scripted parser fixture contains no M11 rows. Native RLS/epoch admission is tested separately.
+      if (text.includes('sovereign.pending_modules_empty()')) return { rows: [{ empty: true }] };
       if (text.includes('to_regclass'))
         return { rows: PORTABILITY_INVENTORY.map((entry) => ({ table_name: entry.table })) };
       if (text.includes('pg_catalog.pg_tables'))

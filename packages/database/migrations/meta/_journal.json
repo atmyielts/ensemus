@@ -1016,6 +1016,13 @@
       "when": 1794201807617,
       "tag": "0735_payment_success_evidence",
       "breakpoints": true
+    },
+    {
+      "idx": 145,
+      "version": "7",
+      "when": 1794201807618,
+      "tag": "0736_pending_module_portability",
+      "breakpoints": true
     }
   ]
 }

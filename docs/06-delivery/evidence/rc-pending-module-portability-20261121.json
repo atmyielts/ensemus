@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "scope": "COMM-05 conservative /3 compatibility beside unfinished M11 modules",
+  "base_revision": "bff7452",
+  "acceptance": "partial; M11 portability and erasure incomplete",
+  "human_security_review": "pending",
+  "sources": [
+    {
+      "path": "packages/application/src/portability-extensions.ts",
+      "sha256": "26d649c2172396cf8b2cf9069767eff5872dec4c02a84fdd8caf25a87617b06c"
+    },
+    {
+      "path": "packages/application/src/portability-export.ts",
+      "sha256": "12381016067402c8377a222f27360df355a88fd235d053d0c236e17758320b6e"
+    },
+    {
+      "path": "packages/application/src/portability-import.ts",
+      "sha256": "669fa54126580d25031a27292adc1409cf7037161eb9d95708f358ba4062aa1d"
+    },
+    {
+      "path": "packages/application/src/portability-epoch.ts",
+      "sha256": "8a89eeb14a9d56880f0c9b41d8960a48620d5eaa3d3b9f302c1ed859138ccde2"
+    },
+    {
+      "path": "packages/application/src/portability-pending-modules.ts",
+      "sha256": "639090f1bd20364a5b508ec3a3a7ef574768bacca642ccda8ab124bf35334149"
+    },
+    {
+      "path": "packages/database/migrations/0736_pending_module_portability.sql",
+      "sha256": "954bf1d6bb44561f5b3d6286378538aeba44706048e4c78d6345f76773f351c7"
+    },
+    {
+      "path": "packages/database/migrations/meta/_journal.json",
+      "sha256": "43482fdfc1da9694c51198ec30040a3d209bc6212d68c19b5af272e15d104c08"
+    },
+    {
+      "path": "tests/integration/portability-pending-modules.test.ts",
+      "sha256": "fbf43ec9d6960d627db2e69e971f9de7a325db44bf8d5bb43440faa1defe7ee4"
+    },
+    {
+      "path": "tests/unit/hostile-archive.test.ts",
+      "sha256": "9886dc6d6cd5848046e07c7415c82b55fd45884e1cdedfc10787dca6fe8f5008"
+    }
+  ],
+  "qualification": {
+    "full_unit_before_final_import_admission_mapping": {
+      "passed": 9520,
+      "failed": 2,
+      "expected_fail": 4,
+      "skipped": 43,
+      "files": 373
+    },
+    "native_export_import_race_signer_worker_regression": {
+      "passed": 101,
+      "failed": 0,
+      "files": 6
+    },
+    "native_after_final_import_admission_mapping": {
+      "passed": 26,
+      "failed": 0,
+      "files": 2
+    },
+    "focused_units_after_final_mapping": {
+      "passed": 121,
+      "failed": 0,
+      "files": 5
+    },
+    "fresh_migrations": {
+      "database": "ensemus_rc_pending_20261121163602374",
+      "applied_migrations": 146,
+      "fixedFunction": {
+        "prosecdef": true,
+        "proconfig": [
+          "search_path=pg_catalog"
+        ],
+        "owner": "ensemus_migrator",
+        "public_execute": false,
+        "uses_existing_epoch": true
+      },
+      "completedAt": "2026-11-21T16:36:10.319Z"
+    },
+    "catalog_comparison": {
+      "match": true,
+      "databases": [
+        {
+          "database": "ensemus",
+          "objects": 59,
+          "sha256": "4356097c471a7c8aac01a8ca50e35cd5478a9e71e532a064eef3a0a06f386f6a"
+        },
+        {
+          "database": "ensemus_rc_pending_20261121163602374",
+          "objects": 59,
+          "sha256": "4356097c471a7c8aac01a8ca50e35cd5478a9e71e532a064eef3a0a06f386f6a"
+        }
+      ]
+    }
+  },
+  "open_gates": [
+    "73 planned API operations",
+    "30 migrated tables without complete versioned portability treatment",
+    "M11 lifecycle and fine-grained privacy treatment",
+    "full joined integration and built-image/hosted/provider acceptance"
+  ],
+  "local_logs": [
+    {
+      "path": ".local/rc-pending-full-unit-fixed.log",
+      "sha256": "1b82b90a0228c09f0f03c7b220dd4a1326346513eb7baf07c45b83e6908fc750"
+    },
+    {
+      "path": ".local/rc-pending-regression-final.log",
+      "sha256": "50d668dbef48e68e800db8115ce466d241563965d46283a194f44823e2ce61b2"
+    },
+    {
+      "path": ".local/rc-pending-import-admission-fixed.log",
+      "sha256": "2db071d205b9284f88ab94e7f85959311aea6edb1ca98909756f75ed36f8d6ea"
+    },
+    {
+      "path": ".local/rc-pending-import-admission-units.log",
+      "sha256": "a2c9d6a71eec2b509019af14d93ac06dab583ddb9936a653bf13f8ab222f124e"
+    },
+    {
+      "path": ".local/rc-pending-fresh-migration-provisioned.log",
+      "sha256": "3d41cccd4540c1f20d043e18292fcebeb9ef711513b45562afd769d9993cb93e"
+    }
+  ]
+}

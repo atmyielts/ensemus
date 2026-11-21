@@ -67,6 +67,7 @@ import { emit } from './events';
 import { idSchema } from './ids';
 import { CORE_SECTION_EXPORTERS, nextExportableFile } from './portability-sections-export';
 import { assertJoinedPortabilitySchema } from './portability-extensions';
+import { RecordRefused } from './portability-sections-import';
 import { queryRows } from './portability-sql';
 import { assertExportEpoch, isExportEpochCurrent } from './portability-epoch';
 import type { ExportPage, PortabilitySection } from './sovereign-ports';
@@ -507,9 +508,15 @@ export async function beginExport(
   assertPortabilitySections(deps.sections.map((section) => section.section));
   const id = exportIdFrom(input.exportId);
   return withTenantTx(database, context, async (tx) => {
-    await assertJoinedPortabilitySchema(tx);
     const row = await findExport(tx, context, id, true);
     if (row.status !== 'requested') return stepOf(row);
+    try {
+      await assertJoinedPortabilitySchema(tx);
+    } catch (error) {
+      if (!(error instanceof RecordRefused)) throw error;
+      await recordFailure(tx, context, row, 'RECORD_REFUSED');
+      return { state: 'failed', code: 'RECORD_REFUSED' };
+    }
     const [claimed] = await tx
       .update(organizationExports)
       .set({

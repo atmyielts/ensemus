@@ -85,7 +85,11 @@ import {
 } from './portability-sections-import';
 import type { ImportScope, PortabilitySection } from './sovereign-ports';
 import type { LedgerReader } from './tombstone-ledger';
-import { assertJoinedPortabilitySchema, quarantinePortableRecord } from './portability-extensions';
+import {
+  assertJoinedPortabilitySchema,
+  quarantinePortableRecord,
+  PendingModuleData,
+} from './portability-extensions';
 import { queryRows } from './portability-sql';
 import { assertPortableDefinitionIntegrity } from '@ensemus/domain/portable-definition';
 import { withPrivilegeTx, assertInteractivePrivilege } from './product/privileged';
@@ -224,6 +228,7 @@ export async function requestOrganizationImport(
       return toView(row);
     });
   } catch (error) {
+    if (error instanceof PendingModuleData) throw new AppError('IMPORT_TARGET_NOT_EMPTY');
     // Two owners asking at once: the partial unique index lets one through.
     if (pgCode(error) === '23505') throw new AppError('IMPORT_ALREADY_USED');
     throw error;

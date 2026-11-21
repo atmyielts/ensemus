@@ -20,7 +20,14 @@ export async function isExportEpochCurrent(tx: Tx, context: TenantContext, expor
       left join sovereign.export_epochs r on r.organization_id=e.organization_id
     where e.organization_id=${context.organizationId}::uuid and e.id=${exportId}::uuid`,
   );
-  return exportEpochMatches(row?.pinned, row?.current);
+  if (!exportEpochMatches(row?.pinned, row?.current)) return false;
+  // Rows may predate the new modules' epoch triggers, including a restored older archive. A matching
+  // counter alone cannot turn an unsupported /3 snapshot into a complete export of that company.
+  const [pending] = await queryRows<{ empty: boolean }>(
+    tx,
+    sql`select sovereign.pending_modules_empty() as empty`,
+  );
+  return pending?.empty === true;
 }
 
 export async function assertExportEpoch(tx: Tx, context: TenantContext, exportId: string) {

@@ -289,3 +289,52 @@ authorized set and hidden nearest-neighbor source in 70.852 seconds (78.89 secon
 Only that one case was selected; five others were skipped by the filter. Neither its ACL checks nor its
 dataset/timeout were weakened. The original whole-run timeout remains a final-suite qualification item.
 PostgreSQL statement statistics were enabled in the generated test database to profile that case.
+
+## Conservative portability compatibility
+
+The frozen `ensemus.m3-m7/3` archive remains unchanged. Previously the presence of M11 tables refused
+all companies, including those with no M11 data. Migration 0736 adds a fixed-owner, forced-RLS boolean
+probe for the 28 new company-data tables, including nonstandard marketplace and both-party federation
+references. It exposes no records or counts and adds no caller SELECT/DELETE grants. The two global
+tenancy deployment/evidence tables are recognized as deployment state. Unknown tables still refuse.
+
+An unchanged /3 export is admitted only when that native probe proves the company has no new-module
+data. A caller-visible zero is insufficient. Every new-module mutation advances all affected companies'
+existing export epochs in stable order. Downloads also check native emptiness, so matching old/restored
+epochs cannot make a pre-existing unsupported snapshot complete. The fixed trigger updates existing
+epochs: INSERT ON CONFLICT would invoke a tenant-birth fence before discovering a peer's existing row.
+A missing epoch refuses rather than silently recreating one.
+
+Export startup now persists `RECORD_REFUSED` as a terminal failure with its existing audit, event and
+notification path, rather than retrying an unsupported schema as an activity error for up to a day.
+Refused requests can be replayed without restarting them. No M11 customer data is silently omitted,
+classified as retained, or made portable by adding names to the old inventory. Companies with any such
+data remain blocked until a reviewed new archive profile and actual lifecycle treatment exist.
+
+The first compatibility regression passed all 83 legacy export/import cases; its new fixture suite had
+three remaining failures. After correcting fixture result/error assertions and the peer-epoch write,
+all six new native cases passed, covering hidden rows, another company, unknown tables, actual epoch
+invalidation, pre-existing data with a matching old epoch, and no new eraser grants. The scripted hostile
+archive parser fixture now answers the new metadata probe without simulating its native authorization;
+121 focused parser/inventory/epoch/source checks passed.
+
+A newly provisioned generated database applied all 146 migrations as the ordinary migrator. Its 59 new
+functions, policies and triggers exactly match the qualification database (catalog SHA-256
+`4356097c471a7c8aac01a8ca50e35cd5478a9e71e532a064eef3a0a06f386f6a`). Initial fresh-database attempts
+omitted the installation's superuser-created vector extension and were refused; the successful attempt
+used that documented prerequisite and the ordinary connection/schema restrictions. No original database
+or volume was removed. Security review of the new SQL remains pending.
+
+The full bounded unit run after the parser-fixture correction reached 9,520 passes, two failures, four
+expected failures and 43 skips across 373 files (370 passed, two failed, one skipped), in 98.83 seconds.
+The two release gates remain explicit: 73 planned API operations and 30 tables missing from the complete
+portability inventory. Lifecycle treatment also remains incomplete. Application/test TypeScript checks
+and changed-source lint passed. The final six-file native export/import, race, signer and worker-role
+regression passed all 101 cases in 527.92 seconds.
+
+A follow-up denied case reproduced a generic exception at interactive import admission when new-module
+data exists. Admission now names that condition `IMPORT_TARGET_NOT_EMPTY`, creates no import intent, and
+leaves unknown/missing schema refusal distinct. The import and seven-case native compatibility suites
+then passed all 26 cases; the 121 focused unit checks and application/test types and changed-source lint
+passed again. The broad unit count above predates this final admission mapping. This repair does not
+complete M11 portability or erasure; neither release gate was relaxed.
