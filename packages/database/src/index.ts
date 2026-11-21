@@ -23,6 +23,7 @@ export {
   TenantAccessDenied,
   withGrantInvitationTx,
   withInvitationTx,
+  withMemberTenantTx,
   withNewTenantTx,
   withTenantTx,
   withUserTx,

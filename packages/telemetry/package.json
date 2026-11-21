@@ -8,7 +8,9 @@
     "./console-guard": "./src/console-guard.ts",
     "./metrics": "./src/metrics.ts",
     "./otel": "./src/otel.ts",
-    "./tracing": "./src/tracing.ts"
+    "./tracing": "./src/tracing.ts",
+    "./client-address-watch": "./src/client-address-watch.ts",
+    "./tracing-sdk": "./src/tracing-sdk.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
@@ -21,6 +23,8 @@
     "@opentelemetry/exporter-trace-otlp-http": "0.223.0",
     "@opentelemetry/resources": "2.12.0",
     "@opentelemetry/sdk-metrics": "2.12.0",
-    "@opentelemetry/sdk-trace": "2.12.0"
+    "@opentelemetry/sdk-trace": "2.12.0",
+    "@opentelemetry/sdk-trace-base": "2.12.0",
+    "@opentelemetry/sdk-trace-node": "2.12.0"
   }
 }

@@ -8,6 +8,11 @@
 import { SpanStatusCode, trace } from '@opentelemetry/api';
 import { errorCode, isSafeValue, sanitize, type Fields } from './index';
 
+/** Compatibility with the earlier tracing-only setting; both paths use the same redacting provider. */
+export type TracingConfig =
+  { enabled: false } | { enabled: true; endpoint: string; sampleRatio: number };
+export type TracingHandle = { shutdown(): Promise<void> };
+
 const tracer = () => trace.getTracer('ensemus');
 
 /**
