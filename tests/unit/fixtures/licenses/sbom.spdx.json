@@ -1,0 +1,49 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "name": "a generated SBOM",
+  "packages": [
+    {
+      "name": "fixture-libc",
+      "versionInfo": "2.36-9",
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "GPL-2.0-only AND LGPL-2.1-only",
+      "homepage": "https://example.invalid/libc",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:deb/debian/fixture-libc@2.36-9"
+        }
+      ]
+    },
+    {
+      "name": "fixture-musl",
+      "versionInfo": "",
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:apk/alpine/fixture-musl"
+        }
+      ]
+    },
+    {
+      "name": "fixture-npm-inside-the-image",
+      "versionInfo": "1.0.0",
+      "licenseDeclared": "MIT",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:npm/fixture-npm-inside-the-image@1.0.0"
+        }
+      ]
+    },
+    {
+      "name": "fixture-image-itself",
+      "licenseDeclared": "NOASSERTION"
+    }
+  ]
+}

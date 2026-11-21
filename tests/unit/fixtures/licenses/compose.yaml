@@ -1,0 +1,25 @@
+# A generated Compose file. Its digests are not real images.
+# image: not-a-service/in-a-comment:1
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  proxy:
+    <<: *restart
+    image: fixture/proxy:2-alpine@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    labels:
+      image: not-a-service/in-a-nested-key:1
+  web:
+    build:
+      context: ../..
+    image: ensemus/web:local
+  tools-a:
+    image: 'fixture/tools@sha256:2222222222222222222222222222222222222222222222222222222222222222' # quoted
+    command: |
+      image: not-a-service/in-a-block-scalar:1
+  tools-b:
+    image: fixture/tools@sha256:2222222222222222222222222222222222222222222222222222222222222222
+
+networks:
+  edge:
+    image: not-a-service/under-networks:1
