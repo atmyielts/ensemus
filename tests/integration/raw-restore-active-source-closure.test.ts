@@ -1,3 +1,4 @@
+import { workerTierPostcondition } from '../helpers/worker-tier-postcondition';
 // The closure of an ACTIVE Knowledge source a restore left in raw debt (0551, check findings 1 and 4),
 // against real RLS, the real raw object authority and the native raw object port. FLAGGED FOR HUMAN
 // SECURITY REVIEW, not yet reviewed by a person. raw-restore-active-source.test.ts covers 0550's
@@ -477,7 +478,9 @@ describe('closing an active source a restore left in raw debt (0551)', () => {
     readFileSync(join(repoRoot, 'packages/database/migrations', file), 'utf8');
   const lastBlock = (file: string) => migration(file).split('--> statement-breakpoint').at(-1)!;
   const file0550 = '0550_raw_restore_active_source_r8restore.sql';
-  const postcondition = lastBlock('0551_raw_restore_active_source_closure_r9restore.sql');
+  const postcondition = workerTierPostcondition(
+    lastBlock('0551_raw_restore_active_source_closure_r9restore.sql'),
+  );
   const definition = async (signature: string) =>
     (
       await migrator.query<{ definition: string }>(
@@ -798,7 +801,7 @@ describe('closing an active source a restore left in raw debt (0551)', () => {
   });
 
   it("records that 0550's own postcondition, run once when 0550 was applied, no longer holds after 0551 (finding 13)", async () => {
-    const block0550 = lastBlock(file0550);
+    const block0550 = workerTierPostcondition(lastBlock(file0550));
     // 0550's block counts its write predicate twice in record_raw_native_birth. 0551 moved the revoke
     // transition onto raw_active_source_closable (check finding 1), so it is there once.
     const count = async (needle: string) =>

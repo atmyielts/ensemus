@@ -234,3 +234,29 @@ drafts. The send process remained in Left out. This used generated local data an
 The stale workflows/packs guide now describes these actual review and rollback controls, remains
 written_untested, and adds the 28th Help page. Its 184 focused guide/help checks passed. HR, finance and
 learning packs, and the remaining full-platform operations, are still incomplete.
+
+## Native payment and restore qualification repairs
+
+Migration 0735 fixes an actual checkout integration bug: without a checkout row, the OR expression for
+success evidence became SQL NULL and `IF NOT evidence` did not refuse it. The guard now requires
+explicitly true evidence. The existing native payment/schema suites reproduced the unauthorized
+success transition before the fix and then passed all 24 cases. The migration is flagged for human
+security review; no role or grant was widened.
+
+The directory scope-refresh fixture now uses the actual connector login, rather than asking the web
+login to impersonate that worker with a service binding. Checkout fixtures generate distinct provider
+transaction IDs, so rerunning tests preserves old data without conflicting with global provider-route
+uniqueness. Both fixture suites passed 13 cases after those corrections.
+
+Historical restore postconditions compared literal role spellings from before migration 0700's explicit
+worker-tier mapping. Their test-only source/policy projections now compare the mapped helpers in the
+original spelling while preserving every statement-order, ownership, grant and forced-RLS check. The
+actual worker-role suite independently checks that mapping on native logins. The five native proof
+files reached 48 passes and one historical-0550 projection failure; after adapting that last legacy
+block, its complete 11-case file passed too. No deployed restore function, policy or historical migration
+was changed by this qualification correction.
+
+The two Studio evaluation failures are a product integration gap, not merely stale fixtures: Studio
+constructs an unsigned v1 simulation report while M4 correctly requires an independently signed v2
+report, and the runtime adapter does not pass the deployment's public evaluator trust. That path must
+be repaired while retaining M4's signed-report, exact-revision, policy, age and scripted-model gates.

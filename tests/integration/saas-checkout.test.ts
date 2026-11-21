@@ -104,11 +104,12 @@ describe('hosted checkout is moved only by an attested provider word', () => {
       { invoiceId, provider: 'paddle', language: 'en' },
       settings,
     );
+    const transactionId = `txn_${randomUUID().replaceAll('-', '')}`;
     await recordCheckoutOpened(database.db, service, {
       sessionId,
-      transactionId: 'txn_0test',
-      checkoutUrl: 'https://pay.example.invalid/checkout?_ptxn=txn_0test',
-      customerRef: 'ctm_0test',
+      transactionId,
+      checkoutUrl: `https://pay.example.invalid/checkout?_ptxn=${transactionId}`,
+      customerRef: `ctm_${randomUUID().replaceAll('-', '')}`,
     });
     const [row] = await withTenantTx(database.db, service, (tx) =>
       tx.select().from(checkoutSessions).where(eq(checkoutSessions.id, sessionId)),

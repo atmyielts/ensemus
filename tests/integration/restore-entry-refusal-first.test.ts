@@ -7,11 +7,14 @@ import { join } from 'node:path';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { repoRoot, urls } from '../helpers/stack';
+import { workerTierPostcondition } from '../helpers/worker-tier-postcondition';
 
 const migration = readFileSync(
   join(repoRoot, 'packages/database/migrations/0549_restore_entry_refusal_first_r8restore.sql'),
   'utf8',
-).split('--> statement-breakpoint');
+)
+  .split('--> statement-breakpoint')
+  .map(workerTierPostcondition);
 
 const ENTRY_POINTS = [
   'lifecycle.requalify_archive_restore_debt(uuid,uuid,text)',

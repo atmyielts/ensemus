@@ -677,13 +677,18 @@ describe('directory sync', () => {
 
   it('removes the teams of a live connection that lost the directory scopes', async () => {
     const { t, teamId } = await financeShared('Directory scopes lost');
-    // A refresh reported fewer scopes, so the worker narrowed the grant, as 0561 lets it.
-    await withTenantTx(db(), t.service, (tx) =>
-      tx
-        .update(connections)
-        .set({ grantedScopes: [SCOPES[0]!], version: sql`${connections.version} + 1` })
-        .where(eq(connections.id, t.connectionId)),
-    );
+    // Scope refresh belongs to the native connector login, not the web tier with a service binding.
+    const connector = openAppDatabase(urls.connector());
+    try {
+      await withTenantTx(connector.db, t.service, (tx) =>
+        tx
+          .update(connections)
+          .set({ grantedScopes: [SCOPES[0]!], version: sql`${connections.version} + 1` })
+          .where(eq(connections.id, t.connectionId)),
+      );
+    } finally {
+      await connector.close();
+    }
     expect(
       await removeConnectionDirectory(db(), t.service, { connectionId: t.connectionId }),
     ).toEqual({ teamsRemoved: 1 });

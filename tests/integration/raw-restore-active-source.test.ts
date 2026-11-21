@@ -1,3 +1,4 @@
+import { workerTierPostcondition } from '../helpers/worker-tier-postcondition';
 // An ACTIVE Knowledge source a restore left in raw debt (check finding 6, 0550; its closure and purge,
 // 0551, which raw-restore-active-source-closure.test.ts covers further), against real RLS, the real raw
 // object authority and the native raw object port. FLAGGED FOR HUMAN SECURITY REVIEW, not yet
@@ -445,7 +446,7 @@ describe('an active source a restore left in raw debt (0550)', () => {
       ),
       'utf8',
     ).split('--> statement-breakpoint');
-    const postcondition = statements.at(-1)!;
+    const postcondition = workerTierPostcondition(statements.at(-1)!);
     await migrator.query('begin');
     try {
       await migrator.query(postcondition);
