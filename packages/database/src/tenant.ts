@@ -356,24 +356,30 @@ export async function resolveTenantContext(
   organizationId: string,
 ): Promise<TenantContext> {
   assertUuid(organizationId);
-  const [membership] = await withUserTx(database, userId, (tx) =>
-    tx
-      .select({
-        id: memberships.id,
-        role: memberships.role,
-        organizationId: memberships.organizationId,
-        lifecycle: organizations.lifecycle,
-      })
-      .from(memberships)
-      .innerJoin(organizations, eq(organizations.id, memberships.organizationId))
-      .where(
-        and(
-          eq(memberships.organizationId, organizationId),
-          eq(memberships.userId, userId),
-          eq(memberships.status, 'active'),
-        ),
+  return withUserTx(database, userId, (tx) => readMembershipInTx(tx, userId, organizationId));
+}
+
+async function readMembershipInTx(
+  tx: Tx,
+  userId: string,
+  organizationId: string,
+): Promise<TenantContext> {
+  const [membership] = await tx
+    .select({
+      id: memberships.id,
+      role: memberships.role,
+      organizationId: memberships.organizationId,
+      lifecycle: organizations.lifecycle,
+    })
+    .from(memberships)
+    .innerJoin(organizations, eq(organizations.id, memberships.organizationId))
+    .where(
+      and(
+        eq(memberships.organizationId, organizationId),
+        eq(memberships.userId, userId),
+        eq(memberships.status, 'active'),
       ),
-  );
+    );
   // A tenant that has gone is the same as one that never existed.
   if (!membership || membership.lifecycle === 'deleted') throw new TenantAccessDenied();
   return {
@@ -385,6 +391,24 @@ export async function resolveTenantContext(
     serving: membership.lifecycle === 'active' ? 'full' : (membership.lifecycle as TenantServing),
     [brand]: true,
   };
+}
+
+/** Resolves membership and performs one bounded operation in the same guarded transaction. */
+export function withMemberTenantTx<T>(
+  database: AppDatabase,
+  userId: string,
+  organizationId: string,
+  fn: (tx: Tx, context: TenantContext) => Promise<T>,
+): Promise<T> {
+  assertUuid(organizationId);
+  return withUserTx(database, userId, async (tx) => {
+    const context = await readMembershipInTx(tx, userId, organizationId);
+    for (const [name, value] of Object.entries(tenantBindings(context))) {
+      await tx.execute(sql`select set_config(${name}, ${value}, true)`);
+    }
+    if (context.serving !== 'full') await tx.execute(sql`set transaction read only`);
+    return fn(tx, context);
+  });
 }
 
 /** A readable ID is not a native verified session. Only auth's in-process handoff can bind one. */
