@@ -2,7 +2,7 @@
 // immutable version (ADR-028 FD-19, G10). It is here rather than in agent-runtime because the web tier
 // runs this, and it may not import agent-runtime.
 import { usdToMicros } from '@ensemus/domain/ai';
-import { FORBIDDEN_TOOL_PREFIXES, toolManifest } from '@ensemus/domain/ai-tools';
+import { FORBIDDEN_TOOL_PREFIXES, isActionTool, toolManifest } from '@ensemus/domain/ai-tools';
 
 export type OrgAgentLimits = {
   maxDelegationDepth: number;
@@ -19,6 +19,7 @@ export type SpecLintCode =
   | 'TOOL_BOTH_ALLOWED_AND_DENIED'
   | 'LIMIT_ABOVE_POLICY'
   | 'SKILLS_NOT_SUPPORTED'
+  | 'SANDBOX_GRANT_TOO_WIDE'
   | 'NOT_LINTED';
 
 export type SpecLintResult = { ok: true } | { ok: false; codes: readonly SpecLintCode[] };
@@ -93,6 +94,31 @@ function lintSkills(skills: unknown, codes: Set<SpecLintCode>) {
 }
 
 /**
+ * A sandbox agent may publish on a scripted evaluation, which proves nothing about a model. So it may only
+ * read, or draft inside Ensemus: no tool that changes anything through a connection, nothing that needs a
+ * person to approve an effect outside, and no delegation, through which it could reach a wider agent.
+ * The gateway enforces a version's grants on every call, so narrowing them here narrows every run.
+ */
+function lintSandbox(spec: Record<string, unknown>, codes: Set<SpecLintCode>) {
+  if (spec.sandbox === undefined) return;
+  const tools = spec.tools;
+  const execution = spec.execution;
+  if (spec.sandbox !== true || !isRecord(tools) || !isStringList(tools.allow)) {
+    codes.add('NOT_LINTED');
+    return;
+  }
+  if (!isRecord(execution)) return; // lintLimits has already refused it.
+  const tooWide = tools.allow.some((tool) => {
+    const manifest = toolManifest(tool);
+    // An unknown tool is refused by lintTools already. Here it only must not count as narrow.
+    if (!manifest) return true;
+    const inside = manifest.class === 'read_only' || manifest.class === 'draft_only';
+    return !inside || manifest.requiresApproval || isActionTool(manifest);
+  });
+  if (tooWide || execution.max_delegation_depth !== 0) codes.add('SANDBOX_GRANT_TOO_WIDE');
+}
+
+/**
  * Written as "not at or under", so a limit that is not a number refuses rather than letting everything
  * through, which is what `value > NaN` would do.
  */
@@ -128,6 +154,7 @@ export function lintAgentSpec(spec: unknown, limits: OrgAgentLimits): SpecLintRe
   lintTools(spec.tools, codes);
   lintSkills(spec.skills, codes);
   lintLimits(spec.execution, limits, codes);
+  lintSandbox(spec, codes);
   if (codes.size === 0) return { ok: true };
   return { ok: false, codes: [...codes] };
 }

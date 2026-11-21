@@ -50,6 +50,22 @@ export type AdapterCall = {
 
 export type AdapterUsage = { inputTokens: number; outputTokens: number } | null;
 
+/**
+ * Exactly what was wrong with an answer that arrived whole but could not be used, so one fixed correction
+ * can say so (a repair turn). A code from this list is the only thing about the answer that is kept: the
+ * model's own words are never echoed back, logged or stored with it.
+ */
+export const MALFORMATIONS = [
+  'multiple_tool_calls',
+  'unknown_tool',
+  'tool_args_not_json',
+  'tool_args_not_object',
+  'empty_output',
+  'output_not_json',
+  'output_schema_mismatch',
+] as const;
+export type Malformation = (typeof MALFORMATIONS)[number];
+
 /** Every way a call can fail, with no provider text. */
 export const ADAPTER_FAILURES = [
   'timeout',
@@ -77,6 +93,10 @@ export type AdapterResult =
       /** Whether the provider may have billed this call, so the ledger over-counts rather than under. */
       mayHaveBilled: boolean;
       usage: AdapterUsage;
+      /** A provider's Retry-After, in milliseconds and already capped. Only a passing outage has one. */
+      retryAfterMs?: number | null;
+      /** Set for `malformed_response` when the answer was whole and only its shape was wrong. */
+      malformation?: Malformation;
     };
 
 /**
@@ -185,6 +205,28 @@ export type TurnOutcome = {
   toolCall: { toolId: string; args: unknown } | null;
   /** Trusted metadata receipt, in memory only; never a model argument or a Temporal result body. */
   inputSnapshotId?: string;
+  /**
+   * Set when the turn ended on a passing outage and the caller asked to hold fallback (see TurnOptions):
+   * the caller may try the turn again later, as a new step. Absent means the outcome is final.
+   */
+  retry?: { afterMs: number | null };
+  /** Repair calls this turn made after an unusable answer. Each one counts as a model turn. */
+  repairs?: number;
+};
+
+/** What the caller allows a turn beyond its first call. Absent means a turn behaves as it always has. */
+export type TurnOptions = {
+  /**
+   * `hold`: a passing outage ends the turn with `retry` set, so the caller can wait and try the same
+   * profile again durably. `fall_back`: the last round, where the outage moves down the explicit fallback
+   * list as FD-9 allows.
+   */
+  transient?: 'hold' | 'fall_back';
+  /**
+   * One repair turn after an answer whose shape was wrong. The caller says whether its turn limit leaves
+   * room for one more, and how many tokens are left for the run, since the gateway cannot see the counters.
+   */
+  repair?: { allowed: boolean; tokensLeft: number };
 };
 
 /**
@@ -198,6 +240,7 @@ export interface InferenceGateway {
     step: StepRef,
     compiled: CompiledTurn,
     signal: AbortSignal,
+    options?: TurnOptions,
   ): Promise<TurnOutcome>;
 }
 

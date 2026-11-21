@@ -12,11 +12,7 @@ import {
   createInvitation,
   createTeam,
 } from '@ensemus/application';
-import {
-  agentSpecSha256,
-  DEFAULT_AGENT_POLICY_VERSION,
-  publishAgentVersion,
-} from '@ensemus/application/ai-agents';
+import { DEFAULT_AGENT_POLICY_VERSION, publishAgentVersion } from '@ensemus/application/ai-agents';
 import {
   createModelProfile,
   disableModelProfile,
@@ -30,11 +26,7 @@ import {
   withPrivilegeTx,
 } from '@ensemus/application/privileged';
 import { updateSecurityPolicy } from '@ensemus/application/security-policy';
-import {
-  agentSpecV1Schema,
-  type CreateModelProfile,
-  type EvaluationReport,
-} from '@ensemus/contracts/ai';
+import type { CreateModelProfile } from '@ensemus/contracts/ai';
 import {
   createOrganization,
   interactiveSessionOf,
@@ -51,6 +43,7 @@ import { openAgentDatabase } from '@ensemus/database/agent';
 import { createServiceContext } from '@ensemus/database/service';
 import { fixtureCookies } from '../../packages/auth/test-support/mfa-router';
 import { makePerson, nativePersonContext, proveSecondFactor } from '../helpers/product';
+import { signedReportFor, TEST_TRUST } from '../helpers/ai/evaluation';
 import { testAgentSpec } from '../helpers/ai/fixtures';
 import { totpFromUri } from '../helpers/totp';
 import { urls } from '../helpers/stack';
@@ -129,18 +122,7 @@ describe('interactive privilege authority inside the actual effect transaction',
     organizationId: person.organizationId,
     profileId: id,
   });
-  const reportFor = (spec: unknown): EvaluationReport => ({
-    report_version: 1,
-    spec_sha256: agentSpecSha256(agentSpecV1Schema.parse(spec)),
-    policy_version: DEFAULT_AGENT_POLICY_VERSION,
-    suite_ref: 'evaluations/agents/work-brief',
-    dataset_version: 'generated-mfa-regression',
-    model_label: 'scripted',
-    pass_rate: 1,
-    cases: 3,
-    passed: true,
-    scripted_model: true,
-  });
+  const reportFor = (spec: unknown) => signedReportFor(spec, DEFAULT_AGENT_POLICY_VERSION);
   async function waitBlockedBy(pid: number) {
     const deadline = Date.now() + 5000;
     while (Date.now() < deadline) {
@@ -265,6 +247,7 @@ describe('interactive privilege authority inside the actual effect transaction',
         spec,
         evaluationReport: reportFor(spec),
         policyVersion: DEFAULT_AGENT_POLICY_VERSION,
+        evaluationTrust: TEST_TRUST,
       };
     await expect(publishAgentVersion(app.db, owner.context, input)).rejects.toMatchObject({
       code: 'MFA_REQUIRED',

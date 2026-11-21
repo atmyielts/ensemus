@@ -34,7 +34,8 @@ import {
   type TenantPolicyBundle,
 } from '@ensemus/policy';
 import { checkEndpoint } from '@ensemus/policy/endpoint';
-import { ceilingFor, costOf } from './router/cost';
+import { compactToFit, composeMessages, repairMessage } from './router/compaction';
+import { ceilingFor, costOf, inputTokenBound } from './router/cost';
 import { egressFacts, hostOf, protocolOf } from './router/facts';
 import { checkOutput, compileOutputSchema } from './router/output';
 import type {
@@ -47,6 +48,7 @@ import type {
   EndpointGuard,
   InferenceGateway,
   InferenceTask,
+  Malformation,
   ModelAdapter,
   ModelRouter,
   RouteDecision,
@@ -114,6 +116,17 @@ const OUTAGES: ReadonlySet<AdapterFailure> = new Set<AdapterFailure>([
   'endpoint_refused',
 ]);
 
+/**
+ * The outages a later try can cure. A refused key or a refused endpoint stays refused, so those move down
+ * the fallback list at once and are never held for a retry.
+ */
+const PASSING_OUTAGES: ReadonlySet<AdapterFailure> = new Set<AdapterFailure>([
+  'timeout',
+  'rate_limited',
+  'server_error',
+  'connect_failed',
+]);
+
 const REFUSED_AS: Partial<Record<AiReasonCode, { outcome: ModelOutcome; stopCode: StopCode }>> = {
   ENTITLEMENT_DENIED: { outcome: 'policy_denied', stopCode: 'ENTITLEMENT_DENIED' },
   BUDGET_EXHAUSTED: { outcome: 'budget_exhausted', stopCode: 'BUDGET_EXHAUSTED' },
@@ -172,8 +185,9 @@ export function createInferenceGateway(deps: GatewayDeps): InferenceGateway {
   const now = deps.now ?? (() => new Date());
 
   return {
-    async turn(context, step, compiled, signal) {
+    async turn(context, step, compiled, signal, options) {
       const spent = { inputTokens: 0, outputTokens: 0, costMicros: 0 };
+      let repairs = 0;
       let servedBy: { id: string; version: number } | null = null;
       let inputSnapshotId: string | undefined;
 
@@ -189,6 +203,7 @@ export function createInferenceGateway(deps: GatewayDeps): InferenceGateway {
         usage: { ...spent },
         profile: servedBy,
         ...(inputSnapshotId ? { inputSnapshotId } : {}),
+        ...(repairs > 0 ? { repairs } : {}),
         ...answer,
       });
       const refuse = (code: AiReasonCode) => {
@@ -299,179 +314,84 @@ export function createInferenceGateway(deps: GatewayDeps): InferenceGateway {
       let canaries: readonly string[] = [];
       let messages: readonly ContextMessage[] = compiled.messages;
       let dataClass = task.classification;
+      // Every reservation in this turn takes its own attempt number, a stride apart, so a fallback, a
+      // compacted retry and a repair each have a hold and a ledger key of their own (FD-12).
+      let callIndex = 0;
+      let bound = compiled.task.pinned !== null;
 
-      for (const [index, { profile, rateCard }] of chain.entries()) {
-        if (signal.aborted) return stopped();
+      entries: for (const [index, { profile, rateCard }] of chain.entries()) {
         const isLast = index === chain.length - 1;
-        const callAttempt = step.attempt + index * FALLBACK_ATTEMPT_STRIDE;
-        const maxOutputTokens = Math.min(compiled.maxOutputTokens, profile.limits.maxOutputTokens);
-        const snapshot = {
-          id: randomUUID(),
-          writerToken: randomUUID(),
-          requestHash: generationRequestHash({
-            providerKind: profile.providerKind,
-            modelId: profile.modelId,
-            endpointUrl: profile.endpointUrl,
-            messages,
+        // What this entry leaves out, whether it already compacted after a provider said "too long", and
+        // the correction a repair adds. Each belongs to this entry: a fallback starts again from all of it.
+        let dropped: ReadonlySet<number> = new Set();
+        let compactedForProvider = false;
+        let correction: ContextMessage | null = null;
+
+        for (;;) {
+          if (signal.aborted) return stopped();
+          const callAttempt = step.attempt + callIndex * FALLBACK_ATTEMPT_STRIDE;
+          callIndex += 1;
+          const outboundOf = (leftOut: ReadonlySet<number>) =>
+            composeMessages(messages, leftOut, correction ? [correction] : [], dataClass);
+          const sizing = (outbound: readonly ContextMessage[], maxOutputTokens: number) => ({
+            messages: outbound,
             tools: compiled.tools,
             responseSchema: compiled.responseSchema,
             maxOutputTokens,
-            timeoutMs: compiled.timeoutMs,
-          }),
-        };
-        const ceiling = ceilingFor({
-          messages,
-          tools: compiled.tools,
-          responseSchema: compiled.responseSchema,
-          maxOutputTokens,
-          modelId: profile.modelId,
-        });
-        const reservedMicros = costOf(ceiling, rateCard).totalMicros;
-        if (ceiling.inputTokens > profile.limits.maxInputTokens) return refuse('BUDGET_EXHAUSTED');
-
-        // 7. In one short transaction, halt check and reservation. A halt rolls the reservation back.
-        let reservation: Reservation;
-        try {
-          reservation = await deps.withTx(context, async (tx) => {
-            if (deps.admitInTx) {
-              const denial = await deps.admitInTx(tx, context, {
-                ...step,
-                purpose: task.purpose,
-                classification: dataClass,
-                profileId: profile.id,
-                profileVersion: profile.version,
-                ceiling,
-                costMicros: reservedMicros,
-                priorUsage: { ...spent },
-                reservationAttempt: callAttempt,
-                snapshot: { ...snapshot, phase: 'prepare' },
-              });
-              if (denial) throw new AdmissionRefused(denial);
-            }
-            try {
-              await deps.halt.assertRunning(tx, context, {
-                agentVersionId: step.agentVersionId,
-                providerKind: profile.providerKind,
-              });
-            } catch {
-              throw new Halted();
-            }
-            return deps.ledger.reserve(tx, context, {
-              runId: step.runId,
-              stepId: step.stepId,
-              attempt: callAttempt,
-              agentVersionId: step.agentVersionId,
-              amountMicros: reservedMicros,
-            });
+            modelId: profile.modelId,
+            providerKind: profile.providerKind,
           });
-        } catch (error) {
-          return refuse(
-            error instanceof AdmissionRefused
-              ? error.code
-              : error instanceof Halted
-                ? 'HALTED'
-                : 'POLICY_UNREADABLE',
+          let maxOutputTokens = Math.min(compiled.maxOutputTokens, profile.limits.maxOutputTokens);
+
+          // The profile's input limit, before anything is held. Too long leaves out the oldest parts the
+          // policy allows, and if that still does not fit, the turn fails with its own code.
+          const fitted = compactToFit(
+            messages,
+            (leftOut) =>
+              ceilingFor(sizing(outboundOf(leftOut), maxOutputTokens)).inputTokens <=
+              profile.limits.maxInputTokens,
+            dropped,
           );
-        }
-        if (!reservation.ok) return refuse(reservation.code);
-        const { reservationId } = reservation;
+          if (fitted === null) return finish('model_unavailable', 'CONTEXT_TOO_LONG', null);
+          dropped = fitted;
+          let outbound = outboundOf(dropped);
+          let ceiling = ceilingFor(sizing(outbound, maxOutputTokens));
 
-        // Nothing has been sent if we are here to release it. A release that fails leaves the hold in
-        // place, which over-counts, so it must not hide the reason the turn stopped.
-        const release = async () => {
+          // A repair spends from what the run has left, which only the caller can see.
+          if (correction && options?.repair) {
+            const left =
+              options.repair.tokensLeft -
+              spent.inputTokens -
+              spent.outputTokens -
+              ceiling.inputTokens;
+            maxOutputTokens = Math.min(maxOutputTokens, left);
+            if (maxOutputTokens < 1) return finish('invalid_output', 'INVALID_OUTPUT', null);
+            outbound = outboundOf(dropped);
+            ceiling = ceilingFor(sizing(outbound, maxOutputTokens));
+          }
+          const hardInputTokens = inputTokenBound(sizing(outbound, maxOutputTokens));
+          const snapshot = {
+            id: randomUUID(),
+            writerToken: randomUUID(),
+            requestHash: generationRequestHash({
+              providerKind: profile.providerKind,
+              modelId: profile.modelId,
+              endpointUrl: profile.endpointUrl,
+              messages: outbound,
+              tools: compiled.tools,
+              responseSchema: compiled.responseSchema,
+              maxOutputTokens,
+              timeoutMs: compiled.timeoutMs,
+            }),
+          };
+          const reservedMicros = costOf(ceiling, rateCard).totalMicros;
+
+          // 7. In one short transaction, halt check and reservation. A halt rolls the reservation back.
+          let reservation: Reservation;
           try {
-            await deps.withTx(context, (tx) => deps.ledger.release(tx, context, reservationId));
-          } catch {
-            // See above.
-          }
-        };
-
-        // 8. The pre-send scan. A hit raises that part to restricted, and the decision is made again on it.
-        try {
-          if (scan === null) {
-            canaries = await deps.canaries();
-            scan = scanForSecrets(
-              messages.map((message) => ({ id: message.partId, text: message.text })),
-              canaries,
-            );
-          }
-          if (scan.hits.length > 0) {
-            const decision = decideEgress({
-              dataClass: 'restricted',
-              purpose: task.purpose,
-              requiredRegion: task.requiredRegion,
-              profile: egressFacts(profile),
-              bundle: deps.bundle ? await deps.bundle(context) : null,
-              now: now(),
-            });
-            const allowed = decision.decision === 'allow';
-            await record(
-              profile,
-              'restricted',
-              decision.decision,
-              allowed ? 'ALLOWED' : 'SECRET_FOUND_IN_PAYLOAD',
-              decision.policyVersion,
-            );
-            if (!allowed) {
-              await release();
-              return refuse('SECRET_FOUND_IN_PAYLOAD');
-            }
-            dataClass = 'restricted';
-            const hitParts = new Set(scan.hits.map((hit) => hit.partId));
-            messages = messages.map((message) =>
-              hitParts.has(message.partId)
-                ? { ...message, classification: 'restricted' as const }
-                : message,
-            );
-          }
-        } catch {
-          await release();
-          return refuse('POLICY_UNREADABLE');
-        }
-
-        // 9. The endpoint, as it stands now. The profile row could have been changed since it was approved.
-        const endpoint = checkEndpoint(profile.providerKind, profile.endpointUrl, {
-          privateEndpoints: deps.privateEndpoints,
-        });
-        const protocol = protocolOf(profile.endpointUrl);
-        let guardedFetch: typeof fetch | null = null;
-        if (endpoint.ok && protocol !== null) {
-          try {
-            guardedFetch = deps.guard.fetchFor({
-              host: endpoint.host,
-              port: endpoint.port,
-              protocol,
-              viaPrivateAllowlist: endpoint.viaPrivateAllowlist,
-            });
-          } catch {
-            // Refused below, the same as an address that failed the check.
-          }
-        }
-        if (guardedFetch === null) {
-          try {
-            await record(profile, dataClass, 'deny', 'PROFILE_NOT_QUALIFIED', route.policyVersion);
-          } catch {
-            // Refused either way, and the refusal is what the outcome says.
-          }
-          await release();
-          return refuse('PROFILE_NOT_QUALIFIED');
-        }
-
-        if (signal.aborted) {
-          await release();
-          return stopped();
-        }
-
-        // 10 and 11. The key, for this one call, and the call. No transaction is open here. Only a model the
-        // customer runs may have no key: anywhere else, a missing key is no reason to send without one.
-        const sent: { result: AdapterResult | null } = { result: null };
-        const send = async (apiKey: Buffer | null) => {
-          if (signal.aborted) throw new AdmissionRefused('HALTED');
-          if (deps.admitInTx)
-            await deps.withTx(context, async (tx) => {
-              let denial: AiReasonCode | null;
-              try {
-                denial = await deps.admitInTx!(tx, context, {
+            reservation = await deps.withTx(context, async (tx) => {
+              if (deps.admitInTx) {
+                const denial = await deps.admitInTx(tx, context, {
                   ...step,
                   purpose: task.purpose,
                   classification: dataClass,
@@ -481,186 +401,382 @@ export function createInferenceGateway(deps: GatewayDeps): InferenceGateway {
                   costMicros: reservedMicros,
                   priorUsage: { ...spent },
                   reservationAttempt: callAttempt,
-                  snapshot: { ...snapshot, phase: 'dispatch' },
+                  snapshot: { ...snapshot, phase: 'prepare' },
                 });
-              } catch {
-                throw new AdmissionRefused('POLICY_UNREADABLE');
+                if (denial) throw new AdmissionRefused(denial);
               }
-              if (denial) throw new AdmissionRefused(denial);
               try {
                 await deps.halt.assertRunning(tx, context, {
                   agentVersionId: step.agentVersionId,
                   providerKind: profile.providerKind,
                 });
               } catch {
-                throw new AdmissionRefused('HALTED');
+                throw new Halted();
               }
-            });
-          if (signal.aborted) throw new AdmissionRefused('HALTED');
-          sent.result = await callAdapter(
-            deps.adapter,
-            {
-              providerKind: profile.providerKind,
-              modelId: profile.modelId,
-              endpointUrl: profile.endpointUrl,
-              messages,
-              tools: compiled.tools,
-              responseSchema: compiled.responseSchema,
-              maxOutputTokens,
-              timeoutMs: compiled.timeoutMs,
-              fetch: guardedFetch,
-              apiKey,
-            },
-            signal,
-          );
-        };
-        let dispatchDenial: AiReasonCode | null = null;
-        try {
-          if (profile.secretRef !== null) {
-            await deps.credentials.withKey(
-              {
-                organizationId: context.organizationId,
-                profileId: profile.id,
-                endpointUrl: profile.endpointUrl,
-                secretRef: profile.secretRef,
-                providerKind: profile.providerKind,
-              },
-              send,
-            );
-          } else if (profile.providerKind === 'local_openai_compatible') {
-            await send(null);
-          }
-        } catch (error) {
-          if (error instanceof AdmissionRefused) dispatchDenial = error.code;
-          // Only the lender can land here, as `callAdapter` does not throw. If it threw after the call
-          // came back, the answer stands, and the call is charged below.
-        }
-
-        const result = sent.result;
-        if (result === null) {
-          // Nothing was sent, so nothing is owed. No key text can reach this outcome.
-          await release();
-          if (dispatchDenial) return refuse(dispatchDenial);
-          if (!isLast) continue;
-          return finish('credential_unavailable', 'CREDENTIAL_UNAVAILABLE', null);
-        }
-        servedBy = { id: profile.id, version: profile.version };
-
-        // What this call cost. Without a usage report it is charged at all it could have cost (FD-12).
-        const charge = async (usage: AdapterUsage, estimatedWhenMissing: boolean) => {
-          const measured = usage !== null;
-          const tokens = usage ?? (estimatedWhenMissing ? ceiling : null);
-          if (tokens === null) {
-            await release();
-            return;
-          }
-          const cost = measured
-            ? costOf(tokens, rateCard)
-            : { inputMicros: reservedMicros, outputMicros: 0, totalMicros: reservedMicros };
-          const key = modelLedgerKey(step.runId, step.stepNumber, callAttempt);
-          const row = {
-            rateCardId: rateCard.id,
-            rateCardVersion: rateCard.version,
-            reservationId,
-            workUnitId: step.workUnitId,
-            runId: step.runId,
-            stepId: step.stepId,
-            profileId: profile.id,
-            profileVersion: profile.version,
-            providerKind: profile.providerKind,
-            requestHash: compiled.requestHash,
-            status: measured ? ('final' as const) : ('estimated' as const),
-            unit: 'token' as const,
-          } satisfies Partial<LedgerEntry>;
-          await deps.withTx(context, async (tx) => {
-            await deps.ledger.settle(tx, context, {
-              reservationId,
-              actualMicros: cost.totalMicros,
-            });
-            // The input row takes the plain key FD-12 names, so a retry's estimate for this same call
-            // finds it and adds nothing. A later row in this transaction cannot exist without it.
-            await deps.ledger.record(tx, context, {
-              ...row,
-              idempotencyKey: key,
-              meter: 'model_input_tokens',
-              quantity: tokens.inputTokens,
-              costMicros: cost.inputMicros,
-            });
-            if (measured && tokens.outputTokens > 0) {
-              await deps.ledger.record(tx, context, {
-                ...row,
-                idempotencyKey: `${key}:output`,
-                meter: 'model_output_tokens',
-                quantity: tokens.outputTokens,
-                costMicros: cost.outputMicros,
+              return deps.ledger.reserve(tx, context, {
+                runId: step.runId,
+                stepId: step.stepId,
+                attempt: callAttempt,
+                agentVersionId: step.agentVersionId,
+                amountMicros: reservedMicros,
               });
-            }
-          });
-          spent.inputTokens += tokens.inputTokens;
-          spent.outputTokens += tokens.outputTokens;
-          spent.costMicros += cost.totalMicros;
-        };
-
-        if (result.kind === 'failure') {
-          await charge(result.usage, result.mayHaveBilled);
-          if (result.failure === 'cancelled') return stopped();
-          // 12. Fallback, FD-9: the next entry of the explicit list, already checked, and through every
-          // stage above again. With no entry left this fails closed, on the customer's own terms.
-          if (OUTAGES.has(result.failure)) {
-            if (!isLast) continue;
-            const { outcome, stopCode } = failureOutcome(result.failure);
-            return finish(outcome, stopCode, 'FALLBACK_NOT_ALLOWED');
+            });
+          } catch (error) {
+            return refuse(
+              error instanceof AdmissionRefused
+                ? error.code
+                : error instanceof Halted
+                  ? 'HALTED'
+                  : 'POLICY_UNREADABLE',
+            );
           }
-          const { outcome, stopCode } = failureOutcome(result.failure);
-          return finish(outcome, stopCode, null);
-        }
+          if (!reservation.ok) return refuse(reservation.code);
+          const { reservationId } = reservation;
 
-        // 12. Validate what came back. An answer we cannot use was still paid for, so it is charged too.
-        const check = checkOutput(result, compiled.tools, schema.schema, canaries);
-        await charge(result.usage, true);
-        // Reported provider overuse is charged in full, then refused. An admitted ceiling cannot be
-        // expanded by a response, even if its text/schema is otherwise valid.
-        if (
-          result.usage &&
-          (result.usage.inputTokens > ceiling.inputTokens ||
-            result.usage.outputTokens > ceiling.outputTokens)
-        )
-          return refuse('BUDGET_EXHAUSTED');
+          // Nothing has been sent if we are here to release it. A release that fails leaves the hold in
+          // place, which over-counts, so it must not hide the reason the turn stopped.
+          const release = async () => {
+            try {
+              await deps.withTx(context, (tx) => deps.ledger.release(tx, context, reservationId));
+            } catch {
+              // See above.
+            }
+          };
 
-        // The first answer pins the run to this profile and version (FD-13). If that is refused, another
-        // turn got there first with a different profile, and this answer must not be acted on.
-        if (compiled.task.pinned === null) {
+          // 8. The pre-send scan. A hit raises that part to restricted, and the decision is made again on it.
+          // It reads every message the turn has, so what a compaction leaves out was scanned all the same.
           try {
-            await deps.turns.bindProfile(context, {
+            if (scan === null) {
+              canaries = await deps.canaries();
+              scan = scanForSecrets(
+                messages.map((message) => ({ id: message.partId, text: message.text })),
+                canaries,
+              );
+            }
+            if (scan.hits.length > 0) {
+              const decision = decideEgress({
+                dataClass: 'restricted',
+                purpose: task.purpose,
+                requiredRegion: task.requiredRegion,
+                profile: egressFacts(profile),
+                bundle: deps.bundle ? await deps.bundle(context) : null,
+                now: now(),
+              });
+              const allowed = decision.decision === 'allow';
+              await record(
+                profile,
+                'restricted',
+                decision.decision,
+                allowed ? 'ALLOWED' : 'SECRET_FOUND_IN_PAYLOAD',
+                decision.policyVersion,
+              );
+              if (!allowed) {
+                await release();
+                return refuse('SECRET_FOUND_IN_PAYLOAD');
+              }
+              dataClass = 'restricted';
+              const hitParts = new Set(scan.hits.map((hit) => hit.partId));
+              messages = messages.map((message) =>
+                hitParts.has(message.partId)
+                  ? { ...message, classification: 'restricted' as const }
+                  : message,
+              );
+              outbound = outboundOf(dropped);
+            }
+          } catch {
+            await release();
+            return refuse('POLICY_UNREADABLE');
+          }
+
+          // 9. The endpoint, as it stands now. The profile row could have been changed since it was approved.
+          const endpoint = checkEndpoint(profile.providerKind, profile.endpointUrl, {
+            privateEndpoints: deps.privateEndpoints,
+          });
+          const protocol = protocolOf(profile.endpointUrl);
+          let guardedFetch: typeof fetch | null = null;
+          if (endpoint.ok && protocol !== null) {
+            try {
+              guardedFetch = deps.guard.fetchFor({
+                host: endpoint.host,
+                port: endpoint.port,
+                protocol,
+                viaPrivateAllowlist: endpoint.viaPrivateAllowlist,
+              });
+            } catch {
+              // Refused below, the same as an address that failed the check.
+            }
+          }
+          if (guardedFetch === null) {
+            try {
+              await record(
+                profile,
+                dataClass,
+                'deny',
+                'PROFILE_NOT_QUALIFIED',
+                route.policyVersion,
+              );
+            } catch {
+              // Refused either way, and the refusal is what the outcome says.
+            }
+            await release();
+            return refuse('PROFILE_NOT_QUALIFIED');
+          }
+
+          if (signal.aborted) {
+            await release();
+            return stopped();
+          }
+
+          // 10 and 11. The key, for this one call, and the call. No transaction is open here. Only a model
+          // the customer runs may have no key: anywhere else, a missing key is no reason to send without one.
+          const sent: { result: AdapterResult | null } = { result: null };
+          const sending = outbound;
+          const send = async (apiKey: Buffer | null) => {
+            if (signal.aborted) throw new AdmissionRefused('HALTED');
+            if (deps.admitInTx)
+              await deps.withTx(context, async (tx) => {
+                let denial: AiReasonCode | null;
+                try {
+                  denial = await deps.admitInTx!(tx, context, {
+                    ...step,
+                    purpose: task.purpose,
+                    classification: dataClass,
+                    profileId: profile.id,
+                    profileVersion: profile.version,
+                    ceiling,
+                    costMicros: reservedMicros,
+                    priorUsage: { ...spent },
+                    reservationAttempt: callAttempt,
+                    snapshot: { ...snapshot, phase: 'dispatch' },
+                  });
+                } catch {
+                  throw new AdmissionRefused('POLICY_UNREADABLE');
+                }
+                if (denial) throw new AdmissionRefused(denial);
+                try {
+                  await deps.halt.assertRunning(tx, context, {
+                    agentVersionId: step.agentVersionId,
+                    providerKind: profile.providerKind,
+                  });
+                } catch {
+                  throw new AdmissionRefused('HALTED');
+                }
+              });
+            if (signal.aborted) throw new AdmissionRefused('HALTED');
+            sent.result = await callAdapter(
+              deps.adapter,
+              {
+                providerKind: profile.providerKind,
+                modelId: profile.modelId,
+                endpointUrl: profile.endpointUrl,
+                messages: sending,
+                tools: compiled.tools,
+                responseSchema: compiled.responseSchema,
+                maxOutputTokens,
+                timeoutMs: compiled.timeoutMs,
+                fetch: guardedFetch,
+                apiKey,
+              },
+              signal,
+            );
+          };
+          let dispatchDenial: AiReasonCode | null = null;
+          try {
+            if (profile.secretRef !== null) {
+              await deps.credentials.withKey(
+                {
+                  organizationId: context.organizationId,
+                  profileId: profile.id,
+                  endpointUrl: profile.endpointUrl,
+                  secretRef: profile.secretRef,
+                  providerKind: profile.providerKind,
+                },
+                send,
+              );
+            } else if (profile.providerKind === 'local_openai_compatible') {
+              await send(null);
+            }
+          } catch (error) {
+            if (error instanceof AdmissionRefused) dispatchDenial = error.code;
+            // Only the lender can land here, as `callAdapter` does not throw. If it threw after the call
+            // came back, the answer stands, and the call is charged below.
+          }
+
+          const result = sent.result;
+          if (result === null) {
+            // Nothing was sent, so nothing is owed. No key text can reach this outcome.
+            await release();
+            if (dispatchDenial) return refuse(dispatchDenial);
+            if (!isLast) continue entries;
+            return finish('credential_unavailable', 'CREDENTIAL_UNAVAILABLE', null);
+          }
+          servedBy = { id: profile.id, version: profile.version };
+
+          // What this call cost. Without a usage report it is charged at all it could have cost (FD-12).
+          const charge = async (usage: AdapterUsage, estimatedWhenMissing: boolean) => {
+            const measured = usage !== null;
+            const tokens = usage ?? (estimatedWhenMissing ? ceiling : null);
+            if (tokens === null) {
+              await release();
+              return;
+            }
+            const cost = measured
+              ? costOf(tokens, rateCard)
+              : { inputMicros: reservedMicros, outputMicros: 0, totalMicros: reservedMicros };
+            const key = modelLedgerKey(step.runId, step.stepNumber, callAttempt);
+            const row = {
+              rateCardId: rateCard.id,
+              rateCardVersion: rateCard.version,
+              reservationId,
+              workUnitId: step.workUnitId,
               runId: step.runId,
+              stepId: step.stepId,
               profileId: profile.id,
               profileVersion: profile.version,
+              providerKind: profile.providerKind,
+              requestHash: compiled.requestHash,
+              status: measured ? ('final' as const) : ('estimated' as const),
+              unit: 'token' as const,
+            } satisfies Partial<LedgerEntry>;
+            await deps.withTx(context, async (tx) => {
+              await deps.ledger.settle(tx, context, {
+                reservationId,
+                actualMicros: cost.totalMicros,
+              });
+              // The input row takes the plain key FD-12 names, so a retry's estimate for this same call
+              // finds it and adds nothing. A later row in this transaction cannot exist without it.
+              await deps.ledger.record(tx, context, {
+                ...row,
+                idempotencyKey: key,
+                meter: 'model_input_tokens',
+                quantity: tokens.inputTokens,
+                costMicros: cost.inputMicros,
+              });
+              if (measured && tokens.outputTokens > 0) {
+                await deps.ledger.record(tx, context, {
+                  ...row,
+                  idempotencyKey: `${key}:output`,
+                  meter: 'model_output_tokens',
+                  quantity: tokens.outputTokens,
+                  costMicros: cost.outputMicros,
+                });
+              }
             });
-          } catch {
-            return refuse('PROFILE_CHANGED');
-          }
-        }
+            spent.inputTokens += tokens.inputTokens;
+            spent.outputTokens += tokens.outputTokens;
+            spent.costMicros += cost.totalMicros;
+          };
 
-        if (!check.ok) return finish('invalid_output', 'INVALID_OUTPUT', check.decisionCode);
-        if (deps.receiveInputSnapshotInTx) {
-          // Accounting has already committed. A receipt failure discards content, never releases a
-          // paid hold or retries the provider. The original attempt remains unavailable to children.
-          await deps.withTx(context, (tx) =>
-            deps.receiveInputSnapshotInTx!(tx, context, {
-              snapshotId: snapshot.id,
-              writerToken: snapshot.writerToken,
-              ...mainResultHash(result),
-            }),
-          );
-          inputSnapshotId = snapshot.id;
+          // One repair turn, on this same profile, for an answer whose shape alone was wrong. It is a new
+          // call with its own hold and key, it counts as a turn, and a second bad answer fails as before.
+          const repairable = (malformation: Malformation | undefined) =>
+            malformation !== undefined &&
+            correction === null &&
+            options?.repair?.allowed === true &&
+            !signal.aborted;
+
+          if (result.kind === 'failure') {
+            await charge(result.usage, result.mayHaveBilled);
+            if (result.failure === 'cancelled') return stopped();
+            // The provider counted more than we did. Leave out the oldest parts once, to three quarters
+            // of what was sent, and say so plainly if even that is too long. Never a fallback: another
+            // profile is not what the run was pinned to for this reason.
+            if (result.failure === 'context_too_long') {
+              if (compactedForProvider)
+                return finish('model_unavailable', 'CONTEXT_TOO_LONG', null);
+              compactedForProvider = true;
+              const target = Math.floor(ceiling.inputTokens * 0.75);
+              const smaller = compactToFit(
+                messages,
+                (leftOut) =>
+                  ceilingFor(sizing(outboundOf(leftOut), maxOutputTokens)).inputTokens <= target,
+                dropped,
+              );
+              if (smaller === null) return finish('model_unavailable', 'CONTEXT_TOO_LONG', null);
+              dropped = smaller;
+              continue;
+            }
+            if (result.failure === 'malformed_response' && repairable(result.malformation)) {
+              correction = repairMessage(result.malformation!, dataClass);
+              repairs += 1;
+              continue;
+            }
+            if (OUTAGES.has(result.failure)) {
+              // A passing outage, when the caller will wait and try again durably: this profile is not
+              // given up on yet, so the fallback list waits for the last round (FD-9).
+              if (options?.transient === 'hold' && PASSING_OUTAGES.has(result.failure)) {
+                const { outcome, stopCode } = failureOutcome(result.failure);
+                return {
+                  ...finish(outcome, stopCode, null),
+                  retry: { afterMs: result.retryAfterMs ?? null },
+                };
+              }
+              // 12. Fallback, FD-9: the next entry of the explicit list, already checked, and through every
+              // stage above again. With no entry left this fails closed, on the customer's own terms.
+              if (!isLast) continue entries;
+              const { outcome, stopCode } = failureOutcome(result.failure);
+              return finish(outcome, stopCode, 'FALLBACK_NOT_ALLOWED');
+            }
+            const { outcome, stopCode } = failureOutcome(result.failure);
+            return finish(outcome, stopCode, null);
+          }
+
+          // 12. Validate what came back. An answer we cannot use was still paid for, so it is charged too.
+          const check = checkOutput(result, compiled.tools, schema.schema, canaries);
+          await charge(result.usage, true);
+          // Reported provider overuse is charged in full, then refused. The output is held to what was
+          // asked for, and the input to one token a byte, which no encoding we call can exceed: a figure
+          // between the estimate and that is believed and charged as reported.
+          if (
+            result.usage &&
+            (result.usage.inputTokens > hardInputTokens ||
+              result.usage.outputTokens > ceiling.outputTokens)
+          )
+            return refuse('BUDGET_EXHAUSTED');
+
+          // The first answer pins the run to this profile and version (FD-13). If that is refused, another
+          // turn got there first with a different profile, and this answer must not be acted on.
+          if (!bound) {
+            try {
+              await deps.turns.bindProfile(context, {
+                runId: step.runId,
+                profileId: profile.id,
+                profileVersion: profile.version,
+              });
+            } catch {
+              return refuse('PROFILE_CHANGED');
+            }
+            bound = true;
+          }
+
+          if (!check.ok) {
+            if (repairable(check.malformation)) {
+              correction = repairMessage(check.malformation!, dataClass);
+              repairs += 1;
+              continue;
+            }
+            return finish('invalid_output', 'INVALID_OUTPUT', check.decisionCode);
+          }
+          if (deps.receiveInputSnapshotInTx) {
+            // Accounting has already committed. A receipt failure discards content, never releases a
+            // paid hold or retries the provider. The original attempt remains unavailable to children.
+            await deps.withTx(context, (tx) =>
+              deps.receiveInputSnapshotInTx!(tx, context, {
+                snapshotId: snapshot.id,
+                writerToken: snapshot.writerToken,
+                ...mainResultHash(result),
+              }),
+            );
+            inputSnapshotId = snapshot.id;
+          }
+          if (result.kind === 'tool_call') {
+            return finish('tool_proposed', null, 'ALLOWED', {
+              text: null,
+              toolCall: { toolId: result.toolId, args: result.args },
+            });
+          }
+          return finish('final_output', null, 'ALLOWED', { text: result.text, toolCall: null });
         }
-        if (result.kind === 'tool_call') {
-          return finish('tool_proposed', null, 'ALLOWED', {
-            text: null,
-            toolCall: { toolId: result.toolId, args: result.args },
-          });
-        }
-        return finish('final_output', null, 'ALLOWED', { text: result.text, toolCall: null });
       }
 
       // The chain always has one entry, and each pass through it returns or moves to the next.

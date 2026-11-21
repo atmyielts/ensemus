@@ -12,6 +12,7 @@ import type { KnowledgeModelPurpose } from '@ensemus/domain/knowledge-models';
 import { protocolForPurpose } from '@ensemus/domain/knowledge-models';
 import { ModelCallFailed } from '@ensemus/knowledge/ports';
 import { agentContext, byomProfile } from './router/doubles.test-support';
+import type { RerankAdapterCall, RerankAdapterResult } from './rerank-adapter';
 import type { AdapterResult } from './types';
 
 const endpoint = 'http://generated-model.internal:8080/v1';
@@ -26,6 +27,8 @@ function fixture(
     canary?: string;
     denyRestricted?: boolean;
     output?: AdapterResult;
+    /** A Cohere profile, which ranks on its native endpoint, and what that answers. */
+    native?: { result?: RerankAdapterResult };
   } = {},
 ) {
   const context = { ...agentContext(), actorType: 'delegated' } as unknown as TenantContext;
@@ -37,7 +40,9 @@ function fixture(
     settled = 0,
     recovered = 0,
     dispatched = 0,
-    lent = 0;
+    lent = 0,
+    reranked = 0;
+  let rerankCall: RerankAdapterCall | undefined;
   let preparedInput: PrepareKnowledgeCall | undefined;
   const candidate = (purpose: KnowledgeModelPurpose): KnowledgeModelCandidate => ({
     profile: byomProfile({
@@ -54,6 +59,18 @@ function fixture(
       allowedClasses: ['public', 'internal', 'confidential', 'restricted'],
       allowedPurposes: ['embed', 'rerank', 'answer'],
       limits: { maxInputTokens: 10000, maxOutputTokens: 64 },
+      ...(options.native
+        ? {
+            providerKind: 'cohere_hosted' as const,
+            modelId: 'rerank-v3.5',
+            endpointUrl: 'https://api.cohere.com/v2',
+            secretRef: 'generated-key',
+            destination: 'customer_byom_public_api' as const,
+            retentionBasis: 'unreviewed' as const,
+            capabilities: ['text' as const],
+            allowedPurposes: ['rerank' as const],
+          }
+        : {}),
     }),
     qualification: {
       id: `qualified-${purpose}`,
@@ -141,6 +158,19 @@ function fixture(
             denyClasses: { customer_private_inference: ['restricted'] },
           }
         : null,
+    reranks: {
+      rerank: async (call) => {
+        reranked++;
+        rerankCall = call;
+        return (
+          options.native?.result ?? {
+            kind: 'ranked',
+            order: [1, 0],
+            usage: { inputTokens: 9, outputTokens: 0 },
+          }
+        );
+      },
+    },
     embeddings: {
       embed: async (call) => {
         embeds++;
@@ -172,7 +202,20 @@ function fixture(
     get preparedInput() {
       return preparedInput;
     },
-    counts: () => ({ calls, embeds, generates, prepared, settled, recovered, dispatched, lent }),
+    get rerankCall() {
+      return rerankCall;
+    },
+    counts: () => ({
+      calls,
+      embeds,
+      generates,
+      prepared,
+      settled,
+      recovered,
+      dispatched,
+      lent,
+      reranked,
+    }),
   };
 }
 describe('genuine Knowledge model gateway controls', () => {
@@ -365,5 +408,66 @@ describe('genuine Knowledge model gateway controls', () => {
       }),
     ).toMatchObject({ decision: 'deny' });
     expect(f.counts().calls).toBe(0);
+  });
+  describe('native rerank, for a kind that has one', () => {
+    const rerank = async (f: ReturnType<typeof fixture>, passages = ['first', 'second']) => {
+      const r = await f.model.route({
+        organizationId: f.context.organizationId,
+        purpose: 'rerank',
+        classification: 'public',
+      });
+      if (r.decision !== 'allow') throw new Error('TEST_ROUTE_REFUSED');
+      return f.model.rerank(
+        f.context.organizationId,
+        r.route,
+        'generated question',
+        passages,
+        new AbortController().signal,
+        f.metadata,
+      );
+    };
+
+    it('ranks on the native endpoint, with the lent key, no prompt and no output allowance', async () => {
+      const f = fixture({ native: {} });
+      expect(await rerank(f)).toMatchObject({ order: [1, 0], usage: { inputTokens: 9 } });
+      expect(f.counts()).toMatchObject({ reranked: 1, generates: 0, embeds: 0, lent: 1 });
+      expect(f.rerankCall).toMatchObject({
+        providerKind: 'cohere_hosted',
+        modelId: 'rerank-v3.5',
+        endpointUrl: 'https://api.cohere.com/v2',
+        query: 'generated question',
+        documents: ['first', 'second'],
+      });
+      expect(f.preparedInput?.ceiling.outputTokens).toBe(0);
+    });
+
+    it('keeps the prompt ranking for every other kind', async () => {
+      const f = fixture();
+      const r = await f.model.route({
+        organizationId: f.context.organizationId,
+        purpose: 'rerank',
+        classification: 'internal',
+      });
+      if (r.decision !== 'allow') throw new Error('TEST_ROUTE_REFUSED');
+      await f.model.rerank(
+        f.context.organizationId,
+        r.route,
+        'generated question',
+        ['first', 'second'],
+        new AbortController().signal,
+        f.metadata,
+      );
+      expect(f.counts()).toMatchObject({ reranked: 0, generates: 1 });
+    });
+
+    it.each<[string, RerankAdapterResult]>([
+      ['a ranking that repeats a passage', { kind: 'ranked', order: [0, 0], usage: null }],
+      ['a ranking out of range', { kind: 'ranked', order: [2, 0], usage: null }],
+      ['a failure', { kind: 'failure', failure: 'rate_limited', mayHaveBilled: true, usage: null }],
+    ])('refuses %s, and settles the call as billed', async (_label, result) => {
+      const f = fixture({ native: { result } });
+      await expect(rerank(f)).rejects.toThrow('MODEL_UNAVAILABLE');
+      expect(f.counts()).toMatchObject({ reranked: 1, settled: 1, generates: 0 });
+    });
   });
 });

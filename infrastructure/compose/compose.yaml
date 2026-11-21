@@ -63,6 +63,10 @@ services:
       ENSEMUS_PUBLIC_URL: ${ENSEMUS_PUBLIC_URL:-https://localhost:8443}
       ENSEMUS_ALLOW_SIGNUP: ${ENSEMUS_ALLOW_SIGNUP:-false}
       ENSEMUS_CONNECTORS_ENABLED: ${ENSEMUS_CONNECTORS_ENABLED:-false}
+      # The public keys of the evaluators whose reports may publish an agent (AGENT-16). Unset means no
+      # report is accepted. Public only: the signing key belongs to CI or the agent worker, never to web.
+      ENSEMUS_EVALUATION_PUBLIC_KEYS: ${ENSEMUS_EVALUATION_PUBLIC_KEYS:-}
+      ENSEMUS_EVALUATION_REPORT_MAX_AGE_HOURS: ${ENSEMUS_EVALUATION_REPORT_MAX_AGE_HOURS:-}
       # The operator's own Google and Microsoft apps, by public client ID only, to build the consent URL
       # (ADR-038 D2). Unset offers only an admin's own app. The secrets go to the connector worker alone.
       # Providers send the admin back to ENSEMUS_PUBLIC_URL/api/v1/oauth/callback, which must be registered.

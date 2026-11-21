@@ -40,11 +40,12 @@ import {
 import { databaseInTransaction } from '../../packages/application/src/transaction-database';
 import { withProcessBirth } from '../../packages/application/src/product/process-run-authority';
 import { pgCode } from '../../packages/application/src/errors';
+import { signedReportFor, TEST_TRUST } from '../helpers/ai/evaluation';
 import { makeTwoTenants, proveSecondFactor } from '../helpers/product';
 import { urls } from '../helpers/stack';
 import { testAgentSpec } from '../helpers/ai/fixtures';
 import { agentSpecV1Schema } from '@ensemus/contracts/ai';
-import { agentSpecSha256, publishAgentVersion } from '@ensemus/application/ai-agents';
+import { publishAgentVersion } from '@ensemus/application/ai-agents';
 
 describe('workflow execution has actual native intent, birth and completion authority', () => {
   let app: ReturnType<typeof openAppDatabase>;
@@ -66,18 +67,8 @@ describe('workflow execution has actual native intent, birth and completion auth
       const published = await publishAgentVersion(app.db, a.admin.context, {
         spec,
         policyVersion: 'default',
-        evaluationReport: {
-          report_version: 1,
-          spec_sha256: agentSpecSha256(spec),
-          policy_version: 'default',
-          suite_ref: spec.evaluation.suite_ref,
-          dataset_version: 'generated-stop-race-1',
-          model_label: 'scripted',
-          pass_rate: 1,
-          cases: 1,
-          passed: true,
-          scripted_model: true,
-        },
+        evaluationReport: signedReportFor(spec, 'default'),
+        evaluationTrust: TEST_TRUST,
       });
       agentVersion = { definitionId: published.definition_id, versionId: published.id };
     }

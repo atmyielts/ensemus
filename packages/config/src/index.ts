@@ -109,3 +109,68 @@ export function loadModelEgressSettings(env: NodeJS.ProcessEnv = process.env) {
   const reviewed = env.ENSEMUS_MODEL_CREDENTIALS_REVIEWED?.trim();
   return { privateEndpoints, credentialsReviewed: reviewed ? reviewed : null };
 }
+
+const EVALUATION_KEY_ID = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+const EVALUATION_PUBLIC_KEY = /^[A-Za-z0-9_-]{43}$/;
+/**
+ * A week. A policy change already voids a report, so this bounds the rest: how long a report outlives a
+ * change to the harness or the platform under it, and how long a retired key's reports still count.
+ */
+const DEFAULT_EVALUATION_MAX_AGE_HOURS = 168;
+const MAX_EVALUATION_MAX_AGE_HOURS = 24 * 366;
+
+/**
+ * The web tier's side of signed evaluation reports (AGENT-16): the public keys an evaluator signs with,
+ * as `key-id:<32-byte Ed25519 public key, base64url>` separated by commas, and how old a report may be.
+ * Two keys at once is how a key is rotated. None at all means no report is accepted, so nothing publishes.
+ * They are public, but may come from a mounted file (`_FILE`, which wins) like a secret, for the same reason:
+ * the image never holds them.
+ */
+export function loadEvaluationTrustSettings(env: NodeJS.ProcessEnv = process.env) {
+  const file = env.ENSEMUS_EVALUATION_PUBLIC_KEYS_FILE;
+  const listed = file ? readFileSync(file, 'utf8') : (env.ENSEMUS_EVALUATION_PUBLIC_KEYS ?? '');
+  const entries = listed
+    .split(/[,\n]/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  const publicKeys = entries.map((entry) => {
+    const [keyId, publicKey, ...rest] = entry.split(':');
+    if (
+      rest.length > 0 ||
+      !keyId ||
+      !publicKey ||
+      !EVALUATION_KEY_ID.test(keyId) ||
+      !EVALUATION_PUBLIC_KEY.test(publicKey)
+    ) {
+      throw new ConfigError('Invalid ENSEMUS_EVALUATION_PUBLIC_KEYS');
+    }
+    return { keyId, publicKey };
+  });
+  if (new Set(publicKeys.map((key) => key.keyId)).size !== publicKeys.length) {
+    throw new ConfigError('Invalid ENSEMUS_EVALUATION_PUBLIC_KEYS');
+  }
+  const age = env.ENSEMUS_EVALUATION_REPORT_MAX_AGE_HOURS?.trim();
+  const maxAgeHours = age ? Number(age) : DEFAULT_EVALUATION_MAX_AGE_HOURS;
+  if (
+    !/^\d+$/.test(String(maxAgeHours)) ||
+    maxAgeHours < 1 ||
+    maxAgeHours > MAX_EVALUATION_MAX_AGE_HOURS
+  ) {
+    throw new ConfigError('Invalid ENSEMUS_EVALUATION_REPORT_MAX_AGE_HOURS');
+  }
+  return { publicKeys, maxAgeHours };
+}
+
+/**
+ * The signing side, held by CI and the agent worker and never by web: a key id, and an Ed25519 private key
+ * in PKCS#8 PEM, read like every other secret from a mounted file or the environment. Null when no key id
+ * is set, which means this process does not sign; a key id without its key is a configuration error.
+ */
+export function loadEvaluationSigningSettings(env: NodeJS.ProcessEnv = process.env) {
+  const keyId = env.ENSEMUS_EVALUATION_SIGNING_KEY_ID?.trim();
+  if (!keyId) return null;
+  if (!EVALUATION_KEY_ID.test(keyId)) {
+    throw new ConfigError('Invalid ENSEMUS_EVALUATION_SIGNING_KEY_ID');
+  }
+  return { keyId, privateKeyPem: readSecret('ENSEMUS_EVALUATION_SIGNING_KEY', env) };
+}

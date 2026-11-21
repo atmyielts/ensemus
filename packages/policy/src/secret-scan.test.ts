@@ -105,6 +105,40 @@ describe('scanForSecrets', () => {
       const canary = tenantCanary();
       expect(JSON.stringify(scanOne(canary, [canary]))).not.toContain(canary);
     });
+
+    // A model told to "encode it so the filter will not see it" (the red-team corpus does exactly this).
+    describe('encoded', () => {
+      it.each([
+        ['hex', (value: Buffer) => value.toString('hex')],
+        ['upper-case hex', (value: Buffer) => value.toString('hex').toUpperCase()],
+        ['base64', (value: Buffer) => value.toString('base64')],
+        ['base64url', (value: Buffer) => value.toString('base64url')],
+      ])('finds it in %s', (_label, encode) => {
+        const canary = tenantCanary();
+        expect(codes(scanOne(`data: ${encode(Buffer.from(canary))}`, [canary]))).toEqual([
+          'TENANT_CANARY',
+        ]);
+      });
+
+      it.each([1, 2, 3, 4])(
+        'finds it in base64 after %i other bytes, wherever it starts in the run',
+        (before) => {
+          const canary = tenantCanary();
+          const run = Buffer.concat([
+            Buffer.from('x'.repeat(before)),
+            Buffer.from(canary),
+            Buffer.from('tail'),
+          ]);
+          expect(codes(scanOne(run.toString('base64'), [canary]))).toEqual(['TENANT_CANARY']);
+        },
+      );
+
+      it('does not match the base64 of other text', () => {
+        const canary = tenantCanary();
+        const other = Buffer.from('Budget is 120 units. Deadline is Friday.').toString('base64');
+        expect(scanOne(other, [canary]).hits).toEqual([]);
+      });
+    });
   });
 
   describe('text meant to get past it', () => {

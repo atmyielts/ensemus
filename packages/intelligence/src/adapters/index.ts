@@ -17,6 +17,10 @@ import {
 } from '@ai-sdk/provider';
 import { isHostedProviderKind } from '@ensemus/domain/ai';
 import { EndpointRefused, EndpointUnreachable, ResponseTooLarge } from '../net/errors';
+import { azureModel } from './azure';
+import { bedrockModel } from './bedrock';
+import { geminiModel } from './gemini';
+import { ProviderCallRefused } from './refusal';
 import type {
   AdapterCall,
   AdapterFailure,
@@ -24,6 +28,7 @@ import type {
   AdapterTool,
   AdapterUsage,
   ContextMessage,
+  Malformation,
   ModelAdapter,
 } from '../types';
 
@@ -35,8 +40,45 @@ const failed = (
   usage: AdapterUsage = null,
 ): Failure => ({ kind: 'failure', failure, mayHaveBilled, usage });
 
-/** What the call did on the wire, which decides whether a provider could have billed for it. */
-export type WireState = { requested: boolean; status: number | null };
+/** An answer that arrived whole, whose shape alone was wrong. The code is all that is kept of it. */
+const misshapen = (malformation: Malformation, usage: AdapterUsage): Failure => ({
+  ...failed('malformed_response', true, usage),
+  malformation,
+});
+
+/**
+ * What the call did on the wire, which decides whether a provider could have billed for it, and what the
+ * provider asked for if it wants us to come back later.
+ */
+export type WireState = { requested: boolean; status: number | null; retryAfterMs?: number | null };
+
+/** A provider may ask for a longer wait than this, and is answered by the workflow's own cap instead. */
+export const RETRY_AFTER_CAP_MS = 60_000;
+
+/**
+ * Retry-After as milliseconds, capped. Takes the seconds form, the HTTP-date form, and the millisecond
+ * header some providers add. Anything unreadable is no hint at all, never zero, so a garbled header cannot
+ * make a run hammer a provider that is already struggling.
+ */
+export function retryAfterOf(headers: Headers, nowMs: number): number | null {
+  const ms = headers.get('retry-after-ms')?.trim();
+  if (ms && /^[0-9]{1,9}(\.[0-9]{1,6})?$/.test(ms)) {
+    return Math.min(RETRY_AFTER_CAP_MS, Math.ceil(Number(ms)));
+  }
+  const after = headers.get('retry-after')?.trim();
+  if (!after) return null;
+  if (/^[0-9]{1,9}$/.test(after)) return Math.min(RETRY_AFTER_CAP_MS, Number(after) * 1000);
+  const at = Date.parse(after);
+  if (!Number.isFinite(at)) return null;
+  return Math.min(RETRY_AFTER_CAP_MS, Math.max(0, at - nowMs));
+}
+
+/** Failures a later try can cure: the provider was busy, broken for a moment, or slow to answer. */
+const PASSING: ReadonlySet<AdapterFailure> = new Set<AdapterFailure>([
+  'rate_limited',
+  'server_error',
+  'timeout',
+]);
 
 /**
  * Every provider's package reads its own environment variables for a missing key or address, so a key is
@@ -44,6 +86,19 @@ export type WireState = { requested: boolean; status: number | null };
  * becomes a string here because a header can only be one: see the lifetime note in ../credentials.ts.
  */
 function modelFor(call: AdapterCall, fetchOnce: typeof fetch): LanguageModelV4 {
+  // Each of these reads its own key, and Bedrock's is JSON that only its own file parses.
+  switch (call.providerKind) {
+    case 'gemini_hosted':
+      return geminiModel(call, fetchOnce);
+    case 'azure_openai':
+      return azureModel(call, fetchOnce);
+    case 'bedrock_hosted':
+      return bedrockModel(call, fetchOnce);
+    case 'cohere_hosted':
+    case 'voyage_hosted':
+      // These speak only a native rerank, which the knowledge gateway sends through its own adapter.
+      throw new ProviderCallRefused();
+  }
   const apiKey = call.apiKey?.toString('utf8');
   const baseURL = call.endpointUrl;
   switch (call.providerKind) {
@@ -159,13 +214,22 @@ export function generationInputBytes(
     modelId?: string;
   },
 ): number {
-  return Buffer.byteLength(
-    JSON.stringify({
-      model: input.modelId ?? '',
-      ...callOptions(input, wireNames(input.tools).toWire, new AbortController().signal),
-    }),
-    'utf8',
-  );
+  return Buffer.byteLength(generationInputText(input), 'utf8');
+}
+
+/**
+ * The same serialization as text, for a tokenizer to count. Every word the provider will read is in it,
+ * along with JSON keys and escapes it will not bill, so a count of this is never short of the real one.
+ */
+export function generationInputText(
+  input: Pick<AdapterCall, 'messages' | 'tools' | 'responseSchema' | 'maxOutputTokens'> & {
+    modelId?: string;
+  },
+): string {
+  return JSON.stringify({
+    model: input.modelId ?? '',
+    ...callOptions(input, wireNames(input.tools).toWire, new AbortController().signal),
+  });
 }
 
 /** Full trusted SDK request identity. Keep separate from the historical message-only audit hash and
@@ -237,33 +301,36 @@ function resultOf(
   }
 
   const toolCalls = result.content.flatMap((part) => (part.type === 'tool-call' ? [part] : []));
-  if (toolCalls.length > 1) return failed('malformed_response', true, usage);
+  if (toolCalls.length > 1) return misshapen('multiple_tool_calls', usage);
   const toolCall = toolCalls[0];
   if (toolCall) {
+    // A tool the provider ran itself is not one we offered, and is never repaired: it already happened.
+    if (toolCall.providerExecuted) return failed('malformed_response', true, usage);
     // A name outside the list has no ID to report. The model's own text never becomes one, since a tool
     // ID is the kind of value that ends up in a log line or a label.
     const toolId = toId.get(toolCall.toolName);
-    if (!toolId || toolCall.providerExecuted) return failed('malformed_response', true, usage);
+    if (!toolId) return misshapen('unknown_tool', usage);
+    let args: unknown;
     try {
-      const args: unknown = JSON.parse(toolCall.input);
-      // Every tool takes an object. What is in it is the tool gateway's to check, and it trusts nothing.
-      if (typeof args !== 'object' || args === null || Array.isArray(args)) {
-        return failed('malformed_response', true, usage);
-      }
-      return { kind: 'tool_call', toolId, args, usage };
+      args = JSON.parse(toolCall.input);
     } catch {
-      return failed('malformed_response', true, usage);
+      return misshapen('tool_args_not_json', usage);
     }
+    // Every tool takes an object. What is in it is the tool gateway's to check, and it trusts nothing.
+    if (typeof args !== 'object' || args === null || Array.isArray(args)) {
+      return misshapen('tool_args_not_object', usage);
+    }
+    return { kind: 'tool_call', toolId, args, usage };
   }
 
   const text = result.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('');
-  if (!text) return failed('malformed_response', true, usage);
+  if (!text) return misshapen('empty_output', usage);
   if (call.responseSchema) {
     // Parsed here so a broken document is this adapter's failure. The gateway checks it meets the schema.
     try {
       JSON.parse(text);
     } catch {
-      return failed('malformed_response', true, usage);
+      return misshapen('output_not_json', usage);
     }
   }
   return { kind: 'final', text, usage };
@@ -282,10 +349,19 @@ function causes(error: unknown): unknown[] {
 /** Read to choose a code, and dropped. Provider wording changes, so a miss falls back to bad_request. */
 function saysContextTooLong(responseBody: string | undefined): boolean {
   if (!responseBody) return false;
-  return /context_length_exceeded|maximum context length|context window|prompt is too long|input is too long|too many (input )?tokens/i.test(
+  return /context_length_exceeded|maximum context length|context window|prompt is too long|input is too long|too many (input )?tokens|exceeds the maximum number of tokens/i.test(
     responseBody,
   );
 }
+
+/**
+ * Statuses where the provider turned the request away before running the model: bad shape, a refused key,
+ * no such model, too long, or a rate limit. None of the providers we call bills for those, so a retry after
+ * one does not charge the run an estimate each time. Anything else that came back as an error, and a 5xx
+ * above all, may have run, and is still charged as FD-12 says.
+ */
+const REFUSED_UNBILLED: ReadonlySet<number> = new Set([400, 401, 403, 404, 413, 422, 429]);
+const mayHaveBilledFor = (status: number) => !REFUSED_UNBILLED.has(status);
 
 function failureForStatus(status: number, responseBody: string | undefined): AdapterFailure {
   if (status === 401 || status === 403) return 'auth_failed';
@@ -335,7 +411,14 @@ export function failureOf(error: unknown, wire: WireState): Failure {
   if (status !== null && status >= 300) {
     const apiError = chain.find((item) => APICallError.isInstance(item));
     const body = APICallError.isInstance(apiError) ? apiError.responseBody : undefined;
-    return failed(failureForStatus(status, body), true);
+    const failure = failureForStatus(status, body);
+    const answered = failed(failure, mayHaveBilledFor(status));
+    // Only a passing outage keeps the provider's hint: a key that is refused stays refused however long
+    // anyone waits, so a wait there would only delay saying so.
+    // A caller with no reading of the header (an embedding or rerank call) adds no hint at all.
+    return PASSING.has(failure) && wire.retryAfterMs !== undefined
+      ? { ...answered, retryAfterMs: wire.retryAfterMs }
+      : answered;
   }
   if (status !== null) {
     // An answer had started. A broken connection is a partial answer, and anything else is one that
@@ -383,6 +466,7 @@ class Adapter implements ModelAdapter {
       wire.requested = true;
       const response = await call.fetch(input, init);
       wire.status = response.status;
+      if (response.status >= 400) wire.retryAfterMs = retryAfterOf(response.headers, Date.now());
       return response;
     };
 

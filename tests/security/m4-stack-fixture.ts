@@ -11,6 +11,7 @@ import { expect } from 'vitest';
 import { assuranceSpec } from '../../evaluations/agents/fixtures';
 import { evaluateScripted } from '../../evaluations/agents/harness';
 import { syntheticCases } from '../../evaluations/agents/fixtures';
+import { stackEvaluationSigner } from '../helpers/ai/evaluation';
 import { fakeModelRequests, scriptFakeModel } from '../conformance/fake-model';
 import { createOrganization, signUp } from '../helpers/forms';
 import { enrollAuthenticator, nativeStackContext } from '../helpers/native-mfa';
@@ -112,11 +113,13 @@ export async function startAiCanaryRun(
       spec,
       policyVersion: await getAgentPolicyVersion(app.db, context),
       cases: syntheticCases(),
+      // Signed as CI would sign it, with the key whose public half the test overlay gives web.
+      signer: stackEvaluationSigner(),
     });
     expect(report.report.passed).toBe(true);
     const root = `/api/v1/organizations/${organizationId}`;
     const published = await api(owner, 'POST', `${root}/agent-versions`, {
-      body: { spec, evaluation_report: report.report },
+      body: { spec, evaluation_report: report.attestation },
     });
     expect(published.status).toBe(201);
     const versionId = (published.json as { id: string }).id;

@@ -32,6 +32,8 @@ export type FakeRequest = {
   headers: Record<string, string | string[] | undefined>;
   raw: string;
   body: Record<string, unknown> | null;
+  /** For a signed Bedrock request, what the fake's SigV4 check found: `valid`, or why not. */
+  sigv4?: string;
 };
 
 export type FakeModel = {
@@ -43,6 +45,8 @@ export type FakeModel = {
   readonly hits: number;
   setScenario(scenario: FakeScenario): void;
   setRedirectTo(origin: string): void;
+  /** A signing key the fake's Bedrock route accepts until the next reset. */
+  trustAwsKey(accessKeyId: string, secretAccessKey: string): void;
   reset(): void;
   close(): Promise<void>;
 };

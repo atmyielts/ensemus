@@ -1,11 +1,19 @@
 // Scripted reports prove the runner, publication gate and controls. They do not measure model quality.
+// A report is signed only when a signer is given: in CI with the key from ENSEMUS_EVALUATION_SIGNING_KEY,
+// in tests with a key made in the test. Publishing takes a scripted report only for a sandbox agent.
 import { createHash } from 'node:crypto';
 import { agentSpecSha256 } from '../../packages/application/src/ai/agents';
 import {
+  signEvaluationReport,
+  type EvaluationSigner,
+} from '../../packages/application/src/ai/evaluation-attestation';
+import {
   agentSpecV1Schema,
-  evaluationReportSchema,
+  evaluationReportV2Schema,
   type AgentSpecV1,
-  type EvaluationReport,
+  type EvaluationCaseResult,
+  type EvaluationReportV2,
+  type SignedEvaluationReport,
 } from '../../packages/contracts/src/ai';
 import { canonicalJson } from '../../packages/domain/src/approval';
 import { usdToMicros } from '../../packages/domain/src/ai';
@@ -59,6 +67,8 @@ export type CaseResult = {
   adapter_calls: number;
   credential_leases: number;
   cost_micros: number;
+  latency_ms: number;
+  model: EvaluationCaseResult['model'];
 };
 
 export type EvaluationArtifact = {
@@ -66,8 +76,10 @@ export type EvaluationArtifact = {
   limitation: typeof LIMITATION;
   experiment: ExperimentIdentity;
   experiment_sha256: string;
-  report: EvaluationReport;
+  report: EvaluationReportV2;
   report_sha256: string;
+  /** The report under an evaluator's signature, which is what publishing takes. Null when unsigned. */
+  attestation: SignedEvaluationReport | null;
   results: CaseResult[];
   gate: { passed: boolean; reasons: string[]; baseline_report_sha256: string | null };
 };
@@ -111,7 +123,12 @@ export async function evaluateScripted(input: {
   cases: readonly EvaluationCase[];
   baseline?: EvaluationArtifact;
   budgetMicros?: number;
+  signer?: EvaluationSigner;
+  /** Milliseconds, for latency. A test passes its own so two runs can be compared exactly. */
+  clock?: () => number;
+  issuedAt?: Date;
 }): Promise<EvaluationArtifact> {
+  const clock = input.clock ?? (() => performance.now());
   const spec = agentSpecV1Schema.parse(input.spec);
   if (spec.evaluation.suite_ref !== SUITE_REF) throw new Error('EVAL_SUITE_MISMATCH');
   if (input.cases.length === 0) throw new Error('EVAL_EMPTY_SUITE');
@@ -153,7 +170,16 @@ export async function evaluateScripted(input: {
       task: task({ classification: fixture.classification }),
       responseSchema: briefSchema,
     });
+    const started = clock();
     const output = await world.run(turn);
+    const latencyMs = Math.max(0, Math.round(clock() - started));
+    // Cost is what the ledger settled, priced by the profile's rate card, and never a figure of our own.
+    const costMicros = world.ledger.entries.reduce((sum, entry) => sum + entry.costMicros, 0);
+    const profile = output.profile
+      ? [...world.profiles.byOrg.values()]
+          .flat()
+          .find((item) => item.id === output.profile?.id && item.version === output.profile.version)
+      : undefined;
     const checks = {
       expected_outcome: output.outcome === fixture.expectedOutcome,
       exact_summary: summaryMatches(output.text, fixture),
@@ -172,7 +198,16 @@ export async function evaluateScripted(input: {
       decision_code: output.decisionCode,
       adapter_calls: world.adapter.hits,
       credential_leases: world.credentials.asked.length,
-      cost_micros: output.usage.costMicros,
+      cost_micros: costMicros,
+      latency_ms: latencyMs,
+      model: profile
+        ? {
+            profile_id: profile.id,
+            profile_version: profile.version,
+            provider_kind: profile.providerKind,
+            model_id: profile.modelId,
+          }
+        : null,
     });
   }
   const passRate = results.filter((item) => item.passed).length / results.length;
@@ -199,8 +234,8 @@ export async function evaluateScripted(input: {
     }
   }
   const experimentSha256 = hash(experiment);
-  const report = evaluationReportSchema.parse({
-    report_version: 1,
+  const report = evaluationReportV2Schema.parse({
+    report_version: 2,
     spec_sha256: agentSpecSha256(spec),
     policy_version: input.policyVersion,
     suite_ref: spec.evaluation.suite_ref,
@@ -212,6 +247,17 @@ export async function evaluateScripted(input: {
     cases: results.length,
     passed: reasons.length === 0,
     scripted_model: true,
+    issued_at: (input.issuedAt ?? new Date()).toISOString(),
+    cost_micros: results.reduce((sum, item) => sum + item.cost_micros, 0),
+    latency_ms: results.reduce((sum, item) => sum + item.latency_ms, 0),
+    case_results: results.map((item) => ({
+      id: item.id,
+      critical: item.critical,
+      passed: item.passed,
+      cost_micros: item.cost_micros,
+      latency_ms: item.latency_ms,
+      model: item.model,
+    })),
   });
   return {
     artifact_version: 1,
@@ -220,6 +266,7 @@ export async function evaluateScripted(input: {
     experiment_sha256: experimentSha256,
     report,
     report_sha256: hash(report),
+    attestation: input.signer ? signEvaluationReport(report, input.signer) : null,
     results,
     gate: {
       passed: report.passed,

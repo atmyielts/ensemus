@@ -12,6 +12,13 @@ export {
   type EmbeddingAdapterResult,
 } from './embedding-adapter';
 export {
+  createRerankAdapter,
+  rankedOrder,
+  type RerankAdapter,
+  type RerankAdapterCall,
+  type RerankAdapterResult,
+} from './rerank-adapter';
+export {
   createKnowledgeModelGateway,
   type KnowledgeModelGatewayDeps,
 } from './knowledge-model-gateway';

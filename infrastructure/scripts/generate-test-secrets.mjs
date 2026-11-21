@@ -128,4 +128,29 @@ writeFileSync(
   }),
   { mode: 0o644 },
 );
+// An evaluation signing key for the test stack (AGENT-16). compose.test.yaml mounts only its public half,
+// as ENSEMUS_EVALUATION_PUBLIC_KEYS_FILE, into web and web-2. The private half stays here, outside every
+// container, for the stack tests to sign scripted evaluation reports with, as CI would with its own key.
+const evaluationTest = join(root, '.local', 'evaluation-test');
+mkdirSync(evaluationTest, { recursive: true });
+const EVALUATION_KEY_ID = 'stack-test-evaluator';
+const evaluationKeyFile = join(evaluationTest, 'signing-key.pem');
+if (!existsSync(evaluationKeyFile)) {
+  const { privateKey } = generateKeyPairSync('ed25519');
+  writeFileSync(evaluationKeyFile, privateKey.export({ type: 'pkcs8', format: 'pem' }), {
+    mode: 0o600,
+  });
+}
+writeFileSync(join(evaluationTest, 'signing-key.id'), `${EVALUATION_KEY_ID}\n`, { mode: 0o644 });
+// Worked out from the private key every time, so web can never trust a key that is not there.
+const evaluationPublicKey = createPublicKey(
+  createPrivateKey(readFileSync(evaluationKeyFile)),
+).export({
+  format: 'jwk',
+}).x;
+writeFileSync(
+  join(evaluationTest, 'public-keys'),
+  `${EVALUATION_KEY_ID}:${evaluationPublicKey}\n`,
+  { mode: 0o644 },
+);
 console.log(`Test secrets ready in ${dir}`);

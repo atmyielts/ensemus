@@ -35,6 +35,8 @@ export const assuranceSpec = agentSpecV1Schema.parse({
   },
   output: { schema_ref: 'synthetic/work-brief-v1', verification: ['schema_check', 'citations'] },
   evaluation: { suite_ref: SUITE_REF, min_pass_rate: 0.5 },
+  // Its only evaluation is scripted, so it is published as a sandbox agent: it reads and drafts, no more.
+  sandbox: true,
 });
 
 export type Citation = { source_id: string; sha256: string };

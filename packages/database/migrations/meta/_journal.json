@@ -876,6 +876,13 @@
       "when": 1794201807526,
       "tag": "0712_knowledge_domain_grants",
       "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "7",
+      "when": 1794201807527,
+      "tag": "0720_ai_provider_kinds",
+      "breakpoints": true
     }
   ]
 }

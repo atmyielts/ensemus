@@ -14,6 +14,11 @@ export const providerKindSchema = z.enum([
   'anthropic_hosted',
   'openai_compatible',
   'local_openai_compatible',
+  'gemini_hosted',
+  'azure_openai',
+  'bedrock_hosted',
+  'cohere_hosted',
+  'voyage_hosted',
 ]);
 export const modelProfileStatusSchema = z.enum([
   'draft',
@@ -146,10 +151,19 @@ export const agentSpecV1Schema = z.strictObject({
     suite_ref: z.string(),
     min_pass_rate: z.number().min(0).max(1),
   }),
+  /**
+   * A sandbox agent may be published on a scripted evaluation, which proves the gates and not a model.
+   * In exchange, publish lint holds it to tools that reach nothing outside Ensemus and to no delegation.
+   * Only `true` can be written, so absent and "not a sandbox" are one spec with one hash.
+   */
+  sandbox: z.literal(true).optional(),
 });
 export type AgentSpecV1 = z.infer<typeof agentSpecV1Schema>;
 
-/** What an evaluation run produced. Its hash goes on the version, so a report cannot be reused. */
+/**
+ * The first report format, which the server had to take on trust. Publishing no longer accepts it: it
+ * stays only so Studio's port type keeps compiling until Studio has evidence of its own to present.
+ */
 export const evaluationReportSchema = z.strictObject({
   report_version: z.literal(1),
   spec_sha256: sha256,
@@ -165,9 +179,69 @@ export const evaluationReportSchema = z.strictObject({
 });
 export type EvaluationReport = z.infer<typeof evaluationReportSchema>;
 
+/** The model a case reached, as the usage ledger recorded it. Null when the case was refused first. */
+export const evaluationModelSchema = z.strictObject({
+  profile_id: z.string().min(1).max(200),
+  profile_version: z.int().min(1),
+  provider_kind: z.string().min(1).max(64),
+  model_id: z.string().min(1).max(200),
+});
+
+export const evaluationCaseResultSchema = z.strictObject({
+  id: z.string().min(1).max(200),
+  critical: z.boolean(),
+  passed: z.boolean(),
+  /** What the ledger settled for this case, priced by the profile's rate card. Never an invented price. */
+  cost_micros: micros,
+  latency_ms: z.int().min(0).max(Number.MAX_SAFE_INTEGER),
+  model: evaluationModelSchema.nullable(),
+});
+export type EvaluationCaseResult = z.infer<typeof evaluationCaseResultSchema>;
+
+/** More cases than any suite here has. A bound keeps a signed report a page and not a dump. */
+export const MAX_EVALUATION_CASES = 1000;
+
+/**
+ * What an evaluation run produced, version 2. Every total is restated per case, so the server can check
+ * that a report agrees with itself, and `issued_at` lets it refuse one that is too old to trust.
+ */
+export const evaluationReportV2Schema = z.strictObject({
+  report_version: z.literal(2),
+  spec_sha256: sha256,
+  policy_version: z.string().min(1),
+  suite_ref: z.string().min(1),
+  dataset_version: z.string().min(1),
+  model_label: z.string().min(1),
+  pass_rate: z.number().min(0).max(1),
+  cases: z.int().min(1).max(MAX_EVALUATION_CASES),
+  passed: z.boolean(),
+  /** Says plainly when a report came from a scripted model and proves the gates, not model quality. */
+  scripted_model: z.boolean(),
+  issued_at: z.iso.datetime({ offset: true }),
+  cost_micros: micros,
+  latency_ms: z.int().min(0).max(Number.MAX_SAFE_INTEGER),
+  case_results: z.array(evaluationCaseResultSchema).min(1).max(MAX_EVALUATION_CASES),
+});
+export type EvaluationReportV2 = z.infer<typeof evaluationReportV2Schema>;
+
+/**
+ * A report and an Ed25519 signature over it, made by the evaluation harness with a key only CI and the
+ * agent worker hold. The web tier holds only public keys, so it can check a report and never make one.
+ */
+export const signedEvaluationReportSchema = z.strictObject({
+  report: evaluationReportV2Schema,
+  signature: z.strictObject({
+    algorithm: z.literal('ed25519'),
+    key_id: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/),
+    /** 64 bytes, base64url without padding. */
+    value: z.string().regex(/^[A-Za-z0-9_-]{86}$/),
+  }),
+});
+export type SignedEvaluationReport = z.infer<typeof signedEvaluationReportSchema>;
+
 export const publishAgentVersionSchema = z.strictObject({
   spec: agentSpecV1Schema,
-  evaluation_report: evaluationReportSchema,
+  evaluation_report: signedEvaluationReportSchema,
 });
 
 export const agentVersionViewSchema = z.strictObject({

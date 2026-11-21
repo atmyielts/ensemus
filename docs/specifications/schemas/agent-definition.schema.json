@@ -65,6 +65,7 @@
         "suite_ref": {"type": "string"},
         "min_pass_rate": {"type": "number", "minimum": 0, "maximum": 1}
       }
-    }
+    },
+    "sandbox": {"const": true, "description": "A sandbox agent may publish on a scripted evaluation. Publish lint then allows it only tools that read or draft inside Ensemus, and no delegation (AGENT-16)."}
   }
 }

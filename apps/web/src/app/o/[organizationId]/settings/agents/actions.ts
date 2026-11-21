@@ -13,10 +13,12 @@ import {
 } from '@ensemus/application';
 import {
   AgentSpecRefused,
+  evaluationTrust,
   getAgentPolicyVersion,
   isPublishGateRefusal,
   publishAgentVersion,
 } from '@ensemus/application/ai-agents';
+import { loadEvaluationTrustSettings } from '@ensemus/config';
 import type { AppDatabase, TenantContext } from '@ensemus/database';
 import { errorCode } from '@ensemus/telemetry';
 import { revalidatePath } from 'next/cache';
@@ -66,6 +68,7 @@ export async function publishAgentVersionAction(
       spec: pasted(values.manifest),
       evaluationReport: pasted(values.report),
       policyVersion: await getAgentPolicyVersion(database, context),
+      evaluationTrust: evaluationTrust(loadEvaluationTrustSettings()),
     });
     revalidatePath(`/o/${org}/settings/agents`);
     return { published: { versionNumber: version.version_number } };

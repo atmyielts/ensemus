@@ -23,6 +23,50 @@ const HOSTED_HOSTS: Partial<Record<ProviderKind, readonly string[]>> = {
 const HOSTED_PATH = '/v1';
 
 /**
+ * Kinds whose host is the provider's own, with one fixed path each. Gemini's function calling and
+ * response schemas are on v1beta. Cohere's rerank is v2 and Voyage's v1.
+ */
+const FIXED_HOSTS: Partial<Record<ProviderKind, { host: string; path: string }>> = {
+  gemini_hosted: { host: 'generativelanguage.googleapis.com', path: '/v1beta' },
+  cohere_hosted: { host: 'api.cohere.com', path: '/v2' },
+  voyage_hosted: { host: 'api.voyageai.com', path: '/v1' },
+};
+
+/**
+ * An Azure OpenAI resource is one DNS label under Microsoft's two hosts for it, and the path is the fixed
+ * `/openai`, below which the adapter adds the deployment and an api-version from its own list. AI Foundry
+ * project hosts (`services.ai.azure.com`) and sovereign clouds are not included: their paths differ.
+ */
+const AZURE_HOST =
+  /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\.(?:openai|cognitiveservices)\.azure\.com$/;
+const AZURE_PATH = '/openai';
+
+/**
+ * Bedrock's runtime host in a commercial or GovCloud region, or its FIPS variant. The region is a strict
+ * pattern rather than a list, so a new region needs no release, and a name that is not a region of AWS's
+ * own partition (China's hosts are elsewhere) cannot match. The SigV4 signature names the same region.
+ */
+const BEDROCK_HOST =
+  /^bedrock-runtime(?:-fips)?\.([a-z]{2}(?:-gov)?-(?:central|(?:north|south)?(?:east|west)|north|south)-[1-9])\.amazonaws\.com$/;
+
+/** The region of a Bedrock runtime host, which the adapter signs for. Null for any other address. */
+export function bedrockRegionOf(endpointUrl: string): string | null {
+  try {
+    return BEDROCK_HOST.exec(new URL(endpointUrl).hostname)?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * For the kinds added with fixed rules, the text itself has to be the one way of writing the address:
+ * lowercase, no port even when it is 443, and no percent-encoding. A provider package joins strings to
+ * build its URL, so a second spelling is a second meaning to check.
+ */
+const isCanonical = (endpointUrl: string, host: string, path: string) =>
+  endpointUrl.replace(/\/$/, '') === `https://${host}${path}`;
+
+/**
  * Names that only mean something inside a network. The guard would refuse their DNS answer anyway, and
  * refusing them here tells a person at the form rather than a worker at the first call.
  */
@@ -269,6 +313,20 @@ export function checkEndpoint(
       if (url.protocol !== 'https:' || port !== 443 || !hosts.includes(host)) return REFUSED;
       return url.pathname.replace(/\/$/, '') === HOSTED_PATH ? accepted(false) : REFUSED;
     }
+    case 'gemini_hosted':
+    case 'cohere_hosted':
+    case 'voyage_hosted': {
+      const fixed = FIXED_HOSTS[kind];
+      if (!fixed || url.protocol !== 'https:' || port !== 443 || host !== fixed.host)
+        return REFUSED;
+      return isCanonical(endpointUrl, fixed.host, fixed.path) ? accepted(false) : REFUSED;
+    }
+    case 'azure_openai':
+      if (url.protocol !== 'https:' || port !== 443 || !AZURE_HOST.test(host)) return REFUSED;
+      return isCanonical(endpointUrl, host, AZURE_PATH) ? accepted(false) : REFUSED;
+    case 'bedrock_hosted':
+      if (url.protocol !== 'https:' || port !== 443 || !BEDROCK_HOST.test(host)) return REFUSED;
+      return isCanonical(endpointUrl, host, '') ? accepted(false) : REFUSED;
     case 'openai_compatible': {
       if (onOperatorList(url, settings)) return accepted(true);
       if (url.protocol !== 'https:') return REFUSED;
