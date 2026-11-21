@@ -121,7 +121,17 @@ export type ErrorCode =
   | 'OAUTH_CLIENT_NOT_CONFIGURED'
   | 'OAUTH_CAPABILITY_UNAVAILABLE'
   | 'MEMBER_CAPABILITY_NOT_ALLOWED'
-  | 'DIRECTORY_TEAM_READ_ONLY';
+  | 'DIRECTORY_TEAM_READ_ONLY'
+  | 'RECORD_VERSION_STALE'
+  | 'CONNECTION_SCOPE_MISSING'
+  | 'MEETINGS_NOT_ENABLED'
+  | 'CONSENT_INCOMPLETE'
+  | 'CONSENT_NOT_YOURS'
+  | 'CONSENT_NOTICE_NOT_CURRENT'
+  | 'PROVIDER_NOT_APPROVED'
+  | 'MEETING_PURGED'
+  | 'MEETING_PARTICIPANTS_FROZEN'
+  | 'PROPOSAL_ALREADY_DECIDED';
 
 const MESSAGES: Record<ErrorCode, string> = {
   IDEMPOTENCY_KEY_REUSED: 'This request key was already used with different details.',
@@ -269,6 +279,16 @@ const MESSAGES: Record<ErrorCode, string> = {
     'Your organization does not let members connect that kind of access, so nothing was connected. Ask an administrator to allow it.',
   DIRECTORY_TEAM_READ_ONLY:
     'This team comes from your directory, so it changes only there. Change the group at the provider.',
+  RECORD_VERSION_STALE: 'This record changed at its source. Reload to see the latest version.',
+  CONNECTION_SCOPE_MISSING: 'This connection was not given permission to change records.',
+  MEETINGS_NOT_ENABLED: 'Meetings are not turned on for this organization.',
+  CONSENT_INCOMPLETE: 'Everyone listed has to agree before this can go ahead.',
+  CONSENT_NOT_YOURS: 'Only that person can record this, or the organizer for someone outside.',
+  CONSENT_NOTICE_NOT_CURRENT: 'The notice changed. Read the current one and answer again.',
+  PROVIDER_NOT_APPROVED: 'An administrator has not approved this provider for this use.',
+  MEETING_PURGED: 'This meeting was removed when someone withdrew their consent.',
+  MEETING_PARTICIPANTS_FROZEN: 'Notes exist, so who was there can no longer change.',
+  PROPOSAL_ALREADY_DECIDED: 'Someone has already decided this.',
 };
 
 export class AppError extends Error {
@@ -410,6 +430,16 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   OAUTH_CAPABILITY_UNAVAILABLE: 400,
   MEMBER_CAPABILITY_NOT_ALLOWED: 403,
   DIRECTORY_TEAM_READ_ONLY: 409,
+  RECORD_VERSION_STALE: 409,
+  CONNECTION_SCOPE_MISSING: 409,
+  MEETINGS_NOT_ENABLED: 409,
+  CONSENT_INCOMPLETE: 409,
+  CONSENT_NOT_YOURS: 403,
+  CONSENT_NOTICE_NOT_CURRENT: 409,
+  PROVIDER_NOT_APPROVED: 409,
+  MEETING_PURGED: 409,
+  MEETING_PARTICIPANTS_FROZEN: 409,
+  PROPOSAL_ALREADY_DECIDED: 409,
 };
 
 /**

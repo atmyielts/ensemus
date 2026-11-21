@@ -79,7 +79,7 @@ const authDatabase = {
   message: 'Only @ensemus/auth may use the auth database role.',
 };
 const connectorCode = {
-  regex: '^@ensemus/connectors(/(?!(manifest|knowledge-manifests)$).*)?$',
+  regex: '^@ensemus/connectors(/(?!(manifest|knowledge-manifests|manifest-business)$).*)?$',
   message:
     'Connectors run in the connector worker. The web tier may read manifests only (ADR-027).',
 };
@@ -133,6 +133,7 @@ const sovereignReach = {
 const testDoubles = {
   group: [
     '@ensemus/connectors/testing',
+    '@ensemus/department-packs/testing',
     '@ensemus/intelligence/testing',
     '@ensemus/knowledge/testing',
     '@ensemus/sovereign/testing',
@@ -505,6 +506,16 @@ export default tseslint.config(
     ['packages/connectors/src/runtime/network.ts', 'packages/connectors/src/testing/**'],
     [connectorReach, vendorIssuer],
   ),
+  restrict(['packages/department-packs/**/*.ts'], [packReach]),
+  {
+    files: ['packages/department-packs/**/*.ts'],
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        { name: 'fetch', message: 'A department pack is plain data, and reaches nothing.' },
+      ],
+    },
+  },
   {
     files: ['packages/connectors/**/*.ts'],
     rules: {

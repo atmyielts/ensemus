@@ -180,3 +180,6 @@ export { paymentEventWorkflow, paymentWorkflow } from './payment-workflow';
 export { checkoutWorkflow } from './checkout-workflow';
 export { retentionSweepWorkflow } from './retention-workflow';
 export { tenantOffboardingWorkflow } from './offboarding-workflow';
+// M11A (ADR-033). Each in its own file, for the same reason.
+export { meetingDerivationWorkflow } from './meeting-derivation-workflow';
+export { meetingImportWorkflow } from './meeting-import-workflow';

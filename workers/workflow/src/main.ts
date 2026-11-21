@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { createOnboardingAgentRuns } from '@ensemus/application/knowledge/onboarding-run-port';
 import { loadSaasConfig, readSecret } from '@ensemus/config';
 import { loadSovereignConfig } from '@ensemus/config/sovereign';
+import { denyAllMeetingEgress, noMeetingModel } from '@ensemus/application';
 import { openAppDatabase } from '@ensemus/database';
 import { assertLoginRole } from '@ensemus/database/service';
 import { S3ObjectStore } from '@ensemus/storage';
@@ -24,6 +25,8 @@ import { createPortabilityActivities } from '@ensemus/workflows/portability-acti
 import { createOffboardingActivities } from '@ensemus/workflows/offboarding-activities';
 import { createPaymentPlatformActivities } from '@ensemus/workflows/payment-activities';
 import { createRetentionActivities } from '@ensemus/workflows/retention-activities';
+import { createMeetingDerivationActivities } from '@ensemus/workflows/meeting-derivation-activities';
+import { createMeetingImportPlatformActivities } from '@ensemus/workflows/meeting-import-activities';
 import { createTemporalLogger } from '@ensemus/workflows/safe-logger';
 import { workflowIdFor } from '@ensemus/workflows/schemas';
 import { Client, Connection, WorkflowNotFoundError } from '@temporalio/client';
@@ -148,6 +151,14 @@ async function main() {
       ),
       ...createRetentionActivities({ database: db, sources: ports.retentionSources }),
       ...createOffboardingActivities({ database: db, ports: ports.offboarding }),
+      // M4 plugs its model gateway and egress gate in here at the final merge. Until then a run ends
+      // MODEL_UNAVAILABLE and says so, and no meeting content can leave (ADR-033 D6).
+      ...createMeetingDerivationActivities({
+        database: db,
+        model: noMeetingModel,
+        egress: denyAllMeetingEgress,
+      }),
+      ...createMeetingImportPlatformActivities({ database: db }),
     },
     dataConverter: {
       payloadCodecs: [new AesGcmPayloadCodec(readSecret('TEMPORAL_CODEC_KEY'))],

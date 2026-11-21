@@ -134,3 +134,24 @@ export type OrganizationExportResult = {
 
 /** Parses the IDs back out of a workflow ID. The dispatcher builds these, so the format is ours. */
 export const UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+
+// --- M11A (ADR-033). The same rule: IDs, enums and counters, with no note, title, field or model text.
+
+export const meetingDerivationInputSchema = z.strictObject({
+  organizationId: z.uuid(),
+  derivationRunId: z.uuid(),
+});
+export type MeetingDerivationInput = z.infer<typeof meetingDerivationInputSchema>;
+export const meetingDerivationWorkflowIdFor = (input: MeetingDerivationInput) =>
+  `meeting-derivation-${input.organizationId}-${input.derivationRunId}`;
+/** `dropped` means consent went while the model was thinking, and nothing of its answer was kept. */
+export type MeetingDerivationOutcome = 'completed' | 'failed' | 'refused' | 'dropped';
+
+export const meetingImportInputSchema = z.strictObject({
+  organizationId: z.uuid(),
+  importRequestId: z.uuid(),
+});
+export type MeetingImportInput = z.infer<typeof meetingImportInputSchema>;
+export const meetingImportWorkflowIdFor = (input: MeetingImportInput) =>
+  `meeting-import-${input.organizationId}-${input.importRequestId}`;
+export type MeetingImportOutcome = 'completed' | 'failed' | 'refused';

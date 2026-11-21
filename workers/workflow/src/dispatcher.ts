@@ -53,6 +53,12 @@ import {
   AGGREGATE_ORGANIZATION_EXPORT,
   ORGANIZATION_EXPORT_REQUESTED,
 } from '@ensemus/domain/sovereign-events';
+import {
+  AGGREGATE_MEETING_DERIVATION,
+  AGGREGATE_MEETING_IMPORT,
+  MEETING_DERIVATION_REQUESTED,
+  MEETING_IMPORT_REQUESTED,
+} from '@ensemus/domain/expansion-events';
 import { TOMBSTONE_RECORDED } from '@ensemus/domain/tombstone-ledger';
 import {
   AGGREGATE_OAUTH_AUTHORIZATION,
@@ -127,6 +133,10 @@ import {
   oauthExchangeWorkflowIdFor,
   organizationExportInputSchema,
   organizationExportWorkflowIdFor,
+  meetingDerivationInputSchema,
+  meetingDerivationWorkflowIdFor,
+  meetingImportInputSchema,
+  meetingImportWorkflowIdFor,
   reminderScheduleIdFor,
   suiteUpkeepScheduleIdFor,
   suiteUpkeepWorkflowIdFor,
@@ -718,6 +728,29 @@ async function main() {
 
       case TENANT_SCHEDULES_ENDED:
         await endTenantSchedules(event.organizationId);
+        return;
+
+      // A person asked for one run, and one run happens, whatever the outbox delivers again (ADR-033 D6).
+      case MEETING_DERIVATION_REQUESTED:
+        if (event.aggregateType !== AGGREGATE_MEETING_DERIVATION) return;
+        await startOnce('meetingDerivationWorkflow', {
+          input: meetingDerivationInputSchema.parse({
+            organizationId: event.organizationId,
+            derivationRunId: event.aggregateId,
+          }),
+          workflowIdFor: meetingDerivationWorkflowIdFor,
+        });
+        return;
+
+      case MEETING_IMPORT_REQUESTED:
+        if (event.aggregateType !== AGGREGATE_MEETING_IMPORT) return;
+        await startOnce('meetingImportWorkflow', {
+          input: meetingImportInputSchema.parse({
+            organizationId: event.organizationId,
+            importRequestId: event.aggregateId,
+          }),
+          workflowIdFor: meetingImportWorkflowIdFor,
+        });
         return;
 
       default:

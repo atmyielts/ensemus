@@ -331,6 +331,17 @@ const MESSAGE_FOR = new Map<string, string>([
     'DIRECTORY_TEAM_READ_ONLY',
     'This team comes from your directory, so it changes only there. Change the group at the provider.',
   ],
+  ['RESTRICTED_NOT_ALLOWED', 'Restricted work cannot be sent outside this deployment.'],
+  ['RECORD_VERSION_STALE', 'This record changed at its source. Check the latest version first.'],
+  ['CONNECTION_SCOPE_MISSING', 'This connection was not given permission to change records.'],
+  ['MEETINGS_NOT_ENABLED', 'Meetings are not turned on for this organization.'],
+  ['CONSENT_INCOMPLETE', 'Everyone listed has to agree before this can go ahead.'],
+  ['CONSENT_NOT_YOURS', 'Only that person can record this, or the organizer for someone outside.'],
+  ['CONSENT_NOTICE_NOT_CURRENT', 'The notice changed. Read the current one and answer again.'],
+  ['PROVIDER_NOT_APPROVED', 'An administrator has not approved this provider for this use.'],
+  ['MEETING_PURGED', 'This meeting was removed when someone withdrew their consent.'],
+  ['MEETING_PARTICIPANTS_FROZEN', 'Notes exist, so who was there can no longer change.'],
+  ['PROPOSAL_ALREADY_DECIDED', 'Someone has already decided this.'],
   ['UNEXPECTED', 'Something went wrong on our side. Please try again.'],
 ]);
 

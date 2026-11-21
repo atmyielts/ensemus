@@ -47,7 +47,9 @@
     "./payment-activities": "./src/payment-activities.ts",
     "./checkout-activities": "./src/checkout-activities.ts",
     "./retention-activities": "./src/retention-activities.ts",
-    "./offboarding-activities": "./src/offboarding-activities.ts"
+    "./offboarding-activities": "./src/offboarding-activities.ts",
+    "./meeting-derivation-activities": "./src/meeting-derivation-activities.ts",
+    "./meeting-import-activities": "./src/meeting-import-activities.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

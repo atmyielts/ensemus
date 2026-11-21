@@ -13,6 +13,7 @@ import {
   purgeDueBlobs,
   purgeExpiredExports,
   purgeExpiredWebhookDeliveries,
+  purgeRevokedBusinessRecords,
   recordApprovalClosed,
   reissueStaleRunRequests,
   REVIEW_HOURS,
@@ -285,6 +286,7 @@ export function createActivities(deps: {
       if (blobs.failed > 0) log.warn('blobs.purge_failed', { count: blobs.failed });
       await attempt(() => purgeExpiredWebhookDeliveries(database, ctx, now), 0);
       await attempt(() => purgeExpiredExports(database, store, ctx, now), 0);
+      await attempt(() => purgeRevokedBusinessRecords(database, ctx), 0);
       if (failures.length > 0) throw failures[0];
       return reminders;
     },

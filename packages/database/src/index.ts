@@ -71,3 +71,4 @@ export * from './schema-client-access';
 export * from './schema-sovereign';
 export * from './schema-saas';
 export * from './schema-mail';
+export * from './schema-expansion';

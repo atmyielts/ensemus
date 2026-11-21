@@ -28,6 +28,7 @@ export default defineConfig({
     './src/schema-sovereign.ts',
     './src/schema-saas.ts',
     './src/schema-mail.ts',
+    './src/schema-expansion.ts',
   ],
   out: './migrations',
   casing: 'snake_case',

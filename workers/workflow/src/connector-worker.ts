@@ -49,6 +49,8 @@ import {
   connectorActivitySlots,
   connectorDatabasePool,
 } from './worker-limits';
+import { createMeetingImportConnectorActivities } from '@ensemus/workflows/meeting-import-activities';
+import { businessConnectorsFrom } from './business-connectors';
 
 const log = createLogger('connector-worker');
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -103,6 +105,7 @@ async function main() {
       createGoogleWorkspaceConnector(suiteDeps),
       createMicrosoft365Connector(suiteDeps),
       ...checkout.connectors,
+      ...businessConnectorsFrom(process.env, app.db),
     ]),
     secrets,
     network: connectorNetwork(),
@@ -172,6 +175,7 @@ async function main() {
         attestLookup: checkoutAttesters.lookup,
         agents,
       }),
+      ...createMeetingImportConnectorActivities(deps),
     },
     dataConverter: {
       payloadCodecs: [new AesGcmPayloadCodec(readSecret('TEMPORAL_CODEC_KEY'))],

@@ -40,7 +40,11 @@
     "./workspace-suites": "./src/workspace-suites.ts",
     "./mail": "./src/mail.ts",
     "./mail-templates": "./src/mail-templates.ts",
-    "./notification-copy": "./src/notification-copy.ts"
+    "./notification-copy": "./src/notification-copy.ts",
+    "./business-connector": "./src/business-connector.ts",
+    "./meeting": "./src/meeting.ts",
+    "./department-pack": "./src/department-pack.ts",
+    "./expansion-events": "./src/expansion-events.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
