@@ -46,13 +46,15 @@ const loadsTelemetryTracing = anyLoad(TELEMETRY_TRACING);
 
 /** A load that runs when the file does. `import type` is erased, so it loads nothing. */
 const STATIC_SDK_LOAD =
-  /(?:^|\n)\s*(?:(?:import|export)\s+(?!type\b)[^'";]*?from\s*|import\s*)['"][^'"]*tracing-sdk['"]/;
-const REQUIRED_SDK_LOAD = /\brequire\s*\(\s*['"][^'"]*tracing-sdk['"]/;
+  /(?:^|\n)\s*(?:(?:import|export)\s+(?!type\b)[^'";]*?from\s*|import\s*)['"][^'"]*(?:tracing-sdk|telemetry\/otel|telemetry\/src\/otel|\.\/otel)['"]/;
+const REQUIRED_SDK_LOAD =
+  /\brequire\s*\(\s*['"][^'"]*(?:tracing-sdk|telemetry\/otel|telemetry\/src\/otel|\.\/otel)['"]/;
 const loadsSdkStatically = (source: string) =>
   STATIC_SDK_LOAD.test(source) || REQUIRED_SDK_LOAD.test(source);
 
 /** Anything that would mean a process that must stay dark had been wired up. */
-const NAMES_TRACING = /tracing|withSpan|opentelemetry|ENSEMUS_OTEL/i;
+const NAMES_TRACING =
+  /tracing|withSpan|opentelemetry|ENSEMUS_OTEL|loadTelemetryConfig|startTelemetry|telemetry\/otel/i;
 
 describe('these checks can fail', () => {
   it('sees each way of loading OpenTelemetry', () => {
@@ -106,7 +108,7 @@ describe('these checks can fail', () => {
     for (const line of [
       "import { withSpan } from '@ensemus/telemetry/tracing';",
       "import { activityTracing } from './activity-tracing';",
-      'loadTracingConfig();',
+      'loadTelemetryConfig();',
       'process.env.ENSEMUS_OTEL_ENDPOINT;',
     ]) {
       expect(NAMES_TRACING.test(line), line).toBe(true);
@@ -170,11 +172,11 @@ describe('a default install does not load the SDK', () => {
   ])('%s asks for the SDK only when tracing is on', (file, service) => {
     const source = read(file);
     const on = source.indexOf('.enabled');
-    const sdk = source.indexOf("import('@ensemus/telemetry/tracing-sdk')");
-    expect(source.indexOf('loadTracingConfig()')).toBeGreaterThan(-1);
-    expect(on).toBeGreaterThan(source.indexOf('loadTracingConfig()'));
+    const sdk = source.indexOf("import('@ensemus/telemetry/otel')");
+    expect(source.indexOf('loadTelemetryConfig()')).toBeGreaterThan(-1);
+    expect(on).toBeGreaterThan(source.indexOf('loadTelemetryConfig()'));
     expect(sdk).toBeGreaterThan(on);
-    expect(source.slice(sdk)).toContain(`startTracing('${service}'`);
+    expect(source.slice(sdk)).toContain(`startTelemetry('${service}'`);
   });
 });
 
@@ -188,9 +190,9 @@ describe('the worker', () => {
   it('installs the runtime first, so that a bad setting is logged safely', () => {
     const install = main.indexOf('Runtime.install(');
     expect(install).toBeGreaterThan(-1);
-    expect(main.indexOf('loadTracingConfig()')).toBeGreaterThan(install);
+    expect(main.indexOf('loadTelemetryConfig()')).toBeGreaterThan(install);
     expect(main.indexOf('NativeConnection.connect(')).toBeGreaterThan(
-      main.indexOf('loadTracingConfig()'),
+      main.indexOf('loadTelemetryConfig()'),
     );
   });
 

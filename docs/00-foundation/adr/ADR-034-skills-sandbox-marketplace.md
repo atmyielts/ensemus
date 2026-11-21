@@ -1,6 +1,8 @@
 # ADR-034: Skills catalog, user-code sandbox and marketplace
 
 **Status:** Proposed. Nothing described here has run: not the migrations, not a runner, not a job. The tables, triggers, types and ports exist, and the behaviour is being built in M11B, in code only, with no containers run. D2, D3, D5 and D6 need outside security review (see "What needs outside review"), and **no product surface may describe the sandbox as isolated, secure or safe until that review and the proofs under "What must be proved" are done**.
+**Integration update, 2026-11-21:** The recovered migrations are now applied in the isolated release-candidate database; schema and role tests have run. Signed bundle parsing, signature/review verification, publisher tooling and policy admission are implemented and unit tested. Catalog, durable verification and runner journeys remain incomplete. No real sandbox enforcement or outside security review is claimed. The original code-only implementation notes below describe the November 6 checkpoint.
+
 **Date:** 2026-11-06
 **Deciders:** Project owner; security owner for D2, D3, D5 and D6.
 **Backlog:** `EXP-04`, `EXP-05`, `EXP-06`. Depends on `AGENT-01`, `AGENT-03` (M4). Scenarios: `SKL-TS-01` to `SKL-TS-05`, `SBX-TS-01` to `SBX-TS-08`, `MKT-TS-01` to `MKT-TS-07`.

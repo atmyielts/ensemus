@@ -108,3 +108,38 @@ are not promoted to product acceptance tests. The actual parity scenarios and ga
 Outstanding source gates include the new expansion tables' portability/lifecycle treatment and the
 unimplemented expansion services, workflows and interfaces. Full workspace checks, migration upgrade,
 built-image stack/browser/fault and mode qualification must be recorded on the resulting revision.
+
+## Source and implementation checkpoint
+
+All original local branch heads are now ancestors of the candidate. Sixteen superseded or
+patch-equivalent heads were accounted for with a history-only merge after comparing their source:
+image scan, release signing, reproducibility, retention, M4/M5/M6 variants and the older M8 implementation.
+The current implementations and subsequent security fixes were retained. The source ledger records all
+326 original refs: 268 are ancestors and 58 historical variants remain preserved under immutable refs.
+It also accounts for every changed path in the 41 dirty snapshots, including renamed files and explicitly
+retained scratch material. Presence is recovery evidence, not feature acceptance.
+
+Full workspace typecheck and lint passed at the consolidation checkpoint. The full unit suite then had
+9,376 passes, two failures, four expected failures and 43 skips (364 files). The two failures are real
+completion gates: 76 planned expansion operations and portability coverage for 30 new tables.
+
+EXP-04 now implements the signed JSON bundle format, canonical domain-separated digests, Ed25519
+signatures, strict review attestations, supply-chain checks, bounded schema interpretation, fixtures and
+publisher-machine keygen/pack/verify. The CLI does not overwrite keys or output, refuses unsafe paths
+and directory symlinks, and emits fixed codes rather than key material. Review verification also binds
+the execution kind from the signed manifest, so executable packages cannot skip code review. EXP-05's
+policy compiler now refuses invalid resource requests rather than silently narrowing them. These format
+and admission checks passed 72 focused tests; the catalog/execution journeys are still incomplete.
+
+Real-role testing found that a recovered marketplace trigger checked only the web login, leaving
+separated worker logins outside its decision refusal. Migration 0732 restricts review progression to
+ensemus_marketplace explicitly. Four native worker/agent logins are tested and refused; the role/schema
+rerun passed 40 tests. This change still carries the human security review flag.
+
+The source ledger recovered the missing 77-test tracing suite. It exposed trace-state leakage,
+prototype attribute lookup and exporter error handling regressions in the composed telemetry path.
+The common redactor now strips free-text trace state/events/status/link attributes, refuses unexpected
+resource fields, sanitizes instrumentation scope and forwards only exporter result codes. SDK loading
+remains conditional. Active web/worker/dispatcher processes now use the combined metrics/traces config;
+the legacy trace-only entry retains exact endpoint semantics. Focused telemetry and wiring checks passed
+128 tests, including actual OTLP HTTP capture and disabled/startup/privacy controls.

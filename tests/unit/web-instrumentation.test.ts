@@ -17,17 +17,17 @@ import {
   waitForSpans,
 } from '../helpers/otlp-sink';
 
-const ENDPOINT = 'http://collector.invalid:4318/v1/traces';
-const SDK = '@ensemus/telemetry/tracing-sdk';
+const ENDPOINT = 'http://collector.invalid:4318';
+const SDK = '@ensemus/telemetry/otel';
 const GUARD = '@ensemus/telemetry/console-guard';
 
 describe('register in instrumentation.ts', () => {
   let steps: string[];
-  let startTracing: ReturnType<typeof vi.fn>;
+  let startTelemetry: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     steps = [];
-    startTracing = vi.fn(async () => {
+    startTelemetry = vi.fn(async () => {
       steps.push('start');
       return { shutdown: async () => undefined };
     });
@@ -36,13 +36,14 @@ describe('register in instrumentation.ts', () => {
     vi.resetModules();
     vi.doMock(SDK, () => {
       steps.push('sdk');
-      return { startTracing };
+      return { startTelemetry };
     });
     // The real guard replaces console.error for the whole process, which would outlive the test.
     vi.doMock(GUARD, () => ({ installConsoleGuard: () => steps.push('guard') }));
     vi.stubEnv('NEXT_RUNTIME', 'nodejs');
     vi.stubEnv('ENSEMUS_OTEL_ENDPOINT', undefined);
     vi.stubEnv('ENSEMUS_OTEL_SAMPLE_RATIO', undefined);
+    vi.stubEnv('ENSEMUS_OTEL_METRIC_INTERVAL_SECONDS', undefined);
     vi.stubEnv('ENSEMUS_RELEASE', undefined);
   });
 
@@ -62,7 +63,7 @@ describe('register in instrumentation.ts', () => {
       vi.stubEnv('ENSEMUS_OTEL_ENDPOINT', endpoint);
       await expect(register()).resolves.toBeUndefined();
       expect(steps).toEqual(['guard']);
-      expect(startTracing).not.toHaveBeenCalled();
+      expect(startTelemetry).not.toHaveBeenCalled();
     });
   });
 
@@ -72,9 +73,9 @@ describe('register in instrumentation.ts', () => {
     it('starts it with the endpoint, after the guard, so a failure is logged safely', async () => {
       await register();
       expect(steps).toEqual(['guard', 'sdk', 'start']);
-      expect(startTracing).toHaveBeenCalledExactlyOnceWith(
+      expect(startTelemetry).toHaveBeenCalledExactlyOnceWith(
         'web',
-        { enabled: true, endpoint: ENDPOINT, sampleRatio: 1 },
+        { enabled: true, endpoint: ENDPOINT, sampleRatio: 1, metricIntervalMs: 60_000 },
         {},
       );
     });
@@ -82,22 +83,24 @@ describe('register in instrumentation.ts', () => {
     it('names the release when there is one', async () => {
       vi.stubEnv('ENSEMUS_RELEASE', 'release-1');
       await register();
-      expect(startTracing).toHaveBeenCalledWith('web', expect.anything(), { release: 'release-1' });
+      expect(startTelemetry).toHaveBeenCalledWith('web', expect.anything(), {
+        release: 'release-1',
+      });
     });
 
     it('passes on the sample ratio', async () => {
       vi.stubEnv('ENSEMUS_OTEL_SAMPLE_RATIO', '0.25');
       await register();
-      expect(startTracing).toHaveBeenCalledWith(
+      expect(startTelemetry).toHaveBeenCalledWith(
         'web',
-        { enabled: true, endpoint: ENDPOINT, sampleRatio: 0.25 },
+        { enabled: true, endpoint: ENDPOINT, sampleRatio: 0.25, metricIntervalMs: 60_000 },
         {},
       );
     });
 
     it('does not hide a failure to start', async () => {
       const failure = new Error('could not start');
-      startTracing.mockRejectedValueOnce(failure);
+      startTelemetry.mockRejectedValueOnce(failure);
       await expect(register()).rejects.toBe(failure);
     });
 
@@ -119,7 +122,7 @@ describe('register in instrumentation.ts', () => {
       vi.stubEnv('ENSEMUS_OTEL_ENDPOINT', 'not a URL');
       await expect(register()).resolves.toBeUndefined();
       expect(steps).toEqual([]);
-      expect(startTracing).not.toHaveBeenCalled();
+      expect(startTelemetry).not.toHaveBeenCalled();
     });
   });
 
@@ -179,8 +182,7 @@ describe('reading what a sink wrote', () => {
                   status: { code: 1 },
                   attributes: Object.entries(attributes).map(([key, value]) => ({
                     key,
-                    value:
-                      typeof value === 'number' ? { intValue: value } : { stringValue: value },
+                    value: typeof value === 'number' ? { intValue: value } : { stringValue: value },
                   })),
                 },
               ],

@@ -14,19 +14,19 @@ export async function register() {
   // A branch rather than an early return, as the Next.js docs show it. The bundler can drop a branch
   // for another runtime, along with what it imports, and the SDK module only works on Node.js.
   if (process.env.NEXT_RUNTIME === 'nodejs') {
-    const [{ loadTracingConfig }, { createLogger }, { installConsoleGuard }] = await Promise.all([
+    const [{ loadTelemetryConfig }, { createLogger }, { installConsoleGuard }] = await Promise.all([
       import('@ensemus/config'),
       import('@ensemus/telemetry'),
       import('@ensemus/telemetry/console-guard'),
     ]);
     installConsoleGuard(createLogger('web'));
 
-    const tracing = loadTracingConfig();
+    const tracing = loadTelemetryConfig();
     if (tracing.enabled) {
       // Imported only here, so a default install never loads the SDK, and it cannot try to send.
-      const { startTracing } = await import('@ensemus/telemetry/tracing-sdk');
+      const { startTelemetry } = await import('@ensemus/telemetry/otel');
       const release = process.env.ENSEMUS_RELEASE;
-      await startTracing('web', tracing, release ? { release } : {});
+      await startTelemetry('web', tracing, release ? { release } : {});
     }
   }
 }

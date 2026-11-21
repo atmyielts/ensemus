@@ -34,11 +34,10 @@ import {
   ParentBasedSampler,
   TraceIdRatioBasedSampler,
   TracerProvider,
-  type ReadableSpan,
   type SpanExporter,
   type SpanProcessor,
 } from '@opentelemetry/sdk-trace';
-import { isSafeField, isSafeValue } from './index';
+import { isSafeValue } from './index';
 import { forgetInstruments, METRICS } from './metrics';
 
 /** The setting @ensemus/config hands over. Repeated here so this package needs nothing from that one. */
@@ -48,94 +47,8 @@ export type TelemetrySettings =
 
 export type TelemetryHandle = { forceFlush(): Promise<void>; shutdown(): Promise<void> };
 
-const METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']);
-// A route pattern from our own source tree, such as /api/v1/organizations/[organizationId]/work-units. It
-// holds the name of a segment and never its value, so it is safe; a real path is not, and fails this.
-const ROUTE = /^\/[A-Za-z0-9_\-./[\]]{0,200}$/;
-const routeOf = (value: unknown) =>
-  typeof value === 'string' && ROUTE.test(value) && !value.includes('..') ? value : undefined;
-const methodOf = (value: unknown) =>
-  typeof value === 'string' && METHODS.has(value) ? value : undefined;
-const statusOf = (value: unknown) =>
-  typeof value === 'number' && Number.isInteger(value) && value >= 100 && value <= 599
-    ? value
-    : undefined;
-
-/** The attributes a framework's span may keep, beyond the fields in the logger's allowlist. */
-export const SPAN_ONLY_ATTRIBUTES: Readonly<Record<string, (value: unknown) => unknown>> = {
-  'http.request.method': methodOf,
-  'http.method': methodOf,
-  'http.response.status_code': statusOf,
-  'http.status_code': statusOf,
-  'next.route': routeOf,
-  'http.route': routeOf,
-  'next.span_type': (value) =>
-    typeof value === 'string' && /^[A-Za-z]+\.[A-Za-z]+$/.test(value) ? value : undefined,
-};
-
-function redactAttributes(attributes: Attributes): Attributes {
-  const kept: Attributes = {};
-  for (const [key, value] of Object.entries(attributes)) {
-    const check = SPAN_ONLY_ATTRIBUTES[key];
-    if (check) {
-      const safe = check(value);
-      if (safe !== undefined) kept[key] = safe as string | number;
-      continue;
-    }
-    if (!isSafeField(key)) continue;
-    if (typeof value === 'number' || typeof value === 'boolean') kept[key] = value;
-    else if (typeof value === 'string' && isSafeValue(value)) kept[key] = value;
-  }
-  return kept;
-}
-
-/**
- * A span name that may leave: one that passes the logger's value check, or exactly `<method> <route
- * pattern>` with a pattern that names a segment rather than holding a value. Anything else is replaced.
- */
-function redactName(name: string, attributes: Attributes): string {
-  if (isSafeValue(name)) return name;
-  const match = /^([A-Z]+) (\S+)$/.exec(name);
-  const route = routeOf(attributes['next.route']) ?? routeOf(attributes['http.route']);
-  if (match && methodOf(match[1]) && route && match[2] === route) return name;
-  return 'next.internal';
-}
-
-/**
- * A copy of a span holding only what may leave. Anything not known to be safe is dropped. Every event goes,
- * because an exception event carries the error's message, and so do links' attributes and the status
- * message. The input is never changed.
- */
-export function redactSpan(span: ReadableSpan): ReadableSpan {
-  return {
-    name: redactName(span.name, span.attributes),
-    kind: span.kind,
-    spanContext: () => span.spanContext(),
-    ...(span.parentSpanContext ? { parentSpanContext: span.parentSpanContext } : {}),
-    startTime: span.startTime,
-    endTime: span.endTime,
-    status: { code: span.status.code },
-    attributes: redactAttributes(span.attributes),
-    links: [],
-    events: [],
-    duration: span.duration,
-    ended: span.ended,
-    resource: span.resource,
-    instrumentationScope: span.instrumentationScope,
-    droppedAttributesCount: 0,
-    droppedEventsCount: 0,
-    droppedLinksCount: 0,
-  };
-}
-
-/** Passes spans to `inner` only through `redactSpan`, so no path to the collector goes around it. */
-export function createRedactingExporter(inner: SpanExporter): SpanExporter {
-  return {
-    export: (spans, done) => inner.export(spans.map(redactSpan), done),
-    shutdown: () => inner.shutdown(),
-    ...(inner.forceFlush ? { forceFlush: () => inner.forceFlush!() } : {}),
-  };
-}
+export { createRedactingExporter, redactSpan, SPAN_ONLY_ATTRIBUTES } from './span-redaction';
+import { createRedactingExporter, methodOf, routeOf, statusOf } from './span-redaction';
 
 /**
  * Records the web tier's latency from the span Next.js makes for each request, before anything is
@@ -196,11 +109,43 @@ let started: TelemetryHandle | undefined;
 export async function startTelemetry(
   service: string,
   settings: TelemetrySettings,
-  options: { release?: string; spanExporter?: SpanExporter; metricReader?: MetricReader } = {},
+  options: {
+    release?: string;
+    spanExporter?: SpanExporter;
+    metricReader?: MetricReader;
+    traceEndpoint?: string;
+    metricsEnabled?: boolean;
+  } = {},
 ): Promise<TelemetryHandle> {
   if (!settings.enabled)
     return { forceFlush: async () => undefined, shutdown: async () => undefined };
   if (started) return started;
+  let traceEndpoint: string;
+  try {
+    const base = new URL(settings.endpoint);
+    const target = new URL(options.traceEndpoint ?? `${settings.endpoint}/v1/traces`);
+    for (const url of [base, target]) {
+      if (
+        !['http:', 'https:'].includes(url.protocol) ||
+        url.username ||
+        url.password ||
+        url.search ||
+        url.hash
+      )
+        throw new Error('INVALID_TELEMETRY_ENDPOINT');
+    }
+    if (
+      !Number.isFinite(settings.sampleRatio) ||
+      settings.sampleRatio < 0 ||
+      settings.sampleRatio > 1 ||
+      !Number.isSafeInteger(settings.metricIntervalMs) ||
+      settings.metricIntervalMs < 1000
+    )
+      throw new Error('INVALID_TELEMETRY_SETTINGS');
+    traceEndpoint = target.toString();
+  } catch {
+    throw Object.assign(new Error('Telemetry could not start'), { code: 'TELEMETRY_START_FAILED' });
+  }
   const resource = resourceFromAttributes({
     'service.name': isSafeValue(service) ? service : 'ensemus',
     ...(options.release && isSafeValue(options.release)
@@ -210,16 +155,18 @@ export async function startTelemetry(
   const meterProvider = new MeterProvider({
     resource,
     views: metricViews(),
-    readers: [
-      options.metricReader ??
-        new PeriodicExportingMetricReader({
-          exporter: new OTLPMetricExporter({ url: `${settings.endpoint}/v1/metrics` }),
-          exportIntervalMillis: settings.metricIntervalMs,
-        }),
-    ],
+    readers:
+      options.metricsEnabled === false
+        ? []
+        : [
+            options.metricReader ??
+              new PeriodicExportingMetricReader({
+                exporter: new OTLPMetricExporter({ url: `${settings.endpoint}/v1/metrics` }),
+                exportIntervalMillis: settings.metricIntervalMs,
+                exportTimeoutMillis: Math.min(10_000, settings.metricIntervalMs),
+              }),
+          ],
   });
-  metrics.setGlobalMeterProvider(meterProvider);
-  forgetInstruments();
   const latency = meterProvider
     .getMeter('ensemus')
     .createHistogram(METRICS.webRequestDuration.name, {
@@ -233,28 +180,37 @@ export async function startTelemetry(
       createWebLatencyProcessor((durationMs, attributes) => latency.record(durationMs, attributes)),
       new BatchSpanProcessor({
         exporter: createRedactingExporter(
-          options.spanExporter ?? new OTLPTraceExporter({ url: `${settings.endpoint}/v1/traces` }),
+          options.spanExporter ?? new OTLPTraceExporter({ url: traceEndpoint }),
         ),
       }),
     ],
   });
+  metrics.setGlobalMeterProvider(meterProvider);
+  forgetInstruments();
   const contextManager = new AsyncLocalStorageContextManager().enable();
   context.setGlobalContextManager(contextManager);
   trace.setGlobalTracerProvider(tracerProvider);
   // Deliberately none: the API's default propagator injects and extracts nothing.
   propagation.disable();
-  started = {
+  let closed = false;
+  const handle: TelemetryHandle = {
     forceFlush: async () => {
-      await Promise.all([tracerProvider.forceFlush(), meterProvider.forceFlush()]);
+      if (!closed)
+        await Promise.allSettled([tracerProvider.forceFlush(), meterProvider.forceFlush()]);
     },
     shutdown: async () => {
+      if (closed) return;
+      closed = true;
       await Promise.allSettled([tracerProvider.shutdown(), meterProvider.shutdown()]);
-      trace.disable();
-      metrics.disable();
-      context.disable();
-      forgetInstruments();
-      started = undefined;
+      if (started === handle) {
+        trace.disable();
+        metrics.disable();
+        context.disable();
+        forgetInstruments();
+        started = undefined;
+      }
     },
   };
-  return started;
+  started = handle;
+  return handle;
 }

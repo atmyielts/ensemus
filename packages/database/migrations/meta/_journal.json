@@ -988,6 +988,13 @@
       "when": 1794201807613,
       "tag": "0731_skill_version_record",
       "breakpoints": true
+    },
+    {
+      "idx": 141,
+      "version": "7",
+      "when": 1794201807614,
+      "tag": "0732_marketplace_operator_decisions",
+      "breakpoints": true
     }
   ]
 }

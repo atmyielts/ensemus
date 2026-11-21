@@ -44,23 +44,66 @@ export const SKILL_SCHEMA_KEYWORDS = [
   'title',
 ] as const;
 
-/** Counts nodes while checking every key, and stops at the first thing outside the subset. */
+const JSON_TYPES = ['null', 'boolean', 'object', 'array', 'number', 'integer', 'string'];
+function isJsonLiteral(value: unknown, depth: number, seen: { nodes: number }): boolean {
+  seen.nodes += 1;
+  if (depth > MAX_SCHEMA_DEPTH || seen.nodes > MAX_SCHEMA_NODES) return false;
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (!value || typeof value !== 'object') return false;
+  if (Array.isArray(value)) return value.every((item) => isJsonLiteral(item, depth + 1, seen));
+  if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null)
+    return false;
+  return Object.values(value).every((item) => isJsonLiteral(item, depth + 1, seen));
+}
+
+/** Validate keyword values as well as names. Traversal shares one depth and node budget. */
 function isSupportedSchema(value: unknown, depth = 0, seen = { nodes: 0 }): boolean {
   seen.nodes += 1;
   if (seen.nodes > MAX_SCHEMA_NODES || depth > MAX_SCHEMA_DEPTH) return false;
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null)
+    return false;
   for (const [key, inner] of Object.entries(value as Record<string, unknown>)) {
     if (!(SKILL_SCHEMA_KEYWORDS as readonly string[]).includes(key)) return false;
-    if (key === 'properties') {
+    if (key === 'type') {
+      const types = Array.isArray(inner) ? inner : [inner];
+      if (
+        !types.length ||
+        types.length > JSON_TYPES.length ||
+        new Set(types).size !== types.length ||
+        !types.every((type) => typeof type === 'string' && JSON_TYPES.includes(type))
+      )
+        return false;
+    } else if (key === 'properties') {
       if (inner === null || typeof inner !== 'object' || Array.isArray(inner)) return false;
-      for (const child of Object.values(inner as Record<string, unknown>)) {
+      for (const child of Object.values(inner))
         if (!isSupportedSchema(child, depth + 1, seen)) return false;
-      }
-    } else if (key === 'items' || (key === 'additionalProperties' && typeof inner === 'object')) {
+    } else if (key === 'items') {
       if (!isSupportedSchema(inner, depth + 1, seen)) return false;
-    }
+    } else if (key === 'additionalProperties') {
+      if (typeof inner !== 'boolean' && !isSupportedSchema(inner, depth + 1, seen)) return false;
+    } else if (key === 'required') {
+      if (
+        !Array.isArray(inner) ||
+        inner.length > MAX_SCHEMA_NODES ||
+        !inner.every((name) => typeof name === 'string') ||
+        new Set(inner).size !== inner.length
+      )
+        return false;
+      seen.nodes += inner.length;
+    } else if (key === 'enum') {
+      if (!Array.isArray(inner) || !inner.length || !isJsonLiteral(inner, depth, seen))
+        return false;
+    } else if (key === 'const') {
+      if (!isJsonLiteral(inner, depth, seen)) return false;
+    } else if (key === 'minimum' || key === 'maximum') {
+      if (typeof inner !== 'number' || !Number.isFinite(inner)) return false;
+    } else if (['minLength', 'maxLength', 'minItems', 'maxItems'].includes(key)) {
+      if (typeof inner !== 'number' || !Number.isSafeInteger(inner) || inner < 0) return false;
+    } else if (typeof inner !== 'string') return false;
   }
-  return true;
+  return seen.nodes <= MAX_SCHEMA_NODES;
 }
 
 export const skillJsonSchemaSchema = z
@@ -150,7 +193,16 @@ export type SkillManifest = z.infer<typeof skillManifestSchema>;
 export const skillBundleSchema = z.strictObject({
   format: z.literal('ensemus.skill.bundle.v1'),
   manifest: skillManifestSchema,
-  files: z.array(z.strictObject({ path: skillPathSchema, content_base64: base64 })).max(500),
+  files: z
+    .array(
+      z.strictObject({
+        path: skillPathSchema,
+        content_base64: z
+          .string()
+          .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/),
+      }),
+    )
+    .max(500),
   signature: z.strictObject({
     algorithm: z.literal('ed25519'),
     key_id: sha256Hex,

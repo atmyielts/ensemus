@@ -4,7 +4,7 @@
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadTracingConfig, readSecret } from '@ensemus/config';
+import { loadTelemetryConfig, readSecret } from '@ensemus/config';
 import {
   dispatchDueEvents,
   eventBacklog,
@@ -214,13 +214,13 @@ const LEDGER_REQUEST_MS = CALL_DEADLINE_MS;
 const LEDGER_BACKLOG_CHECK_MS = 60_000;
 
 async function main() {
-  const tracingConfig = loadTracingConfig();
+  const tracingConfig = loadTelemetryConfig();
   const release = process.env.ENSEMUS_RELEASE;
   // Only when an operator named a collector, so that a default install never loads the SDK (ADR-037 D3).
   const tracing = tracingConfig.enabled
     ? await (
-        await import('@ensemus/telemetry/tracing-sdk')
-      ).startTracing('dispatcher', tracingConfig, release ? { release } : {})
+        await import('@ensemus/telemetry/otel')
+      ).startTelemetry('dispatcher', tracingConfig, release ? { release } : {})
     : null;
   const connection = openDispatcherConnection(process.env.TEMPORAL_ADDRESS ?? 'temporal:7233');
   const client = new Client({

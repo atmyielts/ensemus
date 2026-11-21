@@ -88,6 +88,17 @@ describe('with telemetry off', () => {
   });
 });
 
+describe('invalid startup settings', () => {
+  it('refuses a malformed collector without exposing its value or registering a provider', async () => {
+    const failure = await startTelemetry('test', { ...ON, endpoint: `not a URL ${CANARY}` }).catch(
+      (error: unknown) => error,
+    );
+    expect(failure).toMatchObject({ code: 'TELEMETRY_START_FAILED' });
+    expect(String(failure)).not.toContain(CANARY);
+    expect(trace.getTracer('test').startSpan('probe').isRecording()).toBe(false);
+  });
+});
+
 describe('with a collector named', () => {
   it('sends a span with only allowlisted fields, a safe name and no error message', async () => {
     const { flush } = await started();

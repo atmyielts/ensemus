@@ -1,0 +1,3771 @@
+{
+  "candidate_base": "6269bceb4249223eb86245878f3d643a8840bcca",
+  "preservation_root": "refs/preservation/20261121T125018Z/",
+  "ref_dispositions": [
+    {
+      "ref": "refs/heads/build-base",
+      "commit": "4e0535e328e08db69cb55c73ac53504a1aa81ae6",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/ci-fix-core",
+      "commit": "07529a4f304825df33bc2763850a5ffcf72d7004",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/codex/connect-oauth-directory",
+      "commit": "50bc1567f79d8a615d74e22ee87370a631ef77e8",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/codex/m7-platform-integration",
+      "commit": "9b56f075c2a8e3b3bc7da2b66b804e553e43592d",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/codex/rc-ai",
+      "commit": "01ff42bf06a4968624d5acbb9b434cada129ef4e",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/codex/rc-know",
+      "commit": "87140f2f0ebbdb0def87f23ca319f2c4f6098f91",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/codex/rc-mail",
+      "commit": "43bc4fa1a3a2bb8ec9cc5814f368f7826868fccf",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/codex/rc-ops",
+      "commit": "b57124bc32da285d6067740e88714c1a6de3af6f",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/codex/rc-pay",
+      "commit": "c24c6fcfe3993084f3fd1c86866ac59d4fa6cdac",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/codex/release-candidate",
+      "commit": "43bc4fa1a3a2bb8ec9cc5814f368f7826868fccf",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/codex/ui-refinement",
+      "commit": "6e9e0e07d43472fb75cfbdac5b6a6ccc72c2191f",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/deleg-ready",
+      "commit": "072d3a89a5ca99264bbf5f1b550f75e90a937dc1",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/hx-foundation",
+      "commit": "1bd40f595010a543b00b9e714fc9a17c0e9f4d63",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/hx-image-scan",
+      "commit": "13bcedc80d9ab7364bae2e77dd9ce169cd7bd844",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/hx-otel-core",
+      "commit": "1bd40f595010a543b00b9e714fc9a17c0e9f4d63",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/hx-otel-web",
+      "commit": "a3941dd1e27dc5e44772b5a8df7f797b05431681",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/hx-otel-worker",
+      "commit": "1bd40f595010a543b00b9e714fc9a17c0e9f4d63",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/hx-proxy-warning",
+      "commit": "1bd40f595010a543b00b9e714fc9a17c0e9f4d63",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/hx-release-signing",
+      "commit": "241761645c3c8838014bfbf511a1714434d9751c",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/hx-reproducible",
+      "commit": "0b2625831f19fec9bb6f9aeafbc3d3e0d776a4cf",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/hx-sse-merge",
+      "commit": "28211b15ec2db35da57819f0a831d6907224edcb",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/hx-temporal-retention",
+      "commit": "59c3041795ba97ed55a547bc41c679236e0d7534",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m1-release-skeleton",
+      "commit": "780d4fb8cfa292d40527d5452acfa83a3402d27b",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m11a-foundation",
+      "commit": "56b2857ff873353fb2a3522ea19b24017d278933",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m11b-foundation",
+      "commit": "dde060a01d2d528e0f84ee6b147956cfbc485b7b",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m11c-foundation",
+      "commit": "09d00bcc56fc61362dae9a8fc3a7b5aaefb661ee",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m3-email",
+      "commit": "153a0ce03854e6f2f2543b915664231c8eece2f7",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m3-foundation",
+      "commit": "10d6398674e647037c2c74cbfdffa8bab0de4efa",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m3-intents",
+      "commit": "797e0cabacb6b8199c89fea99946df96f9fd39d3",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m3-receipts",
+      "commit": "e01a264cd96ce6793537a42cb929e228f9071abc",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m3-sdk",
+      "commit": "e55b0070b0eb2770ddcc84a28eb128f26d9f028a",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m3-stack",
+      "commit": "bee77acb3d2f8f01c6e4a0b30ebf586fa9ce72f0",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m3-verified-actions",
+      "commit": "78b38e90172891cba068ef570ab8608d7c2b235b",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m3-webhooks",
+      "commit": "c9c45a5ece3a4eb60488d2e0fe443ec0ed38cab6",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m4-agents",
+      "commit": "7e6a1ba5e666106344503f0c9bae3941a1aefafa",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m4-approvals",
+      "commit": "64476f9896d3e911f2dcecbc5e83577ac9ff8c86",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m4-context",
+      "commit": "64476f9896d3e911f2dcecbc5e83577ac9ff8c86",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m4-delegation",
+      "commit": "64476f9896d3e911f2dcecbc5e83577ac9ff8c86",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m4-foundation",
+      "commit": "64476f9896d3e911f2dcecbc5e83577ac9ff8c86",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m4-halt",
+      "commit": "3f8ae27e3f4f066bfe9855a95f49ab5a7de01027",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m4-model-profiles",
+      "commit": "526dff85c3575bb6c57ae4d2c6ba43231c4b820b",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m4-policy-router",
+      "commit": "64476f9896d3e911f2dcecbc5e83577ac9ff8c86",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m4-spine",
+      "commit": "64476f9896d3e911f2dcecbc5e83577ac9ff8c86",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m4-timeline",
+      "commit": "64476f9896d3e911f2dcecbc5e83577ac9ff8c86",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m4-tools",
+      "commit": "64476f9896d3e911f2dcecbc5e83577ac9ff8c86",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m4-transport",
+      "commit": "64476f9896d3e911f2dcecbc5e83577ac9ff8c86",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m4-usage",
+      "commit": "95110a83d32cab9de6b259bed87de3d1eda24532",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m5-foundation",
+      "commit": "9f92d67a5352bf0572c57a57cc240115d923062e",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m6-bundle",
+      "commit": "96a50bfa466e99210000f00026890910cc31a5a4",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m6-console",
+      "commit": "3ee4f9ba07f9508d05c33383ab81048a6bbb9d04",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m6-export",
+      "commit": "b7be41ffe63b90b4b8356a85c47d208e2ed805b0",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m6-foundation",
+      "commit": "3ee4f9ba07f9508d05c33383ab81048a6bbb9d04",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m6-import",
+      "commit": "a1c76a5100fde23650e3240645e3c43d4e50ac8a",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m6-license",
+      "commit": "56875fc051d2462fadc98a0c27aaba75d8f2f435",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m6-restore",
+      "commit": "299a058fd08893449d6b9295dc32f3d020623fd4",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m6-tools",
+      "commit": "1f17ff982ddda38bab5e23ed55c67598a4c0f5b6",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m7-assistants",
+      "commit": "8a5d8a9df916491bccfc98e8c980f4c3d086c608",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m7-composer-onboarding",
+      "commit": "8a5d8a9df916491bccfc98e8c980f4c3d086c608",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m7-foundation",
+      "commit": "8a5d8a9df916491bccfc98e8c980f4c3d086c608",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m7-graph",
+      "commit": "8a5d8a9df916491bccfc98e8c980f4c3d086c608",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m7-mfa",
+      "commit": "8a5d8a9df916491bccfc98e8c980f4c3d086c608",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m7-objects",
+      "commit": "8a5d8a9df916491bccfc98e8c980f4c3d086c608",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m7-packs",
+      "commit": "8a5d8a9df916491bccfc98e8c980f4c3d086c608",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m7-process",
+      "commit": "8a5d8a9df916491bccfc98e8c980f4c3d086c608",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m7-pulse",
+      "commit": "8a5d8a9df916491bccfc98e8c980f4c3d086c608",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m7-sso",
+      "commit": "8a5d8a9df916491bccfc98e8c980f4c3d086c608",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m7-studio",
+      "commit": "8a5d8a9df916491bccfc98e8c980f4c3d086c608",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m8-foundation",
+      "commit": "ca62c8ea7a31c89807a4b9d3840b82d97b4ed94c",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m9p-docs-ops-install",
+      "commit": "a553049043586dd4c1608e9b6700cafc6c67305c",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m9p-docs-ops-run",
+      "commit": "555178964691c1e63431e05a67eda9600d9152fa",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m9p-docs-ops-sovereign",
+      "commit": "521218779965afcdae7c7cae07751caa85e2d8cd",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m9p-docs-user-admin",
+      "commit": "8f1956d3abd84aacde8100db56fc953021ed0c07",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m9p-docs-user-agents",
+      "commit": "ad4e7516ed8859ff48992bfe48be47eb6023c98c",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m9p-docs-user-data",
+      "commit": "b3dcefed1e0cf39b5ff5ace1f981b1a6d0715ce1",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m9p-docs-user-work",
+      "commit": "375a98b065c2d335c015a0225f5861e3311831b9",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m9p-foundation",
+      "commit": "a553049043586dd4c1608e9b6700cafc6c67305c",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m9p-help-route",
+      "commit": "0983104e9ff338583f96c300c45bd86af62ce6f9",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m9p-license-inventory",
+      "commit": "a553049043586dd4c1608e9b6700cafc6c67305c",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m9p-parity-boundary",
+      "commit": "a553049043586dd4c1608e9b6700cafc6c67305c",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m9p-parity-modes",
+      "commit": "a553049043586dd4c1608e9b6700cafc6c67305c",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/m9p-parity-work",
+      "commit": "a553049043586dd4c1608e9b6700cafc6c67305c",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/main",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/r13-A-db-0555-record-purge-completion-attest",
+      "commit": "5fa8a1f1347e89f3ba3d4309a9a0c8af9d4724e6",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/r13-B-test-0553-retained-referent-birth-guards",
+      "commit": "98c69a0d5ff6f0c4e0dd2bd4940ac18e80dd5b6f",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/r13-C-product-busy-cause-chain",
+      "commit": "d7d604038cb333615d4565e0432d5acbc47369c3",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/r13-D-test-raw-restore-reproved-positive-control",
+      "commit": "5d8c3f4fe0d7aeeffdecd070ac202a5adf0f0f80",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/r13-E-test-object-record-purge-sweep-legal-hold",
+      "commit": "e2532b8e4251ba4e725fbe0c31791c824ff484ec",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/r13-F-test-record-deletion-outbox-fixed-expectation",
+      "commit": "9f84041c91567304dfe9cb138813ef6119bf7560",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/r13-G-docs-ci-evidence",
+      "commit": "8b744609dea751df3f6599e39860c77131969041",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-agent-a1fe592efa649902f",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_169babe3-790-2",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_169babe3-790-3",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_169babe3-790-4",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_169babe3-790-5",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_169babe3-790-6",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_16e9f76f-29d-2",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_16e9f76f-29d-3",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_16e9f76f-29d-4",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_16e9f76f-29d-5",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_16e9f76f-29d-6",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_16e9f76f-29d-7",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_16e9f76f-29d-8",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_16e9f76f-29d-9",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_2e9ac267-bb6-1",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_2e9ac267-bb6-10",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_2e9ac267-bb6-11",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_2e9ac267-bb6-2",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_2e9ac267-bb6-3",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_2e9ac267-bb6-4",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_2e9ac267-bb6-5",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_2e9ac267-bb6-6",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_2e9ac267-bb6-7",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_2e9ac267-bb6-8",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_2e9ac267-bb6-9",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_310c9f32-d71-11",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_310c9f32-d71-7",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_3b625110-ef7-1",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4873f3d6-4f7-2",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4873f3d6-4f7-3",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4873f3d6-4f7-4",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4873f3d6-4f7-5",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4873f3d6-4f7-6",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4873f3d6-4f7-7",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4873f3d6-4f7-8",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4873f3d6-4f7-9",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4b614715-08e-1",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4b614715-08e-10",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4b614715-08e-11",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4b614715-08e-12",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4b614715-08e-2",
+      "commit": "10d6398674e647037c2c74cbfdffa8bab0de4efa",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4b614715-08e-3",
+      "commit": "10d6398674e647037c2c74cbfdffa8bab0de4efa",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4b614715-08e-4",
+      "commit": "10d6398674e647037c2c74cbfdffa8bab0de4efa",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4b614715-08e-5",
+      "commit": "10d6398674e647037c2c74cbfdffa8bab0de4efa",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4b614715-08e-6",
+      "commit": "10d6398674e647037c2c74cbfdffa8bab0de4efa",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4b614715-08e-7",
+      "commit": "10d6398674e647037c2c74cbfdffa8bab0de4efa",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4b614715-08e-8",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4b614715-08e-9",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4beba6ba-457-1",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4beba6ba-457-10",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4beba6ba-457-11",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4beba6ba-457-12",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4beba6ba-457-13",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4beba6ba-457-2",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4beba6ba-457-3",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4beba6ba-457-4",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4beba6ba-457-5",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4beba6ba-457-6",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4beba6ba-457-7",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4beba6ba-457-8",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_4beba6ba-457-9",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_51e8a42a-1de-2",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_51e8a42a-1de-3",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_51e8a42a-1de-4",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_51e8a42a-1de-5",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_51e8a42a-1de-6",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_51e8a42a-1de-7",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_51e8a42a-1de-8",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_5f76a506-f6d-1",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_5f76a506-f6d-2",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_5f76a506-f6d-3",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_5f76a506-f6d-4",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_5f76a506-f6d-5",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_5f76a506-f6d-6",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_6eb98433-53c-2",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_6eb98433-53c-3",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_70b4f225-43e-1",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_70b4f225-43e-2",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_70b4f225-43e-3",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_70b4f225-43e-4",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_70b4f225-43e-5",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_775fbe7d-4db-1",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_775fbe7d-4db-2",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_775fbe7d-4db-3",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_775fbe7d-4db-4",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_775fbe7d-4db-5",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_775fbe7d-4db-6",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_775fbe7d-4db-7",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_84f90dac-4ce-1",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_90f45984-243-1",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_90f45984-243-2",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_90f45984-243-3",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_90f45984-243-4",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_90f45984-243-5",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_90f45984-243-6",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_90f45984-243-7",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_90f45984-243-8",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_92de5a42-270-2",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_92de5a42-270-3",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_92de5a42-270-4",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_92de5a42-270-5",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_92de5a42-270-6",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_92de5a42-270-7",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_92de5a42-270-8",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_940a7a62-465-1",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_9470dabf-2d5-2",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_9470dabf-2d5-3",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_9470dabf-2d5-4",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_9470dabf-2d5-5",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_9470dabf-2d5-6",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_9470dabf-2d5-7",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_9470dabf-2d5-8",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_9470dabf-2d5-9",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_994446b7-68e-1",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_9ae245df-7f2-1",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_9ae245df-7f2-10",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_9ae245df-7f2-2",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_9ae245df-7f2-3",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_9ae245df-7f2-4",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_9ae245df-7f2-5",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_9ae245df-7f2-6",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_9ae245df-7f2-7",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_9ae245df-7f2-8",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_9ae245df-7f2-9",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_a7be6249-b12-1",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_bd5f42e9-f96-2",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_bd5f42e9-f96-3",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_bd5f42e9-f96-4",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_bd5f42e9-f96-5",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_bd5f42e9-f96-6",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_bd5f42e9-f96-7",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_d6191bcb-a2f-2",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_d6191bcb-a2f-3",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_d6191bcb-a2f-4",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_d6191bcb-a2f-5",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_d6191bcb-a2f-6",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_d6191bcb-a2f-7",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_d6191bcb-a2f-8",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_d6191bcb-a2f-9",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_d6a4d518-8dd-2",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_d6a4d518-8dd-3",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_d6a4d518-8dd-4",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_d6a4d518-8dd-5",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_d6a4d518-8dd-6",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_d6a4d518-8dd-7",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_d6a4d518-8dd-8",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_d6a4d518-8dd-9",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_dfa8c3dd-f23-3",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_dfa8c3dd-f23-4",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_dfa8c3dd-f23-5",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_dfa8c3dd-f23-6",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_dfa8c3dd-f23-7",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_dfa8c3dd-f23-8",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_e363ea2d-966-2",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_e363ea2d-966-3",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_e363ea2d-966-4",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_e363ea2d-966-5",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_e363ea2d-966-6",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_e363ea2d-966-7",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_e363ea2d-966-8",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_ed7cc9b4-b53-1",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_ed7cc9b4-b53-10",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_ed7cc9b4-b53-11",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_ed7cc9b4-b53-12",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_ed7cc9b4-b53-13",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_ed7cc9b4-b53-2",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_ed7cc9b4-b53-3",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_ed7cc9b4-b53-4",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_ed7cc9b4-b53-5",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_ed7cc9b4-b53-6",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_ed7cc9b4-b53-7",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_ed7cc9b4-b53-8",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/heads/worktree-wf_ed7cc9b4-b53-9",
+      "commit": "b04c3a5c0b3def5617f186160fb38d206e43a928",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/remotes/origin/codex/connect-oauth-directory",
+      "commit": "50bc1567f79d8a615d74e22ee87370a631ef77e8",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/remotes/origin/codex/m7-platform-integration",
+      "commit": "9b56f075c2a8e3b3bc7da2b66b804e553e43592d",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/remotes/origin/codex/rc-know",
+      "commit": "87140f2f0ebbdb0def87f23ca319f2c4f6098f91",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/remotes/origin/codex/ui-refinement",
+      "commit": "6e9e0e07d43472fb75cfbdac5b6a6ccc72c2191f",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/remotes/origin/m1-release-skeleton",
+      "commit": "780d4fb8cfa292d40527d5452acfa83a3402d27b",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/remotes/origin/main",
+      "commit": "fbd072ceef0fbfeeac58d93e641fea4cde765712",
+      "disposition": "candidate_ancestor"
+    },
+    {
+      "ref": "refs/stash",
+      "commit": "7d25007ca6872af531f021039ff4f3c3ef349b37",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/account-step-up",
+      "commit": "60409b7072e5dfc33fffd17fa67c83e7fa64bb40",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/account-ux",
+      "commit": "843ed09743f198de9040ccf68ebc1bd353ad29ab",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/auth-restore",
+      "commit": "ca9adb1c2d7b7b909561b25ddb1b3950efcec790",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/auth-restore-integration",
+      "commit": "70c631e01cd12788abd81ceb8840376e1714ae5e",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/auth-restore-role-fixes",
+      "commit": "13c439f12a456c732cb32c24d59ce3f2364e5157",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/hardening-integration",
+      "commit": "7c0adf18b171fa3b9364a815c505b7430f7e7038",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m2-continuation",
+      "commit": "cbd40d2083f7d173eba3200fb2f01b5725e6fefb",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m4-integration",
+      "commit": "7ef1fef8ae3ce419849a86fa6154e3d54a364a00",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m5-agent-inputs",
+      "commit": "f956ba069a56ed9a486c03d55ad7af88d01c39a1",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m5-delegated-erasure-witness",
+      "commit": "9de3e338caf72255a37dcdfaaa9e15147f68e6f6",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m5-delegated-materials",
+      "commit": "c6bbc052a1529402cbfac7f90fd1d2586b8bdf25",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m5-delegated-materials-join",
+      "commit": "c32dc5138fc5d7667a896586e0995344ec034075",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m5-integration",
+      "commit": "ceda5c5f75670af50f0a7b04385ed53f134c8d5d",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m5-knowledge-models",
+      "commit": "e30c18ac8e186f02d1b50b09605a2d253a6b61c7",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m5-model-platform-join",
+      "commit": "cf0765f8fab91d875039cb392e2ef7537fc45520",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m5-onboarding",
+      "commit": "174b34a86458ec25927f35d8e0865ca06eed6da5",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m6-archive-files",
+      "commit": "1909b625e577cc6668ed1092db81b8250cd928f6",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m6-integration",
+      "commit": "7031cd00248064d4be7fdad1301fdb0eb68fbcd7",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m6-platform-join",
+      "commit": "4d40121591b7a6180b319bb700251c648b27b735",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m7-composer",
+      "commit": "efd41e8936cbc722f2af06dcbe8cbccf750889a1",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m7-integration",
+      "commit": "f7f30c99c3b7052cdc3f3cbf28d17ae1d5af6247",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m7-object-sso-drafts",
+      "commit": "30311925072181f0441447f8e33647f831893c52",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m7-objects",
+      "commit": "74659d15da55478e2afad02054dac78cab28a332",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m7-platform-join",
+      "commit": "a5baff5efec75c30c106d4b49b009020705f9fd9",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m7-pulse",
+      "commit": "74f5901584fbfac1bf09af4fa5144f61deb20484",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m7-workflow-map",
+      "commit": "bf0dd8115992bdf0cf475cac5dd7aba7663ebe8a",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m7-workflows",
+      "commit": "336f4da2500efdd63b66b2aa3a53f127838ea4f5",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m8-account-exports",
+      "commit": "e6ff7ffd50aed9f6f50573629d2c9ce26420cccc",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m8-delegated-hold-guard",
+      "commit": "e1ba8eefa86e05b23c8529dfd2d2e99ab72f2307",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m8-delete-versioning-proof",
+      "commit": "0f2f6a89fceeee595c469ef2197906353f54bdd4",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m8-fixture-authority",
+      "commit": "c3c53de82f69b0eb18d3befbdeeb3808fb96f89e",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m8-integration",
+      "commit": "b653db96985900a390f51108962bc9fe5b326ddd",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m8-lifecycle-platform-join",
+      "commit": "e5dd5c831a424074c8bf3e065f6210f077a89dda",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m8-payment-execution-binding",
+      "commit": "95e397e3434f1becb83d8359532697332b830326",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m8-payment-lookup-outcomes",
+      "commit": "eada7adbbca403a7338263ddfdca8c97d72d5704",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m8-payment-platform-current",
+      "commit": "115f16388b843e1fa51a3ef8a4d546ac20ddb235",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m8-payment-platform-join",
+      "commit": "f73daecfb221de4a6c22ccf366b5b5d1933675e4",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m8-payment-restore-binding",
+      "commit": "7ee14e58750204647fab5cab4c79138423c1a6cb",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m8-prepaid-admission",
+      "commit": "a35afab449236cf260877f8b2c7f1ba9704da254",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m8-prepaid-admission-design",
+      "commit": "4fb63d4c413cad12338ecac01d26620dbbbafea9",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m8-private-read-guard",
+      "commit": "2c70c180225de7de6d6f9f8fa9f92f99a0d88363",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m8-proof-inventory-0518",
+      "commit": "d1b2d26124cf272150bad1bb0f818d337400c5d9",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m8-raw-source-authority",
+      "commit": "b66b1a3d9109f62ef7caa115c17c9074f19373d4",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m8-standing-audit-schema",
+      "commit": "926200081ab3153463149af72f661a71bbbb3ae0",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m8-standing-authority-repair",
+      "commit": "77bce655ed7e5d684159267f63c8e8c304d81afd",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m8-standing-fixture-repair",
+      "commit": "b3e5d39fee82fecd0787eded52af60d87904e8d0",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/m8-standing-runtime",
+      "commit": "0f9996648fe4d0b55f47eeba349b1467051e9870",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/native-action-binding",
+      "commit": "cd0b21d85c9ee6a3a5bbe5c8fc4bba372be58df5",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/platform-completion",
+      "commit": "5b87dedc8c11cbc2bc5cd4319bcf3b1ed28aab21",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/saml-browser-correlation",
+      "commit": "a8373a01c704834b34ccbef074bb9a3c825ac55e",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/saml-principal-switch",
+      "commit": "7b94ec5983d7527fa6711f6a66611aa35c6b6e6d",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/sidebar-viewport",
+      "commit": "a09c34e885ab0a54689111b06b03bbc77e3a6597",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/sso-native-fixture",
+      "commit": "e2020d8a853be251e5d28756002f1c9cacd67b14",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/sso-request-replay",
+      "commit": "8638e45bc42b00441347edf2a58bf424ad6d5374",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/sso-self-link",
+      "commit": "19625b26e24d1a2a54c63d132db5ea9f7798189c",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/sso-self-link-v2",
+      "commit": "da6aed28fcc86a94ceaccfa873ae25489c42eec3",
+      "disposition": "preserved_historical_variant"
+    },
+    {
+      "ref": "refs/tags/archive/codex/2026-11-09/typed-record-purge-dispatch",
+      "commit": "ddc9edac4744db629836933b5c6c75f1f9390ee8",
+      "disposition": "preserved_historical_variant"
+    }
+  ],
+  "dirty_snapshot_dispositions": [
+    {
+      "worktree": "rc-ai",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/002-rc-ai",
+      "snapshot_commit": "b797adee137f301ea8fa431cbfd114f7cd835cc2",
+      "lineage": "candidate_ancestor",
+      "equivalent_ancestor": "b797adee137f301ea8fa431cbfd114f7cd835cc2",
+      "paths": [
+        {
+          "path": "docs/MANIFEST.json",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/agent-runtime/src/reducer.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/agent-runtime/src/reducer.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/application/src/product/assistants.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/domain/src/ai.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/intelligence/src/adapters/index.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/intelligence/src/embedding-adapter.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/intelligence/src/gateway.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/intelligence/src/gateway.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/intelligence/src/rerank-adapter.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/intelligence/src/router/compaction.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/intelligence/src/router/compaction.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/intelligence/src/router/cost.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/intelligence/src/router/cost.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/intelligence/src/router/output.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/intelligence/src/testing/scripted-adapter.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/intelligence/src/types.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/workflows/src/agent-activities.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/workflows/src/agent-run.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/workflows/src/agent-schemas.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/workflows/src/constants.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/conformance/adapter-conformance.suite.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/contract/model-adapter.contract.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/fixtures/fake-model/server.mjs",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "rc-mail",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/004-rc-mail",
+      "snapshot_commit": "1c3f37830db4122ab179bc13fb2a2715ea2846d7",
+      "lineage": "candidate_ancestor",
+      "equivalent_ancestor": "1c3f37830db4122ab179bc13fb2a2715ea2846d7",
+      "paths": [
+        {
+          "path": "apps/web/src/app/api/mail/unsubscribe/[token]/route.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/api/v1/organizations/[organizationId]/notification-preferences/route.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/forgot-password/page.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/o/[organizationId]/notifications/page.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/o/[organizationId]/security/email/page.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/o/[organizationId]/security/password/page.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/reset-password/[token]/page.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/reset-password/page.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/unsubscribe/[token]/page.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/unsubscribe/page.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/verify-email/[token]/page.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/verify-email/page.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/lib/form-state.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/lib/notification-view.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/server/account-mail-actions.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/server/notification-actions.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/server/runtime.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/server/work-actions.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "docs/05-operations/05-container-deployment-runbook.md",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "docs/MANIFEST.json",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "docs/specifications/openapi.yaml",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "eslint.config.mjs",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "infrastructure/compose/compose.airgap.yaml",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "infrastructure/compose/compose.test.yaml",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "infrastructure/compose/compose.yaml",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "infrastructure/compose/postgres/upgrade-roles-mail.sql",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "infrastructure/compose/postgres/upgrade-roles.sh",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "infrastructure/compose/sovereign/compose.sovereign.yaml",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "infrastructure/scripts/generate-test-secrets.mjs",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "package.json",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/application/package.json",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/application/src/people.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/application/src/platform-mail.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/auth/package.json",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/auth/src/account-mail.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/auth/src/account-mail.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/auth/src/index.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/config/src/index.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/config/src/index.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/connectors/package.json",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/connectors/src/email/message.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/contracts/generated/openapi.d.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/database/drizzle.config.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/database/migrations/0570_platform_mail.sql",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/database/migrations/0571_platform_mail_security.sql",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/database/migrations/meta/_journal.json",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/database/package.json",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/database/src/auth-mail.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/database/src/auth.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/database/src/index.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/database/src/mail-tenant.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/database/src/mailer.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/database/src/schema-mail.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/database/src/tenant.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/domain/package.json",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/domain/src/mail-templates.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/domain/src/mail-templates.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/domain/src/mail.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/domain/src/mail.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/domain/src/notification-copy.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/domain/src/notification-copy.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/domain/src/portability.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/helpers/stack.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/integration/platform-mail.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/unit/notification-view.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/unit/platform-mail.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "workers/workflow/scripts/build.mjs",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "workers/workflow/src/mail-worker.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "workers/workflow/src/mail/config.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "workers/workflow/src/mail/config.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "workers/workflow/src/mail/loop.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "workers/workflow/src/mail/loop.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "workers/workflow/src/mail/mime.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "workers/workflow/src/mail/mime.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "workers/workflow/src/mail/plan.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "workers/workflow/src/mail/plan.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "workers/workflow/src/mail/transport.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "rc-ops",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/005-rc-ops",
+      "snapshot_commit": "8b96708b4658c3f37396606a15b743796d9134f4",
+      "lineage": "candidate_ancestor",
+      "equivalent_ancestor": "8b96708b4658c3f37396606a15b743796d9134f4",
+      "paths": [
+        {
+          "path": "infrastructure/compose/compose.backup.yaml",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "infrastructure/compose/compose.yaml",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "infrastructure/compose/postgres/10-provision.sh",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "infrastructure/compose/postgres/provision.sql",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "infrastructure/compose/postgres/upgrade-roles-workers.sql",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "infrastructure/compose/postgres/upgrade-roles.sh",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "infrastructure/compose/sovereign/compose.sovereign.yaml",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "infrastructure/scripts/generate-test-secrets.mjs",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/config/src/index.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/config/src/index.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/database/migrations/0700_worker_login_roles.sql",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/database/migrations/0701_worker_role_narrowing.sql",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/database/migrations/meta/_journal.json",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/database/src/service.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/database/src/tenant.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/telemetry/package.json",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/telemetry/src/index.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/telemetry/src/metrics.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/telemetry/src/otel.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/telemetry/src/otel.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/telemetry/src/tracing.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "pnpm-lock.yaml",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/helpers/stack.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/integration/credential-rotation.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/integration/oauth-exchange.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/integration/oauth-sweep.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/integration/offboarding-connections.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/integration/restore-runtime-recovery.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/integration/suite-tools.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/integration/worker-login-roles.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/stack/platform.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/unit/worker-login-roles.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "workers/workflow/src/connector-worker.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "workers/workflow/src/knowledge-worker.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "workers/workflow/src/main.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "rc-pay",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/006-rc-pay",
+      "snapshot_commit": "0bafb9233b79fa52c7f45c59278d9fd9a50300ec",
+      "lineage": "candidate_ancestor",
+      "equivalent_ancestor": "0bafb9233b79fa52c7f45c59278d9fd9a50300ec",
+      "paths": [
+        {
+          "path": "apps/web/src/app/api/payments/click/[token]/route.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/api/payments/payme/[token]/route.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/o/[organizationId]/account/invoices/[invoiceId]/checkout/[sessionId]/page.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/o/[organizationId]/account/invoices/[invoiceId]/checkout/page.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/server/api.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/server/checkout-actions.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/server/checkout-ingress.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/server/checkout-settings.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "docs/00-foundation/adr/ADR-032-saas-operations-and-billing.md",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "docs/05-operations/05-container-deployment-runbook.md",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "docs/05-operations/08-runbooks.md",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "docs/specifications/implementation-backlog.csv",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "docs/specifications/openapi.yaml",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "infrastructure/compose/compose.yaml",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/application/src/integration-ports.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/application/src/saas/checkout-callbacks.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/application/src/saas/checkout-ingress.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/application/src/saas/checkout.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/application/src/webhooks.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/config/package.json",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/config/src/checkout.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/config/src/checkout.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/connectors/src/payment/providers/click.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/connectors/src/payment/providers/payme.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/database/migrations/0580_hosted_checkout.sql",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/database/migrations/meta/_journal.json",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/database/src/payment-routing.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/database/src/schema-saas.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/database/src/secrets.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/domain/src/checkout.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/domain/src/portability.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/saas/src/checkout.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/saas/src/events.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/saas/src/payment.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/workflows/package.json",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/workflows/src/checkout-activities.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/workflows/src/checkout-workflow.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/workflows/src/connector-deps.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/workflows/src/saas-schemas.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/workflows/src/webhook-activities.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/workflows/src/workflows.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/integration/saas-checkout.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/replay/checkout-corpus.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "workers/workflow/src/checkout-composition.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "workers/workflow/src/connector-worker.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "workers/workflow/src/dispatcher.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "ui-refinement",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/008-ui-refinement",
+      "snapshot_commit": "e0717c9ece6d9b6f464557e5855ed43c3f853546",
+      "lineage": "equivalent_snapshot_tree",
+      "equivalent_ancestor": "6e9e0e07d43472fb75cfbdac5b6a6ccc72c2191f",
+      "paths": []
+    },
+    {
+      "worktree": "wf_2e9ac267-bb6-10",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/010-wf_2e9ac267-bb6-10",
+      "snapshot_commit": "be757eba445e7cb803ce586a94166b92005ea4c8",
+      "lineage": "preserved_reconciled_variant",
+      "equivalent_ancestor": null,
+      "paths": [
+        {
+          "path": "packages/application/src/product/process-runs.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/domain/src/process-run.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/domain/src/process-run.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/packs/src/bundled/index.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/packs/src/bundled/index.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/workflows/src/process-run-activities.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/workflows/src/process-run-workflow.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_2e9ac267-bb6-11",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/011-wf_2e9ac267-bb6-11",
+      "snapshot_commit": "e79efef5d83555844bfe2599c36d0c7cac62b0a7",
+      "lineage": "preserved_reconciled_variant",
+      "equivalent_ancestor": null,
+      "paths": [
+        {
+          "path": "apps/web/src/app/api/v1/organizations/[organizationId]/pack-installations/[installationId]/activation/route.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/api/v1/organizations/[organizationId]/pack-installations/[installationId]/capabilities/route.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/api/v1/organizations/[organizationId]/pack-installations/[installationId]/rollback/route.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/api/v1/organizations/[organizationId]/pack-installations/[installationId]/route.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/api/v1/organizations/[organizationId]/pack-installations/dto.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/api/v1/organizations/[organizationId]/packs/[packKey]/installations/route.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/api/v1/organizations/[organizationId]/packs/route.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/o/[organizationId]/packs/installations/[installationId]/page.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/o/[organizationId]/packs/page.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/components/packs/capability-request.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/components/packs/words.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/server/pack-actions.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/application/src/product/packs.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/domain/src/pack.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/domain/src/pack.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/packs/src/sales-operations/index.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/packs/src/sales-operations/index.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_2e9ac267-bb6-4",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/012-wf_2e9ac267-bb6-4",
+      "snapshot_commit": "82057508eaa9dd553e4f097064f8ae1d124350dd",
+      "lineage": "preserved_reconciled_variant",
+      "equivalent_ancestor": null,
+      "paths": [
+        {
+          "path": "packages/domain/src/pulse.test.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_2e9ac267-bb6-6",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/013-wf_2e9ac267-bb6-6",
+      "snapshot_commit": "5f963521d787c6538a88e412eb87ac098ec03df7",
+      "lineage": "preserved_reconciled_variant",
+      "equivalent_ancestor": null,
+      "paths": [
+        {
+          "path": "apps/web/src/app/o/[organizationId]/assistants/[runId]/page.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/o/[organizationId]/assistants/page.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/components/assistants/present.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/components/assistants/read.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/components/assistants/run-views.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/server/assistant-actions.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/application/src/product/assistants.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/browser/specs/assistants.spec.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/integration/assistants.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/unit/assistants-wording.test.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_2e9ac267-bb6-7",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/014-wf_2e9ac267-bb6-7",
+      "snapshot_commit": "622e68fe4bb2333474a7aa286cb7afe72860bfbc",
+      "lineage": "preserved_reconciled_variant",
+      "equivalent_ancestor": null,
+      "paths": [
+        {
+          "path": "packages/domain/src/custom-object.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/domain/src/custom-object.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_2e9ac267-bb6-8",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/015-wf_2e9ac267-bb6-8",
+      "snapshot_commit": "9dd6cf638132241afe13643c698d24b01bd3f293",
+      "lineage": "preserved_reconciled_variant",
+      "equivalent_ancestor": null,
+      "paths": [
+        {
+          "path": "packages/domain/src/agent-draft.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/domain/src/agent-draft.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/domain/src/simulation.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/domain/src/simulation.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_2e9ac267-bb6-9",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/016-wf_2e9ac267-bb6-9",
+      "snapshot_commit": "28b9b6f85e602a3825b3ac659a8aa1e659b34932",
+      "lineage": "preserved_reconciled_variant",
+      "equivalent_ancestor": null,
+      "paths": [
+        {
+          "path": "packages/application/src/product/process-specs.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/domain/src/process-spec.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/domain/src/process-spec.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_3b625110-ef7-1",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/017-wf_3b625110-ef7-1",
+      "snapshot_commit": "34cf5e7e080b211e5d96f6c3bf7a5b2bad8571ea",
+      "lineage": "candidate_ancestor",
+      "equivalent_ancestor": "34cf5e7e080b211e5d96f6c3bf7a5b2bad8571ea",
+      "paths": [
+        {
+          "path": "docs/00-foundation/adr/ADR-033-expansion-packs-connectors-meetings.md",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "docs/06-delivery/m11a-slices.md",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/application/src/business-records.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/application/src/expansion-ports.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/application/src/meeting-derivation.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/application/src/meetings.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/connectors/src/business/http.ts",
+          "disposition": "renamed_or_superseded: packages/connectors/src/business/gateway-http.ts"
+        },
+        {
+          "path": "packages/connectors/src/business/kit.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/connectors/src/business/kit.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/connectors/src/meetings/index.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/contracts/generated/openapi.d.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/contracts/src/business-records.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/database/src/schema-expansion.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/department-packs/package.json",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/department-packs/src/finance/index.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/department-packs/src/hr/index.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/department-packs/src/index.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/department-packs/src/learning/index.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/department-packs/src/marketing/index.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/department-packs/src/testing.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/domain/src/department-pack.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/domain/src/department-pack.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "pnpm-lock.yaml",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/integration/expansion-schema.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/unit/expansion-rules.test.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_4b614715-08e-11",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/018-wf_4b614715-08e-11",
+      "snapshot_commit": "a0a8a730179e4357b5fd77a97d18718004d2ec20",
+      "lineage": "preserved_reconciled_variant",
+      "equivalent_ancestor": null,
+      "paths": [
+        {
+          "path": "packages/application/src/external-actions.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_4beba6ba-457-10",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/020-wf_4beba6ba-457-10",
+      "snapshot_commit": "82dc07604d55210693475d692d63b8c39a9a6ca6",
+      "lineage": "preserved_reconciled_variant",
+      "equivalent_ancestor": null,
+      "paths": [
+        {
+          "path": "apps/web/src/app/o/[organizationId]/approvals/[approvalId]/agent-action.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/application/src/ai/tool-approvals.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/application/src/ai/tool-approvals.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/integration/ai-approvals.test.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_4beba6ba-457-11",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/021-wf_4beba6ba-457-11",
+      "snapshot_commit": "65ecc5465b2c5189017c1d3df2800270dbc0d80e",
+      "lineage": "preserved_reconciled_variant",
+      "equivalent_ancestor": null,
+      "paths": [
+        {
+          "path": "workers/workflow/src/kill-switch.test.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_4beba6ba-457-12",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/022-wf_4beba6ba-457-12",
+      "snapshot_commit": "87f31e99f257923f0855d13379ea7e6d2ace5d8b",
+      "lineage": "preserved_reconciled_variant",
+      "equivalent_ancestor": null,
+      "paths": [
+        {
+          "path": "apps/web/src/app/api/v1/organizations/[organizationId]/agent-runs/[agentRunId]/controls/route.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/api/v1/organizations/[organizationId]/agent-runs/[agentRunId]/route.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/api/v1/organizations/[organizationId]/agent-runs/[agentRunId]/steps/route.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/api/v1/organizations/[organizationId]/agent-runs/params.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/api/v1/organizations/[organizationId]/agent-runs/route.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/o/[organizationId]/work/[workUnitId]/run/actions.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/o/[organizationId]/work/[workUnitId]/run/error.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/o/[organizationId]/work/[workUnitId]/run/loading.tsx",
+          "disposition": "renamed_or_superseded: apps/web/src/app/o/[organizationId]/work/[workUnitId]/run/run-loading.tsx"
+        },
+        {
+          "path": "apps/web/src/app/o/[organizationId]/work/[workUnitId]/run/page.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/o/[organizationId]/work/[workUnitId]/run/run-view.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/o/[organizationId]/work/[workUnitId]/run/run-watcher.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/application/src/ai/run-control.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/application/src/ai/run-control.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/application/src/ai/timeline.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/application/src/ai/timeline.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/browser/specs/agent-run.spec.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/integration/ai-timeline.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/unit/web-agent-run-view.test.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_4beba6ba-457-13",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/023-wf_4beba6ba-457-13",
+      "snapshot_commit": "e0f7be33404bfaaeb63fb1b920baadf539277e8e",
+      "lineage": "preserved_reconciled_variant",
+      "equivalent_ancestor": null,
+      "paths": [
+        {
+          "path": "packages/agent-runtime/src/delegation.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/agent-runtime/src/delegation.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/application/src/ai/delegation.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_4beba6ba-457-2",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/024-wf_4beba6ba-457-2",
+      "snapshot_commit": "fc25d441bc9aef2a6a565d6e459c93e7371bd140",
+      "lineage": "preserved_reconciled_variant",
+      "equivalent_ancestor": null,
+      "paths": [
+        {
+          "path": "packages/application/src/ai/egress-log.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/intelligence/src/gateway.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/intelligence/src/gateway.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/intelligence/src/router/cost.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/intelligence/src/router/doubles.test-support.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/intelligence/src/router/facts.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/intelligence/src/router/index.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/intelligence/src/router/output.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/intelligence/src/router/router.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/policy/src/action.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/policy/src/action.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/policy/src/classification.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/policy/src/egress.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/policy/src/egress.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/policy/src/secret-scan.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/policy/src/secret-scan.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/integration/ai-routing.test.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_4beba6ba-457-3",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/025-wf_4beba6ba-457-3",
+      "snapshot_commit": "7c2d03a0fc848cfc5d914031a182bbe5fb61c385",
+      "lineage": "preserved_reconciled_variant",
+      "equivalent_ancestor": null,
+      "paths": [
+        {
+          "path": "packages/intelligence/src/adapters/index.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/intelligence/src/credentials.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/intelligence/src/credentials.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/intelligence/src/net/errors.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/intelligence/src/net/guard.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/intelligence/src/net/guard.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/policy/src/endpoint.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/policy/src/endpoint.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/conformance/adapter-conformance.suite.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/conformance/credential-lender.suite.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/conformance/fake-model.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/contract/real-adapters.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/fixtures/fake-model/server.mjs",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/integration/ai-credentials.test.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_4beba6ba-457-7",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/029-wf_4beba6ba-457-7",
+      "snapshot_commit": "0712f66b79fc1cd69d0802e9e8e6bc343c92ade9",
+      "lineage": "preserved_reconciled_variant",
+      "equivalent_ancestor": null,
+      "paths": [
+        {
+          "path": "packages/agent-runtime/src/reducer.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/agent-runtime/src/reducer.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/application/src/ai/runs.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/workflows/src/agent-activities.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/workflows/src/agent-run.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_4beba6ba-457-8",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/030-wf_4beba6ba-457-8",
+      "snapshot_commit": "49ef2a9dd33d1dfa7dfce1b6599629c6d8d8aa9e",
+      "lineage": "preserved_reconciled_variant",
+      "equivalent_ancestor": null,
+      "paths": [
+        {
+          "path": "packages/agent-runtime/src/context/compiler.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/agent-runtime/src/context/golden/injected-document.golden.txt",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/agent-runtime/src/context/golden/plain-work.golden.txt",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/agent-runtime/src/context/index.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/agent-runtime/src/context/template.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/agent-runtime/src/context/tools.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/application/src/ai/context-source.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/application/src/ai/context-source.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/integration/ai-context.test.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_4beba6ba-457-9",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/031-wf_4beba6ba-457-9",
+      "snapshot_commit": "6a5ad5568dc6a12ba401b232a9c008593fbb777f",
+      "lineage": "preserved_reconciled_variant",
+      "equivalent_ancestor": null,
+      "paths": [
+        {
+          "path": "packages/agent-runtime/src/tools/gateway.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/agent-runtime/src/tools/index.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/agent-runtime/src/tools/proposal-record.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/application/src/ai/tool-steps.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/integration/ai-tools.test.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_84f90dac-4ce-1",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/032-wf_84f90dac-4ce-1",
+      "snapshot_commit": "906751829a7d863082f154c65e3dd9a1d383f697",
+      "lineage": "candidate_ancestor",
+      "equivalent_ancestor": "906751829a7d863082f154c65e3dd9a1d383f697",
+      "paths": [
+        {
+          "path": "packages/database/migrations/0703_federation_security.sql",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_90f45984-243-2",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/034-wf_90f45984-243-2",
+      "snapshot_commit": "9e07d5a20bc561eb9bff929f7727187589aa49fd",
+      "lineage": "preserved_reconciled_variant",
+      "equivalent_ancestor": null,
+      "paths": [
+        {
+          "path": "packages/application/src/licensing.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/fixtures/license-corpus/v1/README.md",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/fixtures/license-corpus/v1/trust-root.json",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/integration/licensing.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/tsconfig.unit-tmp.json",
+          "disposition": "scratch_preserved: preservation snapshot only: temporary compiler scratch configuration"
+        },
+        {
+          "path": "tests/unit/license-corpus.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "workers/workflow/src/sovereign-license-command.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "workers/workflow/src/sovereign-license-command.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_90f45984-243-4",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/036-wf_90f45984-243-4",
+      "snapshot_commit": "a7d6f1a5cab195a1e75b53269d266dff7e51872d",
+      "lineage": "preserved_reconciled_variant",
+      "equivalent_ancestor": null,
+      "paths": [
+        {
+          "path": "infrastructure/compose/sovereign/README.md",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "infrastructure/scripts/build-bundle.mjs",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "infrastructure/scripts/bundle-rehearsal.mjs",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/sovereign/src/bundle.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/sovereign/src/bundle.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/stack/bundle-upgrade.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/unit/bundle-install-plan.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/unit/bundle-tools-offline.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "workers/workflow/src/tools/install-bundle.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "workers/workflow/src/tools/verify-bundle.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_90f45984-243-6",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/038-wf_90f45984-243-6",
+      "snapshot_commit": "c6479ba383696cbcbbd0f1a069bed2f1ad5034b4",
+      "lineage": "preserved_reconciled_variant",
+      "equivalent_ancestor": null,
+      "paths": [
+        {
+          "path": "packages/application/src/portability-import.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/application/src/portability-sections-import.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/integration/fixtures/archive-builder.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/integration/organization-import.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/unit/hostile-archive.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "workers/workflow/src/organization-import-command.test.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_90f45984-243-7",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/039-wf_90f45984-243-7",
+      "snapshot_commit": "f734b7690136030e8fe0c71afd118a6d6bf732af",
+      "lineage": "preserved_reconciled_variant",
+      "equivalent_ancestor": null,
+      "paths": [
+        {
+          "path": "tests/integration/restore-reconcile.test.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_90f45984-243-8",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/040-wf_90f45984-243-8",
+      "snapshot_commit": "7fbc266b6ed8528f1237415de56578171b4b566f",
+      "lineage": "preserved_reconciled_variant",
+      "equivalent_ancestor": null,
+      "paths": [
+        {
+          "path": "apps/web/src/app/api/v1/organizations/[organizationId]/advisories/route.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/api/v1/organizations/[organizationId]/exports/[exportId]/archive/route.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/api/v1/organizations/[organizationId]/exports/[exportId]/route.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/api/v1/organizations/[organizationId]/exports/route.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/api/v1/organizations/[organizationId]/imported-people/[sourceMembershipId]/link/route.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/api/v1/organizations/[organizationId]/imported-people/route.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/api/v1/organizations/[organizationId]/imports/[importId]/route.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/api/v1/organizations/[organizationId]/imports/route.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/api/v1/organizations/[organizationId]/license/documents/route.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/api/v1/organizations/[organizationId]/license/route.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/globals.css",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/o/[organizationId]/data/page.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/o/[organizationId]/data/work/[workUnitId]/page.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/o/[organizationId]/data/work/page.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/o/[organizationId]/layout.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/app/o/[organizationId]/license/page.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/components/export-list.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/components/export-request-form.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/components/import-history.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/components/import-people.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/components/import-summary.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/components/license-advisories.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/components/license-install-form.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/components/license-notice-list.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/components/license-summary.tsx",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/server/sovereign-actions.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/server/sovereign-dto.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/server/sovereign-runtime.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "docs/specifications/openapi.yaml",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/contracts/generated/openapi.d.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/browser/specs/data-portability.spec.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/browser/specs/license.spec.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/stack/sovereign-api.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/unit/openapi-contract.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/unit/sovereign-words.test.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_9ae245df-7f2-10",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/044-wf_9ae245df-7f2-10",
+      "snapshot_commit": "7a577634b9d900df1eb87c8bf5feab7b194989b6",
+      "lineage": "candidate_ancestor",
+      "equivalent_ancestor": "7a577634b9d900df1eb87c8bf5feab7b194989b6",
+      "paths": [
+        {
+          "path": "apps/web/src/server/api.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/server/client-address.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "apps/web/src/server/tenant.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "infrastructure/scripts/proxy-preflight-rules.mjs",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "infrastructure/scripts/proxy-preflight.mjs",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/telemetry/src/client-address-watch.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/telemetry/src/client-address-watch.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/stack/client-address-warning.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/unit/proxy-preflight-rules.test.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_9ae245df-7f2-3",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/046-wf_9ae245df-7f2-3",
+      "snapshot_commit": "01cdf28f16b2b2f2d2b90a6c4083bf6dd30c75e2",
+      "lineage": "preserved_reconciled_variant",
+      "equivalent_ancestor": null,
+      "paths": [
+        {
+          "path": "infrastructure/scripts/scan-rules.mjs",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/unit/scan-rules.test.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_9ae245df-7f2-5",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/048-wf_9ae245df-7f2-5",
+      "snapshot_commit": "f9d8b9c6f498dc35a5e7d285764b96921b574dc6",
+      "lineage": "preserved_reconciled_variant",
+      "equivalent_ancestor": null,
+      "paths": [
+        {
+          "path": "packages/telemetry/src/tracing-sdk.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "packages/telemetry/src/tracing-sdk.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_9ae245df-7f2-6",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/049-wf_9ae245df-7f2-6",
+      "snapshot_commit": "b8043e97786a00809c073727315a7446a2592fd7",
+      "lineage": "candidate_ancestor",
+      "equivalent_ancestor": "b8043e97786a00809c073727315a7446a2592fd7",
+      "paths": [
+        {
+          "path": "tests/unit/web-instrumentation.test.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_9ae245df-7f2-7",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/050-wf_9ae245df-7f2-7",
+      "snapshot_commit": "4e0fa037f79ccd976e5b4d9e5496ae11044a6c3e",
+      "lineage": "candidate_ancestor",
+      "equivalent_ancestor": "4e0fa037f79ccd976e5b4d9e5496ae11044a6c3e",
+      "paths": [
+        {
+          "path": "tests/unit/tracing-boundaries.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "workers/workflow/src/activity-tracing.test.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "workers/workflow/src/activity-tracing.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "workers/workflow/src/dispatcher.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "workers/workflow/src/main.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_ed7cc9b4-b53-11",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/056-wf_ed7cc9b4-b53-11",
+      "snapshot_commit": "f0a3e6dd1e992636ce2e2a137591aeb40bd3ca94",
+      "lineage": "candidate_ancestor",
+      "equivalent_ancestor": "f0a3e6dd1e992636ce2e2a137591aeb40bd3ca94",
+      "paths": [
+        {
+          "path": "docs/guides/operator/configuration.md",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "docs/guides/operator/first-owner.md",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "docs/guides/operator/identity-providers.md",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "docs/guides/operator/install-compose.md",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "docs/guides/operator/overview.md",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "docs/guides/operator/secrets.md",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_ed7cc9b4-b53-12",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/057-wf_ed7cc9b4-b53-12",
+      "snapshot_commit": "22128c747466c43c058ae257cc47d53240acc7d4",
+      "lineage": "candidate_ancestor",
+      "equivalent_ancestor": "22128c747466c43c058ae257cc47d53240acc7d4",
+      "paths": [
+        {
+          "path": "docs/guides/operator/advisories-and-branches.md",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "docs/guides/operator/diagnostics-export.md",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "docs/guides/operator/license-issuance.md",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "docs/guides/operator/offline-install.md",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "docs/guides/operator/offline-upgrades.md",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "docs/guides/operator/outbound-traffic.md",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_ed7cc9b4-b53-2",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/059-wf_ed7cc9b4-b53-2",
+      "snapshot_commit": "9088748b7fe999b4a09e9de8dce914be0c848195",
+      "lineage": "candidate_ancestor",
+      "equivalent_ancestor": "9088748b7fe999b4a09e9de8dce914be0c848195",
+      "paths": [
+        {
+          "path": "tests/parity/scenarios/work-support.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/parity/scenarios/work.parity.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_ed7cc9b4-b53-3",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/060-wf_ed7cc9b4-b53-3",
+      "snapshot_commit": "e9353d3af2ef1eaee87a3ed21acf6903eab7dc52",
+      "lineage": "candidate_ancestor",
+      "equivalent_ancestor": "e9353d3af2ef1eaee87a3ed21acf6903eab7dc52",
+      "paths": [
+        {
+          "path": "tests/parity/scenarios/boundary-support.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/parity/scenarios/boundary.parity.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/unit/zz-boundary-local.test.ts",
+          "disposition": "scratch_preserved: .local/recovered-scratch/parity-boundary-controls.test.ts"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_ed7cc9b4-b53-4",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/061-wf_ed7cc9b4-b53-4",
+      "snapshot_commit": "9552a23492518851e13fa258b19e3801e21b78a5",
+      "lineage": "candidate_ancestor",
+      "equivalent_ancestor": "9552a23492518851e13fa258b19e3801e21b78a5",
+      "paths": [
+        {
+          "path": "tests/parity/fixtures/agent-manifests.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/parity/scenarios/modes-support.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/parity/scenarios/modes.parity.ts",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/unit/zz-parity-modes-scratch.test.ts",
+          "disposition": "scratch_preserved: .local/recovered-scratch/parity-mode-controls.test.ts"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_ed7cc9b4-b53-5",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/062-wf_ed7cc9b4-b53-5",
+      "snapshot_commit": "52936087d2972523712782551d0b0ca9d79c3fc2",
+      "lineage": "candidate_ancestor",
+      "equivalent_ancestor": "52936087d2972523712782551d0b0ca9d79c3fc2",
+      "paths": [
+        {
+          "path": "infrastructure/licenses/components.json",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "infrastructure/scripts/license-inventory.mjs",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "infrastructure/scripts/license-rules.mjs",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/unit/fixtures/licenses/compose.test.yaml",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/unit/fixtures/licenses/compose.yaml",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/unit/fixtures/licenses/fake-pnpm.mjs",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/unit/fixtures/licenses/pnpm-web.json",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/unit/fixtures/licenses/pnpm-worker.json",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/unit/fixtures/licenses/sbom.spdx.json",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "tests/unit/license-rules.test.ts",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    },
+    {
+      "worktree": "wf_ed7cc9b4-b53-9",
+      "snapshot_ref": "refs/preservation/20261121T125018Z/dirty/066-wf_ed7cc9b4-b53-9",
+      "snapshot_commit": "ff06a3678f5e87d56d23c8c901a64e7b193a70c5",
+      "lineage": "candidate_ancestor",
+      "equivalent_ancestor": "ff06a3678f5e87d56d23c8c901a64e7b193a70c5",
+      "paths": [
+        {
+          "path": "docs/guides/user/agents-and-runs.md",
+          "disposition": "present_in_candidate"
+        },
+        {
+          "path": "docs/guides/user/usage-and-budgets.md",
+          "disposition": "present_in_candidate"
+        }
+      ]
+    }
+  ],
+  "note": "Presence records source recovery, not acceptance or byte equality with newer implementations. Historical variants are retained rather than replayed over later fixes."
+}

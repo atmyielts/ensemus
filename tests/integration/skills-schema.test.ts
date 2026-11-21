@@ -646,6 +646,27 @@ describe('skill, sandbox and marketplace rules in the database', () => {
       await set('withdrawn');
     });
 
+    it('does not let separate worker or agent logins progress a marketplace review', async () => {
+      const { submissionId } = await seedSubmission();
+      for (const url of [urls.worker(), urls.connector(), urls.knowledge(), urls.agent()]) {
+        const runtime = await client(url);
+        try {
+          await runtime.query("select set_config('app.organization_id', $1, false)", [
+            ctxA.organizationId,
+          ]);
+          await expect(
+            runtime.query(
+              `update marketplace.submissions set state='in_review', version=version+1
+              where organization_id=$1 and id=$2 returning id`,
+              [ctxA.organizationId, submissionId],
+            ),
+          ).rejects.toMatchObject({ code: 'ES005' });
+        } finally {
+          await runtime.end();
+        }
+      }
+    });
+
     const passedChecks = () =>
       Object.fromEntries(REVIEW_CHECKS.map((check) => [check, 'pass'])) as Record<string, string>;
 

@@ -157,10 +157,42 @@ export type CompiledSandboxPolicy =
  * every deployment that accepts it. Owned by the sandbox-policy slice (ADR-034 D3).
  */
 export function compileSandboxPolicy(
-  _request: SandboxPolicyRequest,
-  _ceilings: SandboxLimits,
+  request: SandboxPolicyRequest,
+  ceilings: SandboxLimits,
 ): CompiledSandboxPolicy {
-  throw new Error('NOT_IMPLEMENTED');
+  if (!(SANDBOX_RUNTIMES as readonly string[]).includes(request.runtime))
+    return { ok: false, code: 'RUNTIME_NOT_SUPPORTED' };
+  if (request.network.mode !== 'none') return { ok: false, code: 'NETWORK_NOT_ALLOWED' };
+  for (const field of Object.keys(SANDBOX_MINIMUM_LIMITS) as (keyof SandboxLimits)[]) {
+    const value = request.limits[field],
+      ceiling = ceilings[field];
+    if (
+      !Number.isSafeInteger(value) ||
+      !Number.isSafeInteger(ceiling) ||
+      value < SANDBOX_MINIMUM_LIMITS[field] ||
+      value > ceiling
+    ) {
+      return { ok: false, code: 'LIMITS_OVER_CEILING' };
+    }
+  }
+  const policy: SandboxPolicy = {
+    policyVersion: 1,
+    runtime: 'node24',
+    entry: request.entry,
+    network: { mode: 'none' },
+    credentials: 'none',
+    environment: 'fixed_empty',
+    filesystem: { root: 'read_only', skill: 'read_only', scratch: 'tmpfs_only' },
+    limits: {
+      wallMs: request.limits.wallMs,
+      cpuMs: request.limits.cpuMs,
+      memoryMb: request.limits.memoryMb,
+      tmpfsMb: request.limits.tmpfsMb,
+      outputKb: request.limits.outputKb,
+      pids: request.limits.pids,
+    },
+  };
+  return { ok: true, policy, policyHash: sandboxPolicyHash(policy) };
 }
 
 /** Binds a run to its rule. A stored policy that no longer hashes to this is refused before it runs. */
