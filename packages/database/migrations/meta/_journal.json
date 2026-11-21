@@ -1037,6 +1037,20 @@
       "when": 1794201807620,
       "tag": "0738_native_human_readers",
       "breakpoints": true
+    },
+    {
+      "idx": 148,
+      "version": "7",
+      "when": 1794201807621,
+      "tag": "0739_business_record_read_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 149,
+      "version": "7",
+      "when": 1794201807622,
+      "tag": "0740_business_record_revocation",
+      "breakpoints": true
     }
   ]
 }

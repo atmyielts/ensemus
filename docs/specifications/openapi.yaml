@@ -8071,7 +8071,6 @@ paths:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
     get:
-      x-ensemus-status: planned
       tags:
         - business-records
       summary: Stored records this person has a source grant for
@@ -8129,7 +8128,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/RecordID"
     get:
-      x-ensemus-status: planned
       tags:
         - business-records
       summary: One record, or not found for anyone the source did not grant

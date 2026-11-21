@@ -20,7 +20,7 @@ describe('working workspace navigation', () => {
       'Organization',
       'Account',
     ]);
-    expect(groups.flatMap((group) => group.items)).toHaveLength(14);
+    expect(groups.flatMap((group) => group.items)).toHaveLength(15);
     const items = groups.flatMap((group) =>
       group.items.flatMap((item) => [item, ...(item.children ?? [])]),
     );
@@ -84,6 +84,7 @@ describe('working workspace navigation', () => {
     ['/compose/a', 'Work'],
     ['/pulse/work_overdue:a', 'Home'],
     ['/objects/types/a/records/b', 'Custom records'],
+    ['/records/a', 'Source records'],
     ['/get-started', 'Administration'],
     ['/approvals/a', 'Approvals'],
     ['/external-actions/a', 'Approvals'],

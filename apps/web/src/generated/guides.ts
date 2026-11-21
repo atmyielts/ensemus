@@ -11333,6 +11333,117 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
     ]
   },
   {
+    "slug": "source-records",
+    "title": "Reading source records",
+    "section": "connections",
+    "modes": [
+      "cloud",
+      "byom",
+      "sovereign"
+    ],
+    "status": "written_untested",
+    "blocks": [
+      {
+        "b": "quote",
+        "inline": [
+          {
+            "t": "strong",
+            "v": "Not yet tested end to end."
+          },
+          {
+            "t": "text",
+            "v": " This page was written from the code, and nobody has followed it on a running system yet."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "This guide covers the read pages. Full connector setup and provider acceptance remain unfinished."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Open "
+          },
+          {
+            "t": "strong",
+            "v": "Source records"
+          },
+          {
+            "t": "text",
+            "v": " in your workspace. Choose a "
+          },
+          {
+            "t": "strong",
+            "v": "Record kind"
+          },
+          {
+            "t": "text",
+            "v": " and press "
+          },
+          {
+            "t": "strong",
+            "v": "Apply filter"
+          },
+          {
+            "t": "text",
+            "v": ", or use "
+          },
+          {
+            "t": "strong",
+            "v": "Clear filters"
+          },
+          {
+            "t": "text",
+            "v": " to return to all kinds. "
+          },
+          {
+            "t": "strong",
+            "v": "Next records"
+          },
+          {
+            "t": "text",
+            "v": " opens another page when more are available. Filtering and navigation work without JavaScript."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Only selected fields last read from a connected CRM, ticketing or accounting source appear. The source must grant you access directly or through your team. Being a company administrator adds no access. An empty list can mean no selected records have synced, no source grant maps to you, or the connection is unavailable. It does not show how many hidden records exist."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Open a record to see its source name, reference, version, classification and last-read time. These are stored values, so check the connected system for its latest state. A changed snapshot stays hidden until its corresponding source permissions commit. Removing a grant or revoking the connection removes access on the next request."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Changes cannot be proposed from this view yet. Accounting values are read only; nothing on these pages posts an invoice or moves money. Installing a department pack does not grant source access or make a connector available. Full connector setup, live synchronization and reviewed external changes have separate release gates."
+          }
+        ]
+      }
+    ]
+  },
+  {
     "slug": "sending-email",
     "title": "Sending email from Ensemus",
     "section": "connections",

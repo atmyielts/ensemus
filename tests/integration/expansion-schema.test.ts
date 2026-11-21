@@ -25,9 +25,10 @@ import {
   withTenantTx,
   type TenantContext,
 } from '@ensemus/database';
+import { createServiceContext } from '@ensemus/database/service';
 import { createWorkUnit } from '@ensemus/application';
 import { modelProfileRef } from '@ensemus/domain/meeting';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { inFixtureTenant } from '../helpers/fixture-tenant';
 import {
   enableMeetings,
@@ -60,6 +61,7 @@ const NOT_PERMITTED = '42501';
 
 describe('expansion rules in the database', () => {
   let database: ReturnType<typeof openAppDatabase>;
+  let connector: ReturnType<typeof openAppDatabase>;
   let auth: pg.Client;
   let su: pg.Client;
   let ctxA: TenantContext;
@@ -92,6 +94,7 @@ describe('expansion rules in the database', () => {
 
   beforeAll(async () => {
     database = openAppDatabase(urls.app());
+    connector = openAppDatabase(urls.connector());
     auth = await client(urls.auth());
     su = await client(urls.superuser());
     const alice = await makeUser('alice');
@@ -116,6 +119,7 @@ describe('expansion rules in the database', () => {
 
   afterAll(async () => {
     await database.close();
+    await connector.close();
     await auth.end();
     await su.end();
   });
@@ -897,8 +901,21 @@ describe('expansion rules in the database', () => {
   });
 
   describe('stored business records', () => {
+    const businessTx = <T>(
+      context: TenantContext,
+      connectionId: string,
+      read: (tx: import('@ensemus/database').Tx) => Promise<T>,
+    ) =>
+      withTenantTx(connector.db, createServiceContext(context.organizationId), async (tx) => {
+        await tx.execute(sql`select set_config('app.business_connection_id',${connectionId},true)`);
+        return read(tx);
+      });
     it('refuse what the checks refuse', async () => {
-      const connectionId = await seedConnection(db(), ctxA, { connectorType: 'crm_http' });
+      const connectionId = await seedConnection(db(), ctxA, {
+        connectorType: 'crm_http',
+        config: { streams: ['crm.deals'], scopes: ['crm_http.read'] },
+        grantedScopes: ['crm_http.read'],
+      });
       const values = {
         organizationId: ctxA.organizationId,
         connectionId,
@@ -909,25 +926,29 @@ describe('expansion rules in the database', () => {
         classification: 'internal',
       };
       await expect(
-        withTenantTx(db(), ctxA, (tx) =>
+        businessTx(ctxA, connectionId, (tx) =>
           tx.insert(businessRecords).values({ ...values, classification: 'secret' }),
         ),
       ).rejects.toEqual(sqlState('23514'));
       await expect(
-        withTenantTx(db(), ctxA, (tx) =>
+        businessTx(ctxA, connectionId, (tx) =>
           tx.insert(businessRecords).values({ ...values, fields: { big: 'x'.repeat(70_000) } }),
         ),
       ).rejects.toEqual(sqlState('23514'));
-      await withTenantTx(db(), ctxA, (tx) => tx.insert(businessRecords).values(values));
+      await businessTx(ctxA, connectionId, (tx) => tx.insert(businessRecords).values(values));
       await expect(
-        withTenantTx(db(), ctxA, (tx) => tx.insert(businessRecords).values(values)),
+        businessTx(ctxA, connectionId, (tx) => tx.insert(businessRecords).values(values)),
       ).rejects.toEqual(sqlState('23505'));
     });
 
     it('refuse another tenant’s connection, and any change to their source', async () => {
-      const theirs = await seedConnection(db(), ctxB, { connectorType: 'crm_http' });
+      const theirs = await seedConnection(db(), ctxB, {
+        connectorType: 'crm_http',
+        config: { streams: ['crm.deals'], scopes: ['crm_http.read'] },
+        grantedScopes: ['crm_http.read'],
+      });
       await expect(
-        withTenantTx(db(), ctxA, (tx) =>
+        businessTx(ctxA, theirs, (tx) =>
           tx.insert(businessRecords).values({
             organizationId: ctxA.organizationId,
             connectionId: theirs,
@@ -938,9 +959,9 @@ describe('expansion rules in the database', () => {
             classification: 'internal',
           }),
         ),
-      ).rejects.toEqual(sqlState('23503'));
+      ).rejects.toEqual(sqlState(NOT_PERMITTED));
       await expect(
-        withTenantTx(db(), ctxA, (tx) =>
+        businessTx(ctxA, theirs, (tx) =>
           tx.update(businessRecords).set({ stream: 'crm.contacts' }),
         ),
       ).rejects.toEqual(sqlState(NOT_PERMITTED));

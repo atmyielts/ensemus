@@ -77,8 +77,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-033-expansion-packs-connectors-meetings.md",
-      "size_bytes": 27514,
-      "sha256": "77040b1ad3e07eaa62ca87f9666b8a86e980e056e74831cb6f2220dd83660a1e"
+      "size_bytes": 27675,
+      "sha256": "59050b742847dc6dfa68188d1f45c97d3502edea7fc6005e26ebd221f18e5cfb"
     },
     {
       "path": "00-foundation/adr/ADR-034-skills-sandbox-marketplace.md",
@@ -916,6 +916,11 @@
       "sha256": "646f9006ddb5022f07e6e387076373606538df6f25187c521c136e5189c9a66a"
     },
     {
+      "path": "06-delivery/evidence/rc-business-record-reads-20261121.json",
+      "size_bytes": 8721,
+      "sha256": "b89ba0addd1bdf30e7a9485702b7a70e95984e1b80f2802f3e298bb459e2b773"
+    },
+    {
       "path": "06-delivery/evidence/rc-hr-native-privacy-20261121.json",
       "size_bytes": 7153,
       "sha256": "78d72e63b1332bcd8b194892296b6515078184b4b1283b186cd80f2d3e8f035b"
@@ -992,8 +997,8 @@
     },
     {
       "path": "06-delivery/release-candidate-2026-11-21.md",
-      "size_bytes": 32688,
-      "sha256": "292f5c8379bbfd12f5ef0c2b7c801cfa0cba8e681af05ab5e04e87557c199e21"
+      "size_bytes": 37542,
+      "sha256": "8ce3aec7a69d93e5e5c0d285e5da7f51b2c27180c426bd7a13e1bec3c3bc6bd2"
     },
     {
       "path": "06-delivery/release-candidate-source-ledger.json",
@@ -1072,8 +1077,8 @@
     },
     {
       "path": "guides/index.json",
-      "size_bytes": 4644,
-      "sha256": "d1407cadfa9f74608c33cfc60dac6e5ad87b44a7a5a86eda7c50212e6fc81466"
+      "size_bytes": 4678,
+      "sha256": "0af3f05952549c3ad3eae51a5fc992e0eba955e5b7619f6b640fe6bdfe7c78e4"
     },
     {
       "path": "guides/operator/advisories-and-branches.md",
@@ -1451,6 +1456,11 @@
       "sha256": "e119117d28b19f2198b6f6ea6cf7f97150cc859ebfbee53a15ca5a127ba0cadc"
     },
     {
+      "path": "guides/user/source-records.md",
+      "size_bytes": 2004,
+      "sha256": "3602027d84a37c23177094d12d584c1f0255eff091b47a93fac0787f47ef0371"
+    },
+    {
       "path": "guides/user/sovereign-license-status.md",
       "size_bytes": 5613,
       "sha256": "d10f2f87048b83ae87e63f7848879bca86f4c651cc1f58659912e540ea3d9b3b"
@@ -1612,8 +1622,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 564451,
-      "sha256": "6c52060fa40fa4b36f671681da109dadd58d1c49c03cbd8b6b15c8e533304e76"
+      "size_bytes": 564387,
+      "sha256": "62f248b9ba0583533b13e12fcc1c3062a51f61a010f14d704c924dfb9950edb0"
     },
     {
       "path": "specifications/qa-scenarios.csv",

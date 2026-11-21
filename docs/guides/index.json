@@ -36,6 +36,7 @@
       "slice": "docs-user-data",
       "pages": [
         "user/connections.md",
+        "user/source-records.md",
         "user/sending-email.md",
         "user/sent-failed-unknown.md",
         "user/webhooks.md",

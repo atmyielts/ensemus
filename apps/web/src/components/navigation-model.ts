@@ -219,6 +219,7 @@ export function workspaceNavigation(input: {
         matches: [`${base}/search`],
       },
       { href: `${base}/objects`, label: 'Custom records', icon: 'records' },
+      { href: `${base}/records`, label: 'Source records', icon: 'records' },
       { href: `${base}/assistants`, label: 'Assistants', icon: 'assistants' },
     );
   if (can(role, 'agent.publish') || can(role, 'agent.run'))

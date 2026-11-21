@@ -1,7 +1,32 @@
-// Owned by the business-records slice (EXP-02). See docs/06-delivery/m11a-slices.md and ADR-033 D3. Stored
+// EXP-02, ADR-033 D3. Stored
 // fields from a connector, read through the source's own permissions, and the effects proposed on them, which
 // go through the verified external action path (ADR-027) like anything else that leaves.
-import type { AppDatabase, TenantContext, Tx } from '@ensemus/database';
+import { createHash } from 'node:crypto';
+import {
+  withTenantTx,
+  businessRecords,
+  connections,
+  externalResources,
+  externalResourceAcl,
+  teamMemberships,
+  memberships,
+  type AppDatabase,
+  type TenantContext,
+  type Tx,
+} from '@ensemus/database';
+import { canonicalJson } from '@ensemus/domain/approval';
+import {
+  canReadBusinessRecord,
+  connectorTypeOfStream,
+  recordClassification,
+  readScopeFor,
+  selectRecordFields,
+  streamRuleFor,
+} from '@ensemus/domain/business-connector';
+import { and, asc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
+import { z } from 'zod';
+import { AppError } from './errors';
+import { idSchema } from './ids';
 import type { BusinessConnectorType, RecordFields } from '@ensemus/domain/business-connector';
 
 export type BusinessRecordPage = {
@@ -22,6 +47,7 @@ export type BusinessRecordPage = {
 export type BusinessRecordView = {
   id: string;
   connectionId: string;
+  connectionDisplayName: string;
   stream: string;
   externalId: string;
   externalVersion: string | null;
@@ -42,35 +68,324 @@ export type ProposedBusinessAction = {
   requestHash: string;
 };
 
-/**
- * Stores one page's kept fields, for the connector worker's sink. Idempotent on (connection, external ID,
- * fields hash), so a repeated page touches nothing, `updated_at` included. Refuses a non-service context, and a
- * connection whose type is not `connectorType`.
- */
-export function applyBusinessRecordPage(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _page: BusinessRecordPage,
+const classification = z.enum(['public', 'internal', 'confidential', 'restricted']);
+const externalId = z
+  .string()
+  .min(1)
+  .max(1024)
+  .refine((v) => !v.includes('\0'));
+const pageSchema = z.strictObject({
+  connectionId: idSchema,
+  connectorType: z.enum(['crm_http', 'ticketing_http', 'accounting_http']),
+  stream: z.string().regex(/^[a-z0-9_.-]{1,64}$/),
+  records: z
+    .array(
+      z.strictObject({
+        externalId,
+        externalVersion: externalId.nullable(),
+        displayName: z.string().max(8000).nullable(),
+        fields: z.record(z.string(), z.unknown()),
+        fieldsSha256: z.string().regex(/^[0-9a-f]{64}$/),
+        classification,
+      }),
+    )
+    .max(1000),
+  deletedExternalIds: z.array(externalId).max(1000),
+});
+const fieldsHash = (fields: RecordFields) =>
+  createHash('sha256').update(canonicalJson(fields)).digest('hex');
+const parsedId = (value: string) => {
+  const p = idSchema.safeParse(value);
+  if (!p.success) throw new AppError('INVALID_INPUT');
+  return p.data;
+};
+async function person(tx: Tx, context: TenantContext) {
+  if (context.actorType !== 'user') throw new AppError('FORBIDDEN');
+  const [row] = await tx
+    .select({ id: memberships.id })
+    .from(memberships)
+    .where(
+      and(
+        eq(memberships.id, context.membershipId),
+        eq(memberships.userId, context.userId),
+        eq(memberships.status, 'active'),
+        inArray(memberships.role, ['owner', 'admin', 'member']),
+      ),
+    )
+    .for('share');
+  const native = await tx.execute<{ allowed: boolean }>(sql`select app.is_web_login() as allowed`);
+  if (!row || !native.rows[0]?.allowed) throw new AppError('FORBIDDEN');
+}
+async function nativeService(
+  tx: Tx,
+  context: TenantContext,
+  role: 'ensemus_connector' | 'ensemus_worker',
+) {
+  if (context.actorType !== 'service') throw new AppError('FORBIDDEN');
+  const result = await tx.execute<{ allowed: boolean }>(
+    sql`select session_user=${role} and current_user=${role} and app.current_membership_id() is null as allowed`,
+  );
+  if (!result.rows[0]?.allowed) throw new AppError('FORBIDDEN');
+}
+
+/** Bounded native connector sink. A repeated snapshot changes neither its row nor its timestamp. */
+export async function applyBusinessRecordPage(
+  database: AppDatabase,
+  context: TenantContext,
+  input: BusinessRecordPage,
 ): Promise<void> {
-  throw new Error('NOT_IMPLEMENTED');
+  if (context.actorType !== 'service') throw new AppError('FORBIDDEN');
+  const parsed = pageSchema.safeParse(input);
+  if (!parsed.success) throw new AppError('INVALID_INPUT');
+  const page = parsed.data;
+  if (connectorTypeOfStream(page.stream) !== page.connectorType)
+    throw new AppError('INVALID_INPUT');
+  const ids = [...page.records.map((r) => r.externalId), ...page.deletedExternalIds];
+  if (new Set(ids).size !== ids.length) throw new AppError('INVALID_INPUT');
+  const titleField = streamRuleFor(page.stream)!.titleField;
+  const records = page.records.map((record) => {
+    const kept = selectRecordFields(page.stream, record.fields);
+    if (
+      !kept.ok ||
+      fieldsHash(kept.fields) !== record.fieldsSha256 ||
+      recordClassification(page.connectorType, record.classification) !== record.classification
+    )
+      throw new AppError('INVALID_INPUT');
+    const title = kept.fields[titleField];
+    return {
+      ...record,
+      fields: kept.fields,
+      displayName: typeof title === 'string' && title.length ? title : null,
+    };
+  });
+  await withTenantTx(database, context, async (tx) => {
+    await nativeService(tx, context, 'ensemus_connector');
+    const [connection] = await tx
+      .select()
+      .from(connections)
+      .where(eq(connections.id, page.connectionId))
+      .for('share');
+    if (!connection) throw new AppError('NOT_FOUND');
+    if (connection.connectorType !== page.connectorType) throw new AppError('INVALID_INPUT');
+    if (connection.state !== 'active') throw new AppError('CONNECTION_NOT_ACTIVE');
+    const config = connection.config as { streams?: unknown };
+    if (
+      !connection.grantedScopes.includes(readScopeFor(page.connectorType)) ||
+      !Array.isArray(config?.streams) ||
+      !config.streams.includes(page.stream)
+    )
+      throw new AppError('CONNECTION_SCOPE_MISSING');
+    await tx.execute(sql`select set_config('app.business_connection_id',${connection.id},true)`);
+    for (const record of records) {
+      const [existing] = await tx
+        .select({ stream: businessRecords.stream })
+        .from(businessRecords)
+        .where(
+          and(
+            eq(businessRecords.connectionId, connection.id),
+            eq(businessRecords.externalId, record.externalId),
+          ),
+        )
+        .for('update');
+      if (existing && existing.stream !== page.stream) throw new AppError('INVALID_INPUT');
+      await tx
+        .insert(businessRecords)
+        .values({
+          organizationId: context.organizationId,
+          connectionId: connection.id,
+          stream: page.stream,
+          ...record,
+        })
+        .onConflictDoUpdate({
+          target: [
+            businessRecords.organizationId,
+            businessRecords.connectionId,
+            businessRecords.externalId,
+          ],
+          set: {
+            externalVersion: record.externalVersion,
+            displayName: record.displayName,
+            fields: record.fields,
+            fieldsSha256: record.fieldsSha256,
+            classification: record.classification,
+            deletedAt: null,
+            updatedAt: new Date(),
+          },
+          setWhere: sql`(${businessRecords.externalVersion},${businessRecords.displayName},${businessRecords.fieldsSha256},${businessRecords.classification},${businessRecords.deletedAt}) is distinct from (${record.externalVersion}::text,${record.displayName}::text,${record.fieldsSha256}::text,${record.classification}::text,null::timestamptz)`,
+        });
+    }
+    if (page.deletedExternalIds.length)
+      await tx
+        .update(businessRecords)
+        .set({
+          fields: {},
+          fieldsSha256: fieldsHash({}),
+          displayName: null,
+          deletedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(businessRecords.connectionId, connection.id),
+            eq(businessRecords.stream, page.stream),
+            inArray(businessRecords.externalId, page.deletedExternalIds),
+            isNull(businessRecords.deletedAt),
+          ),
+        );
+  });
 }
 
-/** Only records this person has a source grant for, from active connections. Others do not appear. */
-export function listBusinessRecords(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: { connectionId?: string; stream?: string; after?: string; limit?: number },
+const listSchema = z.strictObject({
+  connectionId: idSchema.optional(),
+  stream: z
+    .string()
+    .regex(/^[a-z0-9_.-]{1,64}$/)
+    .optional(),
+  after: z.string().min(1).max(512).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+});
+const cursorSchema = z.strictObject({
+  at: z.iso.datetime(),
+  id: idSchema,
+  c: idSchema.nullable(),
+  s: z.string().nullable(),
+});
+// Millisecond precision matches the public Date representation, with ID breaking every tie.
+const orderTime = sql`date_trunc('milliseconds',${businessRecords.updatedAt})`;
+function cursorOf(
+  row: BusinessRecordView,
+  input: { connectionId?: string | undefined; stream?: string | undefined },
+) {
+  return Buffer.from(
+    JSON.stringify({
+      at: row.updatedAt.toISOString(),
+      id: row.id,
+      c: input.connectionId ?? null,
+      s: input.stream ?? null,
+    }),
+  ).toString('base64url');
+}
+function cursorFrom(
+  value: string,
+  input: { connectionId?: string | undefined; stream?: string | undefined },
+) {
+  try {
+    if (!/^[A-Za-z0-9_-]+$/.test(value)) throw Error();
+    const raw = Buffer.from(value, 'base64url');
+    if (raw.toString('base64url') !== value) throw Error();
+    const c = cursorSchema.parse(JSON.parse(raw.toString('utf8')));
+    if (c.c !== (input.connectionId ?? null) || c.s !== (input.stream ?? null)) throw Error();
+    return c;
+  } catch {
+    throw new AppError('INVALID_INPUT');
+  }
+}
+function visible(tx: Tx, context: TenantContext) {
+  const grant = sql<boolean>`exists(select 1 from ${externalResourceAcl} a where a.organization_id=${context.organizationId} and a.resource_id=${externalResources.id} and a.access in ('read','write','owner') and (a.membership_id=${context.membershipId} or exists(select 1 from ${teamMemberships} tm where tm.organization_id=a.organization_id and tm.team_id=a.team_id and tm.membership_id=${context.membershipId})))`;
+  return tx
+    .select({
+      id: businessRecords.id,
+      connectionId: businessRecords.connectionId,
+      connectionDisplayName: connections.displayName,
+      stream: businessRecords.stream,
+      externalId: businessRecords.externalId,
+      externalVersion: businessRecords.externalVersion,
+      displayName: businessRecords.displayName,
+      classification: businessRecords.classification,
+      fields: businessRecords.fields,
+      updatedAt: businessRecords.updatedAt,
+      aclState: externalResources.aclState,
+      hasGrant: grant,
+      deletedAt: businessRecords.deletedAt,
+    })
+    .from(businessRecords)
+    .innerJoin(
+      connections,
+      and(
+        eq(connections.organizationId, businessRecords.organizationId),
+        eq(connections.id, businessRecords.connectionId),
+      ),
+    )
+    .innerJoin(
+      externalResources,
+      and(
+        eq(externalResources.organizationId, businessRecords.organizationId),
+        eq(externalResources.connectionId, businessRecords.connectionId),
+        eq(externalResources.externalId, businessRecords.externalId),
+        eq(externalResources.stream, businessRecords.stream),
+      ),
+    );
+}
+function view(row: Awaited<ReturnType<typeof visible>>[number]): BusinessRecordView {
+  if (
+    !canReadBusinessRecord({
+      aclState: row.aclState as 'mapped' | 'partial' | 'unmapped',
+      viewerHasGrant: row.hasGrant,
+      deleted: row.deletedAt !== null,
+    })
+  )
+    throw new AppError('NOT_FOUND');
+  return {
+    id: row.id,
+    connectionId: row.connectionId,
+    connectionDisplayName: row.connectionDisplayName,
+    stream: row.stream,
+    externalId: row.externalId,
+    externalVersion: row.externalVersion,
+    displayName: row.displayName,
+    classification: row.classification,
+    fields: row.fields as RecordFields,
+    updatedAt: row.updatedAt,
+  };
+}
+/** Source ACLs filter before the page cap. Admin status adds no grant. */
+export async function listBusinessRecords(
+  database: AppDatabase,
+  context: TenantContext,
+  input: { connectionId?: string; stream?: string; after?: string; limit?: number },
 ): Promise<BusinessRecordList> {
-  throw new Error('NOT_IMPLEMENTED');
+  const parsed = listSchema.safeParse(input);
+  if (!parsed.success) throw new AppError('INVALID_INPUT');
+  const p = parsed.data,
+    c = p.after ? cursorFrom(p.after, p) : null,
+    limit = p.limit ?? 50;
+  return withTenantTx(database, context, async (tx) => {
+    await person(tx, context);
+    const rows = await visible(tx, context)
+      .where(
+        and(
+          p.connectionId ? eq(businessRecords.connectionId, p.connectionId) : undefined,
+          p.stream ? eq(businessRecords.stream, p.stream) : undefined,
+          c
+            ? or(
+                sql`${orderTime}>${c.at}::timestamptz`,
+                and(sql`${orderTime}=${c.at}::timestamptz`, gt(businessRecords.id, c.id)),
+              )
+            : undefined,
+        ),
+      )
+      .orderBy(asc(orderTime), asc(businessRecords.id))
+      .limit(limit + 1);
+    const items = rows.slice(0, limit).map(view);
+    return {
+      items,
+      nextCursor: rows.length > limit ? cursorOf(items[items.length - 1]!, p) : null,
+    };
+  });
 }
-
-/** Not found unless canReadBusinessRecord says yes, so a record nobody granted looks like no record. */
-export function getBusinessRecord(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _recordId: string,
+/** Not found unless the current native person has an actual source grant. */
+export async function getBusinessRecord(
+  database: AppDatabase,
+  context: TenantContext,
+  recordId: string,
 ): Promise<BusinessRecordView> {
-  throw new Error('NOT_IMPLEMENTED');
+  const id = parsedId(recordId);
+  return withTenantTx(database, context, async (tx) => {
+    await person(tx, context);
+    const [row] = await visible(tx, context).where(eq(businessRecords.id, id));
+    if (!row) throw new AppError('NOT_FOUND');
+    return view(row);
+  });
 }
 
 /**
@@ -159,10 +474,38 @@ export function retryBusinessAction(
   throw new Error('NOT_IMPLEMENTED');
 }
 
-/** Clears stored fields for connections that were revoked. Called from a tenant's upkeep. */
+/** Tenant upkeep clears content only on revoked connections, using the native platform worker. */
 export async function purgeRevokedBusinessRecords(
-  _database: AppDatabase,
-  _context: TenantContext,
+  database: AppDatabase,
+  context: TenantContext,
 ): Promise<number> {
-  return 0;
+  return withTenantTx(database, context, async (tx) => {
+    await nativeService(tx, context, 'ensemus_worker');
+    await tx.execute(sql`select set_config('app.business_record_purge','true',true)`);
+    const revoked = tx
+      .select({ id: connections.id })
+      .from(connections)
+      .where(eq(connections.state, 'revoked'));
+    const rows = await tx
+      .update(businessRecords)
+      .set({
+        fields: {},
+        fieldsSha256: fieldsHash({}),
+        displayName: null,
+        deletedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          inArray(businessRecords.connectionId, revoked),
+          or(
+            isNull(businessRecords.deletedAt),
+            sql`${businessRecords.fields}<>'{}'::jsonb`,
+            sql`${businessRecords.displayName} is not null`,
+          ),
+        ),
+      )
+      .returning({ id: businessRecords.id });
+    return rows.length;
+  });
 }

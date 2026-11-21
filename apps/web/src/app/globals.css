@@ -2738,3 +2738,9 @@ dl.approval-pairs dt {
   font-weight: inherit;
   text-decoration: underline;
 }
+
+/* Source values may contain long external references or multi-line internal notes. */
+.source-record-fields dd {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}

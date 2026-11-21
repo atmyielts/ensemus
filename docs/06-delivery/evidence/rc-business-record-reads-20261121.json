@@ -1,0 +1,259 @@
+{
+  "schema_version": 1,
+  "scope": "EXP-02 selected business-record sink and source-granted read API/UI",
+  "base_revision": "8e985bf",
+  "human_security_review": "pending",
+  "sources": [
+    {
+      "path": "packages/application/src/business-records.ts",
+      "sha256": "1a503c5d407f24cc5290f68cc1d922fda267166dc52a99e41a6ac624db2465e1"
+    },
+    {
+      "path": "packages/database/migrations/0739_business_record_read_authority.sql",
+      "sha256": "dcc9f19993f20c137c87c28124d55d3cb92d1bb43fadd7771df04224cd588868"
+    },
+    {
+      "path": "packages/database/migrations/0740_business_record_revocation.sql",
+      "sha256": "7277331855000ce870d50cde401b0538201173bae112c43ffeaa7b41381c4a48"
+    },
+    {
+      "path": "packages/database/migrations/meta/_journal.json",
+      "sha256": "e17c5b2e6aa835714840db3d42102ea26a12acf9770176b567ef141dd23d7b38"
+    },
+    {
+      "path": "tests/integration/business-record-reads.test.ts",
+      "sha256": "d293934697b3426ccc750ed8d02f1cec96a7a18b9ad8a2fbd6409ea0b5b51c1e"
+    },
+    {
+      "path": "tests/integration/expansion-schema.test.ts",
+      "sha256": "165f98d3d31003c478b3b648ca3037f0812902bc725e739d14e4d25ad3ddbbf8"
+    },
+    {
+      "path": "tests/stack/business-record-reads-api.test.ts",
+      "sha256": "025fdd7ace5e5451667e5938566aa84865ffdf350866dda620df4244b5e00005"
+    },
+    {
+      "path": "packages/workflows/src/stranded-recovery.test.ts",
+      "sha256": "db951fc78a9c5756070750863d2607198f23098c28e1ed15e2d7515aadd0253f"
+    },
+    {
+      "path": "apps/web/src/server/business-record-api.ts",
+      "sha256": "43c0e65a3417847d4e13e594548d1d946843a8e1836f3a55fc8cf8f797dae757"
+    },
+    {
+      "path": "apps/web/src/app/api/v1/organizations/[organizationId]/business-records/route.ts",
+      "sha256": "c3080e399935a68a64ebb3191c09f7b19b329075ede9d7a9ed36a400e3f24b8a"
+    },
+    {
+      "path": "apps/web/src/app/api/v1/organizations/[organizationId]/business-records/[recordId]/route.ts",
+      "sha256": "8b270e84bac081573f18a6ad03835169b7ed2f1ff366e737ae363a59df967fed"
+    },
+    {
+      "path": "apps/web/src/app/o/[organizationId]/records/page.tsx",
+      "sha256": "b0fc06fa0309c49c25171c6363d0d08a719b0e92830d5860266114f8e76ac1ec"
+    },
+    {
+      "path": "apps/web/src/app/o/[organizationId]/records/[recordId]/page.tsx",
+      "sha256": "274ac2ece43584156204081c1eb38f300136dc96d4b3be3985068da806972e62"
+    },
+    {
+      "path": "apps/web/src/components/source-record-fields.tsx",
+      "sha256": "84566ab4429fb90b870696d19ffbfdacc2658660e5a1169f901dc2baa5ee1de7"
+    },
+    {
+      "path": "apps/web/src/components/navigation-model.ts",
+      "sha256": "83ed6f81eb0f81c77af38ae9a131c4db7c28d21088d84c4d2d18943ab03f8e27"
+    },
+    {
+      "path": "apps/web/src/app/globals.css",
+      "sha256": "0116ad026a3456f197a44ac4989dd96254b12faa5a6a0fa287c92dce2fbe2638"
+    },
+    {
+      "path": "apps/web/src/generated/guides.ts",
+      "sha256": "5bdf256f8b90ddeeb046a8e2c73f2ee1dd4c472b022c9c04222d1561cb22c371"
+    },
+    {
+      "path": "docs/specifications/openapi.yaml",
+      "sha256": "62f248b9ba0583533b13e12fcc1c3062a51f61a010f14d704c924dfb9950edb0"
+    },
+    {
+      "path": "docs/guides/index.json",
+      "sha256": "0af3f05952549c3ad3eae51a5fc992e0eba955e5b7619f6b640fe6bdfe7c78e4"
+    },
+    {
+      "path": "docs/guides/user/source-records.md",
+      "sha256": "3602027d84a37c23177094d12d584c1f0255eff091b47a93fac0787f47ef0371"
+    },
+    {
+      "path": "tests/unit/navigation-model.test.ts",
+      "sha256": "f97cd94ef198be0074e86ad70634af56c106fd1a69c79595934a617dbb47dce4"
+    }
+  ],
+  "results": {
+    "native_regression": {
+      "passed": 67,
+      "failed": 0,
+      "files": 3
+    },
+    "all_four_native_workers": {
+      "passed": 5,
+      "failed": 0
+    },
+    "production_http": {
+      "passed": 2,
+      "failed": 0
+    },
+    "focused_followup_unit": {
+      "passed": 512,
+      "failed": 0,
+      "files": 6
+    },
+    "full_unit": {
+      "passed": 9537,
+      "failed": 2,
+      "expected_fail": 4,
+      "skipped": 43,
+      "files": 374,
+      "seconds": 62.3
+    },
+    "fresh_database": {
+      "database": "ensemus_rc_source_20261121181016340",
+      "appliedMigrations": 150,
+      "functions": [
+        {
+          "name": "integrations.business_record_purger(uuid)",
+          "prosecdef": false,
+          "proconfig": [
+            "search_path=pg_catalog"
+          ],
+          "owner": "ensemus_migrator",
+          "public_execute": false
+        },
+        {
+          "name": "integrations.business_record_reader(uuid,text,text,text,text,text)",
+          "prosecdef": false,
+          "proconfig": [
+            "search_path=pg_catalog"
+          ],
+          "owner": "ensemus_migrator",
+          "public_execute": false
+        },
+        {
+          "name": "integrations.business_record_writer(uuid)",
+          "prosecdef": false,
+          "proconfig": [
+            "search_path=pg_catalog"
+          ],
+          "owner": "ensemus_migrator",
+          "public_execute": false
+        },
+        {
+          "name": "integrations.guard_business_record()",
+          "prosecdef": false,
+          "proconfig": [
+            "search_path=pg_catalog"
+          ],
+          "owner": "ensemus_migrator",
+          "public_execute": false
+        }
+      ],
+      "completedAt": "2026-11-21T18:10:20.933Z"
+    },
+    "browser": {
+      "generated_fixture_only": true,
+      "widths": [
+        320,
+        768,
+        1024,
+        1440
+      ],
+      "horizontal_overflow": false,
+      "literal_source_script_executed": false,
+      "filter_and_keyboard_navigation": true,
+      "javascript_disabled_journey": true,
+      "console_errors": 0,
+      "console_warnings": 0,
+      "axe": "bundle not resolved; no independent acceptance"
+    },
+    "full_lint": "passed",
+    "production_build": "passed",
+    "test_types": "passed",
+    "changed_final_test_lint": "passed"
+  },
+  "local_logs": [
+    {
+      "path": ".local/rc-business-reads-red.log",
+      "sha256": "d5ed1f5e791d3415096d6c85d431b8e293e4d4684fec3381fd7478be2de08f41"
+    },
+    {
+      "path": ".local/rc-business-revoked-connector-red.log",
+      "sha256": "0a015fd4cc61d327c237eb41ab1e6e60870b54bcae0b0bf5dc1d1ac5a34c676f"
+    },
+    {
+      "path": ".local/rc-business-revocation-fixed.log",
+      "sha256": "d45045451fa6c2a32a4965c11a2fe65df6b95442f476f114e577b12546f90d30"
+    },
+    {
+      "path": ".local/rc-business-four-workers.log",
+      "sha256": "56288d8646ec0bdbf35f85d30208376569b1dd8d1fc03c574d874fe5aa31a433"
+    },
+    {
+      "path": ".local/rc-business-http.log",
+      "sha256": "a47c65a61fab9380735733b9a9879ba3ea5aed9f5a37da037bce188e042f0f7c"
+    },
+    {
+      "path": ".local/rc-business-http-complete-page.log",
+      "sha256": "f6ed556cae9749e53b1c48b5039543b0adf485c1034941f1120f05bc9148ace9"
+    },
+    {
+      "path": ".local/rc-business-unit-followup.log",
+      "sha256": "5f58851c0f7b25fc3f0f20f5bd3e678674cd2baf30c91035b6b3810c543534a0"
+    },
+    {
+      "path": ".local/rc-business-full-unit.log",
+      "sha256": "dab4f3be6c8d5e193ff9767601b47fd44994567315868d529a8f555fb446126e"
+    },
+    {
+      "path": ".local/rc-business-full-unit-final.log",
+      "sha256": "d035ec22161131c7a1ff417663a659e9c27a74b7a69c9ab81cab0688a2eb9668"
+    },
+    {
+      "path": ".local/rc-business-full-lint.log",
+      "sha256": "43add56483e840c72325d81812bcb96949086335473ee03f2266a0b9654cd863"
+    },
+    {
+      "path": ".local/rc-business-web-build-complete-page.log",
+      "sha256": "ca209fc3aee3ca9198a6b957dd01a0adf5dd152b42c69d972242df778e0c2409"
+    },
+    {
+      "path": ".local/rc-source-browser-flow.log",
+      "sha256": "870471a8478b67fb246adad14492e1ae91006564baca7c253a201da037768576"
+    },
+    {
+      "path": ".local/rc-source-browser-nojs.log",
+      "sha256": "8c20cbd9354269fe4977b385d6ab0617f4c7530f6395271f1c463fafdd68a3e4"
+    },
+    {
+      "path": ".local/rc-source-browser-console.log",
+      "sha256": "5e022534a5fe0feeb06a8fc815ff2ad8e4598aae62e789579db7dbcbfb58bc2a"
+    }
+  ],
+  "local_screenshots": [
+    {
+      "path": "output/playwright/source-record-mobile.png",
+      "sha256": "2905b25576293cd780923973aaac77e798cbc9e8d5036003c00df3a6ca7344b4"
+    },
+    {
+      "path": "output/playwright/source-record-desktop.png",
+      "sha256": "3b9d5d64a9a89dff9ff7f22cb321eff47dff32aaf912ac00ac5ba240da709f74"
+    }
+  ],
+  "open_gates": [
+    "human security review",
+    "71 planned API operations",
+    "complete M11 portability/lifecycle handling",
+    "full joined integration",
+    "built-worker/Temporal/replay and hosted/provider/human acceptance",
+    "business write proposals, connector lifecycle and provider-backed synchronization"
+  ]
+}

@@ -419,3 +419,59 @@ The full unit run reached 9,534 passes, two failures, four expected failures and
 files in 76.90 seconds. The failures still name the 73 planned API operations and 30-table portability
 inventory gap. This source-wide run preceded the final test-helper correction, which was checked by
 the native follow-up. No broader joined integration, Temporal, hosted or human acceptance is claimed.
+
+## Source-record storage and read journey (EXP-02)
+
+Business records now have a native connector sink, source-granted list/detail reads, two actual GET
+routes and Source records pages in the workspace. The sink checks the selected stream, connection,
+read scope, allowlisted field types, classification floor and canonical content hash. Duplicate source
+IDs within a page and conflicting stream identities refuse atomically. An identical page leaves both
+the row and its timestamp unchanged. Deleted and revoked content is cleared through the native sink or
+platform upkeep; the latter can only clear content on revoked connections and repeat without effects.
+
+Migrations 0739/0740 add restrictive policies alongside existing tenant isolation. The denied fixture
+reproduced raw reads without source grants, including an administrator. Native worker logins cannot
+borrow a person's bindings or SET ROLE to read the fields. The human path requires the current active
+person and their actual direct/team source grant, an active selected connection and source snapshot.
+A readable record must match the source row's stream, version, hash and classification: new fields
+therefore remain hidden between the sink commit and the corresponding source-permission commit.
+Partial mapping admits only actual mapped grants; unmapped principals add no access. Revocation also
+closes the connector's own scoped read path, which a separate denied test reproduced before 0740.
+No DELETE, worker bypass, security-definer read or broader table grant was added. Human security review
+remains pending. The existing M11 portability refusal and incomplete lifecycle gates remain intact.
+
+The three-file native record/expansion/worker-role regression passed all 67 cases after the revocation
+fix. The final five-case record file also included the knowledge login, covering all four native worker
+logins, and passed again. Historical schema fixtures now use the connector login with an exact source
+scope; native authority refuses a foreign connection before the old FK check can disclose its existence.
+A fresh generated database applied all 150 migrations as the ordinary migrator and checked the four
+new functions' owner, invoker status, fixed search path and revoked PUBLIC execution.
+
+The production standalone build passed both actual HTTP cases: anonymous/foreign/ungranted-admin
+refusal, granted read and rendered snapshot, invalid filters/cursor, and immediate API/page refusal
+after removing the actual source grant. The first HTTP run caught a new route-level loading boundary
+returning a streamed 200 denial; the repository's no-JavaScript gate also refused it. That newly added
+file was removed, retaining strict page 404 checks and whole-page rendering. A real browser then read a
+generated source fixture, filtered it and navigated the form by keyboard. At 320, 768, 1024 and 1440
+pixels there was no horizontal overflow. Literal script-shaped source text remained text and executed
+nothing. The same list/filter/record journey worked with JavaScript disabled at 320 pixels. Browser
+console checks reported zero errors/warnings. An axe bundle was not available through the browser test
+workspace; no independent accessibility acceptance is claimed. These fixtures qualify storage and
+reading, not provider connectivity, live synchronization or a commercial integration.
+
+The new Help page remains written_untested; Help contains 30 pages, with no new CI/human acceptance
+status. The two implemented read operations are no longer marked planned; the remaining 71 operations
+stay planned. Record-change, ticket-comment and invoice-draft proposals, revision/retry, business
+connector lifecycle and provider-backed sync remain unfinished and are not represented as usable.
+The source pages expose no edit effect. Finance/learning, meetings and the wider M11 services remain
+open. No real credential, provider, source data or model was used.
+
+The first full unit run had 9,531 passes and eight failures: two known release gates, three cases in an
+upkeep test double that still called the former no-op cleanup, the loading-boundary gate, a guide-check
+timeout and one fake Bedrock redirect extra-hit assertion. The test double now mocks the unrelated real
+cleanup. All 512 focused cases passed after those corrections; the timeout and extra hit did not recur,
+and their assertions were not weakened. The final full run reached 9,537 passes, two failures, four
+expected failures and 43 skips across 374 files in 62.30 seconds. Only the 71 planned operations and
+30-table portability inventory failed that run. Full repository lint and the production build passed.
+The full joined integration baseline and built-worker/Temporal, hosted/provider and human gates have
+not been repeated or accepted by this slice. C: still has about 30.7 GiB free; cleanup was unnecessary.
