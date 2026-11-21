@@ -176,7 +176,7 @@ describe('the product through its forms', () => {
       expect(html).toContain(first);
       expect(html).toContain(second);
       expect(html).toContain(`href="${locationOf(created)}"`);
-      expect(html).toContain('>Owner<');
+      expect(html).toContain('You are an owner');
     });
 
     it('makes one organization from one form, however many times it is sent', async () => {
