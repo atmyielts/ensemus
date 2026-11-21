@@ -73,6 +73,8 @@ export async function seedSearchableSource(
     classification?: Classification;
     grants?: readonly SeededGrant[];
     passages: readonly string[];
+    /** Adds this many more chunks, `generated passage <ordinal>`, in one statement, for scale tests. */
+    generatedChunks?: number;
   },
 ): Promise<SeededSource> {
   const { organizationId } = context;
@@ -152,6 +154,15 @@ export async function seedSearchableSource(
       });
       start += passage.length + 2;
     }
+    if (input.generatedChunks)
+      await tx.execute(sql`
+        insert into knowledge.chunks (organization_id, document_id, source_id, ordinal, text_body,
+          content_sha256, token_estimate, char_start, char_end)
+        select ${organizationId}::uuid, ${documentId}::uuid, ${sourceId}::uuid, n,
+               'generated passage ' || n,
+               encode(sha256(convert_to('generated passage ' || n, 'UTF8')), 'hex'), 5, 0, 20
+          from generate_series(${input.passages.length}::integer,
+                               ${input.passages.length + input.generatedChunks - 1}::integer) n`);
     await tx
       .update(knowledgeDocuments)
       .set({ state: 'searchable', searchableAt: new Date() })

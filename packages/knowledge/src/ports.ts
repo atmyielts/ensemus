@@ -143,11 +143,12 @@ export interface ContentScanPort {
 }
 
 /**
- * A virus scanner, if a deployment has one. No implementation ships, and `not_scanned` is what a document
- * then says (ADR-029 D4). Whether to require one before a pilot is the owner's decision.
+ * A malware scanner over a document's original bytes, before anything parses them (ADR-029 D4 addendum).
+ * The knowledge worker's implementation is ClamAV's clamd on an internal network. It answers `clean` or
+ * `infected`, and throws when it cannot answer: a scanner that failed must never read as a clean scan.
  */
 export interface MalwareScanPort {
-  scan(bytes: Uint8Array): Promise<'clean' | 'flagged' | 'not_scanned'>;
+  scan(bytes: Uint8Array): Promise<'clean' | 'infected'>;
 }
 
 /**

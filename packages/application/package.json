@@ -35,6 +35,7 @@
     "./knowledge/ports": "./src/knowledge/ports.ts",
     "./knowledge/model-jobs": "./src/knowledge/model-jobs.ts",
     "./knowledge/sources": "./src/knowledge/sources.ts",
+    "./knowledge/domain-grants": "./src/knowledge/domain-grants.ts",
     "./knowledge/ingest": "./src/knowledge/ingest.ts",
     "./knowledge/embeddings": "./src/knowledge/embeddings.ts",
     "./knowledge/egress": "./src/knowledge/egress.ts",

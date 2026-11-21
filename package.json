@@ -22,6 +22,7 @@
     "check:licenses": "node infrastructure/scripts/check-licenses.mjs",
     "check:proxy": "node infrastructure/scripts/check-proxy.mjs",
     "measure:m2": "vitest run --project measure",
+    "measure:knowledge-recall": "vitest run --project measure tests/measure/knowledge-recall.measure.ts",
     "stack:secrets": "node infrastructure/scripts/generate-test-secrets.mjs",
     "stack:up": "docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml up -d --build --wait",
     "stack:down": "docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml down -v",

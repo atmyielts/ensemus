@@ -7,6 +7,10 @@
     "./ports": "./src/ports.ts",
     "./model-operations": "./src/model-operations.ts",
     "./parsing": "./src/parsing.ts",
+    "./pdf": "./src/pdf.ts",
+    "./ooxml": "./src/ooxml.ts",
+    "./zip": "./src/zip.ts",
+    "./xml-text": "./src/xml-text.ts",
     "./chunking": "./src/chunking.ts",
     "./fusion": "./src/fusion.ts",
     "./evidence": "./src/evidence.ts",
@@ -19,6 +23,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ensemus/domain": "workspace:*"
+    "@ensemus/domain": "workspace:*",
+    "pdfjs-dist": "6.4.299"
   }
 }

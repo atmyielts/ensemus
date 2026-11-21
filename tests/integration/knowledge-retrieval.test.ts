@@ -21,7 +21,8 @@ import {
   type TenantContext,
 } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
+import { EXACT_VECTOR_SEARCH_MAX_ROWS } from '@ensemus/domain/knowledge';
 import { knowledgeCanary, seedMember, seedSearchableSource, sha256 } from '../helpers/knowledge';
 import { urls } from '../helpers/stack';
 
@@ -237,4 +238,62 @@ describe('authorized lexical and hybrid retrieval', () => {
       }),
     ).rejects.toEqual(new AppError('INVALID_INPUT'));
   });
+  it('walks the HNSW index past a large authorized set, and never past the ACL', async () => {
+    // ADR-029 D6 addendum. More authorized vectors than the exact threshold, in an indexed width, so
+    // retrieval takes the approximate path; a hidden source holds the query's exact vector as well.
+    const dimension = 384;
+    const vectorOf = (n: number) =>
+      Array.from({ length: dimension }, (_, d) => Math.sin((n + 1) * (d + 1) * 0.37));
+    const word = knowledgeCanary();
+    const readable = await seedSearchableSource(database.db, owner, {
+      passages: [word],
+      grants: [{ kind: 'membership', membershipId: reader.membershipId }],
+      generatedChunks: EXACT_VECTOR_SEARCH_MAX_ROWS + 50,
+    });
+    const hidden = await seed(knowledgeCanary(), owner.membershipId);
+    const route = await seedQualifiedKnowledgeRoute(database.db, owner, {
+      dimension,
+      modelId: 'generated-hnsw',
+      vectorSpaceVersion: '1',
+    });
+    const service = createServiceContext(owner.organizationId);
+    const spaceId = (await ensureEmbeddingSpace(database.db, service, route)).id;
+    await withTenantTx(database.db, service, async (tx) => {
+      await tx.execute(sql`
+        insert into knowledge.embeddings (organization_id, chunk_id, source_id, space_id, dimension,
+          embedding, content_sha256)
+        select c.organization_id, c.id, c.source_id, ${spaceId}::uuid, ${dimension},
+               (select array_agg(sin((c.ordinal + 1) * d * 0.37) order by d)
+                  from generate_series(1, ${dimension}::integer) d)::public.vector,
+               c.content_sha256
+          from knowledge.chunks c
+         where c.organization_id = ${owner.organizationId}::uuid and c.document_id = ${readable.documentId}::uuid`);
+      await tx.insert(knowledgeEmbeddings).values({
+        organizationId: owner.organizationId,
+        chunkId: hidden.chunkIds[0]!,
+        sourceId: hidden.sourceId,
+        spaceId,
+        dimension,
+        embedding: vectorOf(4321),
+        contentSha256: sha256('hidden'),
+      });
+    });
+    const result = await retrieveHybrid(database.db, reader, {
+      query: word,
+      queryVector: { spaceId, vector: vectorOf(4321) },
+    });
+    expect(result.vectorSearch).toBe('approximate');
+    const vectorHits = result.passages.filter((hit) => hit.vectorRank !== null);
+    expect(vectorHits.length).toBeGreaterThan(0);
+    expect(result.passages.every((hit) => hit.sourceId === readable.sourceId)).toBe(true);
+    // The nearest authorized vector is the one generated from the same seed.
+    expect(vectorHits.find((hit) => hit.vectorRank === 1)?.text).toBe('generated passage 4321');
+    // The owner, who cannot read the readable source, gets neither it nor anything approximate.
+    const ownerResult = await retrieveHybrid(database.db, owner, {
+      query: word,
+      queryVector: { spaceId, vector: vectorOf(4321) },
+    });
+    expect(ownerResult.vectorSearch).toBe('exact');
+    expect(ownerResult.passages.map((hit) => hit.sourceId)).toEqual([hidden.sourceId]);
+  }, 300_000);
 });

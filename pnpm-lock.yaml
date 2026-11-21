@@ -487,6 +487,9 @@ importers:
       "@temporalio/worker":
         specifier: 1.25.0
         version: 1.25.0(@swc/helpers@0.5.23)(esbuild@0.28.2)(long@5.3.2)(protobufjs@8.8.1)
+      pdfjs-dist:
+        specifier: 6.4.299
+        version: 6.4.299
     devDependencies:
       "@ensemus/agent-runtime":
         specifier: workspace:*
@@ -553,6 +556,9 @@ importers:
       "@ensemus/domain":
         specifier: workspace:*
         version: link:../domain
+      pdfjs-dist:
+        specifier: 6.4.299
+        version: 6.4.299
   packages/packs:
     dependencies:
       "@ensemus/domain":
@@ -3515,6 +3521,11 @@ packages:
       integrity: sha512-ojmeN0qd+y0jszEtoY48r0Peq5dwMEkIlCOu6Q5f41lfkswXuKtYrhgoTpLnyIcHm24Uhqx+5Tqm2InSwLhE6Q==
     engines:
       node: ">=8"
+  pdfjs-dist@6.4.299:
+    resolution:
+      integrity: sha512-AVl138zALtfaAPvADulE0PZThbYzCBS79nL4pOSL/6Sm/4AH5A21BD9VHt97OlCuzJuCpmeZtAtkinisF4Vb1g==
+    engines:
+      node: ">=22.13.0 || >=24"
   pg-cloudflare@1.4.1:
     resolution:
       integrity: sha512-6PQbsFWZcp9EmJEwy5cGQ2La+AMWpP46lgbb8X+U/XsHIUweYDNCpeuKck5RxL2MdVFi7krbbEi5nX4Zh7JhrQ==
@@ -4271,6 +4282,8 @@ packages:
       samlify: '>= 2.6.0'
   node-xmllint@1.0.0:
     resolution: { integrity: sha512-71UV2HRUP+djvHpdyatiuv+Y1o8hI4ZI7bMfuuoACMLR1JJCErM4WXAclNeHd6BgHXkqeqnnAk3wpDkSQWmFXw== }
+ignoredOptionalDependencies:
+  - "@napi-rs/canvas"
 snapshots:
   "@ai-sdk/anthropic@4.0.87(zod@4.6.7)":
     dependencies:
@@ -5860,6 +5873,7 @@ snapshots:
       type-fest: 4.41.0
   path-exists@4.0.0: {}
   path-key@3.1.1: {}
+  pdfjs-dist@6.4.299: {}
   pg-cloudflare@1.4.1:
     optional: true
   pg-connection-string@2.14.1: {}

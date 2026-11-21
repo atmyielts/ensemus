@@ -9831,10 +9831,10 @@ export interface components {
             /** Format: date-time */
             source_modified_at: string | null;
             /**
-             * @description No scanner ships, and `not_scanned` says so.
+             * @description The malware check of the original file. `not_scanned` means no scanner is configured; `infected` means it is quarantined and never searchable; `scan_failed` means a scanner was asked and could not answer.
              * @enum {string|null}
              */
-            scan_state?: "not_scanned" | "clean" | "flagged" | null;
+            scan_state?: "not_scanned" | "clean" | "infected" | "scan_failed" | null;
             reject_code?: string | null;
             /** Format: uri */
             source_url?: string | null;

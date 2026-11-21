@@ -9,3 +9,7 @@ onlyBuiltDependencies:
   - esbuild
   - sharp
   - '@temporalio/core-bridge'
+# pdfjs-dist offers a native canvas for rendering. Knowledge only extracts text, so the native module
+# never ships, and nothing native reads an untrusted PDF (ADR-029 D4 addendum).
+ignoredOptionalDependencies:
+  - '@napi-rs/canvas'
