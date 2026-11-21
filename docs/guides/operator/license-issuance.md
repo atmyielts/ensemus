@@ -5,7 +5,7 @@ area: op-sovereign
 tickets: [SOV-01]
 modes: [sovereign]
 status: written_untested
-sources: [m6-license:workers/workflow/src/sovereign-license-command.ts, m6-license:workers/workflow/src/sovereign-license.ts, m6-license:packages/application/src/licensing.ts, m6-license:docs/05-operations/sovereign/license-and-maintenance.md, m6-license:packages/sovereign/src/envelope.ts, m6-license:packages/sovereign/src/verify.ts, m6-license:packages/sovereign/src/trust-root.ts, m6-license:packages/domain/src/license.ts, m6-license:packages/domain/src/policy.ts, m6-license:packages/config/src/sovereign.ts, m6-license:tests/fixtures/license-corpus/v1/README.md, m6-foundation:packages/sovereign/src/issuer.ts, m6-foundation:docs/00-foundation/adr/ADR-030-sovereign-license-and-bundle.md]
+sources: [m6-license:workers/workflow/src/sovereign-license-command.ts, m6-license:workers/workflow/src/sovereign-license.ts, m6-license:packages/application/src/licensing.ts, m6-license:docs/05-operations/sovereign/license-and-maintenance.md, m6-license:packages/sovereign/src/envelope.ts, m6-license:packages/sovereign/src/verify.ts, m6-license:packages/sovereign/src/trust-root.ts, m6-license:packages/domain/src/license.ts, m6-license:packages/domain/src/policy.ts, m6-license:packages/config/src/sovereign.ts, m6-license:tests/fixtures/license-corpus/v1/README.md, m6-tools:packages/sovereign/src/issuer.ts, m6-tools:packages/sovereign/src/issuer-cli.ts, m6-tools:workers/workflow/scripts/build-issuer.mjs, m6-tools:tests/unit/issuer-not-shipped.test.ts, m6-tools:docs/05-operations/sovereign/issuing-documents.md, m6-foundation:docs/00-foundation/adr/ADR-030-sovereign-license-and-bundle.md]
 tests: []
 ---
 
@@ -13,7 +13,7 @@ tests: []
 
 > **Not yet tested end to end.** This page was written from the code, and nobody has followed it on a running system yet.
 
-A Sovereign license is a small signed file. This page shows how to check one and attach it to an organization. **The tool that issues licenses is not built yet**, so nobody can issue a real license today, and the only signed documents that exist are generated test files.
+A Sovereign license is a small signed file. Whoever holds the signing key issues it, and whoever runs the deployment checks it and attaches it to an organization. **Nobody can issue a real license today:** the tool only rehearses, with generated keys, and every document it makes says so.
 
 ## What is real today
 
@@ -21,12 +21,71 @@ A Sovereign license is a small signed file. This page shows how to check one and
 |---|---|
 | Checking a signed file, with no database and no network | Written, on the `m6-license` branch |
 | Attaching a license or maintenance statement to an organization | Written, on the same branch |
-| Issuing a license | **Not built.** Every function in the issuing tool still refuses with `NOT_IMPLEMENTED` |
-| A real signing key | **Does not exist.** Who holds it is the owner's decision. The format allows for that decision, and nothing has been signed with a real key |
+| Issuing a document, as a rehearsal with generated keys | Written, on the `m6-tools` branch, in a commit its author marks as a first pass |
+| A real signing key | **Does not exist.** Who holds it, and whether a second holder is needed, is the owner's decision. Outside security review has to come first |
 
 A license does not decide whether the software runs. Nothing about one can stop a request, and a lapse changes what an administrator reads. See [Offline upgrades and maintenance lapse](offline-upgrades.md).
 
-## What you need
+## Issuing: for whoever holds the signing key
+
+This tool is for the vendor, and never ships. No customer needs it, and `tests/unit/issuer-not-shipped.test.ts` on `m6-tools` fails if anything we build can reach it. Build it once from the source tree, and after that it needs only Node.
+
+```sh
+node workers/workflow/scripts/build-issuer.mjs
+```
+
+That writes `.local/issuer/issuer.mjs`. Make a generated key, and a trust root holding only that key:
+
+```sh
+node .local/issuer/issuer.mjs keygen --key-id generated-license-key --purposes license \
+  --out ./rehearsal/license-key.pem --trust-root-out ./rehearsal/trust-root.json
+```
+
+**The trust root entry it writes always says `test_only: true`, and no flag writes anything else.** Removing that needs the owner's custody decision and a new signer. `--purposes` has no default. Give a bundle its own key, not the one that signs licenses.
+
+Then write a rights file and issue the license. **The tool refuses to run without `--rights`, and no value in the file has a default.** A missing or unknown value is an error, and this repository ships no rights file, because each value is the owner's decision, per customer and per contract.
+
+```json
+{
+  "licensee": { "display_name": "Example Organization", "contract_reference": "EXAMPLE-0001" },
+  "term": { "kind": "perpetual" },
+  "licensed_release": { "line": "2.0", "version": "2.0.0" },
+  "footprint": { "organizations": null, "seats": null, "production_deployments": null, "nonproduction_deployments": null },
+  "components": [],
+  "update_rights": {
+    "security_patches_after_lapse": "none",
+    "major_versions_with_maintenance": "separate_purchase",
+    "releases_published_during_maintenance": "kept_after_lapse",
+    "outside_rights_on_install": "warn"
+  }
+}
+```
+
+The values above show the shape, and they are test values, not an offer or a policy. `term` can also be `pilot`, with a `review_on` date, which shows as a notice and disables nothing. There is no expiry field and no machine binding to fill in, on purpose.
+
+```sh
+node .local/issuer/issuer.mjs license --rights ./rehearsal/rights.json \
+  --signer generated-license-key=./rehearsal/license-key.pem --rehearsal \
+  --out ./rehearsal/license.dsse.json --register ./rehearsal/register.jsonl
+```
+
+- `--rehearsal` has to be given each time, so a script cannot issue one by accident of its defaults.
+- `--signer` repeats once per signature, for a trust root that asks for more than one.
+- The tool never replaces a file, and it checks its own output as a customer would before you get it.
+- `--register` is required. It gets one JSON line per document, with IDs and hashes and no licensee name, and the line is written first.
+- `maintenance --statement`, `advisory --advisory` and `support-policy --policy` work the same way. See [Security advisories and supported branches](advisories-and-branches.md).
+
+The tool exits 0 when done, 1 when refused or a write failed, and 2 for a wrong argument or input file. Errors name fields and never print a value.
+
+| Code | Why |
+|---|---|
+| `REHEARSAL_ONLY` | `--rehearsal` was not given. Nothing else signs yet |
+| `INPUT_INVALID`, `INPUT_NOT_JSON`, `INPUT_UNREADABLE` | The rights file is missing, not JSON, or has a missing or unknown value |
+| `SIGNER_REQUIRED`, `NO_SIGNER`, `SIGNER_REPEATED`, `KEY_UNREADABLE` | The signer is missing, given twice, or not a usable key |
+| `DOCUMENT_INVALID`, `SELF_CHECK_FAILED` | Its own schema refused the document, or a signature would not verify, so no file is written |
+| `OUTPUT_NOT_WRITTEN` | The document was not written, and its register line stays. That ID never reached anyone |
+
+## Installing: what you need
 
 - The license file, such as `license.dsse.json`.
 - The trust root, a JSON file of public keys, which reaches you separately from the license the first time. It holds no secrets.
