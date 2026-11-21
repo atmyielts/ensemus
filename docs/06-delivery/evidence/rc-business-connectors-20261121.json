@@ -1,0 +1,153 @@
+{
+  "schema_version": 1,
+  "scope": "EXP-02 CRM/ticketing/accounting adapter constructors and native TLS sync Activity",
+  "base_revision": "97840a8",
+  "security_review": "ADR-033 outside review pending; generated local values only",
+  "sources": [
+    {
+      "path": "packages/connectors/src/crm/index.ts",
+      "sha256": "9b424dcc856491e4bd83e88aebe7ee99be6d8b2207b51b51414637feedf0e5e0"
+    },
+    {
+      "path": "packages/connectors/src/ticketing/index.ts",
+      "sha256": "2da6841196c94a31d2c3a9510525834083c570322e2f825686fd540cf8b97cef"
+    },
+    {
+      "path": "packages/connectors/src/accounting/index.ts",
+      "sha256": "e92ae05c3ddefba619c6186ae86f0338145fa0c0fc6bf5d37f8d68c3450d9959"
+    },
+    {
+      "path": "packages/connectors/src/business/payload.ts",
+      "sha256": "c42ca065679d7464b340a9932ed6c261587cbc35e6dbef45f1dcb283fb708305"
+    },
+    {
+      "path": "packages/connectors/src/business/kit.ts",
+      "sha256": "9b772e70db957e1c5b1ec72b0cd84d8a621f7935199c0653b35a2cfc407b3546"
+    },
+    {
+      "path": "packages/connectors/src/business/kit.test.ts",
+      "sha256": "6298e1e0558f76b9fcc7409fc09e750ae97bfdc6a1c11ae25770949d1b0e9e52"
+    },
+    {
+      "path": "packages/connectors/src/business/implementations.test.ts",
+      "sha256": "7585776c605429fefd620bcb9c604da7565e2c14b3e306404795de8620771ede"
+    },
+    {
+      "path": "packages/connectors/src/testing/business-conformance.ts",
+      "sha256": "c59addc2aefae023a6164dec7ccbd16708ed69d8391977e04ac40d4a62819b5e"
+    },
+    {
+      "path": "packages/connectors/src/crm/conformance.test.ts",
+      "sha256": "7b6bcf32dc6a8f9ff17c8251d6006d49ed61b77d6d9647db356d4fed1c83354b"
+    },
+    {
+      "path": "packages/connectors/src/ticketing/conformance.test.ts",
+      "sha256": "f1fbdb42f2ad5204e0269e796e52462f55756da0bc2cd46510143bc94a55016a"
+    },
+    {
+      "path": "packages/connectors/src/accounting/conformance.test.ts",
+      "sha256": "32bf6ba4e16f98dd3a25bbe5734e14266ba4acb3b58e84d0d05ff761c0f5dfd1"
+    },
+    {
+      "path": "tests/integration/business-connectors.test.ts",
+      "sha256": "f36cedb9c13e1c0df47e4faff56e55888cf513fc59e55d002e6673a253934c89"
+    },
+    {
+      "path": "tests/helpers/smtp-sink.ts",
+      "sha256": "898520cbcd59422491faff6ce2ddba52f8d4f5c19f944c9e56d9a2f53f3ff73e"
+    },
+    {
+      "path": "tests/unit/test-certificate.test.ts",
+      "sha256": "8329aa4bcff9e1b243c028ee5f4fde62183ad95922d6bb0c706ee0433722cf09"
+    }
+  ],
+  "results": {
+    "focused_unit_sdk_and_certificates": {
+      "passed": 183,
+      "failed": 0,
+      "files": 6
+    },
+    "generated_certificates_parsed_verified_key_matched": 120,
+    "business_and_smtp_native_tls": {
+      "passed": 34,
+      "failed": 0,
+      "files": 2
+    },
+    "final_business_native": {
+      "passed": 9,
+      "failed": 0
+    },
+    "full_unit": {
+      "passed": 9661,
+      "failed": 2,
+      "expected_fail": 4,
+      "skipped": 43,
+      "files": 379,
+      "seconds": 61.76
+    },
+    "connector_and_test_types": "passed",
+    "full_lint": "passed",
+    "live_provider": "not run",
+    "temporal_poller": "not run",
+    "new_customer_catalog_offering": false
+  },
+  "local_logs": [
+    {
+      "path": ".local/rc-business-connectors-red.log",
+      "sha256": "75d7f8cf59536ba2577db98498d899ea6217c82b6ba9770466c355a93849f2dc"
+    },
+    {
+      "path": ".local/rc-business-selected-action-actual-red.log",
+      "sha256": "e4a58a29f08144812cfce3cad30bc22bb1196410257b9623f0d8a13a5be5c72d"
+    },
+    {
+      "path": ".local/rc-generated-certificate-red.log",
+      "sha256": "89263d53de8330fd38f23eb25a32423fe37beaa0f6045c062e09d2d364ae5c6e"
+    },
+    {
+      "path": ".local/rc-business-connectors-tls-native.log",
+      "sha256": "3a8dd3743cc449c967c98fa7f8396587a3981c608aff2a6410de3c61016502b7"
+    },
+    {
+      "path": ".local/rc-business-connectors-tls-fixed.log",
+      "sha256": "bc7fa1568332ece7e0127c4fd5cf70b1034a6351469700a702dacd488bfef1d4"
+    },
+    {
+      "path": ".local/rc-business-connectors-final-native.log",
+      "sha256": "f0a4e07c7eae1f49ee60c537d135f1d27e750ba52d4d882f8adc1bf05adb1093"
+    },
+    {
+      "path": ".local/rc-business-connectors-final-focused.log",
+      "sha256": "39c9295d82efdb55e33843bb0d42f03ea2706f83f39f542134a324d18d2ed3a7"
+    },
+    {
+      "path": ".local/rc-business-connectors-full-unit.log",
+      "sha256": "dd1b4169874e44450bf25f0e5d58fb92b8e2b123b50fd21e4a7dc724232f24b5"
+    },
+    {
+      "path": ".local/rc-business-connectors-full-unit-final.log",
+      "sha256": "6a0b7f3ac783a776c58dfcc9283e3617a6c6c3919ef6e7344820615c78424f07"
+    },
+    {
+      "path": ".local/rc-business-connectors-full-lint.log",
+      "sha256": "43add56483e840c72325d81812bcb96949086335473ee03f2266a0b9654cd863"
+    },
+    {
+      "path": ".local/rc-business-connectors-types-final.log",
+      "sha256": "1d5b04d16c49c8c9cad76e7c5012bb207093c2ddb24665de0709467436f13771"
+    },
+    {
+      "path": ".local/rc-business-connector-types.log",
+      "sha256": "67f0b7c8df8e3b71bd2609594d32659147e9c7ea8e140f0afc6a09cb8258c834"
+    }
+  ],
+  "open_gates": [
+    "business write proposal/review service",
+    "customer connection setup and deployment wiring",
+    "71 planned API operations",
+    "complete M11 portability/lifecycle handling",
+    "full joined integration",
+    "built-worker/Temporal/replay and hosted/provider/human acceptance",
+    "ADR-033 review and Cloud adapter routing"
+  ]
+}

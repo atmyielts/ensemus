@@ -475,3 +475,57 @@ expected failures and 43 skips across 374 files in 62.30 seconds. Only the 71 pl
 30-table portability inventory failed that run. Full repository lint and the production build passed.
 The full joined integration baseline and built-worker/Temporal, hosted/provider and human gates have
 not been repeated or accepted by this slice. C: still has about 30.7 GiB free; cleanup was unnecessary.
+
+## Business adapter constructors and native sync (EXP-02)
+
+The actual CRM, ticketing and accounting constructors now use the shared adapter kit and their declared
+manifests/tools. Strict schema and stream/writable-field checks run again at the final connector
+boundary. Internal ticket notes cannot become public replies. Accounting offers only annotations and
+invoice drafts; every payment-record field stays read only, money stays a decimal string, and status,
+bank and pay-now fields refuse before contact. A repeated idempotency key creates one generated effect.
+An uncertain response stays uncertain and is looked up; a best-effort absent lookup proves nothing.
+
+The shared adapter now requires both saved configuration scopes and the connection row's actual granted
+scopes before any read/write contact. Missing current row facts refuse. Existing-record updates and
+internal ticket notes must still target a selected stream; a denied test reproduced all three update
+constructors sending after selection was removed, before that late check was added. A new invoice draft
+names no existing source record. No domain tool was added to an assistant's callable registry by this
+slice, and the business write-proposal/review service remains unfinished.
+
+The constructor/transport/certificate/SDK regression passed 183 cases across six files. The generic SDK
+suite has no connection row, so its test-only adapter supplies explicit generated row scopes; actions
+retain the SDK's hostile/silent network and canary credential. Successful sync checks alone use the
+local adapter's read credential/network. Missing current-scope refusals run on unwrapped constructors.
+No conformance TODO or catch-and-skip wrapper was added.
+
+The first nine-case native TLS run passed six and exposed three generated-certificate loading failures.
+The existing test helper appended a second PEM newline when the base64 length was a multiple of 64;
+signature-length variation made this intermittent. A separate Node TLS/X.509/key-match regression
+reproduced it. The test helper now removes that trailing wrapping newline before adding its one final
+newline. Its 120 generated certificates across three names passed the actual TLS parser, signature,
+key-match and hostname checks. No production TLS verification or crypto algorithm was changed.
+The combined business/SMTP TLS regression then passed all 34 cases. After the final scope/selection
+checks and typed fixture correction, the complete business native file passed all nine cases again.
+
+Those native cases use a real HTTPS loopback server and the actual single-target TCP gateway. Every
+connector syncs generated records for two companies with the same external ID through the actual native
+connector database login, real sealed secrets/SecretBroker, source-principal mapping, cursor commit and
+sync Activity. The repeat retains the stored record/timestamp. Ungranted owners and another company
+cannot read the records. Actual connection revocation immediately removes read access, and the next
+Activity revokes its sealed credential without another HTTP request. Wrong-name and untrusted
+certificates refuse before any credential is lent or HTTP request arrives. Unknown source fields are
+not retained, and gateway logs remain code-only. No live provider or Temporal poller was used.
+
+Full repository lint and connector/test TypeScript checks passed. The first full unit run, concurrent
+with native/type checks, reached 9,659 passes and four failures: the two known release gates plus guide
+and vendor-issuer reachability timeouts. With the other checks completed, the unchanged complete unit
+suite reached 9,661 passes, two failures, four expected failures and 43 skips across 379 files in 61.76
+seconds. No timeout or assertion was relaxed. The release failures still name 71 planned API operations
+and the 30-table portability inventory gap.
+
+These constructors are internally available to the connector worker when an operator explicitly binds
+a gateway. This slice does not add them to the customer connection catalog or claim that setup is
+finished. Business write proposals/review, connection setup/configuration, built-worker/Temporal and
+provider acceptance remain open, as do the ADR-033 review and Cloud adapter-routing decisions. The
+existing three-mode default remains no business route and no contact. No migration, secret/config
+format, external dependency, actual credential or provider commitment was introduced by this slice.

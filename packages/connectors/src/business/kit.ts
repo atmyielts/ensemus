@@ -13,6 +13,10 @@ import { businessConnectorConfigSchema } from '@ensemus/contracts/business-recor
 import type { BusinessConnectorConfig } from '@ensemus/contracts/business-records';
 import {
   BUSINESS_STREAMS,
+  CRM_RECORD_UPDATE_TOOL,
+  TICKETING_RECORD_UPDATE_TOOL,
+  ACCOUNTING_RECORD_UPDATE_TOOL,
+  TICKETING_COMMENT_ADD_TOOL,
   readScopeFor,
   recordClassification,
   selectRecordFields,
@@ -165,7 +169,10 @@ async function readPage(
   if (!Object.hasOwn(rules, request.stream)) throw new SyncUnavailable('SYNC_UNAVAILABLE');
   // Not selected, so nothing goes out and nothing comes back. A page saying so has no effect.
   if (!config.streams.includes(request.stream)) return emptyPage(request.cursor);
-  if (!config.scopes.includes(readScopeFor(spec.type))) {
+  if (
+    !config.scopes.includes(readScopeFor(spec.type)) ||
+    !context.grantedScopes?.includes(readScopeFor(spec.type))
+  ) {
     throw new SyncUnavailable('SYNC_AUTH_FAILED');
   }
 
@@ -278,7 +285,23 @@ async function send(
   } catch {
     throw new NotSent('PAYLOAD_CHANGED', false);
   }
-  if (!config.scopes.includes(writeScopeFor(spec.type))) throw new NotSent('AUTH_FAILED', false);
+  if (
+    !config.scopes.includes(writeScopeFor(spec.type)) ||
+    !context.grantedScopes?.includes(writeScopeFor(spec.type))
+  )
+    throw new NotSent('AUTH_FAILED', false);
+  // The row may have lost a selected stream after approval. An existing-record effect must still
+  // be selected now; creating a new invoice draft names no existing source record.
+  const stream = [
+    CRM_RECORD_UPDATE_TOOL,
+    TICKETING_RECORD_UPDATE_TOOL,
+    ACCOUNTING_RECORD_UPDATE_TOOL,
+  ].includes(request.toolName)
+    ? (payload as { record: { stream: string } }).record.stream
+    : request.toolName === TICKETING_COMMENT_ADD_TOOL
+      ? 'ticketing.tickets'
+      : null;
+  if (stream !== null && !config.streams.includes(stream)) throw new NotSent('AUTH_FAILED', false);
 
   try {
     const answer = await adapterExchange(context, transportFor(options), {

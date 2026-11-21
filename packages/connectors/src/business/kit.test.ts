@@ -55,6 +55,7 @@ const contextFor = (
   organizationId: randomUUID(),
   connectionId: randomUUID(),
   config,
+  grantedScopes: config.scopes,
   credentials: adapter.credentials,
   network: adapter.network,
   signal: new AbortController().signal,

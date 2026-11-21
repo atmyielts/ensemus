@@ -66,7 +66,10 @@ const commonName = (name: string) =>
 const ECDSA_WITH_SHA256 = sequence(oid('2a8648ce3d040302'));
 
 const pem = (label: string, data: Buffer) =>
-  `-----BEGIN ${label}-----\n${data.toString('base64').replace(/(.{64})/g, '$1\n')}\n-----END ${label}-----\n`;
+  `-----BEGIN ${label}-----\n${data
+    .toString('base64')
+    .replace(/(.{64})/g, '$1\n')
+    .trimEnd()}\n-----END ${label}-----\n`;
 
 /** A self-signed certificate for one DNS name, usable as its own trust anchor in a test. */
 export function generateTestCertificate(name: string): { key: string; cert: string } {
