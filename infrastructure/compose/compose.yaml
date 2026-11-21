@@ -75,6 +75,18 @@ services:
       # Billing is for a hosted mode that names it on, and a Sovereign deployment refuses to start with it
       # (ADR-032 D1). Off unless set, here and in the worker, which must agree.
       ENSEMUS_BILLING_ENABLED: ${ENSEMUS_BILLING_ENABLED:-false}
+      # Hosted checkout (ADR-032 D4a): public identifiers only, and none unless named. Keys are mounted files
+      # the connector worker alone reads. The web tier and the connector worker must agree.
+      ENSEMUS_CHECKOUT_PROVIDERS: ${ENSEMUS_CHECKOUT_PROVIDERS:-}
+      ENSEMUS_PAYME_ENVIRONMENT: ${ENSEMUS_PAYME_ENVIRONMENT:-}
+      ENSEMUS_PAYME_MERCHANT_ID: ${ENSEMUS_PAYME_MERCHANT_ID:-}
+      ENSEMUS_CLICK_ENVIRONMENT: ${ENSEMUS_CLICK_ENVIRONMENT:-}
+      ENSEMUS_CLICK_SERVICE_ID: ${ENSEMUS_CLICK_SERVICE_ID:-}
+      ENSEMUS_CLICK_MERCHANT_ID: ${ENSEMUS_CLICK_MERCHANT_ID:-}
+      ENSEMUS_PADDLE_ENVIRONMENT: ${ENSEMUS_PADDLE_ENVIRONMENT:-}
+      ENSEMUS_PADDLE_TAX_CATEGORY: ${ENSEMUS_PADDLE_TAX_CATEGORY:-}
+      # How long the checkout door waits for the connector worker's answer to Payme or Click.
+      ENSEMUS_CHECKOUT_REPLY_WAIT_MS: ${ENSEMUS_CHECKOUT_REPLY_WAIT_MS:-8000}
       DATABASE_URL_APP_FILE: /run/secrets/db_app_url
       OBJECT_STORAGE_ENDPOINT: http://objects:8333
       OBJECT_STORAGE_BUCKET: ensemus
@@ -278,6 +290,7 @@ services:
       - egress-google-gmail:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.17
       - egress-google-docs:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.18
       - egress-google-sheets:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.19
+      - egress-paddle:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.20
     environment:
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_NAMESPACE: default
@@ -313,6 +326,23 @@ services:
       ENSEMUS_OAUTH_GOOGLE_CLIENT_SECRET_FILE: ${ENSEMUS_OAUTH_GOOGLE_CLIENT_SECRET_FILE:-}
       ENSEMUS_OAUTH_MICROSOFT_CLIENT_ID: ${ENSEMUS_MICROSOFT_CLIENT_ID:-}
       ENSEMUS_OAUTH_MICROSOFT_CLIENT_SECRET_FILE: ${ENSEMUS_OAUTH_MICROSOFT_CLIENT_SECRET_FILE:-}
+      ENSEMUS_BILLING_ENABLED: ${ENSEMUS_BILLING_ENABLED:-false}
+      # ENSEMUS_BILLING_ORGANIZATION_ID, the deployment's own organization that holds the checkout
+      # addresses, is set with an overlay: an empty value is refused, so it has no line here.
+      # Hosted checkout (ADR-032 D4a): public identifiers only, and none unless named. Keys are mounted files
+      # the connector worker alone reads. The web tier and the connector worker must agree.
+      ENSEMUS_CHECKOUT_PROVIDERS: ${ENSEMUS_CHECKOUT_PROVIDERS:-}
+      ENSEMUS_PAYME_ENVIRONMENT: ${ENSEMUS_PAYME_ENVIRONMENT:-}
+      ENSEMUS_PAYME_MERCHANT_ID: ${ENSEMUS_PAYME_MERCHANT_ID:-}
+      ENSEMUS_CLICK_ENVIRONMENT: ${ENSEMUS_CLICK_ENVIRONMENT:-}
+      ENSEMUS_CLICK_SERVICE_ID: ${ENSEMUS_CLICK_SERVICE_ID:-}
+      ENSEMUS_CLICK_MERCHANT_ID: ${ENSEMUS_CLICK_MERCHANT_ID:-}
+      ENSEMUS_PADDLE_ENVIRONMENT: ${ENSEMUS_PADDLE_ENVIRONMENT:-}
+      ENSEMUS_PADDLE_TAX_CATEGORY: ${ENSEMUS_PADDLE_TAX_CATEGORY:-}
+      # Paddle's API key: a file an operator mounts with an overlay, read by this service only. Naming
+      # Paddle without it stops this worker at start. Its one way out is the egress-paddle route.
+      ENSEMUS_PADDLE_API_KEY_FILE: ${ENSEMUS_PADDLE_API_KEY_FILE:-}
+      ENSEMUS_EGRESS_PADDLE: egress-paddle:2525
     secrets:
       - db_app_url
       - db_secrets_url
@@ -485,6 +515,28 @@ services:
     environment:
       # Empty refuses to start. sheets.googleapis.com:443, or a site's relay to it.
       ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_GOOGLE_SHEETS_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  # Paddle's API (ADR-032 D4a). Same image, same rules: no secret, no database, one target, ciphertext only.
+  # The TLS name is fixed in code by the Paddle environment: api.paddle.com, or sandbox-api.paddle.com.
+  # Payme and Click need no route: they call us, and we never call them.
+  egress-paddle:
+    <<: *restart
+    profiles: ['connectors']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.20' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. api.paddle.com:443 or sandbox-api.paddle.com:443, or a site's relay to it.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_PADDLE_TARGET:-}
     deploy:
       resources: { limits: { memory: 128M } }
 

@@ -3,7 +3,11 @@
 import type { TenantContext, Tx } from '@ensemus/database';
 import type { SyncPage } from '@ensemus/domain/connector';
 import type { AttemptResult, ReconcileResult } from '@ensemus/domain/external-action';
-import type { SignatureScheme, WebhookEffect, WebhookRejectCode } from '@ensemus/domain/webhook';
+import type {
+  StoredSignatureScheme,
+  WebhookEffect,
+  WebhookRejectCode,
+} from '@ensemus/domain/webhook';
 
 /** Lends a secret for one call. SecretBroker implements this. There is no way to keep what it lends. */
 export interface SecretLease {
@@ -54,7 +58,7 @@ export type StoredDelivery = {
   endpointId: string;
   connectionId: string;
   connectorType: string;
-  scheme: SignatureScheme;
+  scheme: StoredSignatureScheme;
   body: Buffer;
   headers: Readonly<Record<string, string>>;
   sizeBytes: number;
@@ -75,6 +79,8 @@ export type DeliveryVerdict =
       providerEventId: string;
       effects: readonly WebhookEffect[];
       paymentVerificationToken?: string;
+      /** ADR-032 D4a. The secrets-role attestation for a checkout call that can move money. */
+      checkoutVerificationToken?: string;
     }
   | { ok: false; code: WebhookRejectCode };
 
@@ -111,6 +117,17 @@ export interface WebhookEffectHandlers {
       providerEventId: string;
       paymentVerificationToken?: string;
     }>,
+  ): Promise<void>;
+  /**
+   * ADR-032 D4a. A hosted checkout provider's verified call, applied to the one checkout row it names and
+   * answered in the same transaction. Optional so M3's own handlers need not know about checkout; a
+   * delivery with this effect and no handler is refused.
+   */
+  applyCheckoutCallback?(
+    tx: Tx,
+    context: TenantContext,
+    effect: Extract<WebhookEffect, { kind: 'checkout_callback' }>,
+    source: Readonly<{ deliveryId: string; checkoutVerificationToken: string | null }>,
   ): Promise<void>;
 }
 

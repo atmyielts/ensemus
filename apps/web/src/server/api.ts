@@ -54,6 +54,7 @@ import {
   EMAIL_SEND_VERSION,
 } from '@ensemus/domain/external-action';
 import { can } from '@ensemus/domain/policy';
+import { SIGNATURE_SCHEMES } from '@ensemus/domain/webhook';
 import { storeSecret } from '@ensemus/secrets/seal';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import { z } from 'zod';
@@ -496,7 +497,10 @@ export async function addWebhookEndpoint(
   assertConnectorsEnabled();
   const connection = await getConnection(database, context, connectionId);
   if (connection.state !== 'active') throw new AppError('CONNECTION_NOT_ACTIVE');
-  const scheme = manifestOf(connection.connectorType)?.capabilities.webhooks?.scheme;
+  const declared = manifestOf(connection.connectorType)?.capabilities.webhooks?.scheme;
+  // A tenant's endpoint uses the tenant scheme only. Checkout schemes belong to the deployment's own
+  // billing addresses, which an operator command creates (ADR-032 D4a).
+  const scheme = SIGNATURE_SCHEMES.find((value) => value === declared);
   if (!scheme) throw new AppError('INVALID_INPUT');
   const signingSecret = randomBytes(32).toString('base64url');
   const { secretRef } = await storeSecret(database, context, {

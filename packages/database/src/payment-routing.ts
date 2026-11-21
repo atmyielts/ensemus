@@ -2,6 +2,7 @@
 // the only way a processor's event ever reaches a tenant (ADR-032 D4).
 export { withPaymentCustomerTx } from './tenant';
 
+import { createHash } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import {
   createServiceContext,
@@ -115,4 +116,76 @@ export function withVerifiedPaymentEventTx<T>(
       routes.delete(proof);
     }
   });
+}
+
+/** The same digest as SQL's `billing.checkout_route`: an order reference, or one provider transaction. */
+export function checkoutRoute(kind: 'order' | 'txn', processor: string, ref: string): string {
+  return createHash('sha256')
+    .update(kind === 'order' ? `order:${ref}` : `txn:${processor}:${ref}`, 'utf8')
+    .digest('hex');
+}
+
+const CHECKOUT_GUCS = `set_config('app.user_id','',true),set_config('app.membership_id','',true),
+  set_config('app.actor_type','service',true),set_config('app.agent_run_id','',true),
+  set_config('app.interactive_session_id','',true)`;
+
+/**
+ * Inside a delivery's own transaction in the deployment's organization: binds only the hash of one order or
+ * provider transaction, which reveals that one checkout row, binds that row's tenant for `fn`, and binds
+ * the deployment's organization again before returning, so the reply and the delivery's own state commit
+ * with the change in one transaction. Nothing about the tenant comes from the provider. `fn` is not called
+ * when nothing matches. Worker-only (lint).
+ */
+export async function withCheckoutRoute<T>(
+  tx: Tx,
+  operator: TenantContext,
+  routeSha256: string,
+  fn: (
+    tx: Tx,
+    scope: { organizationId: string; sessionId: string; context: TenantContext },
+  ) => Promise<T>,
+): Promise<{ found: true; value: T } | { found: false }> {
+  if (operator.actorType !== 'service' || !/^[0-9a-f]{64}$/.test(routeSha256))
+    throw new TenantAccessDenied();
+  await tx.execute(sql`select set_config('app.checkout_route_sha256', ${routeSha256}, true)`);
+  let found: { organization_id: string; id: string }[];
+  try {
+    found = (
+      await tx.execute<{ organization_id: string; id: string }>(
+        sql`select organization_id, id from billing.checkout_sessions
+             where order_route_sha256 = ${routeSha256} or txn_route_sha256 = ${routeSha256}`,
+      )
+    ).rows;
+  } finally {
+    await restoreQuietly(tx, sql`select set_config('app.checkout_route_sha256', '', true)`);
+  }
+  if (found.length !== 1) return { found: false };
+  const [row] = found;
+  await tx.execute(
+    sql`select set_config('app.organization_id', ${row!.organization_id}, true), ${sql.raw(CHECKOUT_GUCS)}`,
+  );
+  try {
+    return {
+      found: true,
+      value: await fn(tx, {
+        organizationId: row!.organization_id,
+        sessionId: row!.id,
+        context: createServiceContext(row!.organization_id),
+      }),
+    };
+  } finally {
+    await restoreQuietly(
+      tx,
+      sql`select set_config('app.organization_id', ${operator.organizationId}, true), ${sql.raw(CHECKOUT_GUCS)}`,
+    );
+  }
+}
+
+/** After a failed statement the transaction only rolls back, so the original error is the one to keep. */
+async function restoreQuietly(tx: Tx, statement: ReturnType<typeof sql>) {
+  try {
+    await tx.execute(statement);
+  } catch {
+    // The transaction is already failing; it will roll back with every setting it made.
+  }
 }

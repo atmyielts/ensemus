@@ -71,6 +71,8 @@ import {
   OFFBOARDING_REQUESTED,
   OFFBOARDING_RESUMED,
   PAYMENT_EVENT_RECEIVED,
+  CHECKOUT_REQUESTED,
+  AGGREGATE_CHECKOUT,
   PAYMENT_REQUESTED,
   RETENTION_RULE_SET,
   SUBSCRIPTION_STARTED,
@@ -108,6 +110,8 @@ import {
   offboardingWorkflowIdFor,
   paymentEventInputSchema,
   paymentEventWorkflowIdFor,
+  checkoutInputSchema,
+  checkoutWorkflowIdFor,
   paymentInputSchema,
   paymentWorkflowIdFor,
   RETENTION_SWEEP_INTERVAL,
@@ -664,6 +668,18 @@ async function main() {
             paymentId: event.aggregateId,
           }),
           workflowIdFor: paymentWorkflowIdFor,
+        });
+        return;
+
+      // ADR-032 D4a. A Paddle checkout's transaction is made by one run, ever.
+      case CHECKOUT_REQUESTED:
+        if (event.aggregateType !== AGGREGATE_CHECKOUT) return;
+        await startOnce('checkoutWorkflow', {
+          input: checkoutInputSchema.parse({
+            organizationId: event.organizationId,
+            sessionId: event.aggregateId,
+          }),
+          workflowIdFor: checkoutWorkflowIdFor,
         });
         return;
 

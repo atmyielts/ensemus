@@ -136,6 +136,54 @@ An admin connects these by consent, from the connections page ([ADR-038](../00-f
 
 Turn on `ENSEMUS_CONNECTORS_ENABLED` as for any connector. Microsoft issues a new refresh token on every refresh; the worker reseals it in place under the connection's existing secret, and a refresh that loses a race to another one is refused rather than written.
 
+### Hosted checkout: Paddle, Payme and Click
+
+The owner chose these on 2026-11-11 ([ADR-032 D4a](../00-foundation/adr/ADR-032-saas-operations-and-billing.md#d4a-hosted-checkout-paddle-payme-and-click-addendum-2026-11-11)): Payme and Click for invoices in so'm, and Paddle, as merchant of record, for card payments in USD or EUR. The customer pays on the provider's own page; Ensemus never holds a card number and never starts a charge. **Migration `0580` and the three adapters need an outside security review before any real merchant account, key or customer is used.** Until then, use each provider's sandbox with generated test values only.
+
+Nothing is offered unless you name it. Everything below is off by default, and a Sovereign install refuses all of it.
+
+| Setting | Read by | What it does |
+|---|---|---|
+| `ENSEMUS_BILLING_ENABLED=true` | `web`, `worker`, `connector-worker` | Required for any checkout. Naming a provider with billing off stops the process at start |
+| `ENSEMUS_BILLING_ORGANIZATION_ID` | `web`, `connector-worker` | The deployment's own organization, which holds the three checkout addresses. Set with an overlay; an empty value is refused |
+| `ENSEMUS_CHECKOUT_PROVIDERS` | `web`, `connector-worker` | Comma list of `paddle`, `payme`, `click`. Empty offers none. Both services must agree |
+| `ENSEMUS_PAYME_ENVIRONMENT`, `ENSEMUS_PAYME_MERCHANT_ID` | `web`, `connector-worker` | `sandbox` or `live`, and the merchant ID from the Payme Business cabinet. The checkout link goes to `test.paycom.uz` or `checkout.paycom.uz` |
+| `ENSEMUS_CLICK_ENVIRONMENT`, `ENSEMUS_CLICK_SERVICE_ID`, `ENSEMUS_CLICK_MERCHANT_ID` | `web`, `connector-worker` | The service and merchant IDs from Click's merchant cabinet. Every Click call must name this service ID, or it is refused |
+| `ENSEMUS_PADDLE_ENVIRONMENT`, `ENSEMUS_PADDLE_TAX_CATEGORY` | `web`, `connector-worker` | `sandbox` or `live`, and Paddle's tax category for what Ensemus sells. The category is a tax decision for the owner and adviser; there is no default |
+| `ENSEMUS_PADDLE_API_KEY_FILE` | `connector-worker` only | A mounted file holding a Paddle API key. A `pdl_live_apikey_` key is refused in sandbox and the other way round. Never put it in the environment and never give it to `web` |
+| `ENSEMUS_EGRESS_PADDLE_TARGET` | `egress-paddle` | `api.paddle.com:443` for live or `sandbox-api.paddle.com:443` for sandbox, or a site relay to it. The TLS name is fixed in code by the environment. Empty means the gateway does not start, and opening a Paddle checkout fails closed |
+| `ENSEMUS_CHECKOUT_REPLY_WAIT_MS` | `web` | How long the checkout door waits for the connector worker's answer to Payme or Click, 1000 to 25000, 8000 by default. A technical bound, not a commitment: neither provider publishes its own limit. Past it, Payme hears `-32400` and Click `-7`, and both try again |
+
+Payme and Click need no egress route: they call us, and we never call them. Paddle needs `connectors` profile running, because the connector worker makes each Paddle transaction.
+
+**The three addresses.** Each provider gets one address in the deployment's own organization: a connection of type `payment_checkout_paddle`, `payment_checkout_payme` or `payment_checkout_click` with one webhook endpoint whose signing secret is the provider's key (Paddle's notification secret, the Payme merchant key, the Click secret key) and whose scheme is `paddle_signature_v1`, `payme_basic_v1` or `click_md5_v1`. The click connection's settings are `{"serviceId": "<ENSEMUS_CLICK_SERVICE_ID>"}`. **This release has no command that creates them**: the existing connection and endpoint services require an interactive, privileged person and a shipped connector type, and adding a reviewed path is listed as owed in ADR-032 D4a. Register the URLs with each provider once they exist:
+
+- Paddle: `ENSEMUS_PUBLIC_URL/api/webhooks/<token>` as a notification destination, with at least `transaction.completed`, `transaction.paid`, `transaction.canceled`, `adjustment.created` and `adjustment.updated`. Set a default payment link in Paddle, since the checkout link Paddle returns is built on it.
+- Payme: `ENSEMUS_PUBLIC_URL/api/payments/payme/<token>` as the Merchant API endpoint, with one account field named `order_id`.
+- Click: `ENSEMUS_PUBLIC_URL/api/payments/click/<token>` as both the Prepare and the Complete URL.
+
+**Keys.** Rotating the Payme key means changing it in the Payme cabinet and the endpoint's signing secret together. Ensemus answers Payme's `ChangePassword` with "method not found", so the cabinet cannot change it for us. Payme's `SetFiscalData` gets the same answer: fiscal receipts are an owner decision this release does not make.
+
+**What the customer sees.** On an open invoice, `Pay this invoice` offers only the providers this server names that take the invoice's currency. The customer is sent to the provider's page and comes back to a status page that says waiting, processing, paid, not paid or refunded, and shows paid only once the provider's word has been verified. A payment under way blocks a second one for the same invoice.
+
+**What can need a person.** Each of these is audited as `payment.flagged` in the tenant, the tenant's owners are notified, and the connector worker logs `checkout.needs_person` with a reason code and no reference:
+
+| Reason | What it means | What to do |
+|---|---|---|
+| `CHECKOUT_MISMATCH_REPORTED` | Paddle reported an amount, currency or order that is not this checkout's, usually because the customer changed their address and Paddle's tax with it | Nothing was settled. Compare in Paddle's dashboard; refund there if the customer paid, and let them pay again |
+| `CHECKOUT_PAID_AFTER_CLOSE` | Paddle took money for a checkout we had already closed | Refund it in Paddle |
+| `CHECKOUT_PAID_INVOICE_CLOSED` | The money arrived after the invoice was voided | Decide with the customer: refund at the provider, or apply it by hand |
+| `PROCESSOR_REFUND_REPORTED`, `PROCESSOR_DISPUTE_REPORTED` | A refund or a chargeback at the provider | Recorded only. Nothing is taken away automatically (ADR-032 D4) |
+
+A Paddle checkout whose notification never comes is looked up against Paddle's own transaction 15 minutes, 1 hour, 6 hours, 1 day and 3 days after it opens. A Payme transaction Payme created but never performed is cancelled by Payme itself after 12 hours, which is Payme's protocol, not our setting.
+
+```sh
+compose exec postgres psql -U postgres -d ensemus -c \
+  "select processor, state, count(*), min(updated_at) from billing.checkout_sessions group by 1, 2"
+```
+
+A row in `opening` for more than a few minutes means the connector worker or the Paddle route is down. A row in `reserved` means Payme or Click started a payment and has not finished it; never close it by hand.
+
 ### The `unknown` queue, and who watches it
 
 `unknown` means an attempt could have gone through and the provider cannot say. For email that is every timeout after the end of a message. Ensemus never retries one and never guesses. A person has to look.

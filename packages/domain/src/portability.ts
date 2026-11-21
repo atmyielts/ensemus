@@ -261,6 +261,10 @@ export const PORTABILITY_INVENTORY = [
   inventory('billing.payment_events', 'history', 'operational_excluded'),
   inventory('billing.payment_webhook_events', 'history', 'operational_excluded'),
   inventory('billing.collection_cases', 'history', 'operational_excluded'),
+  // Hosted checkout (ADR-032 D4a, 0580): payment records and provider witnesses, never a tenant's content.
+  inventory('billing.checkout_sessions', 'history', 'operational_excluded'),
+  inventory('billing.checkout_attestations', 'history', 'operational_excluded'),
+  inventory('billing.checkout_replies', 'history', 'operational_excluded'),
   inventory('lifecycle.retention_rules', 'history', 'operational_excluded'),
   inventory('lifecycle.retention_runs', 'history', 'operational_excluded'),
   inventory('lifecycle.legal_holds', 'history', 'operational_excluded'),

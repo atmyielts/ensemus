@@ -8,7 +8,11 @@ import type {
   ExternalActionCode,
   ReconcileResult,
 } from '@ensemus/domain/external-action';
-import type { SignatureScheme, WebhookEffect, WebhookRejectCode } from '@ensemus/domain/webhook';
+import type {
+  StoredSignatureScheme,
+  WebhookEffect,
+  WebhookRejectCode,
+} from '@ensemus/domain/webhook';
 import type { ConnectorManifest } from './manifest';
 
 export type { ConnectorCapabilities, ConnectorManifest, ReconcileLookup } from './manifest';
@@ -140,7 +144,7 @@ export type WebhookVerification =
 
 /** What verifying a signature takes, for a scheme this runtime knows. */
 export type WebhookVerifyInput = {
-  scheme: SignatureScheme;
+  scheme: StoredSignatureScheme;
   body: Uint8Array;
   headers: Readonly<Record<string, string>>;
   nowMs: number;

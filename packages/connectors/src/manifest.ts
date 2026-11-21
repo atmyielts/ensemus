@@ -1,6 +1,6 @@
 // What a connector says it can do. Plain data with no I/O, so it is the one part of this package the web
 // tier may import, to show which connectors exist and refuse what one cannot do (ADR-027 D3).
-import type { SignatureScheme } from '@ensemus/domain/webhook';
+import type { StoredSignatureScheme } from '@ensemus/domain/webhook';
 
 export type ReconcileLookup =
   /** The provider has no way to ask. After a timeout the intent stays unknown for a person. */
@@ -22,7 +22,7 @@ export type ConnectorCapabilities = {
   /** Whether it reports source permissions. Without this its resources stay unmapped, and denied. */
   aclMapping: boolean;
   /** How it signs callbacks, or null if it has none. */
-  webhooks: { scheme: SignatureScheme } | null;
+  webhooks: { scheme: StoredSignatureScheme } | null;
   /** `none` runs with no outside contact at all. Anything else goes only through the gateway. */
   network: 'none' | 'egress_gateway';
 };

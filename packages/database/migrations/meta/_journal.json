@@ -883,6 +883,13 @@
       "when": 1794201807527,
       "tag": "0720_ai_provider_kinds",
       "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "7",
+      "when": 1794201807528,
+      "tag": "0580_hosted_checkout",
+      "breakpoints": true
     }
   ]
 }
