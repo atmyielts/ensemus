@@ -7,8 +7,8 @@ one release candidate, integration issues fixed, and the full platform developed
 `codex/release-candidate` is the canonical implementation branch for this work. The old milestone
 reports remain historical evidence at their recorded revisions, not acceptance of this candidate.
 
-The current implementation phase covers consolidation and qualification across M1–M8 and the recovered
-M9P/hardening and M11A–M11C foundations. External security review, real-provider qualification, commercial
+The current implementation phase covers consolidation and qualification across M1â€“M8 and the recovered
+M9P/hardening and M11Aâ€“M11C foundations. External security review, real-provider qualification, commercial
 decisions and launch sign-off are distinct gates. No prices, jurisdiction, residency commitment,
 production signing key or approval is invented.
 
@@ -529,3 +529,66 @@ finished. Business write proposals/review, connection setup/configuration, built
 provider acceptance remain open, as do the ADR-033 review and Cloud adapter-routing decisions. The
 existing three-mode default remains no business route and no contact. No migration, secret/config
 format, external dependency, actual credential or provider commitment was introduced by this slice.
+
+
+## Private Work, review, action and history readers (WORK-03, QA-007, ADR-024/027/028/039)
+
+The native PostgreSQL regression reproduced private content reads that the existing DAL correctly
+refused: an unassigned member, four workers copying human bindings, and unadmitted agent/knowledge
+service contexts could read Work objectives, approval actions and external-action payloads. A later
+extension reproduced the same leak in free-text Work transition and approval-decision reasons,
+including an unadmitted delegated platform context. Migrations 0741â€“0743 and 0746 add restrictive
+SELECT policies on all five material tables, retaining their existing tenant, parent, inherited-input
+and immutable-history rules. An actual web person still needs a current active membership and the
+current Work ACL. Copied human bindings and SET ROLE do not turn a worker login into a person.
+
+Legitimate agent reads still require the actual active run, its initiator and scoped admission.
+Legitimate delegated platform reads require an actually requested process intent, its current active
+starter and the actual root or immutable step-birth association. A guessed Work ID or temporary birth
+selector grants nothing. Platform/connector service logins retain their existing trusted tenant
+processing access. This does not claim that those two roles have been reduced to individual queue
+intent capabilities; that narrower service-purpose boundary remains work to do.
+
+The Work creation kernel now inserts without RETURNING and reads only after the real scope mirror and
+contributor assignment exist. It checks the driver's inserted row count and returns an actually
+readable stored row; it does not manufacture a substitute Work row. Test fixtures now use the native
+platform or connector database for worker Activities and primitives, rather than a web database with
+service-shaped bindings. Human paths continue to use the web database.
+
+The first strict read policy exposed a prerequisite regression: invisible prerequisites disappeared
+from an inner join, allowing blocked Work to advance. Migration 0744 provides a fixed, tenant-bound
+status-only projection for an actual web reader of the dependent and an actual dependency edge. Its
+selectors are restored on success and failure. It returns no private body. Queries use a left join;
+an unavailable status counts as unfinished. Existing hidden/stopped prerequisite counts and removal
+still work without returning a hidden title or objective.
+
+Terminal agent cleanup also needed an actual metadata path. Migration 0745 can cancel only pending
+work.review records tied to the exact fenced, authoritative terminal run and its released current
+Work/version. Completed runs close outdated reviews by hash; failed/stopped runs cancel their own
+reviews. The capability returns review/requester IDs only, then applies shared notification, audit
+and outbox effects. It cannot approve, inspect review actions, release a newer active hold or operate
+through a web login. Ordinary review writes and external-action dispatch keep their existing paths.
+
+All six migrations are flagged for human security review; no human review is claimed. The status and
+terminal-review helpers are fixed-path security definers with no PUBLIC execution; the reader helper
+is an invoker. A fresh ordinary-migrator installation applied 156 migrations and matched all 156
+stored hashes to the final source files, and verified these owners, execution flags and five
+restrictive SELECT policies. The first unit pass caught missing required security header comments on
+two newly authored migrations. Their pre-marker bytes remain under ignored local evidence; the
+comments were corrected before the final fresh hash proof. No migration ledger was rewritten.
+
+The four-file Work/external-action/process regression passed all 326 cases before the history
+extension. The agent/input-scope/search/parent regression passed 50 of 51 cases, exposing terminal
+review cleanup; after its fix, the full native reader file and new status-purpose file passed all 21
+cases. The final four-file history/process/agent/status regression passed all 37 cases. The complete unit
+suite then passed 9,661 cases, with two known failing release gates, four expected failures and 43 skips
+across 379 files in 58.26 seconds. The failures still identify 71 planned API operations and the
+30-table portability inventory. No assertion or timeout was relaxed. Application TypeScript passed;
+repository lint and test TypeScript were also rerun after the history test extension. Native evidence
+and exact final source/log hashes are in `evidence/rc-private-work-material-20261121.json`.
+
+No public API, event schema, table, model route, actual credential, external dependency or required
+configuration was added. These SQL paths are shared by Cloud, BYOM and Sovereign and make no provider
+contact. Hosted acceptance, built workers/Temporal, load and independent security acceptance remain
+open. The business write-proposal/review service, customer business-connection setup and the broader
+platform gaps listed above remain unfinished.

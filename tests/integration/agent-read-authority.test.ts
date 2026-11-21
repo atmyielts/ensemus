@@ -734,6 +734,26 @@ describe('actual read-time authority and rolling admission (0417)', () => {
     );
     expect(closed).toMatchObject({ status: 'cancelled' });
     expect(closed?.decidedAt).toBeInstanceOf(Date);
+    expect(
+      await withTenantTx(agent.db, f.context, (tx) =>
+        tx.select({ action: approvals.action }).from(approvals).where(eq(approvals.id, review.id)),
+      ),
+    ).toEqual([]);
+    await expect(
+      withTenantTx(app.db, owner, (tx) =>
+        tx.execute(
+          sql`select * from work.agent_terminal_close_reviews(${f.runId}::uuid,${f.work.id}::uuid,1::bigint,null::text)`,
+        ),
+      ),
+    ).rejects.toSatisfy((error) => pgCode(error) === '42501');
+    await expect(
+      withTenantTx(agent.db, f.context, (tx) =>
+        tx.execute(
+          sql`select * from work.agent_terminal_close_reviews(${f.runId}::uuid,${randomUUID()}::uuid,1::bigint,null::text)`,
+        ),
+      ),
+    ).rejects.toSatisfy((error) => pgCode(error) === '42501');
+
     const after = await withTenantTx(app.db, admin, (tx) =>
       tx
         .select()

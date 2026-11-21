@@ -941,6 +941,11 @@
       "sha256": "9da0ee4827c6128b7a037c6457416adbb4d25d65e34a7641f4b30ac6768cea4c"
     },
     {
+      "path": "06-delivery/evidence/rc-private-work-material-20261121.json",
+      "size_bytes": 7937,
+      "sha256": "e9a868c1fc85ab4eb0525f2e35796612b4333e7b510ef641d1b62311f28795a1"
+    },
+    {
       "path": "06-delivery/hx-slices.md",
       "size_bytes": 34346,
       "sha256": "602a6120f9760700bdc06c510ce706a9ef9f46292a0f7a06b422dbc8035b3273"
@@ -1002,8 +1007,8 @@
     },
     {
       "path": "06-delivery/release-candidate-2026-11-21.md",
-      "size_bytes": 42022,
-      "sha256": "101c4bda598608ef8120c9f25e0e03072d19b85edc3f47feb4ec04f2a4b90256"
+      "size_bytes": 47150,
+      "sha256": "a08b7ad733e13eb8964e8a67e2ece41f29ec7c2887062b67ed6c3f67611a5194"
     },
     {
       "path": "06-delivery/release-candidate-source-ledger.json",

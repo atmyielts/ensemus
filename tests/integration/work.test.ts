@@ -125,6 +125,7 @@ const code = (name: string) => expect.objectContaining({ code: name });
 
 describe('work', () => {
   let app: ReturnType<typeof openAppDatabase>;
+  let platform: ReturnType<typeof openAppDatabase>;
   let auth: pg.Client;
   const db = () => app.db;
 
@@ -217,12 +218,14 @@ describe('work', () => {
 
   beforeAll(async () => {
     app = openAppDatabase(urls.app());
+    platform = openAppDatabase(urls.worker());
     auth = new pg.Client({ connectionString: urls.auth() });
     await auth.connect();
   });
 
   afterAll(async () => {
     await app?.close();
+    await platform?.close();
     await auth?.end();
   });
 
@@ -606,7 +609,7 @@ describe('work', () => {
         const work = await createWorkUnit(db(), a, { title: 'W' });
         const checking = await move(a, work.id, ['ready', 'running', 'verifying']);
         await expect(
-          transitionWorkUnit(db(), createServiceContext(a.organizationId), {
+          transitionWorkUnit(platform.db, createServiceContext(a.organizationId), {
             id: work.id,
             expectedVersion: checking.version,
             to: 'completed',
@@ -2067,7 +2070,7 @@ describe('work', () => {
       expect(await listMyPendingApprovals(db(), reviewer)).toEqual([]);
 
       const service = createServiceContext(a.organizationId);
-      expect(await expireOverdueApprovals(db(), service, new Date())).toBe(1);
+      expect(await expireOverdueApprovals(platform.db, service, new Date())).toBe(1);
       expect((await getApproval(db(), a, review.id)).approval.status).toBe('expired');
       expect((await getWorkUnit(db(), a, work.id)).status).toBe('cancelled');
       expect(await countUnread(db(), reviewer)).toBe(0);
@@ -2077,7 +2080,7 @@ describe('work', () => {
       expect(await eventTypes(a, work.id)).toContain('approval.resolved');
       // The owner hears about it.
       expect((await listMyNotifications(db(), a)).map((n) => n.kind)).toContain('approval.expired');
-      expect(await expireOverdueApprovals(db(), service, new Date())).toBe(0);
+      expect(await expireOverdueApprovals(platform.db, service, new Date())).toBe(0);
     });
 
     describe('replacing one whose time has run out', () => {
@@ -2107,7 +2110,7 @@ describe('work', () => {
 
         // The sweep finds nothing left to stop it for, and the new decision can release it.
         const service = createServiceContext(a.organizationId);
-        expect(await expireOverdueApprovals(db(), service, new Date())).toBe(0);
+        expect(await expireOverdueApprovals(platform.db, service, new Date())).toBe(0);
         expect((await getWorkUnit(db(), a, work.id)).status).toBe('awaiting_approval');
         await decideApproval(db(), other, {
           approvalId: next.id,
@@ -2136,7 +2139,7 @@ describe('work', () => {
         const { work, review } = await open(a);
         await pastDue(a, review.id);
         const service = createServiceContext(a.organizationId);
-        expect(await expireOverdueApprovals(db(), service, new Date())).toBe(1);
+        expect(await expireOverdueApprovals(platform.db, service, new Date())).toBe(1);
         expect((await getWorkUnit(db(), a, work.id)).status).toBe('cancelled');
         expect((await getApproval(db(), a, review.id)).approval.status).toBe('expired');
         // Stopped because it expired, and recorded as that, not also as closed by the work stopping.
@@ -2170,14 +2173,18 @@ describe('work', () => {
       const { reviewer, review } = await open(a);
       const service = createServiceContext(a.organizationId);
       // Not overdue yet, so nothing has changed and it says so.
-      expect(await expireApprovalStatus(db(), service, { approvalId: review.id })).toBe('pending');
+      expect(await expireApprovalStatus(platform.db, service, { approvalId: review.id })).toBe(
+        'pending',
+      );
       await decideApproval(db(), reviewer, {
         approvalId: review.id,
         decision: 'approve',
         shownHash: review.actionHash,
       });
       // Decided in the meantime: the answer is the decision, not an expiry.
-      expect(await expireApprovalStatus(db(), service, { approvalId: review.id })).toBe('approved');
+      expect(await expireApprovalStatus(platform.db, service, { approvalId: review.id })).toBe(
+        'approved',
+      );
     });
 
     it('tells the owner when a review is decided, or their work is stopped', async () => {
@@ -2992,7 +2999,7 @@ describe('work', () => {
   describe('a plan run, through its Activities', () => {
     const RUN = randomUUID();
     const quietStore = new MemoryStore();
-    const activities = () => createActivities({ database: db(), store: quietStore });
+    const activities = () => createActivities({ database: platform.db, store: quietStore });
     const input = (context: TenantContext, workUnitId: string, runId = RUN) => ({
       organizationId: context.organizationId,
       workUnitId,
@@ -3139,7 +3146,7 @@ describe('work', () => {
         const work = await planned(a);
         const run = input(a, work.id);
         const { store, stalling, stalled, release } = stallingStore();
-        const own = createActivities({ database: db(), store: stalling });
+        const own = createActivities({ database: platform.db, store: stalling });
         await own.prepareWork(run);
 
         const slow = own.produceChecklistArtifact(run);
@@ -3185,7 +3192,7 @@ describe('work', () => {
         const work = await planned(a);
         const run = input(a, work.id);
         const { store, stalling, stalled, release } = stallingStore();
-        const own = createActivities({ database: db(), store: stalling });
+        const own = createActivities({ database: platform.db, store: stalling });
         await own.prepareWork(run);
 
         const slow = own.produceChecklistArtifact(run);
@@ -3202,14 +3209,17 @@ describe('work', () => {
         // person no target for a generated file, so the row stays unconfirmed and counts as a failure.
         expect(await purgeDueBlobs(db(), store, a, later)).toEqual({ purged: 0, failed: 1 });
         expect(store.objects.size).toBe(1);
-        const retained = await withTenantTx(db(), createServiceContext(a.organizationId), (tx) =>
-          tx.execute<{ state: string; writeState: string; blobState: string }>(
-            sql`select l.state,l.write_state as "writeState",b.state as "blobState"
+        const retained = await withTenantTx(
+          platform.db,
+          createServiceContext(a.organizationId),
+          (tx) =>
+            tx.execute<{ state: string; writeState: string; blobState: string }>(
+              sql`select l.state,l.write_state as "writeState",b.state as "blobState"
               from knowledge.artifact_lineage l join platform.blob_lifecycle b
                 on b.organization_id=l.organization_id and b.artifact_id=l.artifact_id
               where l.execution_kind='system' and l.execution_id=${run.runId}::uuid
                 and l.work_unit_id=${work.id}::uuid`,
-          ),
+            ),
         );
         expect(retained.rows).toEqual([
           { state: 'blocked', writeState: 'settled', blobState: 'deleting' },
@@ -3344,7 +3354,7 @@ describe('work', () => {
         reviewerMembershipId: (await join(a, 'r', 'admin')).membershipId,
       });
       const run = input(a, work.id);
-      const own = createActivities({ database: db(), store });
+      const own = createActivities({ database: platform.db, store });
       await own.prepareWork(run);
       const { artifactId } = await own.produceChecklistArtifact(run);
       const { body } = await readArtifact(db(), store, a, { workUnitId: work.id, artifactId });
@@ -3508,7 +3518,7 @@ describe('work', () => {
       const stranded = await planned(a);
       const live = await planned(a);
       const started = createActivities({
-        database: db(),
+        database: platform.db,
         store: quietStore,
         probeWorkflow: async ({ workUnitId }) => (workUnitId === stranded.id ? 'closed' : 'open'),
       });
@@ -3562,7 +3572,7 @@ describe('work', () => {
       expect(store.objects.size).toBe(1);
       await pastDue(a, review.id);
 
-      await createActivities({ database: db(), store }).sendReminders({
+      await createActivities({ database: platform.db, store }).sendReminders({
         organizationId: a.organizationId,
       });
 
@@ -3582,7 +3592,7 @@ describe('work', () => {
       const store = new MemoryStore();
       const held = await planned(a);
       const started = createActivities({
-        database: db(),
+        database: platform.db,
         store,
         probeWorkflow: async () => {
           throw new Error('Temporal is having a bad day');
@@ -3653,7 +3663,7 @@ describe('work', () => {
         const probed: string[] = [];
         const stranded = await planned(a);
         const started = createActivities({
-          database: db(),
+          database: platform.db,
           store: quietStore,
           probeWorkflow: async ({ workUnitId }) => {
             probed.push(workUnitId);
@@ -3682,7 +3692,7 @@ describe('work', () => {
         const a = await newOrg();
         const b = await newOrg();
         const ids: string[] = [];
-        const own = createActivities({ database: db(), store: quietStore });
+        const own = createActivities({ database: platform.db, store: quietStore });
         for (let i = 0; i < 5; i++) {
           const work = await planned(a);
           await own.prepareWork(input(a, work.id));
@@ -3703,7 +3713,7 @@ describe('work', () => {
         let after: Awaited<ReturnType<typeof listHeldRuns>>['next'] = null;
         do {
           const page: Awaited<ReturnType<typeof listHeldRuns>> = await listHeldRuns(
-            db(),
+            platform.db,
             service,
             before,
             { after: after ?? undefined, limit: 2 },
@@ -3712,7 +3722,11 @@ describe('work', () => {
           after = page.next;
         } while (after);
         expect(seen).toEqual([...ids].sort());
-        const elsewhere = await listHeldRuns(db(), createServiceContext(b.organizationId), before);
+        const elsewhere = await listHeldRuns(
+          platform.db,
+          createServiceContext(b.organizationId),
+          before,
+        );
         expect(elsewhere.items).toEqual([]);
       });
     });

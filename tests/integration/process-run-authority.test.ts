@@ -156,6 +156,7 @@ describe('workflow execution has actual native intent, birth and completion auth
       a,
       b,
       ports,
+      workerPorts: createRuntimeProductPorts(worker.db),
       specId,
       run,
       agentVersion,
@@ -174,15 +175,15 @@ describe('workflow execution has actual native intent, birth and completion auth
     });
     const delayed = {
       agentRuns: {
-        ...f.ports.agentRuns,
-        start: async (...args: Parameters<typeof f.ports.agentRuns.start>) => {
+        ...f.workerPorts.agentRuns,
+        start: async (...args: Parameters<typeof f.workerPorts.agentRuns.start>) => {
           entered();
           await resume;
-          return f.ports.agentRuns.start(...args);
+          return f.workerPorts.agentRuns.start(...args);
         },
       },
     };
-    const advancing = advanceProcessRun(app.db, f.service, delayed, {
+    const advancing = advanceProcessRun(worker.db, f.service, delayed, {
       runId: f.run.id,
       temporalRunId: 'generated-stop-race',
     });
@@ -462,7 +463,7 @@ describe('workflow execution has actual native intent, birth and completion auth
     const f = await fixture();
     expect(
       await refusal(
-        withTenantTx(app.db, f.service, (tx) =>
+        withTenantTx(worker.db, f.service, (tx) =>
           tx
             .insert(processRunSteps)
             .values({ organizationId: f.a.organizationId, runId: f.run.id, stepKey: 'forged' }),
@@ -471,7 +472,7 @@ describe('workflow execution has actual native intent, birth and completion auth
     ).toBe('EN418');
     expect(
       await refusal(
-        withTenantTx(app.db, f.service, (tx) =>
+        withTenantTx(worker.db, f.service, (tx) =>
           tx
             .update(processRunSteps)
             .set({ status: 'done' })
@@ -484,7 +485,7 @@ describe('workflow execution has actual native intent, birth and completion auth
     const f = await fixture();
     expect(
       await refusal(
-        withTenantTx(app.db, f.service, async (tx) => {
+        withTenantTx(worker.db, f.service, async (tx) => {
           await tx
             .update(processRuns)
             .set({ status: 'completed', version: 2, finishedAt: new Date() })
@@ -505,7 +506,7 @@ describe('workflow execution has actual native intent, birth and completion auth
   });
   it('refuses fake completion of a real waiting step and raw Work completed without its kernel receipt', async () => {
     const f = await fixture();
-    await advanceProcessRun(app.db, f.service, f.ports, {
+    await advanceProcessRun(worker.db, f.service, f.workerPorts, {
       runId: f.run.id,
       temporalRunId: randomUUID(),
     });
@@ -514,7 +515,7 @@ describe('workflow execution has actual native intent, birth and completion auth
     if (!first?.workUnitId) throw new Error('TEST_STEP_WORK_MISSING');
     expect(
       await refusal(
-        withTenantTx(app.db, f.service, (tx) =>
+        withTenantTx(worker.db, f.service, (tx) =>
           tx
             .update(processRunSteps)
             .set({ status: 'done' })
@@ -525,7 +526,7 @@ describe('workflow execution has actual native intent, birth and completion auth
     const work = await getWorkUnit(app.db, f.a.admin.context, first.workUnitId);
     expect(
       await refusal(
-        withTenantTx(app.db, f.service, (tx) =>
+        withTenantTx(worker.db, f.service, (tx) =>
           tx
             .update(workUnits)
             .set({ status: 'completed', version: work.version + 1 })
@@ -564,7 +565,7 @@ describe('workflow execution has actual native intent, birth and completion auth
   });
   it('cannot fabricate a process person approval or approval receipt as service', async () => {
     const f = await fixture('approval');
-    await advanceProcessRun(app.db, f.service, f.ports, {
+    await advanceProcessRun(worker.db, f.service, f.workerPorts, {
       runId: f.run.id,
       temporalRunId: 'generated-approval-workflow',
     });
@@ -574,7 +575,7 @@ describe('workflow execution has actual native intent, birth and completion auth
     const shown = await getApproval(app.db, f.a.owner.context, first.approvalId);
     expect(
       await refusal(
-        withTenantTx(app.db, f.service, (tx) =>
+        withTenantTx(worker.db, f.service, (tx) =>
           tx
             .update(approvals)
             .set({ status: 'approved', decidedAt: new Date() })
@@ -584,7 +585,7 @@ describe('workflow execution has actual native intent, birth and completion auth
     ).toBe('EN418');
     expect(
       await refusal(
-        withTenantTx(app.db, f.service, (tx) =>
+        withTenantTx(worker.db, f.service, (tx) =>
           tx.insert(approvalDecisions).values({
             organizationId: f.a.organizationId,
             approvalId: shown.approval.id,
@@ -601,7 +602,7 @@ describe('workflow execution has actual native intent, birth and completion auth
   });
   it('uses the exact real approval, then waits for actual task confirmation and refuses a revoked reviewer proof', async () => {
     const f = await fixture('approval');
-    await advanceProcessRun(app.db, f.service, f.ports, {
+    await advanceProcessRun(worker.db, f.service, f.workerPorts, {
       runId: f.run.id,
       temporalRunId: 'generated-approval-workflow',
     });
@@ -614,14 +615,14 @@ describe('workflow execution has actual native intent, birth and completion auth
       decision: 'approve',
       shownHash: shown.approval.actionHash,
     });
-    await advanceProcessRun(app.db, f.service, f.ports, {
+    await advanceProcessRun(worker.db, f.service, f.workerPorts, {
       runId: f.run.id,
       temporalRunId: 'generated-approval-workflow',
     });
     view = await getProcessRun(app.db, f.a.admin.context, f.ports, f.run.id);
     expect(view.steps.find((s) => s.key === 'first')?.stopCode).toBe('WORK_CONFIRMATION_REQUIRED');
     await confirm(f, first.workUnitId);
-    await advanceProcessRun(app.db, f.service, f.ports, {
+    await advanceProcessRun(worker.db, f.service, f.workerPorts, {
       runId: f.run.id,
       temporalRunId: 'generated-approval-workflow',
     });
@@ -636,7 +637,7 @@ describe('workflow execution has actual native intent, birth and completion auth
         .where(eq(workUnits.id, first.workUnitId!)),
     );
     expect(
-      await advanceProcessRun(app.db, f.service, f.ports, {
+      await advanceProcessRun(worker.db, f.service, f.workerPorts, {
         runId: f.run.id,
         temporalRunId: 'generated-approval-workflow',
       }),
@@ -656,7 +657,7 @@ describe('workflow execution has actual native intent, birth and completion auth
     expect(one.rootWorkUnitId).toBe(two.rootWorkUnitId);
     expect(one.steps).toHaveLength(2);
     for (const key of ['first', 'second']) {
-      await advanceProcessRun(app.db, f.service, f.ports, {
+      await advanceProcessRun(worker.db, f.service, f.workerPorts, {
         runId: one.id,
         temporalRunId: 'generated-workflow-attempt',
       });
@@ -667,7 +668,7 @@ describe('workflow execution has actual native intent, birth and completion auth
       await confirm(f, step.workUnitId);
     }
     expect(
-      await advanceProcessRun(app.db, f.service, f.ports, {
+      await advanceProcessRun(worker.db, f.service, f.workerPorts, {
         runId: one.id,
         temporalRunId: 'generated-workflow-attempt',
       }),
@@ -678,7 +679,7 @@ describe('workflow execution has actual native intent, birth and completion auth
     expect(waiting.steps.every((s) => s.status === 'done')).toBe(true);
     await confirm(f, one.rootWorkUnitId);
     expect(
-      await advanceProcessRun(app.db, f.service, f.ports, {
+      await advanceProcessRun(worker.db, f.service, f.workerPorts, {
         runId: one.id,
         temporalRunId: 'generated-workflow-attempt',
       }),

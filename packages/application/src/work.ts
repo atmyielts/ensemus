@@ -291,7 +291,7 @@ export async function createWorkUnitInTx(
     (criterion) => criterion.kind === 'external_receipt',
   );
   if (asksForReceipt && !(await hasActionConnection(tx))) throw new AppError('INVALID_INPUT');
-  const [row] = await tx
+  const inserted = await tx
     .insert(workUnits)
     .values({
       organizationId: context.organizationId,
@@ -307,9 +307,9 @@ export async function createWorkUnitInTx(
       completionCriteria: input.completionCriteria,
       executionPlan: input.executionPlan ?? null,
     })
-    .onConflictDoNothing()
-    .returning();
-  if (!row) return loadReadable(tx, context, id);
+    .onConflictDoNothing();
+  if (inserted.rowCount === 0) return loadReadable(tx, context, id);
+  if (inserted.rowCount !== 1) throw new AppError('INVALID_STATE');
   await tx.insert(workAssignments).values({
     organizationId: context.organizationId,
     workUnitId: id,
@@ -333,7 +333,9 @@ export async function createWorkUnitInTx(
     targetRef: `work_unit:${id}`,
     decision: 'allow',
   });
-  return row as WorkRow;
+  // The AFTER INSERT scope mirror and the contributor assignment now exist. Reading in this
+  // subsequent statement applies the actual Work ACL, including creating Work for another owner.
+  return loadReadable(tx, context, id);
 }
 
 export function getWorkUnit(database: AppDatabase, context: TenantContext, id: string) {
@@ -565,12 +567,22 @@ export async function updateWorkUnit(
   });
 }
 
+// Private prerequisites still block. A missing status is unfinished, never permission to advance.
+function prerequisiteStatus() {
+  return sql<string>`coalesce(${workUnits.status},work.prerequisite_status(${workDependencies.dependentId},${workDependencies.prerequisiteId}))`;
+}
+
 export async function incompletePrerequisites(tx: Tx, id: string) {
   const [row] = await tx
     .select({ n: sql<number>`count(*)::int` })
     .from(workDependencies)
-    .innerJoin(workUnits, eq(workUnits.id, workDependencies.prerequisiteId))
-    .where(and(eq(workDependencies.dependentId, id), ne(workUnits.status, 'completed')));
+    .leftJoin(workUnits, eq(workUnits.id, workDependencies.prerequisiteId))
+    .where(
+      and(
+        eq(workDependencies.dependentId, id),
+        sql`${prerequisiteStatus()} is distinct from 'completed'`,
+      ),
+    );
   return row?.n ?? 0;
 }
 
@@ -999,6 +1011,7 @@ async function persistWorkTransition<Row extends WorkTransitionMetadata>(
     runId?: string;
     hasExecutionPlan: boolean;
     basis: 'owner_confirmed' | 'evidence' | null;
+    terminalControl?: TerminalWorkControl;
   },
   write: (patch: WorkTransitionPatch) => Promise<Row>,
 ): Promise<Row> {
@@ -1075,7 +1088,16 @@ async function persistWorkTransition<Row extends WorkTransitionMetadata>(
 
   // Finished work has nothing left to decide, so nobody is left being asked.
   if (to === 'cancelled' || to === 'completed' || to === 'failed') {
-    await closeApprovals(tx, context, row, ['pending'], 'WORK_FINISHED');
+    if (options.terminalControl) {
+      if (!isTerminalWorkControl(options.terminalControl, tx, context))
+        throw new AppError('FORBIDDEN');
+      for (const review of await options.terminalControl.closeReviews())
+        await recordApprovalClosed(tx, context, row, review.id, {
+          reason: 'WORK_FINISHED',
+          kind: CLOSED_WITH_THE_WORK.WORK_FINISHED,
+          tell: [review.requestedBy],
+        });
+    } else await closeApprovals(tx, context, row, ['pending'], 'WORK_FINISHED');
   }
   // Going round again starts afresh: a review from an earlier round is not a review of this one.
   if (to === 'ready' && (current.status === 'completed' || current.status === 'failed')) {
@@ -1115,22 +1137,26 @@ export async function releaseTerminalWorkInTx(
       context,
       current,
       to,
-      { hasExecutionPlan: control.hasExecutionPlan, basis: null },
+      { hasExecutionPlan: control.hasExecutionPlan, basis: null, terminalControl: control },
       (patch) => control.write(patch),
     );
   };
   if (control.runStatus === 'completed' || control.runStatus === 'outcome_unverified') {
     if (control.current.status !== 'running') return;
     const checking = await transition('verifying');
-    await closeOutdatedReviewsByHash(tx, context, checking, async () =>
-      actionHash(
-        workReviewActionFromContentHash(
-          checking.id,
-          control.contentSha256,
-          await control.visibleArtifactIds(),
-        ),
+    const hash = actionHash(
+      workReviewActionFromContentHash(
+        checking.id,
+        control.contentSha256,
+        await control.visibleArtifactIds(),
       ),
     );
+    for (const review of await control.closeReviews(hash))
+      await recordApprovalClosed(tx, context, checking, review.id, {
+        reason: 'CONTENT_CHANGED',
+        kind: 'approval.outdated',
+        tell: [review.requestedBy],
+      });
     return;
   }
   if (['ready', 'awaiting_approval', 'verifying'].includes(control.current.status))
@@ -1363,11 +1389,11 @@ export function removeStoppedHiddenPrerequisites(
     const stopped = await tx
       .select({ id: workDependencies.prerequisiteId })
       .from(workDependencies)
-      .innerJoin(workUnits, eq(workUnits.id, workDependencies.prerequisiteId))
+      .leftJoin(workUnits, eq(workUnits.id, workDependencies.prerequisiteId))
       .where(
         and(
           eq(workDependencies.dependentId, input.dependentId),
-          eq(workUnits.status, 'cancelled'),
+          sql`${prerequisiteStatus()} = 'cancelled'`,
           not(visibleTo(context) as SQL),
         ),
       );
@@ -1629,11 +1655,11 @@ export function getWorkDetail(database: AppDatabase, context: TenantContext, id:
     // Counts only. They hold the work up, so the person has to be told, but never what they are.
     const [hiddenPrerequisites] = await tx
       .select({
-        unfinished: sql<number>`count(*) filter (where ${workUnits.status} <> 'completed')::int`,
-        stopped: sql<number>`count(*) filter (where ${workUnits.status} = 'cancelled')::int`,
+        unfinished: sql<number>`count(*) filter (where ${prerequisiteStatus()} is distinct from 'completed')::int`,
+        stopped: sql<number>`count(*) filter (where ${prerequisiteStatus()} = 'cancelled')::int`,
       })
       .from(workDependencies)
-      .innerJoin(workUnits, eq(workUnits.id, workDependencies.prerequisiteId))
+      .leftJoin(workUnits, eq(workUnits.id, workDependencies.prerequisiteId))
       .where(and(eq(workDependencies.dependentId, id), not(visibleTo(context) as SQL)));
     const dependents = await tx
       .select({ id: workUnits.id, title: workUnits.title, status: workUnits.status })

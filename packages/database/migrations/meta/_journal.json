@@ -1051,6 +1051,48 @@
       "when": 1794201807622,
       "tag": "0740_business_record_revocation",
       "breakpoints": true
+    },
+    {
+      "idx": 150,
+      "version": "7",
+      "when": 1794201807623,
+      "tag": "0741_work_material_readers",
+      "breakpoints": true
+    },
+    {
+      "idx": 151,
+      "version": "7",
+      "when": 1794201807624,
+      "tag": "0742_work_reader_role_dispatch",
+      "breakpoints": true
+    },
+    {
+      "idx": 152,
+      "version": "7",
+      "when": 1794201807625,
+      "tag": "0743_process_work_material_scope",
+      "breakpoints": true
+    },
+    {
+      "idx": 153,
+      "version": "7",
+      "when": 1794201807626,
+      "tag": "0744_hidden_prerequisite_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 154,
+      "version": "7",
+      "when": 1794201807627,
+      "tag": "0745_terminal_review_metadata",
+      "breakpoints": true
+    },
+    {
+      "idx": 155,
+      "version": "7",
+      "when": 1794201807628,
+      "tag": "0746_work_history_material_readers",
+      "breakpoints": true
     }
   ]
 }
