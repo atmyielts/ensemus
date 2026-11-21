@@ -33,12 +33,12 @@ BEGIN
   IF NEW.scan_state IS NOT DISTINCT FROM OLD.scan_state THEN
     RETURN NEW;
   END IF;
-  IF NOT CASE OLD.scan_state
+  IF NOT (CASE OLD.scan_state
       WHEN 'not_scanned' THEN NEW.scan_state IN ('clean', 'infected', 'scan_failed')
       WHEN 'scan_failed' THEN NEW.scan_state IN ('clean', 'infected')
       WHEN 'clean' THEN NEW.scan_state IN ('infected', 'scan_failed')
       ELSE false
-    END THEN
+    END) THEN
     RAISE EXCEPTION 'KNOWLEDGE_SCAN_INVALID_TRANSITION' USING ERRCODE = 'EN106';
   END IF;
   RETURN NEW;
