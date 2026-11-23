@@ -129,9 +129,11 @@ type Opened = { manifest: ExportManifest; parts: Map<string, Buffer>; text: stri
 
 describe('organization export', () => {
   let app: ReturnType<typeof openAppDatabase>;
+  let serviceDatabase: ReturnType<typeof openAppDatabase>;
   let auth: pg.Client;
   let su: pg.Client;
   const db = () => app.db;
+  const workerDb = () => serviceDatabase.db;
   const recipient = testRecipient();
 
   async function makeUser(label: string) {
@@ -190,15 +192,15 @@ describe('organization export', () => {
     untilBatchesDone?: () => Promise<void>,
   ): Promise<ExportStep> {
     const service = worker(context);
-    let step = await beginExport(db(), service, { exportId }, using);
+    let step = await beginExport(workerDb(), service, { exportId }, using);
     while (step.state === 'continue') {
-      step = await exportNextBatch(db(), store, service, { exportId }, using);
+      step = await exportNextBatch(workerDb(), store, service, { exportId }, using);
     }
     if (step.state === 'failed') return step;
     await untilBatchesDone?.();
-    step = await finishExport(db(), store, service, { exportId }, using);
+    step = await finishExport(workerDb(), store, service, { exportId }, using);
     while (step.state === 'continue') {
-      step = await finishExport(db(), store, service, { exportId }, using);
+      step = await finishExport(workerDb(), store, service, { exportId }, using);
     }
     return step;
   }
@@ -290,6 +292,7 @@ describe('organization export', () => {
 
   beforeAll(async () => {
     app = openAppDatabase(urls.app());
+    serviceDatabase = openAppDatabase(urls.worker());
     auth = new pg.Client({ connectionString: urls.auth() });
     su = new pg.Client({ connectionString: urls.superuser() });
     await auth.connect();
@@ -298,6 +301,7 @@ describe('organization export', () => {
 
   afterAll(async () => {
     await app.close();
+    await serviceDatabase.close();
     await auth.end();
     await su.end();
   });
@@ -368,14 +372,16 @@ describe('organization export', () => {
       expect(await listOrganizationExports(db(), stranger)).toEqual([]);
       // Nor can the worker be pointed at it from the other tenant.
       const elsewhere = worker(stranger);
-      await expect(beginExport(db(), elsewhere, { exportId: id }, deps)).rejects.toMatchObject({
+      await expect(
+        beginExport(workerDb(), elsewhere, { exportId: id }, deps),
+      ).rejects.toMatchObject({
         code: 'NOT_FOUND',
       });
       await expect(
-        exportNextBatch(db(), store, elsewhere, { exportId: id }, deps),
+        exportNextBatch(workerDb(), store, elsewhere, { exportId: id }, deps),
       ).rejects.toMatchObject({ code: 'NOT_FOUND' });
       await expect(
-        failExport(db(), elsewhere, { exportId: id, code: 'SECTION_FAILED' }),
+        failExport(workerDb(), elsewhere, { exportId: id, code: 'SECTION_FAILED' }),
       ).rejects.toMatchObject({ code: 'NOT_FOUND' });
       expect((await getOrganizationExport(db(), owner, id)).status).toBe('requested');
     });
@@ -406,35 +412,52 @@ describe('organization export', () => {
       await expect(request(owner)).rejects.toMatchObject({ code: 'EXPORT_ALREADY_RUNNING' });
       // Another tenant has its own place.
       await expect(request(stranger)).resolves.toBeDefined();
-      await failExport(db(), worker(owner), { exportId: first, code: 'SECTION_FAILED' });
+      await failExport(workerDb(), worker(owner), { exportId: first, code: 'SECTION_FAILED' });
       await expect(request(owner)).resolves.toBeDefined();
     });
 
     it('lets only the worker run the steps', async () => {
       const exportId = await request(owner);
       for (const context of [owner, admin, member]) {
-        await expect(beginExport(db(), context, { exportId }, deps)).rejects.toMatchObject({
+        await expect(beginExport(workerDb(), context, { exportId }, deps)).rejects.toMatchObject({
           code: 'FORBIDDEN',
         });
         await expect(
-          exportNextBatch(db(), store, context, { exportId }, deps),
+          exportNextBatch(workerDb(), store, context, { exportId }, deps),
         ).rejects.toMatchObject({ code: 'FORBIDDEN' });
-        await expect(finishExport(db(), store, context, { exportId }, deps)).rejects.toMatchObject({
+        await expect(
+          finishExport(workerDb(), store, context, { exportId }, deps),
+        ).rejects.toMatchObject({
           code: 'FORBIDDEN',
         });
         await expect(
-          failExport(db(), context, { exportId, code: 'SECTION_FAILED' }),
+          failExport(workerDb(), context, { exportId, code: 'SECTION_FAILED' }),
         ).rejects.toMatchObject({ code: 'FORBIDDEN' });
-        await expect(purgeExpiredExports(db(), store, context, NOW())).rejects.toMatchObject({
+        await expect(purgeExpiredExports(workerDb(), store, context, NOW())).rejects.toMatchObject({
           code: 'FORBIDDEN',
         });
       }
     });
 
+    it('refuses a web login carrying a service context before it can create an archive', async () => {
+      const exportId = await request(owner);
+      const service = worker(owner);
+      await expect(beginExport(db(), service, { exportId }, deps)).rejects.toMatchObject({
+        code: 'WORKER_LOGIN_ROLE_MISMATCH',
+      });
+      await expect(exportNextBatch(db(), store, service, { exportId }, deps)).rejects.toMatchObject(
+        { code: 'WORKER_LOGIN_ROLE_MISMATCH' },
+      );
+      expect(await listOrganizationExports(db(), owner)).toContainEqual(
+        expect.objectContaining({ id: exportId, status: 'requested', partCount: 0 }),
+      );
+      expect(store.puts).toHaveLength(0);
+    });
+
     it('will not read a row nothing has claimed', async () => {
       const exportId = await request(owner);
       await expect(
-        exportNextBatch(db(), store, worker(owner), { exportId }, deps),
+        exportNextBatch(workerDb(), store, worker(owner), { exportId }, deps),
       ).rejects.toMatchObject({ code: 'INVALID_STATE' });
     });
 
@@ -443,7 +466,7 @@ describe('organization export', () => {
       await expect(openExportArchive(db(), store, owner, exportId)).rejects.toMatchObject({
         code: 'EXPORT_NOT_READY',
       });
-      await beginExport(db(), worker(owner), { exportId }, deps);
+      await beginExport(workerDb(), worker(owner), { exportId }, deps);
       await expect(openExportArchive(db(), store, owner, exportId)).rejects.toMatchObject({
         code: 'EXPORT_NOT_READY',
       });
@@ -902,9 +925,9 @@ describe('organization export', () => {
       const service = worker(owner);
       const before = store.puts.length;
       for (const step of [
-        await beginExport(db(), service, { exportId }, deps),
-        await exportNextBatch(db(), store, service, { exportId }, deps),
-        await finishExport(db(), store, service, { exportId }, deps),
+        await beginExport(workerDb(), service, { exportId }, deps),
+        await exportNextBatch(workerDb(), store, service, { exportId }, deps),
+        await finishExport(workerDb(), store, service, { exportId }, deps),
       ]) {
         expect(step.state).toBe('finished');
       }
@@ -922,7 +945,7 @@ describe('organization export', () => {
       store = new MemoryStore();
       await createClient(db(), owner, { displayName: 'Same client name' });
       exportId = await request(owner);
-      await beginExport(db(), worker(owner), { exportId }, deps);
+      await beginExport(workerDb(), worker(owner), { exportId }, deps);
     });
 
     const partRows = () =>
@@ -935,14 +958,18 @@ describe('organization export', () => {
 
     it('says only that the store failed, and repeats nothing when tried again', async () => {
       store.failNextPut = true;
-      const error = await exportNextBatch(db(), store, worker(owner), { exportId }, deps).catch(
-        (caught: unknown) => caught,
-      );
+      const error = await exportNextBatch(
+        workerDb(),
+        store,
+        worker(owner),
+        { exportId },
+        deps,
+      ).catch((caught: unknown) => caught);
       expect(error).toBeInstanceOf(ExportStoreUnavailable);
       expect(String((error as Error).message)).not.toContain('must not travel');
       expect(await partRows()).toEqual([]);
 
-      const step = await exportNextBatch(db(), store, worker(owner), { exportId }, deps);
+      const step = await exportNextBatch(workerDb(), store, worker(owner), { exportId }, deps);
       expect(step).toEqual({ state: 'continue', parts: 1, records: 1 });
       const rows = await partRows();
       expect(rows).toHaveLength(1);
@@ -961,12 +988,12 @@ describe('organization export', () => {
         exists: (key) => store.exists(key),
       };
       await expect(
-        exportNextBatch(db(), dying, worker(owner), { exportId }, deps),
+        exportNextBatch(workerDb(), dying, worker(owner), { exportId }, deps),
       ).rejects.toBeInstanceOf(ExportStoreUnavailable);
       expect(store.exportKeys()).toHaveLength(1);
       expect(await partRows()).toEqual([]);
 
-      const step = await exportNextBatch(db(), store, worker(owner), { exportId }, deps);
+      const step = await exportNextBatch(workerDb(), store, worker(owner), { exportId }, deps);
       expect(step).toEqual({ state: 'continue', parts: 1, records: 1 });
       // The same place, so the same key, and what is stored is what was recorded.
       const rows = await partRows();
@@ -977,16 +1004,16 @@ describe('organization export', () => {
 
     it('moves on once per call, writing no path twice', async () => {
       const service = worker(owner);
-      await exportNextBatch(db(), store, service, { exportId }, deps);
-      await exportNextBatch(db(), store, service, { exportId }, deps);
+      await exportNextBatch(workerDb(), store, service, { exportId }, deps);
+      await exportNextBatch(workerDb(), store, service, { exportId }, deps);
       expect(new Set(store.puts).size).toBe(store.puts.length);
     });
 
     it('lets one of two attempts at the same step win', async () => {
       const service = worker(owner);
       const answers = await Promise.all([
-        exportNextBatch(db(), store, service, { exportId }, deps),
-        exportNextBatch(db(), store, service, { exportId }, deps),
+        exportNextBatch(workerDb(), store, service, { exportId }, deps),
+        exportNextBatch(workerDb(), store, service, { exportId }, deps),
       ]);
       expect(answers.every((answer) => answer.state === 'continue')).toBe(true);
       const rows = await partRows();
@@ -1006,14 +1033,14 @@ describe('organization export', () => {
 
     it('finishes correctly after every step has been repeated', async () => {
       const service = worker(owner);
-      let step = await exportNextBatch(db(), store, service, { exportId }, deps);
+      let step = await exportNextBatch(workerDb(), store, service, { exportId }, deps);
       while (step.state === 'continue') {
-        await exportNextBatch(db(), store, service, { exportId }, deps);
-        step = await exportNextBatch(db(), store, service, { exportId }, deps);
+        await exportNextBatch(workerDb(), store, service, { exportId }, deps);
+        step = await exportNextBatch(workerDb(), store, service, { exportId }, deps);
       }
-      step = await finishExport(db(), store, service, { exportId }, deps);
+      step = await finishExport(workerDb(), store, service, { exportId }, deps);
       while (step.state === 'continue') {
-        step = await finishExport(db(), store, service, { exportId }, deps);
+        step = await finishExport(workerDb(), store, service, { exportId }, deps);
       }
       expect(step.state).toBe('finished');
       const { manifest } = await downloadAndOpen(owner, store, exportId);
@@ -1069,13 +1096,13 @@ describe('organization export', () => {
         },
       };
       const service = worker(owner);
-      await beginExport(db(), service, { exportId }, deps);
+      await beginExport(workerDb(), service, { exportId }, deps);
       let failure: unknown;
       // Every section page before the files is its own batch, and each joined reader (M7 kinds
       // included) takes at least one, so the bound is generous. It stops at the first failure, and
       // a run that got past the files without one is caught by the assertion below.
       for (let i = 0; i < 500 && !failure; i += 1) {
-        const step = await exportNextBatch(db(), down, service, { exportId }, deps).catch(
+        const step = await exportNextBatch(workerDb(), down, service, { exportId }, deps).catch(
           (caught: unknown) => {
             failure = caught;
             return null;
@@ -1158,14 +1185,14 @@ describe('organization export', () => {
     it('does not let a late failure undo a ready archive', async () => {
       const exportId = await request(owner);
       expect((await drive(owner, store, exportId)).state).toBe('finished');
-      await failExport(db(), worker(owner), { exportId, code: 'SECTION_FAILED' });
+      await failExport(workerDb(), worker(owner), { exportId, code: 'SECTION_FAILED' });
       expect((await getOrganizationExport(db(), owner, exportId)).status).toBe('ready');
     });
 
     it('refuses a failure code that is not on the list', async () => {
       const exportId = await request(owner);
       await expect(
-        failExport(db(), worker(owner), { exportId, code: 'because of TEXT' as never }),
+        failExport(workerDb(), worker(owner), { exportId, code: 'because of TEXT' as never }),
       ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
     });
   });
@@ -1201,7 +1228,7 @@ describe('organization export', () => {
       });
       expect((await getOrganizationExport(db(), owner, exportId)).downloadable).toBe(false);
 
-      expect(await purgeExpiredExports(db(), store, worker(owner), new Date())).toBe(1);
+      expect(await purgeExpiredExports(workerDb(), store, worker(owner), new Date())).toBe(1);
       expect(store.exportKeys()).toEqual([]);
       expect((await getOrganizationExport(db(), owner, exportId)).status).toBe('expired');
     });
@@ -1259,7 +1286,7 @@ describe('organization export', () => {
       const again = await request(owner);
       // What the workflow then does with a step that answered EXPORT_SUPERSEDED
       // (portability-workflow.ts) changes nothing.
-      await failExport(db(), worker(owner), { exportId, code: 'SECTION_FAILED' });
+      await failExport(workerDb(), worker(owner), { exportId, code: 'SECTION_FAILED' });
       expect(await getOrganizationExport(db(), owner, exportId)).toMatchObject({
         status: 'failed',
         failureCode: 'SECTION_FAILED',
@@ -1267,7 +1294,7 @@ describe('organization export', () => {
       expect((await drive(owner, store, again)).state).toBe('finished');
       // Upkeep takes the superseded copy's bytes, the deleted file's sealed copy among them. Failed
       // is not expired, so it is not in the count.
-      expect(await purgeExpiredExports(db(), store, worker(owner), new Date())).toBe(0);
+      expect(await purgeExpiredExports(workerDb(), store, worker(owner), new Date())).toBe(0);
       const { rows } = await su.query(
         'select purged_at from sovereign.organization_exports where id = $1',
         [exportId],
@@ -1322,10 +1349,10 @@ describe('organization export', () => {
         ).map((part) => part.path);
       await supersededThenAgain(
         (async () => {
-          let step = await beginExport(db(), service, { exportId }, deps);
+          let step = await beginExport(workerDb(), service, { exportId }, deps);
           try {
             while (step.state === 'continue') {
-              step = await exportNextBatch(db(), racing, service, { exportId }, deps);
+              step = await exportNextBatch(workerDb(), racing, service, { exportId }, deps);
             }
           } finally {
             // The orphan this case is about: the bytes are there, and no part row names them.
@@ -1340,20 +1367,20 @@ describe('organization export', () => {
 
     it('between the bytes and the records supersedes it, and a new one leaves no trace but the tombstone', async () => {
       const service = worker(owner);
-      let step = await beginExport(db(), service, { exportId }, deps);
+      let step = await beginExport(workerDb(), service, { exportId }, deps);
       // Stop as soon as this file's bytes have been written.
       while (step.state === 'continue' && !store.puts.some((key) => key.includes(fileId))) {
-        step = await exportNextBatch(db(), store, service, { exportId }, deps);
+        step = await exportNextBatch(workerDb(), store, service, { exportId }, deps);
       }
       expect(store.puts.some((key) => key.includes(fileId))).toBe(true);
       await remove();
       await supersededThenAgain(
         (async () => {
           while (step.state === 'continue') {
-            step = await exportNextBatch(db(), store, service, { exportId }, deps);
+            step = await exportNextBatch(workerDb(), store, service, { exportId }, deps);
           }
           do {
-            step = await finishExport(db(), store, service, { exportId }, deps);
+            step = await finishExport(workerDb(), store, service, { exportId }, deps);
           } while (step.state === 'continue');
           return step;
         })(),
@@ -1376,9 +1403,9 @@ describe('organization export', () => {
       };
       await supersededThenAgain(
         (async () => {
-          let step = await beginExport(db(), service, { exportId }, deps);
+          let step = await beginExport(workerDb(), service, { exportId }, deps);
           while (step.state === 'continue') {
-            step = await exportNextBatch(db(), racing, service, { exportId }, deps);
+            step = await exportNextBatch(workerDb(), racing, service, { exportId }, deps);
           }
           return step;
         })(),
@@ -1418,7 +1445,7 @@ describe('organization export', () => {
       );
       expect(keptFiles.length).toBeGreaterThan(0);
       expect(store.exportKeys().length).toBeGreaterThan(0);
-      expect(await purgeExpiredExports(db(), store, worker(owner), new Date())).toBe(1);
+      expect(await purgeExpiredExports(workerDb(), store, worker(owner), new Date())).toBe(1);
       expect(store.exportKeys()).toEqual([]);
       // Only the archive. The tenant's own files are not touched.
       for (const key of keptFiles) expect(store.objects.has(key)).toBe(true);
@@ -1439,8 +1466,8 @@ describe('organization export', () => {
     it('is purged once, and leaves one still in date alone', async () => {
       const fresh = await request(owner);
       expect((await drive(owner, store, fresh)).state).toBe('finished');
-      expect(await purgeExpiredExports(db(), store, worker(owner), new Date())).toBe(1);
-      expect(await purgeExpiredExports(db(), store, worker(owner), new Date())).toBe(0);
+      expect(await purgeExpiredExports(workerDb(), store, worker(owner), new Date())).toBe(1);
+      expect(await purgeExpiredExports(workerDb(), store, worker(owner), new Date())).toBe(0);
       expect((await getOrganizationExport(db(), owner, fresh)).downloadable).toBe(true);
       await expect(downloadAndOpen(owner, store, fresh)).resolves.toBeDefined();
     });
@@ -1450,7 +1477,7 @@ describe('organization export', () => {
       const otherStore = store;
       const otherId = await request(other);
       expect((await drive(other, otherStore, otherId)).state).toBe('finished');
-      expect(await purgeExpiredExports(db(), store, worker(owner), new Date())).toBe(1);
+      expect(await purgeExpiredExports(workerDb(), store, worker(owner), new Date())).toBe(1);
       expect((await getOrganizationExport(db(), other, otherId)).downloadable).toBe(true);
       await expect(downloadAndOpen(other, otherStore, otherId)).resolves.toBeDefined();
     });
@@ -1464,12 +1491,12 @@ describe('organization export', () => {
           throw new Error('down');
         },
       };
-      expect(await purgeExpiredExports(db(), down, worker(owner), new Date())).toBe(0);
+      expect(await purgeExpiredExports(workerDb(), down, worker(owner), new Date())).toBe(0);
       expect((await getOrganizationExport(db(), owner, exportId)).status).toBe('ready');
       await expect(openExportArchive(db(), store, owner, exportId)).rejects.toMatchObject({
         code: 'EXPORT_NOT_READY',
       });
-      expect(await purgeExpiredExports(db(), store, worker(owner), new Date())).toBe(1);
+      expect(await purgeExpiredExports(workerDb(), store, worker(owner), new Date())).toBe(1);
     });
   });
 
@@ -1479,15 +1506,15 @@ describe('organization export', () => {
     await createClient(db(), owner, { displayName: 'Same client name' });
     const exportId = await request(owner);
     const service = worker(owner);
-    await beginExport(db(), service, { exportId }, deps);
-    let step = await exportNextBatch(db(), store, service, { exportId }, deps);
+    await beginExport(workerDb(), service, { exportId }, deps);
+    let step = await exportNextBatch(workerDb(), store, service, { exportId }, deps);
     while (step.state === 'continue' && store.exportKeys().length === 0) {
-      step = await exportNextBatch(db(), store, service, { exportId }, deps);
+      step = await exportNextBatch(workerDb(), store, service, { exportId }, deps);
     }
-    await failExport(db(), service, { exportId, code: 'STORE_UNAVAILABLE' });
+    await failExport(workerDb(), service, { exportId, code: 'STORE_UNAVAILABLE' });
     expect(store.exportKeys().length).toBeGreaterThan(0);
     // Failed is not expired, so it is not in the count, and its bytes go all the same.
-    expect(await purgeExpiredExports(db(), store, service, new Date())).toBe(0);
+    expect(await purgeExpiredExports(workerDb(), store, service, new Date())).toBe(0);
     expect(store.exportKeys()).toEqual([]);
     expect((await getOrganizationExport(db(), owner, exportId)).status).toBe('failed');
   });
@@ -1497,7 +1524,7 @@ describe('organization export', () => {
     const store = new MemoryStore();
     await createClient(db(), owner, { displayName: 'Same client name' });
     const exportId = await request(owner);
-    await beginExport(db(), worker(owner), { exportId }, deps);
+    await beginExport(workerDb(), worker(owner), { exportId }, deps);
     // What a step leaves when it wrote a part's bytes and then never committed that part: the path
     // noted in the row before the write, the bytes in the store, and no part row.
     const stray = artifactPartPath(randomUUID());
@@ -1521,7 +1548,11 @@ describe('organization export', () => {
     const store = new MemoryStore();
     await createClient(db(), owner, { displayName: 'Same client name' });
     const exportId = await request(owner);
-    const activities = createPortabilityActivities({ database: db(), store, exportDeps: deps });
+    const activities = createPortabilityActivities({
+      database: workerDb(),
+      store,
+      exportDeps: deps,
+    });
     const input = { organizationId: owner.organizationId, exportId };
 
     await expect(

@@ -39,6 +39,7 @@ const team = () => ({
 });
 describe('native admitted portability authority', () => {
   let app: ReturnType<typeof openAppDatabase>, control: pg.Client;
+  let serviceDatabase: ReturnType<typeof openAppDatabase>;
   const cleanups: (() => Promise<void>)[] = [];
   afterEach(async () => {
     for (const cleanup of cleanups.splice(0)) await cleanup();
@@ -57,11 +58,13 @@ describe('native admitted portability authority', () => {
   };
   beforeAll(async () => {
     app = openAppDatabase(urls.app());
+    serviceDatabase = openAppDatabase(urls.worker());
     control = new pg.Client({ connectionString: urls.superuser() });
     await control.connect();
   });
   afterAll(async () => {
     await app.close();
+    await serviceDatabase.close();
     await control.end();
   });
   const scoped = <T>(
@@ -477,13 +480,13 @@ describe('native admitted portability authority', () => {
       }),
       worker = createServiceContext(p.context.organizationId);
     await beginExport(
-      app.db,
+      serviceDatabase.db,
       worker,
       { exportId: view.id },
       { sections: SOURCE_PORTABILITY_SECTIONS, sourceRelease: 'generated-test', retentionHours: 1 },
     );
     const get = async (id: string) =>
-      withTenantTx(app.db, worker, (tx) =>
+      withTenantTx(serviceDatabase.db, worker, (tx) =>
         withPortabilityScope(
           tx,
           { 'app.portability_export_id': id },
@@ -525,21 +528,21 @@ describe('native admitted portability authority', () => {
       }),
       worker = createServiceContext(p.context.organizationId);
     await beginExport(
-      app.db,
+      serviceDatabase.db,
       worker,
       { exportId: view.id },
       { sections: SOURCE_PORTABILITY_SECTIONS, sourceRelease: 'generated-test', retentionHours: 1 },
     );
     const adapter = SOURCE_PORTABILITY_SECTIONS.find((s) => s.section === 'custom-objects')!;
     await expect(
-      withTenantTx(app.db, worker, (tx) =>
+      withTenantTx(serviceDatabase.db, worker, (tx) =>
         adapter.exportPage(tx, worker, { cursor: null, limit: 1 }),
       ),
     ).rejects.toThrow();
     let cursor: string | null = null,
       found: unknown;
     for (let page = 0; page < 12; page++) {
-      const result = await withTenantTx(app.db, worker, (tx) =>
+      const result = await withTenantTx(serviceDatabase.db, worker, (tx) =>
         withPortabilityScope(tx, { 'app.portability_export_id': view.id }, (scoped) =>
           adapter.exportPage(scoped, worker, { cursor, limit: 1 }),
         ),
@@ -564,7 +567,7 @@ describe('native admitted portability authority', () => {
       ),
     );
     await expect(
-      withTenantTx(app.db, worker, (tx) =>
+      withTenantTx(serviceDatabase.db, worker, (tx) =>
         withPortabilityScope(tx, { 'app.portability_export_id': view.id }, (scoped) =>
           adapter.exportPage(scoped, worker, { cursor: null, limit: 1 }),
         ),
@@ -604,19 +607,19 @@ describe('native admitted portability authority', () => {
         sourceRelease: 'generated-test',
       });
     await beginExport(
-      app.db,
+      serviceDatabase.db,
       worker,
       { exportId: view.id },
       { sections: SOURCE_PORTABILITY_SECTIONS, sourceRelease: 'generated-test', retentionHours: 1 },
     );
     expect(
       (
-        await withTenantTx(app.db, worker, (tx) =>
+        await withTenantTx(serviceDatabase.db, worker, (tx) =>
           tx.execute(sql`select id from studio.agent_drafts where id=${id}::uuid`),
         )
       ).rows,
     ).toEqual([]);
-    await withTenantTx(app.db, worker, (tx) =>
+    await withTenantTx(serviceDatabase.db, worker, (tx) =>
       withPortabilityScope(tx, { 'app.portability_export_id': view.id }, async (scoped) => {
         expect(
           (await scoped.execute(sql`select id from studio.agent_drafts where id=${id}::uuid`)).rows,

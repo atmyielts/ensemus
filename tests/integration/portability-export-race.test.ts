@@ -108,8 +108,10 @@ function attemptStore(
 
 describe('two attempts at the same export step', () => {
   let app: ReturnType<typeof openAppDatabase>;
+  let serviceDatabase: ReturnType<typeof openAppDatabase>;
   let auth: pg.Client;
   const db = () => app.db;
+  const workerDb = () => serviceDatabase.db;
   const recipient = testRecipient();
 
   let owner: TenantContext;
@@ -120,12 +122,14 @@ describe('two attempts at the same export step', () => {
 
   beforeAll(async () => {
     app = openAppDatabase(urls.app());
+    serviceDatabase = openAppDatabase(urls.worker());
     auth = new pg.Client({ connectionString: urls.auth() });
     await auth.connect();
   });
 
   afterAll(async () => {
     await app.close();
+    await serviceDatabase.close();
     await auth.end();
   });
 
@@ -206,11 +210,11 @@ describe('two attempts at the same export step', () => {
         sourceRelease: 'test-release',
       })
     ).id;
-    expect((await beginExport(db(), worker(), { exportId }, deps)).state).toBe('continue');
+    expect((await beginExport(workerDb(), worker(), { exportId }, deps)).state).toBe('continue');
     // Every section page first, one step at a time as the workflow takes them, up to the file's bytes.
     // The bound is generous: each joined reader takes at least one step, and the loop stops at the stage.
     for (let i = 0; i < 500 && stageOf(await exportRow()) !== 'files'; i += 1) {
-      expect((await exportNextBatch(db(), shared, worker(), { exportId }, deps)).state).toBe(
+      expect((await exportNextBatch(workerDb(), shared, worker(), { exportId }, deps)).state).toBe(
         'continue',
       );
     }
@@ -227,7 +231,7 @@ describe('two attempts at the same export step', () => {
     const partsBefore = await partRows();
 
     // The late attempt reads the row, then the file's bytes, and waits there with no transaction open.
-    const lateStep = exportNextBatch(db(), late.store, worker(), { exportId }, deps);
+    const lateStep = exportNextBatch(workerDb(), late.store, worker(), { exportId }, deps);
     await Promise.race([
       held.arrived,
       lateStep.then(() => {
@@ -236,7 +240,7 @@ describe('two attempts at the same export step', () => {
     ]);
 
     // Meanwhile another attempt at the same step takes the same file to its commit.
-    const firstStep = await exportNextBatch(db(), first.store, worker(), { exportId }, deps);
+    const firstStep = await exportNextBatch(workerDb(), first.store, worker(), { exportId }, deps);
     const won = await exportRow();
     expect(first.puts).toEqual([
       exportObjectKey(owner.organizationId, exportId, artifactPartPath(fileId)),
@@ -271,7 +275,7 @@ describe('two attempts at the same export step', () => {
     const only = attemptStore(shared, { heldKey: fileKey, held });
     const before = await exportRow();
 
-    const step = exportNextBatch(db(), only.store, worker(), { exportId }, deps);
+    const step = exportNextBatch(workerDb(), only.store, worker(), { exportId }, deps);
     await held.arrived;
     held.release();
     const answer = await step;

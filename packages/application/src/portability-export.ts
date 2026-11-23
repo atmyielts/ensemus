@@ -23,6 +23,7 @@ import {
   type TenantContext,
   type Tx,
 } from '@ensemus/database';
+import { assertLoginRole } from '@ensemus/database/service';
 import { can } from '@ensemus/domain/policy';
 import {
   artifactPartPath,
@@ -197,8 +198,11 @@ function requireOwner(context: TenantContext) {
  * These read past every person's own view, because `standard` scope has its own rule about what stays out. So
  * only the worker may call them, and a person only ever reaches an export through the capability above.
  */
-function requireWorker(context: TenantContext) {
+async function requireWorker(database: AppDatabase, context: TenantContext) {
   if (context.actorType !== 'service') throw new AppError('FORBIDDEN');
+  // An app session with a service context cannot see Work material. Refuse before creating a
+  // snapshot or touching the store so a wrong connection cannot produce an incomplete archive.
+  await assertLoginRole(database, 'ensemus_worker');
 }
 
 function exportIdFrom(exportId: string) {
@@ -504,7 +508,7 @@ export async function beginExport(
   input: { exportId: string },
   deps: ExportDeps,
 ): Promise<ExportStep> {
-  requireWorker(context);
+  await requireWorker(database, context);
   assertPortabilitySections(deps.sections.map((section) => section.section));
   const id = exportIdFrom(input.exportId);
   return withTenantTx(database, context, async (tx) => {
@@ -1276,7 +1280,7 @@ export async function exportNextBatch(
   input: { exportId: string },
   deps: ExportDeps,
 ): Promise<ExportStep> {
-  requireWorker(context);
+  await requireWorker(database, context);
   const id = exportIdFrom(input.exportId);
   return closingSuperseded(database, context, id, async () => {
     const run = await readRun(database, store, context, id, deps);
@@ -1300,7 +1304,7 @@ export async function finishExport(
   input: { exportId: string },
   deps: ExportDeps,
 ): Promise<ExportStep> {
-  requireWorker(context);
+  await requireWorker(database, context);
   const id = exportIdFrom(input.exportId);
   const stopAt = Date.now() + FINISH_BUDGET_MS;
   return closingSuperseded(database, context, id, async () => {
@@ -1319,7 +1323,7 @@ export async function failExport(
   context: TenantContext,
   input: { exportId: string; code: ExportFailureCode },
 ): Promise<void> {
-  requireWorker(context);
+  await requireWorker(database, context);
   if (!EXPORT_FAILURE_CODES.includes(input.code)) throw new AppError('INVALID_INPUT');
   const id = exportIdFrom(input.exportId);
   await withTenantTx(database, context, async (tx) => {
@@ -1412,7 +1416,7 @@ export async function purgeExpiredExports(
   context: TenantContext,
   now: Date,
 ): Promise<number> {
-  requireWorker(context);
+  await requireWorker(database, context);
   const due = await withTenantTx(database, context, async (tx) => {
     const rows = await tx
       .select()
