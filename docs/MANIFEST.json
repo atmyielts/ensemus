@@ -302,8 +302,8 @@
     },
     {
       "path": "05-operations/05-container-deployment-runbook.md",
-      "size_bytes": 47547,
-      "sha256": "3a434fffe38089fff61b068e70c5759b5b27b7baba875aa82b4b5931a975e073"
+      "size_bytes": 48040,
+      "sha256": "bc353d9dc0b548fda2184badac9f041410eb489259a251b84ba4715687d59a8d"
     },
     {
       "path": "05-operations/06-performance-and-load-plan.md",
@@ -1042,8 +1042,8 @@
     },
     {
       "path": "06-delivery/release-candidate-2026-11-21.md",
-      "size_bytes": 72759,
-      "sha256": "3c0852d7c86bb1b72f19a59fe2f11af356d336e8a82c5fcf79ffe97b0bd38ad2"
+      "size_bytes": 75368,
+      "sha256": "59ee7dc559c7b74f82ed5f96174c427a97718a336b626e5dd23f6a2d8d5a8cdf"
     },
     {
       "path": "06-delivery/release-candidate-source-ledger.json",
@@ -1152,8 +1152,8 @@
     },
     {
       "path": "guides/operator/connector-worker.md",
-      "size_bytes": 12902,
-      "sha256": "353fb818f56f743e51bbc6d2b7f2fbfa7960108b89058b2cea65f48e77f138d2"
+      "size_bytes": 13429,
+      "sha256": "6913d3c22e44fc612198c938a221a87dfea13c4084742316a8e0d0f7f808b152"
     },
     {
       "path": "guides/operator/diagnostics-export.md",

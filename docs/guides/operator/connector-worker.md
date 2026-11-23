@@ -39,7 +39,7 @@ Set these in the environment Compose reads. `compose` means `docker compose -f i
 
 | Setting | What it does | Default |
 |---|---|---|
-| `COMPOSE_PROFILES=connectors`, or `--profile connectors` | Starts both services. Use it on every Compose command, because a command without it does not see them | Off |
+| `COMPOSE_PROFILES=connectors`, or `--profile connectors` | Starts the worker and SMTP gateway. Google, Microsoft and Paddle relays require their separate optional profiles. Use it on every Compose command, because a command without it does not see them | Off |
 | `ENSEMUS_CONNECTORS_ENABLED=true` | Lets `web` create connections and answer the webhook route. Leave it false unless the worker runs, so no row waits for a worker that is not coming | `false` |
 | `ENSEMUS_EGRESS_TARGET=host:port` | The one relay the gateway forwards to. One name and one port: not a list, a URL or a path | Empty, and the gateway will not start |
 | `ENSEMUS_SMTP_TLS` | Anything but `none` requires TLS, and a relay that does not offer it is refused. Set `none` only for a relay on a trusted site network | `required` |
@@ -55,6 +55,12 @@ compose logs --tail 20 connector-worker egress-gateway
 ```
 
 **Success:** both are `healthy`, and the logs hold `connector_worker.started` and `egress_gateway.started`. **Failure:** see "When it refuses" below.
+
+Use `--profile suite-google` with `--profile connectors` for Google routes,
+`--profile suite-microsoft` for Microsoft routes, or `--profile checkout-paddle` for Paddle.
+Configure every selected relay target before starting its profile; an empty target still refuses
+startup. Leaving these optional profiles off starts no provider relay and requires no provider
+credentials. The base connectors profile still requires its SMTP target.
 
 **On a Sovereign site**, make the target an on-site relay, and have the site's firewall limit the `outbound` network to it. An install with no relay runs no profile, and makes no attempt. This page does not say that a site is isolated: that is for the offline acceptance test. See [outbound traffic](outbound-traffic.md).
 

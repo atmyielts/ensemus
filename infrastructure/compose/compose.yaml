@@ -418,12 +418,12 @@ services:
       resources: { limits: { memory: 128M } }
 
   # Google Workspace and Microsoft 365 (ADR-038). One gateway per route, each with no target until an
-  # operator sets one, so an install that uses neither has no way out through them. The connector worker
+  # operator enables its suite profile and sets one, so an install that uses neither starts no relay. The connector worker
   # does not wait for them: a route whose gateway is not running fails that request with a code.
   # The www.googleapis.com route. Same image, same rules: no secret, no database, one target, ciphertext only.
   egress-google-api:
     <<: *restart
-    profiles: ['connectors']
+    profiles: ['suite-google']
     build:
       context: ../..
       dockerfile: infrastructure/containers/Dockerfile.worker
@@ -443,7 +443,7 @@ services:
   # The oauth2.googleapis.com route. Same image, same rules: no secret, no database, one target, ciphertext only.
   egress-google-oauth:
     <<: *restart
-    profiles: ['connectors']
+    profiles: ['suite-google']
     build:
       context: ../..
       dockerfile: infrastructure/containers/Dockerfile.worker
@@ -463,7 +463,7 @@ services:
   # The graph.microsoft.com route. Same image, same rules: no secret, no database, one target, ciphertext only.
   egress-ms-graph:
     <<: *restart
-    profiles: ['connectors']
+    profiles: ['suite-microsoft']
     build:
       context: ../..
       dockerfile: infrastructure/containers/Dockerfile.worker
@@ -483,7 +483,7 @@ services:
   # The login.microsoftonline.com route. Same image, same rules: no secret, no database, one target, ciphertext only.
   egress-ms-login:
     <<: *restart
-    profiles: ['connectors']
+    profiles: ['suite-microsoft']
     build:
       context: ../..
       dockerfile: infrastructure/containers/Dockerfile.worker
@@ -503,7 +503,7 @@ services:
   # The gmail.googleapis.com route (ADR-038 D6). Same image, same rules: no secret, no database, one target, ciphertext only.
   egress-google-gmail:
     <<: *restart
-    profiles: ['connectors']
+    profiles: ['suite-google']
     build:
       context: ../..
       dockerfile: infrastructure/containers/Dockerfile.worker
@@ -523,7 +523,7 @@ services:
   # The docs.googleapis.com route (ADR-038 D6). Same image, same rules: no secret, no database, one target, ciphertext only.
   egress-google-docs:
     <<: *restart
-    profiles: ['connectors']
+    profiles: ['suite-google']
     build:
       context: ../..
       dockerfile: infrastructure/containers/Dockerfile.worker
@@ -543,7 +543,7 @@ services:
   # The sheets.googleapis.com route (ADR-038 D6). Same image, same rules: no secret, no database, one target, ciphertext only.
   egress-google-sheets:
     <<: *restart
-    profiles: ['connectors']
+    profiles: ['suite-google']
     build:
       context: ../..
       dockerfile: infrastructure/containers/Dockerfile.worker
@@ -562,7 +562,7 @@ services:
 
   egress-paddle:
     <<: *restart
-    profiles: ['connectors']
+    profiles: ['checkout-paddle']
     build:
       context: ../..
       dockerfile: infrastructure/containers/Dockerfile.worker

@@ -7,8 +7,8 @@ one release candidate, integration issues fixed, and the full platform developed
 `codex/release-candidate` is the canonical implementation branch for this work. The old milestone
 reports remain historical evidence at their recorded revisions, not acceptance of this candidate.
 
-The current implementation phase covers consolidation and qualification across M1â€“M8 and the recovered
-M9P/hardening and M11Aâ€“M11C foundations. External security review, real-provider qualification, commercial
+The current implementation phase covers consolidation and qualification across M1Ã¢â‚¬â€œM8 and the recovered
+M9P/hardening and M11AÃ¢â‚¬â€œM11C foundations. External security review, real-provider qualification, commercial
 decisions and launch sign-off are distinct gates. No prices, jurisdiction, residency commitment,
 production signing key or approval is invented.
 
@@ -537,7 +537,7 @@ The native PostgreSQL regression reproduced private content reads that the exist
 refused: an unassigned member, four workers copying human bindings, and unadmitted agent/knowledge
 service contexts could read Work objectives, approval actions and external-action payloads. A later
 extension reproduced the same leak in free-text Work transition and approval-decision reasons,
-including an unadmitted delegated platform context. Migrations 0741â€“0743 and 0746 add restrictive
+including an unadmitted delegated platform context. Migrations 0741Ã¢â‚¬â€œ0743 and 0746 add restrictive
 SELECT policies on all five material tables, retaining their existing tenant, parent, inherited-input
 and immutable-history rules. An actual web person still needs a current active membership and the
 current Work ACL. Copied human bindings and SET ROLE do not turn a worker login into a person.
@@ -612,7 +612,7 @@ access. The source page does not copy source names or customer facts automatical
 invoice drafts. A single idempotent transaction creates Work, explicitly assigns its reviewer, and
 creates the approval; refusal rolls these effects back together.
 
-Migrations 0747–0749 add source-bound read restrictions and narrowly scoped record/team fact locks.
+Migrations 0747â€“0749 add source-bound read restrictions and narrowly scoped record/team fact locks.
 Native connector dispatch repeats permission, version, scope and classification checks before
 creating an attempt. Team-grant deletion races return VERSION_CONFLICT without an attempt or a
 permanent cancellation. A subsequent committed loss cancels the action before contact. The lock
@@ -904,3 +904,36 @@ bounded local qualification using generated fixtures, not live adapter, full Tem
 Cloud routing or product-completion acceptance. Expansion erasure/portability, remaining APIs,
 provider and other previously recorded release gates remain open. About 24.7 GiB remained free;
 no original source worktree, preserved history or Docker volume was cleaned or removed.
+
+## Connector profile isolation and tenant-bound browser seeding (QA-007, PLAT-15)
+
+The Linux connector job reached the corrected fake-model fixture, then failed startup on an
+unconfigured Paddle relay. The base connectors profile also selected every unconfigured office-suite
+relay. It now starts only the connector worker and required SMTP relay. Google relays require
+suite-google, Microsoft relays suite-microsoft, and Paddle checkout-paddle, in addition to connectors.
+No target is invented, no provider is contacted, and each selected relay still refuses an empty target.
+The connector worker retains fixed private-address pins even for absent relays, preventing DNS fallback.
+Operator instructions and generated help name the new profiles and the continuing SMTP prerequisite.
+
+The browser seed's generated reminder update now binds its organization with the existing fixture
+transaction helper and constrains the row by organization. This respects the mail-outbox trigger's
+native tenant check. No trigger, production policy, notification or source-access check was weakened.
+
+Local qualification:
+
+- Seven complete browser guard cases passed in 53.9 seconds against the production server, including
+  the shared world seed, invisible work, another tenant, origin guard and deliberate axe/error controls.
+- Twelve resolved-Compose connector cases passed in 6.67 seconds. Three explicitly check that selecting
+  one optional provider profile starts only that provider's relays. All relay network isolation,
+  secret absence, fixed pins and default empty-target checks remain asserted, including Paddle.
+  The exact native connector login replaces an obsolete shared-app secret assertion in this fixture.
+- Actually starting only the generated, isolated Paddle gateway with no target failed unhealthy with
+  egress_gateway.no_target and exit 1. That single task-owned container was stopped and removed after
+  recording the refusal. No volumes, original services or other project containers were removed.
+- All 184 guide checks, guide accounting, affected ESLint/Prettier, browser types and complete tests
+  TypeScript project passed. All 515 pin checks passed. A first guide-test command named nonexistent
+  files and did not run tests; the corrected command ran the two actual files and passed 184 cases.
+
+Logs are retained under ignored .local/ci-*-20261123.log. This qualifies local fixture/configuration
+repairs, not full Linux CI, provider delivery or production readiness. The full integration and
+portability/erasure/API release gates still need further work.
