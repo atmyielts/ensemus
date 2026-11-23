@@ -209,6 +209,59 @@ describe('a first owner on a default install (ID-01)', () => {
       // Nothing has proven the address, so someone still has to confirm it.
       expect(asked.headers.get('location')).toBe(`${here}?state=waiting`);
     });
+
+    it('registers the exact invited address without a second code, then requires confirmation', async () => {
+      const inviter = await useCode(issueCode());
+      const organization = await createOrganization(inviter.person, `Invited ${randomUUID()}`);
+      const people = `/o/${organization}/people`;
+      const email = newEmail();
+      const token = tokenIn(
+        await (
+          await submit(people, inviter.person.jar, /name="email"/, { email, role: 'member' })
+        ).text(),
+      );
+      if (!token) throw new Error('No invitation link');
+      const here = `/invite/${token}`;
+      const jar = { cookie: '' };
+      const register = (path: string, address: string) =>
+        submit(path, jar, /name="password"/, {
+          name: 'Invited coworker',
+          email: address,
+          password: PASSWORD,
+        });
+
+      const wrong = newEmail();
+      expect((await register(here, wrong)).headers.get('location')).toBe(
+        `${here}?registration=refused`,
+      );
+      expect(await accounts(wrong)).toBe(0);
+      const unknown = `/invite/${'x'.repeat(43)}`;
+      expect((await register(unknown, email)).headers.get('location')).toBe(
+        `${unknown}?registration=refused`,
+      );
+      expect(await accounts(email)).toBe(0);
+
+      const created = await register(here, email.toUpperCase());
+      expect(created.status).toBe(303);
+      expect(created.headers.get('location')).toBe(here);
+      expect(jar.cookie).toContain('session_token');
+      expect(await accounts(email)).toBe(1);
+      expect((await read(`/o/${organization}`, jar)).status).toBe(404);
+      expect((await submit(here, jar, /Accept invitation/)).headers.get('location')).toBe(
+        `${here}?state=waiting`,
+      );
+      expect((await read(`/o/${organization}`, jar)).status).toBe(404);
+      const confirmed = await submit(
+        people,
+        inviter.person.jar,
+        (form) => form.html.includes(`Confirm ${email}`),
+        {
+          confirm: 'yes',
+        },
+      );
+      expect(confirmed.headers.get('location')).toBe(people);
+      expect((await read(`/o/${organization}`, jar)).status).toBe(200);
+    });
   });
 
   // What each mode says, in the words of docs/01-product/05-commercial-modes.md.

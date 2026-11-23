@@ -59,6 +59,11 @@ export type AuthOptions = {
   secret: string;
   baseURL: string;
   allowSignup: boolean;
+  /** Binds password registration to a live invitation checked by the application. */
+  withInvitationRegistration?: (
+    input: { token: string; email: string },
+    create: (email: string) => Promise<CredentialOutcome>,
+  ) => Promise<CredentialOutcome | null>;
   oidc?: OidcProvider;
   /** Trusted application bindings, never assertion-supplied roles or organization IDs. */
   sso?: SsoCallbacks;
@@ -335,6 +340,14 @@ export function createAuth(options: AuthOptions) {
     form: CredentialForm,
     incoming: Headers,
   ): Promise<CredentialOutcome> {
+    return submitCredentialRequest(auth.handler, form, incoming);
+  }
+
+  async function submitCredentialRequest(
+    handle: (request: Request) => Promise<Response>,
+    form: CredentialForm,
+    incoming: Headers,
+  ): Promise<CredentialOutcome> {
     const headers = new Headers({
       'content-type': 'application/json',
       origin: new URL(options.baseURL).origin,
@@ -347,7 +360,7 @@ export function createAuth(options: AuthOptions) {
     // password/signup still receives no previous session or arbitrary browser cookies.
     const pendingSaml = samlBrowserCookieValue(incoming.get('cookie'));
     if (pendingSaml) headers.set('cookie', `${SAML_BROWSER_COOKIE}=${pendingSaml}`);
-    const response = await auth.handler(
+    const response = await handle(
       new Request(new URL(`/api/auth${form.path}`, options.baseURL), {
         method: 'POST',
         headers,
@@ -376,9 +389,33 @@ export function createAuth(options: AuthOptions) {
     };
   }
 
-  // Never mounted on any route, so sign-up stays exactly as closed as it was. The only way in here is
-  // through redeemSetupToken, past a code only the operator's command can make.
-  let forSetupCodes: typeof auth | undefined;
+  // This instance is never mounted. Each entry point proves its grant before using its signup route.
+  let privateRegistration: typeof auth | undefined;
+
+  async function registerInvitedAccount(
+    account: SetupAccount,
+    incoming: Headers,
+  ): Promise<CredentialOutcome | null> {
+    const name = account.name.trim();
+    if (!name || name.length > 200 || account.password.length < 12 || account.password.length > 128)
+      return null;
+    return (
+      options.withInvitationRegistration?.(
+        { token: account.token, email: account.email },
+        (email) => {
+          privateRegistration ??= build(true);
+          return submitCredentialRequest(
+            privateRegistration.handler,
+            {
+              path: '/sign-up/email',
+              body: { email, name, password: account.password },
+            },
+            incoming,
+          );
+        },
+      ) ?? null
+    );
+  }
 
   /**
    * Makes the one account a setup code is for, and signs that person in (ID-01). The code is taken
@@ -388,8 +425,8 @@ export function createAuth(options: AuthOptions) {
     const claimed = await claimSetupToken(db, account.token);
     if (!claimed) return 'invalid_token';
     try {
-      forSetupCodes ??= build(true);
-      await forSetupCodes.api.signUpEmail({
+      privateRegistration ??= build(true);
+      await privateRegistration.api.signUpEmail({
         body: { name: account.name, email: account.email, password: account.password },
         headers,
       });
@@ -475,6 +512,7 @@ export function createAuth(options: AuthOptions) {
     close,
     mfa,
     redeemSetupToken,
+    registerInvitedAccount,
     sso,
     submitCredentials,
     readInteractiveSession,

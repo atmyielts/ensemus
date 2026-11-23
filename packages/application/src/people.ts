@@ -18,7 +18,7 @@ import {
   type Tx,
 } from '@ensemus/database';
 import { can, type Capability } from '@ensemus/domain/policy';
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { AppError, foreignReference, pgCode } from './errors';
 import { emit } from './events';
@@ -27,6 +27,7 @@ import { idFromRequest } from './request-id';
 import { assertActiveMember, closeReviewsForLostAccess } from './work';
 import { assertInteractivePrivilege, withPrivilegeTx as withTenantTx } from './product/privileged';
 import { queueInvitationMail, type InvitationMail } from './platform-mail';
+import { rowLockTarget } from './row-lock';
 
 const FOREIGN_KEY_VIOLATION = '23503';
 const name = z.string().trim().min(1).max(200);
@@ -373,6 +374,61 @@ export async function disableMember(
 // --- Invitations
 const INVITATION_DAYS = 7;
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
+
+/**
+ * Admit creation of a password account for the exact address on a live invitation.
+ * The shared lock orders account creation with invitation revocation. This does not claim the
+ * invitation or create a membership. An unverified account still needs an administrator's decision.
+ */
+export function withInvitationRegistration<T>(
+  database: AppDatabase,
+  input: { token: string; email: string },
+  create: (email: string) => Promise<T>,
+): Promise<T | null> {
+  const email = z.email().max(320).safeParse(input.email.trim().toLowerCase());
+  if (!/^[A-Za-z0-9_-]{43}$/.test(input.token) || !email.success) return Promise.resolve(null);
+  const tokenHash = hashToken(input.token);
+  const matches = and(
+    eq(invitations.tokenHash, tokenHash),
+    eq(invitations.email, email.data),
+    isNull(invitations.acceptedAt),
+    isNull(invitations.revokedAt),
+    isNull(invitations.claimedAt),
+    sql`${invitations.expiresAt} > clock_timestamp()`,
+  );
+  return withInvitationTx(database, tokenHash, async (tx) => {
+    const [invite] = await tx
+      .select({ id: invitations.id, organizationId: invitations.organizationId })
+      .from(invitations)
+      .where(matches);
+    if (!invite) return null;
+    // Derive the tenant from the token-selected row. Only the locked matching invite is used.
+    await tx.execute(sql`select set_config('app.organization_id',${invite.organizationId},true)`);
+    const [eligible] = await tx
+      .select({ id: invitations.id })
+      .from(invitations)
+      .innerJoin(organizations, eq(organizations.id, invitations.organizationId))
+      .innerJoin(
+        memberships,
+        and(
+          eq(memberships.organizationId, invitations.organizationId),
+          eq(memberships.id, invitations.invitedByMembershipId),
+        ),
+      )
+      .where(
+        and(
+          matches,
+          eq(invitations.organizationId, invite.organizationId),
+          eq(invitations.id, invite.id),
+          eq(organizations.lifecycle, 'active'),
+          eq(memberships.status, 'active'),
+          inArray(memberships.role, ['owner', 'admin']),
+        ),
+      )
+      .for('share', { of: rowLockTarget(invitations) });
+    return eligible ? create(email.data) : null;
+  });
+}
 
 /**
  * Returns the token once. Only its hash is stored, so it can never be read back. Where the mail worker

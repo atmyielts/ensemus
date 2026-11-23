@@ -6,7 +6,13 @@
 // one that never existed (people.ts acceptInvitation). Both are reached here only the way the product
 // reaches them: requestOffboarding, and ops-erase's sequence through finishErasure.
 import { randomUUID } from 'node:crypto';
-import { acceptInvitation, createInvitation, pgCode } from '@ensemus/application';
+import {
+  acceptInvitation,
+  createInvitation,
+  pgCode,
+  revokeInvitation,
+  withInvitationRegistration,
+} from '@ensemus/application';
 import {
   createOrganization,
   getOrganization,
@@ -255,6 +261,28 @@ describe('invitation acceptance in restricted standing', () => {
     await eraserClient.end();
     await auth.end();
     await database.close();
+  });
+
+  it('admits registration only for the current exact invitation in an active tenant', async () => {
+    const owner = await ownerOf(await tenant('registration'));
+    const email = `new-coworker-${randomUUID()}@example.invalid`;
+    const { id, token } = await createInvitation(database.db, owner, { email });
+    const registered: string[] = [];
+    const register = (key: string, address: string) =>
+      withInvitationRegistration(database.db, { token: key, email: address }, async (admitted) => {
+        registered.push(admitted);
+        return admitted;
+      });
+
+    expect(await register('x'.repeat(43), email)).toBeNull();
+    expect(await register(token, 'different@example.invalid')).toBeNull();
+    expect(await register(token, email.toUpperCase())).toBe(email);
+    await revokeInvitation(database.db, owner, { invitationId: id });
+    expect(await register(token, email)).toBeNull();
+    const live = await createInvitation(database.db, owner, { email });
+    await setStanding(owner, 'read_only');
+    expect(await register(live.token, email)).toBeNull();
+    expect(registered).toEqual([email]);
   });
 
   // ADR-032 D5 answers TENANT_SUSPENDED for `offboarding` as for `suspended`. Cancelling the offboarding is

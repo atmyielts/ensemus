@@ -23,14 +23,14 @@ Owners and admins can invite people to their organization. Everyone else does no
 4. Press **Create invitation**.
 5. Copy the **Invitation link**, and send it privately yourself.
 
-This link is shown once. If you leave or reload the page it is gone, and you make a new invitation. Ensemus does not send it for you.
+The form shows the link once. Copy it before you leave or reload the page. You can share it privately in chat. If your installation has mail enabled, Ensemus can also send the invitation by email.
 
 The link works once, for the email address you invited. It expires in 7 days, or as soon as you lose the right to invite people.
 
 ## Accept an invitation
 
 1. Open the link. You see **You have been invited**. The page shows no organization or role until you accept, because anyone holding the link could read them.
-2. Sign in with the email address the invitation was sent to, or choose **Create an account** if that is offered. If it is not, ask the person who invited you how to get an account. If they give you a setup code, choose **use it here**. You come back to the invitation afterwards.
+2. Use the address your inviter entered. Sign in if you have an account. Otherwise, choose **Create an account** and enter your name, the invited address, and a password. The invitation form can create your account on an installation that has public sign-up disabled.
 3. Press **Accept invitation**.
 
 If your address has already been proven, you join and the organization opens. If it has not, you see **Waiting for confirmation**, and someone in the organization has to confirm you.

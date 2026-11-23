@@ -20,6 +20,13 @@ const field = (form: FormData, name: string) => {
   return typeof value === 'string' ? value : '';
 };
 
+async function applyCredentialCookies(setCookie: string | null) {
+  const jar = await cookies();
+  for (const [name, value] of parseSetCookieHeader(setCookie ?? '')) {
+    jar.set(name, value.value, toCookieOptions(value));
+  }
+}
+
 /**
  * Submits the form through the same limit as /api/auth, passes on any session it made, and says which
  * error the page should show. A failure says nothing more than a refusal would.
@@ -29,10 +36,7 @@ async function submitForm(form: CredentialForm, event: string): Promise<string |
   try {
     const { outcome, status, setCookie } = await submitCredentials(form, await headers());
     if (outcome === 'accepted' || outcome === 'two_factor') {
-      const jar = await cookies();
-      for (const [name, value] of parseSetCookieHeader(setCookie ?? '')) {
-        jar.set(name, value.value, toCookieOptions(value));
-      }
+      await applyCredentialCookies(setCookie);
       return outcome === 'two_factor' ? 'two_factor' : null;
     }
     log.info(event, { errorCode: `HTTP_${status}` });
@@ -78,6 +82,44 @@ export async function signUpAction(form: FormData) {
   );
   if (error === 'restore') redirect('/restoring');
   redirect(error ? withReturnPath(`/sign-up?error=${error}`, next) : (next ?? '/'));
+}
+
+/** Registers only the live invitation's recipient. Both identity and membership are checked again
+ * on the invitation page before it can be claimed. */
+export async function registerInvitedAccountAction(form: FormData) {
+  const token = field(form, 'token');
+  const here = safeReturnPath(`/invite/${token}`);
+  if (!here) redirect('/sign-in');
+  const runtime = getRuntime();
+  const incoming = await headers();
+  let target = `${here}?registration=refused`;
+  try {
+    if (await runtime.readInteractiveSession(incoming)) {
+      target = here;
+    } else {
+      const result = await runtime.registerInvitedAccount(
+        {
+          token,
+          name: field(form, 'name'),
+          email: field(form, 'email'),
+          password: field(form, 'password'),
+        },
+        incoming,
+      );
+      if (result?.outcome === 'accepted' && result.setCookie) {
+        await applyCredentialCookies(result.setCookie);
+        target = here;
+      } else if (result?.outcome === 'restore_pending') {
+        target = '/restoring';
+      } else if (result?.outcome === 'rate_limited') {
+        target = `${here}?registration=rate`;
+      }
+    }
+  } catch (error) {
+    if (isRestoreAdmissionDenied(error)) target = '/restoring';
+    else runtime.log.error('auth.invitation_registration_failed', { errorCode: errorCode(error) });
+  }
+  redirect(target);
 }
 
 /**

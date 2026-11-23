@@ -3,8 +3,10 @@ import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { SubmitButton } from '@/components/submit-button';
 import { ErrorNotice, Wordmark } from '@/components/ui';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { safeReturnPath, withReturnPath } from '@/lib/return-path';
-import { signOutAction } from '@/server/actions';
+import { registerInvitedAccountAction, signOutAction } from '@/server/actions';
 import { getRuntime } from '@/server/runtime';
 import { acceptInvitationAction } from '@/server/work-actions';
 
@@ -12,14 +14,13 @@ export const metadata = { title: 'Invitation | Ensemus' };
 
 // This page never reads the invitation. It shows the same thing for a real token, a guessed one and
 // a used one, so holding a link reveals no organization, role or address until it is accepted. The
-// only answer about a token is the one acceptance gives, and acceptance states it the same way for
-// every failure.
+// Registration and acceptance both check the token only when someone submits the matching details.
 export default async function InvitationPage({
   params,
   searchParams,
 }: {
   params: Promise<{ token: string }>;
-  searchParams: Promise<{ error?: string; state?: string }>;
+  searchParams: Promise<{ error?: string; state?: string; registration?: string }>;
 }) {
   const { token } = await params;
   const here = safeReturnPath(`/invite/${token}`);
@@ -28,6 +29,7 @@ export default async function InvitationPage({
 
   const { auth, config } = getRuntime();
   const session = await auth.api.getSession({ headers: await headers() });
+  const { error, state, registration } = await searchParams;
 
   if (!session) {
     return (
@@ -36,8 +38,7 @@ export default async function InvitationPage({
         <div className="sheet">
           <h1>You have been invited</h1>
           <p className="lede">
-            Sign in with the email address this invitation was sent to, and you can accept it from
-            here.
+            Use the email address your inviter gave you to sign in or create an account.
           </p>
           <div className="row">
             <Link className="button" href={withReturnPath('/sign-in', here)}>
@@ -49,6 +50,54 @@ export default async function InvitationPage({
               </Link>
             )}
           </div>
+          {!config.allowSignup && (
+            <details className="gap-above-large" open={Boolean(registration) || undefined}>
+              <summary>Create an account</summary>
+              <form className="fields gap-above-large" action={registerInvitedAccountAction}>
+                <input type="hidden" name="token" value={token} />
+                {registration === 'refused' && (
+                  <p className="notice error" role="alert">
+                    We couldn’t create an account. Check the invited address and your details. If
+                    you already have an account, sign in.
+                  </p>
+                )}
+                {registration === 'rate' && (
+                  <p className="notice error" role="alert">
+                    Too many attempts. Wait a minute before trying again.
+                  </p>
+                )}
+                <Label>
+                  Name
+                  <Input name="name" autoComplete="name" required maxLength={200} />
+                </Label>
+                <Label>
+                  Invited email address
+                  <Input
+                    name="email"
+                    type="email"
+                    autoComplete="username"
+                    required
+                    maxLength={320}
+                  />
+                </Label>
+                <Label>
+                  Password
+                  <Input
+                    name="password"
+                    type="password"
+                    autoComplete="new-password"
+                    required
+                    minLength={12}
+                    maxLength={128}
+                  />
+                  <small>Use at least 12 characters.</small>
+                </Label>
+                <div>
+                  <SubmitButton working="Creating your account">Create account</SubmitButton>
+                </div>
+              </form>
+            </details>
+          )}
           <p className="muted gap-above-large">
             You will see which organization invited you once you accept. Until then this page keeps
             those details private, because anyone holding the link could read them.
@@ -57,8 +106,8 @@ export default async function InvitationPage({
         {!config.allowSignup && (
           <ul className="sheet-links" aria-label="Other ways in">
             <li>
-              No account yet? Ask the person who invited you how to get one. If they give you a
-              setup code, <Link href={withReturnPath('/setup', here)}>use it here</Link>.
+              Already have a setup code?{' '}
+              <Link href={withReturnPath('/setup', here)}>Use it here</Link>.
             </li>
           </ul>
         )}
@@ -66,7 +115,6 @@ export default async function InvitationPage({
     );
   }
 
-  const { error, state } = await searchParams;
   if (state === 'waiting') {
     return (
       <main className="centered">

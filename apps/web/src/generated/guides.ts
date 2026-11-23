@@ -1698,7 +1698,7 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
         "inline": [
           {
             "t": "text",
-            "v": "This link is shown once. If you leave or reload the page it is gone, and you make a new invitation. Ensemus does not send it for you."
+            "v": "The form shows the link once. Copy it before you leave or reload the page. You can share it privately in chat. If your installation has mail enabled, Ensemus can also send the invitation by email."
           }
         ]
       },
@@ -1741,7 +1741,7 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
           [
             {
               "t": "text",
-              "v": "Sign in with the email address the invitation was sent to, or choose "
+              "v": "Use the address your inviter entered. Sign in if you have an account. Otherwise, choose "
             },
             {
               "t": "strong",
@@ -1749,15 +1749,7 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
             },
             {
               "t": "text",
-              "v": " if that is offered. If it is not, ask the person who invited you how to get an account. If they give you a setup code, choose "
-            },
-            {
-              "t": "strong",
-              "v": "use it here"
-            },
-            {
-              "t": "text",
-              "v": ". You come back to the invitation afterwards."
+              "v": " and enter your name, the invited address, and a password. The invitation form can create your account on an installation that has public sign-up disabled."
             }
           ],
           [

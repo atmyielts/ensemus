@@ -1,5 +1,5 @@
 import 'server-only';
-import { createRestoreGate } from '@ensemus/application';
+import { createRestoreGate, withInvitationRegistration } from '@ensemus/application';
 import { withRawKnowledgeObjects } from '@ensemus/application/knowledge/raw-objects';
 import {
   authorizeSsoIdentity,
@@ -45,27 +45,37 @@ function build() {
   const oidc = loadOidc();
   const app = openAppDatabase(readSecret('DATABASE_URL_APP')).db;
   const sealMailLink = loadMailSealer(config.mailEnabled);
-  const { auth, mfa, sso, redeemSetupToken, submitCredentials, readInteractiveSession, account } =
-    createAuth({
-      databaseUrl: readSecret('DATABASE_URL_AUTH'),
-      secret: readSecret('AUTH_SECRET'),
-      baseURL: config.publicUrl,
-      allowSignup: config.allowSignup,
-      ...(oidc ? { oidc } : {}),
-      sso: {
-        authorizeIdentity: (input) => authorizeSsoIdentity(app, input),
-        completeIdentity: async (input) => (await completeSsoSignIn(app, input)).outcome,
-        currentPrimary: (input) => isSsoPrimaryCurrent(app, input),
-      },
-      plugins: [nextCookies()],
-      ...(sealMailLink ? { mail: { seal: sealMailLink } } : {}),
-    });
+  const {
+    auth,
+    mfa,
+    sso,
+    redeemSetupToken,
+    registerInvitedAccount,
+    submitCredentials,
+    readInteractiveSession,
+    account,
+  } = createAuth({
+    databaseUrl: readSecret('DATABASE_URL_AUTH'),
+    secret: readSecret('AUTH_SECRET'),
+    baseURL: config.publicUrl,
+    allowSignup: config.allowSignup,
+    withInvitationRegistration: (input, create) => withInvitationRegistration(app, input, create),
+    ...(oidc ? { oidc } : {}),
+    sso: {
+      authorizeIdentity: (input) => authorizeSsoIdentity(app, input),
+      completeIdentity: async (input) => (await completeSsoSignIn(app, input)).outcome,
+      currentPrimary: (input) => isSsoPrimaryCurrent(app, input),
+    },
+    plugins: [nextCookies()],
+    ...(sealMailLink ? { mail: { seal: sealMailLink } } : {}),
+  });
   return {
     config,
     auth,
     mfa,
     sso,
     redeemSetupToken,
+    registerInvitedAccount,
     submitCredentials,
     readInteractiveSession,
     /** Password reset, email verification and change, through Better Auth's router (0571). */
