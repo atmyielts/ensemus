@@ -155,6 +155,8 @@ const countsOfContent = async (tx: Tx, importId?: string) => {
     tx,
     sql`
     select 'knowledge_source' as kind,count(*)::int as n from knowledge.sources
+    union all select 'work_unit',count(*)::int from knowledge.structured_record_catalog
+      where organization_id=app.current_organization_id() and record_kind='work_unit' and alive
     union all select 'knowledge_document',count(*)::int from knowledge.documents d
       ${importId ? sql`where d.id not in(select sovereign.reserved_import_document_ids(${importId}::uuid))` : sql``}
     union all select 'model_profile',count(*)::int from ai.model_profiles
@@ -163,7 +165,6 @@ const countsOfContent = async (tx: Tx, importId?: string) => {
     union all select 'archive_file',sovereign.archive_file_target_conflicts(${importId ?? null}::uuid)`,
   );
   return {
-    work_unit: await countOf(tx, workUnits),
     client: await countOf(tx, clients),
     project: await countOf(tx, projects),
     team: await countOf(tx, teams),

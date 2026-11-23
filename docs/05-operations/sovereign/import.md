@@ -1,11 +1,12 @@
 # Importing an organization archive
 
-**Status:** written and unit tested. Nothing here has run against a real deployment or a real database. The integration tests are written and have not passed yet, because they need migrations `0300` and `0301` in the journal, which the final merge stitches. This guide makes no claim about any deployment. The format is in [ADR-030](../../00-foundation/adr/ADR-030-sovereign-license-and-bundle.md) D6 to D10, and outside security review of parsing a hostile archive has not happened.
+Local PostgreSQL integration tests exercise the import with the platform worker role. The format is in [ADR-030](../../00-foundation/adr/ADR-030-sovereign-license-and-bundle.md) D6 to D10. Review of hostile archive parsing by an outside party remains open.
 
 An import reads one archive into **one new, empty organization**. It runs as an operator's command, not from a page, because opening an archive needs the private key, and that key has to stay in one short process that you control.
 
 ## What you need
 
+- The platform worker database connection (`ensemus_worker`), configured through `DATABASE_URL_APP` or `DATABASE_URL_APP_FILE`.
 - The archive, as a file.
 - The private key that matches the public key the export was sealed to, as a file you mount for this command. It is read once and given only to the code that opens the archive. It does not reach a log, an error, a table, an environment variable or Temporal.
 - A new organization, with its one owner and nothing in it. That owner has asked for the import on the organization's `data` page, which gives you the import's ID.

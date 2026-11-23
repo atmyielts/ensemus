@@ -429,17 +429,19 @@ describe('joined portable definitions and restore audits', () => {
     expect(
       await withTenantTx(app.db, service, (tx) => isExportEpochCurrent(tx, service, exportId)),
     ).toBe(true);
-    await withTenantTx(app.db, service, (tx) =>
+    const statusUpdate = await withTenantTx(serviceDatabase.db, service, (tx) =>
       tx.execute(
         sql`update work.work_units set status='ready',version=version+1,updated_at=now() where id=${work.id}::uuid`,
       ),
     );
+    expect(statusUpdate.rowCount).toBe(1);
     expect((await read()).rows[0]?.epoch).toBe(before);
-    await withTenantTx(app.db, service, (tx) =>
+    const classificationUpdate = await withTenantTx(serviceDatabase.db, service, (tx) =>
       tx.execute(
         sql`update work.work_units set classification='restricted',version=version+1,updated_at=now() where id=${work.id}::uuid`,
       ),
     );
+    expect(classificationUpdate.rowCount).toBe(1);
     expect(
       await withTenantTx(app.db, service, (tx) => isExportEpochCurrent(tx, service, exportId)),
     ).toBe(false);
@@ -470,11 +472,16 @@ describe('joined portable definitions and restore audits', () => {
         if (!bytes) throw new Error('test missing');
         if (revoke) {
           revoke = false;
-          await withTenantTx(app.db, service, async (tx) => {
-            await tx.execute(sql`set local statement_timeout='5s'`);
-            await tx.execute(sql`update work.work_units set classification='restricted',version=version+1,updated_at=now()
+          const classificationUpdate = await withTenantTx(
+            serviceDatabase.db,
+            service,
+            async (tx) => {
+              await tx.execute(sql`set local statement_timeout='5s'`);
+              return tx.execute(sql`update work.work_units set classification='restricted',version=version+1,updated_at=now()
             where id=${work.id}::uuid`);
-          });
+            },
+          );
+          expect(classificationUpdate.rowCount).toBe(1);
         }
         return bytes;
       },

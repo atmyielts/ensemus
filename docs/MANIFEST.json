@@ -377,8 +377,8 @@
     },
     {
       "path": "05-operations/sovereign/import.md",
-      "size_bytes": 9233,
-      "sha256": "382f290fd1551e2ac4f2a6a4231813ccb5df70673124e355bbb251974465664d"
+      "size_bytes": 9134,
+      "sha256": "a07c26f15f6c8f3abf71b12f55605cfc6430cf920a2adcbea060106340c6de13"
     },
     {
       "path": "05-operations/sovereign/issuing-documents.md",
