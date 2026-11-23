@@ -1,6 +1,7 @@
 import {
   beginMeetingDerivation,
   finishMeetingDerivation,
+  MeetingModelRefused,
   MeetingModelUnavailable,
   stopMeetingDerivation,
   type MeetingEgressGate,
@@ -18,10 +19,10 @@ import {
 
 export type MeetingDerivationDeps = {
   database: AppDatabase;
-  model: MeetingModelGateway;
-  egress: MeetingEgressGate;
   activity?: () => { temporalRunId: string; signal: AbortSignal };
-};
+} & (
+  { model: MeetingModelGateway; egress: MeetingEgressGate } | { governedModel: MeetingModelGateway }
+);
 
 function activityIdentity() {
   const activity = Context.current();
@@ -78,40 +79,45 @@ export function createMeetingDerivationActivities(deps: MeetingDerivationDeps) {
     if (first.kind === 'done') return outcome(first.status);
     if (first.kind === 'stopped') return 'refused';
 
-    const { purpose, classification, modelProfileId } = first.prepared;
-    try {
-      const decision = await deps.egress.decide({
-        organizationId,
-        purpose,
-        classification,
-        modelProfileId,
-      });
-      if (!decision.allowed) return stop(decision.code, 'refused');
-    } catch {
-      return stop('EGRESS_DENIED', 'refused');
+    let { prepared } = first;
+    if ('egress' in deps) {
+      try {
+        const decision = await deps.egress.decide({
+          organizationId,
+          purpose: prepared.purpose,
+          classification: prepared.classification,
+          modelProfileId: prepared.modelProfileId,
+        });
+        if (!decision.allowed) return stop(decision.code, 'refused');
+      } catch {
+        return stop('EGRESS_DENIED', 'refused');
+      }
+      const checked = await beginMeetingDerivation(deps.database, context, run);
+      if (checked.kind === 'done') return outcome(checked.status);
+      if (checked.kind === 'stopped') return 'refused';
+      prepared = checked.prepared;
     }
 
-    // The policy lookup may have waited. Recheck against consent and approval before sending.
-    const checked = await beginMeetingDerivation(deps.database, context, run);
-    if (checked.kind === 'done') return outcome(checked.status);
-    if (checked.kind === 'stopped') return 'refused';
-
+    const model = 'governedModel' in deps ? deps.governedModel : deps.model;
     const signal = AbortSignal.any([cancellation, AbortSignal.timeout(90_000)]);
     let answer;
     try {
       signal.throwIfAborted();
-      answer = await deps.model.derive({
+      answer = await model.derive({
         organizationId,
         runId: derivationRunId,
-        purpose,
-        modelProfileId,
-        classification,
-        notes: checked.prepared.notes,
-        participantCount: checked.prepared.participants.length,
+        temporalRunId,
+        notesSha256: prepared.notesSha256,
+        purpose: prepared.purpose,
+        modelProfileId: prepared.modelProfileId,
+        classification: prepared.classification,
+        notes: prepared.notes,
+        participantCount: prepared.participants.length,
         signal,
       });
       signal.throwIfAborted();
     } catch (error) {
+      if (error instanceof MeetingModelRefused) return stop(error.code, 'refused');
       const code = signal.aborted
         ? 'MODEL_TIMEOUT'
         : error instanceof MeetingModelUnavailable
@@ -124,3 +130,13 @@ export function createMeetingDerivationActivities(deps: MeetingDerivationDeps) {
   }
 }
 export type MeetingDerivationActivities = ReturnType<typeof createMeetingDerivationActivities>;
+
+/** The agent queue's activity uses a model that commits its own egress decision. */
+export function createGovernedMeetingActivities(database: AppDatabase, model: MeetingModelGateway) {
+  const { runMeetingDerivation } = createMeetingDerivationActivities({
+    database,
+    governedModel: model,
+  });
+  return { runGovernedMeetingDerivation: runMeetingDerivation };
+}
+export type GovernedMeetingActivities = ReturnType<typeof createGovernedMeetingActivities>;

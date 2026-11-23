@@ -14,7 +14,7 @@ import {
 } from '../helpers/forms';
 import { nativePersonContext } from '../helpers/product';
 import { seedConnection } from '../helpers/integrations';
-import { seedMeetingSuggestions, TEST_NOTICE } from '../helpers/expansion';
+import { seedMeetingSuggestions, seedReadyMeeting, TEST_NOTICE } from '../helpers/expansion';
 import { urls } from '../helpers/stack';
 import { contractProblems } from '../helpers/openapi';
 
@@ -507,5 +507,36 @@ describe('manual meeting HTTP lifecycle', () => {
       expect.objectContaining({ text: null }),
     ]);
     expect((await call(owner, 'GET', work)).response.status).toBe(200);
+  });
+  it('queues one derivation request and only shows status to people in the room', async () => {
+    const room = await seedReadyMeeting(app.db, await contextFor(owner, org));
+    const path = base() + '/meetings/' + room.id + '/derivations';
+    const body = { purpose: 'summarize', provider_approval_id: room.providerApprovalId };
+    expect((await call(owner, 'GET', path)).body).toEqual({ items: [] });
+    expect((await call(foreign, 'GET', path)).response.status).toBe(404);
+    expect(
+      (
+        await call(foreign, 'POST', path, body, {
+          'idempotency-key': randomUUID(),
+        })
+      ).response.status,
+    ).toBe(404);
+    expect((await call(owner, 'POST', path, body)).response.status).toBe(400);
+    const idempotency = { 'idempotency-key': randomUUID() };
+    const queued = await call(owner, 'POST', path, body, idempotency);
+    expect(queued.response.status, JSON.stringify(queued.body)).toBe(202);
+    expect(queued.body).toMatchObject({ purpose: 'summarize', meeting_id: room.id });
+    const replayed = await call(owner, 'POST', path, body, idempotency);
+    expect(replayed.response.status).toBe(202);
+    expect(replayed.body.id).toBe(queued.body.id);
+    expect(
+      (await call(owner, 'POST', path, { ...body, purpose: 'extract_items' }, idempotency)).body
+        .code,
+    ).toBe('IDEMPOTENCY_KEY_REUSED');
+    const read = await call(owner, 'GET', path);
+    expect(read.body.items).toEqual([
+      expect.objectContaining({ id: queued.body.id, purpose: 'summarize' }),
+    ]);
+    expect(JSON.stringify(read.body)).not.toContain('Nothing here is real.');
   });
 });

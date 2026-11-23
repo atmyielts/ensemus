@@ -7,7 +7,14 @@ import { repoRoot } from '../helpers/stack';
 import { CORPUS_DIR, FAILURE_CONVERTER, REPLAY_KEY, WORKFLOWS } from './corpus';
 
 describe('meeting derivation replay corpus', () => {
-  it.each(['completed', 'refused', 'dropped', 'interrupted'])(
+  it.each([
+    'completed',
+    'refused',
+    'dropped',
+    'interrupted',
+    'governed-completed',
+    'governed-interrupted',
+  ])(
     'replays the %s outcome',
     async (outcome) => {
       const file = join(repoRoot, CORPUS_DIR, `meeting-derivation-${outcome}.json`);

@@ -1,9 +1,11 @@
+import { createHash } from 'node:crypto';
 import {
   meetingItemsOutputSchema,
   meetingSummaryOutputSchema,
   requestDerivationSchema,
 } from '@ensemus/contracts/meetings';
 import {
+  egressDecisions,
   meetingDerivationRuns,
   meetingNotes,
   meetingParticipants,
@@ -12,6 +14,7 @@ import {
   meetings,
   meetingSettings,
   meetingSummaries,
+  modelProfiles,
   withTenantTx,
   type AppDatabase,
   type TenantContext,
@@ -38,11 +41,17 @@ import {
   type ProviderApprovalFacts,
 } from '@ensemus/domain/meeting';
 import type { Classification } from '@ensemus/domain/policy';
+import type { AiReasonCode } from '@ensemus/domain/ai';
+import { decideEgress } from '@ensemus/policy';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { AppError } from './errors';
+import { loadTenantPolicyBundleInTx } from './ai/egress-log';
+import { createHaltCheck } from './ai/halt';
+import { toRoutableProfile } from './ai/model-profiles';
+import type { RoutableProfile } from './ai/ports';
 import { emit } from './events';
-import type { MeetingModelAnswer } from './expansion-ports';
+import type { MeetingModelAnswer, MeetingModelRequest } from './expansion-ports';
 import { idSchema } from './ids';
 import { meetingForContent, withMeetingPerson } from './meeting-manual';
 import { auditAction, notify } from './work';
@@ -269,19 +278,38 @@ export function listMeetingDerivations(
   });
 }
 
-/** Native platform worker only. Every runner takes the room lock before the run lock, as withdrawal does. */
+export function getMeetingDerivation(
+  database: AppDatabase,
+  context: TenantContext,
+  meetingId: string,
+  runId: string,
+): Promise<DerivationRunView> {
+  return withMeetingPerson(database, context, async (tx, viewer) => {
+    const room = await meetingForContent(tx, meetingId, viewer);
+    const [row] = await tx
+      .select()
+      .from(meetingDerivationRuns)
+      .where(and(runIs(context, validId(runId)), eq(meetingDerivationRuns.meetingId, room.id)));
+    if (!row) throw new AppError('NOT_FOUND');
+    return view(row);
+  });
+}
+
+/** A native worker locks the room before the run, as withdrawal does. */
+type DerivationWorker = 'ensemus_worker' | 'ensemus_agent';
 function withWorkerRun<T>(
   database: AppDatabase,
   context: TenantContext,
   runId: string,
-  use: (tx: Tx, room: Room, run: Run) => Promise<T>,
+  use: (tx: Tx, room: Room, run: Run, worker: DerivationWorker) => Promise<T>,
 ): Promise<T | null> {
   if (context.actorType !== 'service') throw new AppError('FORBIDDEN');
   return withTenantTx(database, context, async (tx) => {
-    const identity = await tx.execute<{ allowed: boolean }>(
-      sql`select current_user='ensemus_worker' and session_user='ensemus_worker' as allowed`,
+    const identity = await tx.execute<{ login: string | null }>(
+      sql`select case when session_user=current_user then session_user::text end as login`,
     );
-    if (identity.rows[0]?.allowed !== true) throw new AppError('FORBIDDEN');
+    const login = identity.rows[0]?.login;
+    if (login !== 'ensemus_worker' && login !== 'ensemus_agent') throw new AppError('FORBIDDEN');
     const selector = runIs(context, validId(runId));
     const [parent] = await tx
       .select({ id: meetingDerivationRuns.meetingId })
@@ -301,8 +329,159 @@ function withWorkerRun<T>(
       .for('update');
     if (!room) return null;
     const [run] = await tx.select().from(meetingDerivationRuns).where(selector).for('update');
-    return run ? use(tx, room, run) : null;
+    return run ? use(tx, room, run, login) : null;
   });
+}
+
+function profileIs(context: TenantContext, id: string) {
+  return and(eq(modelProfiles.organizationId, context.organizationId), eq(modelProfiles.id, id));
+}
+
+export async function loadMeetingModelProfile(
+  database: AppDatabase,
+  context: TenantContext,
+  id: string,
+): Promise<RoutableProfile | null> {
+  if (context.actorType !== 'service') throw new AppError('FORBIDDEN');
+  const [profile] = await withTenantTx(database, context, (tx) =>
+    tx
+      .select()
+      .from(modelProfiles)
+      .where(profileIs(context, validId(id))),
+  );
+  return profile ? toRoutableProfile(profile) : null;
+}
+
+export type MeetingModelDispatchInput = Pick<
+  MeetingModelRequest,
+  'runId' | 'temporalRunId' | 'notesSha256' | 'purpose' | 'classification' | 'modelProfileId'
+> & {
+  profileVersion: number;
+  /** A credential or canary in the source always raises it to restricted for the decision. */
+  effectiveClass: Classification;
+  transportRefusal: AiReasonCode | null;
+};
+
+function modelHost(url: string): string | null {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
+}
+
+/** Resolves the exact approved version and records its decision before a provider key can be opened. */
+export async function claimMeetingModelDispatch(
+  database: AppDatabase,
+  context: TenantContext,
+  input: MeetingModelDispatchInput,
+): Promise<{ allowed: true } | { allowed: false; code: MeetingStopCode }> {
+  const result = await withWorkerRun(
+    database,
+    context,
+    input.runId,
+    async (tx, room, run, worker) => {
+      if (worker !== 'ensemus_agent') throw new AppError('FORBIDDEN');
+      if (run.status !== 'running' || run.temporalRunId !== input.temporalRunId)
+        return {
+          allowed: false,
+          code: room.status === 'purged' ? 'MEETING_PURGED' : 'EGRESS_DENIED',
+        } as const;
+      if (run.dispatchStartedAt) return { allowed: false, code: 'MODEL_UNAVAILABLE' } as const;
+      const purpose = run.purpose as DerivationPurpose;
+      const checked = await checkStart(tx, room, run.providerApprovalId, purpose, run.notesId);
+      if ('code' in checked) return { allowed: false, code: checked.code } as const;
+      if (
+        input.modelProfileId !== checked.modelProfileId ||
+        input.purpose !== purpose ||
+        input.classification !== checked.classification ||
+        input.notesSha256 !== checked.notes.sha ||
+        (input.effectiveClass !== checked.classification && input.effectiveClass !== 'restricted')
+      )
+        return { allowed: false, code: 'EGRESS_DENIED' } as const;
+
+      const [row] = await tx
+        .select()
+        .from(modelProfiles)
+        .where(profileIs(context, checked.modelProfileId))
+        .for('share');
+      const profile = row ? toRoutableProfile(row) : null;
+      const current = profile?.version === input.profileVersion;
+      const modelPurpose = purpose === 'summarize' ? 'compose' : 'extract';
+      const dataClass = input.effectiveClass;
+      let reason: AiReasonCode | null = input.transportRefusal;
+      if (!profile || !current) reason = 'PROFILE_CHANGED';
+      else if (dataClass === 'restricted') reason = 'CLASS_DENIED';
+      else if (profile.billingOwner !== 'customer') reason = 'BILLING_OWNER_CROSSED';
+      const host = profile ? modelHost(profile.endpointUrl) : null;
+      const decision =
+        profile && host
+          ? decideEgress({
+              dataClass,
+              purpose: modelPurpose,
+              requiredRegion: null,
+              bundle: await loadTenantPolicyBundleInTx(tx, context),
+              profile: {
+                id: profile.id,
+                version: profile.version,
+                active: profile.status === 'active',
+                destination: profile.destination,
+                destinationHost: host,
+                billingOwner: profile.billingOwner,
+                region: profile.region,
+                allowedClasses: profile.allowedClasses,
+                allowedPurposes: profile.allowedPurposes,
+                retentionBasis: profile.retentionBasis,
+                contractRef: profile.contractRef,
+              },
+              now: new Date(),
+            })
+          : null;
+      if (!reason && decision?.decision !== 'allow')
+        reason = decision?.reasonCode ?? 'POLICY_UNREADABLE';
+      if (!reason && profile) {
+        try {
+          await createHaltCheck().assertRunning(tx, context, {
+            providerKind: profile.providerKind,
+          });
+        } catch {
+          reason = 'POLICY_UNREADABLE';
+        }
+      }
+
+      const requestHash = createHash('sha256')
+        .update(
+          JSON.stringify([
+            'meeting-derivation',
+            room.organizationId,
+            run.id,
+            checked.notes.sha,
+            checked.modelProfileId,
+            input.profileVersion,
+            purpose,
+          ]),
+        )
+        .digest('hex');
+      await tx.insert(egressDecisions).values({
+        organizationId: room.organizationId,
+        profileId: profile?.id ?? null,
+        dataClass,
+        purpose: modelPurpose,
+        destinationHost: host,
+        requestHash,
+        decision: reason ? 'deny' : 'allow',
+        reasonCode: reason ?? 'ALLOWED',
+        policyVersion: decision?.policyVersion ?? 'meeting-dispatch-1',
+      });
+      if (reason) return { allowed: false, code: 'EGRESS_DENIED' } as const;
+      await tx
+        .update(meetingDerivationRuns)
+        .set({ dispatchStartedAt: new Date() })
+        .where(runIs(context, run.id));
+      return { allowed: true } as const;
+    },
+  );
+  return result ?? { allowed: false, code: 'EGRESS_DENIED' };
 }
 
 async function participants(tx: Tx, room: Room) {
@@ -447,7 +626,7 @@ export async function finishMeetingDerivation(
       database,
       context,
       input.derivationRunId,
-      async (tx, room, run) => {
+      async (tx, room, run, worker) => {
         if (
           run.temporalRunId !== temporalRunId ||
           room.status !== 'open' ||
@@ -455,6 +634,8 @@ export async function finishMeetingDerivation(
         )
           return { status: 'dropped', items: 0 };
         if (run.status !== 'running') return { status: run.status as DerivationStatus, items: 0 };
+        if (worker === 'ensemus_agent' && !run.dispatchStartedAt)
+          return { status: 'dropped', items: 0 };
 
         const metadata = receiptSchema.safeParse(receipt);
         const summary =
@@ -470,8 +651,7 @@ export async function finishMeetingDerivation(
         const invalidItems =
           suggestions === null ||
           suggestions.some(
-            (item) =>
-              !safeText(item.title) || (item.detail !== undefined && !safeText(item.detail)),
+            (item) => !safeText(item.title) || (item.detail != null && !safeText(item.detail)),
           );
         if (!metadata.success || (run.purpose === 'summarize' ? invalidSummary : invalidItems)) {
           await stop(tx, context, room, run, 'refused', 'MODEL_OUTPUT_INVALID');
@@ -510,7 +690,7 @@ export async function finishMeetingDerivation(
               detail: item.detail ?? null,
               suggestedDueOn: z.iso.date().safeParse(item.suggested_due_on).data ?? null,
               suggestedOwnerMembershipId:
-                item.suggested_participant === undefined
+                item.suggested_participant == null
                   ? null
                   : (people[item.suggested_participant - 1] ?? null),
             })),

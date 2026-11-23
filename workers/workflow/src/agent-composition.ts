@@ -49,6 +49,8 @@ import type { Logger } from '@ensemus/telemetry';
 import { createAgentActivities } from '@ensemus/workflows/agent-activities';
 import { createModelProbeActivities } from '@ensemus/workflows/model-probe-activities';
 import { createKnowledgeTranscriptActivities } from '@ensemus/workflows/knowledge-purge-activities';
+import { createGovernedMeetingActivities } from '@ensemus/workflows/meeting-derivation-activities';
+import { createGovernedMeetingModel } from './meeting-model';
 import { createKnowledgeModelJobActivities } from '@ensemus/workflows/knowledge-model-job-activities';
 import { loadAgentCanaries, loadAgentContextLimits } from './agent-settings';
 import { createHaltWatcher, HALT_POLL_MS, switchReaderFor } from './kill-switch';
@@ -203,6 +205,19 @@ export function createAgentServices(deps: {
         halt,
         haltWatcher: watcher,
       }),
+      ...createGovernedMeetingActivities(
+        database,
+        createGovernedMeetingModel({
+          database,
+          entitlements,
+          residency,
+          adapter,
+          credentials,
+          guard,
+          canaries,
+          privateEndpoints: settings.privateEndpoints,
+        }),
+      ),
       ...createModelProbeActivities({ database, probe }),
       ...createKnowledgeModelJobActivities({
         database,

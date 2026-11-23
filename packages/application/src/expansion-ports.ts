@@ -39,6 +39,8 @@ export const denyAllMeetingEgress: MeetingEgressGate = {
 export type MeetingModelRequest = {
   organizationId: string;
   runId: string;
+  temporalRunId: string;
+  notesSha256: string;
   purpose: DerivationPurpose;
   modelProfileId: string;
   classification: Classification;
@@ -60,6 +62,14 @@ export type MeetingModelAnswer = {
 export class MeetingModelUnavailable extends Error {
   override name = 'MeetingModelUnavailable';
   constructor(readonly code: 'MODEL_UNAVAILABLE' | 'MODEL_TIMEOUT') {
+    super(code);
+  }
+}
+
+/** A fresh check stopped processing before any provider call. */
+export class MeetingModelRefused extends Error {
+  override name = 'MeetingModelRefused';
+  constructor(readonly code: import('@ensemus/domain/meeting').MeetingStopCode) {
     super(code);
   }
 }

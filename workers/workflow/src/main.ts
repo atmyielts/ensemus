@@ -177,8 +177,7 @@ async function main() {
       ),
       ...createRetentionActivities({ database: db, sources: ports.retentionSources }),
       ...createOffboardingActivities({ database: db, ports: ports.offboarding }),
-      // Keep production meeting egress closed until the governed model worker attaches an exact
-      // profile and records its egress decision (ADR-033 D6).
+      // The platform worker retains legacy replay and cleanup. New provider calls use the agent queue.
       ...createMeetingDerivationActivities({
         database: db,
         model: noMeetingModel,

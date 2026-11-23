@@ -369,6 +369,8 @@ export const meetingDerivationRuns = meetingsSchema.table(
     /** A person always asks. A workflow carries it out and never starts one on its own. */
     requestedByMembershipId: uuid().notNull(),
     temporalRunId: text(),
+    /** Stamped by the native model worker with its egress decision before any send. */
+    dispatchStartedAt: timestamp({ withTimezone: true }),
     /** Which deployment answered, for the egress record. An ID and nothing it said. */
     modelRef: text(),
     inputTokens: integer(),

@@ -1057,8 +1057,8 @@
     },
     {
       "path": "06-delivery/release-candidate-2026-11-21.md",
-      "size_bytes": 97541,
-      "sha256": "14560a535e07d5a2ac3468e37a68f83eeacf32a3df1e37c3b6ef49ebaae8b471"
+      "size_bytes": 99301,
+      "sha256": "0a9438304f06b4317790d2f82ae9d9bc5c1eba4f7c7c3538cedb2677c3a29098"
     },
     {
       "path": "06-delivery/release-candidate-source-ledger.json",
@@ -1687,8 +1687,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 564666,
-      "sha256": "75bf9e1a23be89abb64c1c21b11db2d85efc509d10571fa0cdd521ef874fe5ab"
+      "size_bytes": 564602,
+      "sha256": "7c77d0c544f559abf86b5598969a064a187f10e273d33f24a0df4064770b7007"
     },
     {
       "path": "specifications/qa-scenarios.csv",

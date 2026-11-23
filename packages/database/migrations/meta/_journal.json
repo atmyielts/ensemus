@@ -1184,6 +1184,13 @@
       "when": 1794201807641,
       "tag": "0759_meeting_proposal_decision_actor",
       "breakpoints": true
+    },
+    {
+      "idx": 169,
+      "version": "7",
+      "when": 1794201807642,
+      "tag": "0760_meeting_derivation_dispatch",
+      "breakpoints": true
     }
   ]
 }

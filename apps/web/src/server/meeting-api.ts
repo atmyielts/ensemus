@@ -9,8 +9,11 @@ import {
   getMeeting,
   idSchema,
   importMeetingNotes,
+  getMeetingDerivation,
+  requestMeetingDerivation,
   requestHash,
   runIdempotent,
+  type DerivationRunView,
   type MeetingDetailView,
   type MeetingParticipantView,
   type MeetingSummaryView,
@@ -20,7 +23,11 @@ import {
 } from '@ensemus/application';
 import type { AppDatabase, TenantContext } from '@ensemus/database';
 import { canonicalJson } from '@ensemus/domain/approval';
-import type { AcceptProposedWorkBody, ApproveProviderBody } from '@ensemus/contracts/meetings';
+import type {
+  AcceptProposedWorkBody,
+  ApproveProviderBody,
+  RequestDerivationBody,
+} from '@ensemus/contracts/meetings';
 import { z } from 'zod';
 import { organizationParams } from './api';
 import { studioOnce } from './studio-api';
@@ -197,4 +204,35 @@ export async function acceptProposedWorkOnce(
   await confirmProposedWork(database, context, itemId, parsed.data.work_unit_id);
   await getWorkUnit(database, context, parsed.data.work_unit_id);
   return parsed.data;
+}
+
+export const meetingDerivationDto = (row: DerivationRunView) => ({
+  id: row.id,
+  meeting_id: row.meetingId,
+  purpose: row.purpose,
+  status: row.status,
+  status_code: row.statusCode,
+  requested_by_membership_id: row.requestedByMembershipId,
+  created_at: row.createdAt.toISOString(),
+  finished_at: row.finishedAt?.toISOString() ?? null,
+});
+
+export async function requestDerivationOnce(
+  database: AppDatabase,
+  context: TenantContext,
+  key: string,
+  meetingId: string,
+  body: RequestDerivationBody,
+) {
+  const input = { meetingId, purpose: body.purpose, providerApprovalId: body.provider_approval_id };
+  const id = await studioOnce(
+    database,
+    context,
+    key,
+    'meeting.derivation.request',
+    input,
+    (db) => requestMeetingDerivation(db, context, input),
+    202,
+  );
+  return getMeetingDerivation(database, context, meetingId, id);
 }

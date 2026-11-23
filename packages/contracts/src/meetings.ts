@@ -110,21 +110,29 @@ export const meetingSummaryOutputSchema = z.strictObject({
 });
 export type MeetingSummaryOutput = z.infer<typeof meetingSummaryOutputSchema>;
 
-export const meetingItemsOutputSchema = z.strictObject({
-  items: z
-    .array(
-      z.strictObject({
-        kind: z.enum(['decision', 'work']),
-        title: z.string().trim().min(1).max(300),
-        detail: z.string().trim().min(1).max(4000).optional(),
-        /** The position of a participant in the list given to the model, from 1. */
-        suggested_participant: z.int().min(1).max(200).optional(),
-        suggested_due_on: z
-          .string()
-          .regex(/^\d{4}-\d{2}-\d{2}$/)
-          .optional(),
-      }),
-    )
-    .max(100),
+const meetingItemOutputSchema = z.strictObject({
+  kind: z.enum(['decision', 'work']),
+  title: z.string().trim().min(1).max(300),
+  detail: z.string().trim().min(1).max(4000).nullish(),
+  /** The position of a participant in the list given to the model, from 1. */
+  suggested_participant: z.int().min(1).max(200).nullish(),
+  suggested_due_on: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullish(),
 });
+
+export const meetingItemsOutputSchema = z.strictObject({
+  items: z.array(meetingItemOutputSchema).max(100),
+});
+
+/** Provider structured output requires every key. Optional details can be null. */
+export const meetingModelJsonSchema = {
+  summarize: z.toJSONSchema(meetingSummaryOutputSchema, { target: 'draft-07' }),
+  extract_items: z.toJSONSchema(
+    z.strictObject({ items: z.array(meetingItemOutputSchema.required()).max(100) }),
+    { target: 'draft-07' },
+  ),
+};
+
 export type MeetingItemsOutput = z.infer<typeof meetingItemsOutputSchema>;
