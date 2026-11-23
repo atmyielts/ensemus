@@ -4,7 +4,15 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createMinimalContextCompiler } from '@ensemus/agent-runtime/context';
 import { createToolGateway } from '@ensemus/agent-runtime/tools';
-import { AppError, getWorkDetail, listWorkOverview, type ObjectStore } from '@ensemus/application';
+import {
+  AppError,
+  beginAttempt,
+  decideApproval,
+  finishAttempt,
+  getWorkDetail,
+  listWorkOverview,
+  type ObjectStore,
+} from '@ensemus/application';
 import { publishAgentVersion } from '@ensemus/application/ai-agents';
 import { createContextSource } from '@ensemus/application/ai-context-source';
 import {
@@ -61,6 +69,7 @@ import {
   clientOnboardings,
   clients,
   connections,
+  externalActionAttempts,
   externalActions,
   openAppDatabase,
   projects,
@@ -711,11 +720,44 @@ describe('deal won to one verified onboarding', () => {
     expect((await bridge()).rows[0]).toEqual({ parent: true, review: true });
     expect(stored.parentObjectiveSha256).not.toBe(stored.reviewObjectiveSha256);
     expect(stored.briefObjectiveSha256).not.toBe(stored.reviewObjectiveSha256);
-    await withTenantTx(worker.db, service(), (tx) =>
-      tx.execute(
-        sql`update work.work_units set objective='A changed review goal',version=version+1 where organization_id=${owner.organizationId}::uuid and id=${stored.reviewWorkUnitId}::uuid`,
-      ),
-    );
+    await decideApproval(database.db, reviewer, {
+      approvalId: updated.emailApprovalId!,
+      decision: 'approve',
+      shownHash: action!.requestHash,
+    });
+    const connector = openAppDatabase(urls.connector());
+    const claimEmail = () =>
+      beginAttempt(connector.db, service(), {
+        externalActionId: updated.emailExternalActionId!,
+        runId: randomUUID(),
+      });
+    try {
+      const attempt = await claimEmail();
+      expect(attempt.kind).toBe('send');
+      if (attempt.kind !== 'send') throw new Error('Approved welcome email could not start');
+      // Simulate a failure before contact, then change the review while the send is ready to retry.
+      expect(
+        await finishAttempt(connector.db, service(), {
+          attemptId: attempt.attempt.attemptId,
+          result: { outcome: 'not_sent', code: 'CONNECT_FAILED', retryable: true },
+        }),
+      ).toBe('retry');
+      await withTenantTx(worker.db, service(), (tx) =>
+        tx.execute(
+          sql`update work.work_units set objective='A changed review goal',version=version+1 where organization_id=${owner.organizationId}::uuid and id=${stored.reviewWorkUnitId}::uuid`,
+        ),
+      );
+      expect(await claimEmail()).toEqual({ kind: 'stop', status: 'cancelled' });
+      const attempts = await withTenantTx(connector.db, service(), (tx) =>
+        tx
+          .select({ id: externalActionAttempts.id })
+          .from(externalActionAttempts)
+          .where(eq(externalActionAttempts.externalActionId, updated.emailExternalActionId!)),
+      );
+      expect(attempts).toEqual([{ id: attempt.attempt.attemptId }]);
+    } finally {
+      await connector.close();
+    }
     expect((await bridge()).rows[0]).toEqual({ parent: true, review: false });
     expect(
       (await getWorkDetail(database.db, owner, stored.reviewWorkUnitId!)).evidence.artifactCount,

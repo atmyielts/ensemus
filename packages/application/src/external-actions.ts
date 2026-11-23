@@ -10,6 +10,7 @@ import {
   agentRuns,
   businessRecordActions,
   approvals,
+  clientOnboardings,
   connections,
   externalActionAttempts,
   externalActionReceipts,
@@ -75,6 +76,10 @@ import { createApprovalInTx, REVIEW_HOURS } from './approvals';
 import { AppError } from './errors';
 import { emit } from './events';
 import type { PreparedAttempt } from './integration-ports';
+import {
+  assertStableArtifactSources,
+  lockArtifactInputSources,
+} from './knowledge/artifact-provenance';
 import { resourceFacts } from './suite-connections';
 import {
   auditAction,
@@ -756,6 +761,60 @@ export type BeginAttemptResult =
   /** An attempt already exists that could have sent. This call must not contact the provider. */
   | { kind: 'reconcile'; attemptId: string };
 
+async function lockOnboardingSources(tx: Tx, context: TenantContext, workId: string) {
+  const [request] = await tx
+    .select({
+      id: clientOnboardings.id,
+      parentId: clientOnboardings.workUnitId,
+      briefId: clientOnboardings.briefWorkUnitId,
+      reviewId: clientOnboardings.reviewWorkUnitId,
+      artifactId: clientOnboardings.briefArtifactId,
+    })
+    .from(clientOnboardings)
+    .where(
+      and(
+        eq(clientOnboardings.organizationId, context.organizationId),
+        eq(clientOnboardings.sendWorkUnitId, workId),
+      ),
+    );
+  if (!request) return undefined;
+  const { id, parentId, briefId, reviewId, artifactId } = request;
+  return {
+    id,
+    workIds: [parentId, briefId, reviewId, workId].filter((item): item is string => item !== null),
+    artifactId,
+    sourceIds: artifactId
+      ? await lockArtifactInputSources(tx, context, { artifactId })
+      : new Set<string>(),
+  };
+}
+
+async function onboardingAllowsSend(
+  tx: Tx,
+  action: ActionRow,
+  onboarding: { id: string; artifactId: string | null },
+) {
+  if (!onboarding.artifactId) return false;
+  const permit = await tx.execute(sql`
+    select 1
+    from work.client_onboardings o
+    join work.work_units send on send.organization_id=o.organization_id and send.id=o.send_work_unit_id
+    where o.organization_id=${action.organizationId}::uuid and o.id=${onboarding.id}::uuid
+      and o.state='waiting_for_send'
+      and o.send_work_unit_id=${action.workUnitId}::uuid
+      and o.email_external_action_id=${action.id}::uuid
+      and o.email_connection_id=${action.connectionId}::uuid
+      and o.email_approval_id=${action.approvalId}::uuid
+      and o.brief_artifact_id=${onboarding.artifactId}::uuid
+      and send.parent_id=o.work_unit_id and send.project_id=o.project_id
+      and send.owner_membership_id=o.owner_membership_id
+      and encode(sha256(convert_to(coalesce(send.objective,''),'UTF8')),'hex')=o.send_objective_sha256
+      and knowledge.onboarding_artifact_evidence(o.brief_artifact_id,o.work_unit_id)
+      and knowledge.onboarding_artifact_evidence(o.brief_artifact_id,o.review_work_unit_id)
+  `);
+  return permit.rows.length === 1;
+}
+
 /**
  * ADR-027 D2. Locks the intent, runs checkBeforeSend, then writes the attempt and moves to sending, and
  * commits all of that before returning. Whatever happens afterwards, the record exists first.
@@ -770,11 +829,23 @@ export function beginAttempt(
 ): Promise<BeginAttemptResult> {
   return withTenantTx(database, context, async (tx) => {
     const found = await findAction(tx, input.externalActionId);
-    const [work] = await tx
-      .select({ status: workUnits.status })
+    const onboarding =
+      found.toolName === EMAIL_SEND_TOOL
+        ? await lockOnboardingSources(tx, context, found.workUnitId)
+        : undefined;
+    // Use onboarding's source → Work → artifact lock order before claiming the attempt.
+    const works = await tx
+      .select({ id: workUnits.id, status: workUnits.status })
       .from(workUnits)
-      .where(eq(workUnits.id, found.workUnitId))
+      .where(inArray(workUnits.id, onboarding?.workIds ?? [found.workUnitId]))
+      .orderBy(asc(workUnits.id))
       .for('share');
+    const work = works.find((item) => item.id === found.workUnitId);
+    if (onboarding?.artifactId) {
+      const artifactId = onboarding.artifactId;
+      await tx.execute(sql`select knowledge.lock_artifact_catalog(${artifactId}::uuid)`);
+      await assertStableArtifactSources(tx, context, { artifactId }, onboarding.sourceIds);
+    }
     const action = await lockAction(tx, found.id);
     const attempts = await attemptsOf(tx, action.id);
     const status = action.status as ExternalActionStatus;
@@ -840,6 +911,9 @@ export function beginAttempt(
       return { kind: 'stop', status: 'cancelled' };
     }
     const changed =
+      (onboarding && (works.length !== 4 || !(await onboardingAllowsSend(tx, action, onboarding)))
+        ? 'APPROVAL_NOT_VALID'
+        : null) ??
       (await recheckBusinessChangeInTx(tx, action, connection ?? null)) ??
       (await recheckSuiteChange(tx, action, connection ?? null));
     if (changed) {
