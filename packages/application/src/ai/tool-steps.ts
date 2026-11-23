@@ -17,6 +17,9 @@ import {
   blobLifecycle,
   executionSteps,
   externalActions,
+  knowledgeArtifactCitations,
+  knowledgeEvidenceItems,
+  mainInputSnapshots,
   memberships,
   modelProposalInputs,
   organizations,
@@ -42,6 +45,7 @@ import {
   type ToolOutcome,
 } from '@ensemus/domain/ai';
 import { toolManifest } from '@ensemus/domain/ai-tools';
+import { checkCitations } from '@ensemus/knowledge/citations';
 import type { ConnectionFacts, ResourceFacts } from '@ensemus/policy';
 import { canChangeContent, type WorkState } from '@ensemus/domain/work-unit';
 import { and, eq, inArray, sql } from 'drizzle-orm';
@@ -67,6 +71,17 @@ import { bindModelResultWriteInTx } from './model-admission';
 import { delegatedBodyProofFromProposal } from './delegated-title';
 import { loadAgentReadScopeInTx } from './read-scope';
 import { lockConnectionFacts, resourceFacts } from '../suite-connections';
+
+type DraftCitation = Pick<
+  typeof knowledgeArtifactCitations.$inferInsert,
+  | 'ordinal'
+  | 'chunkId'
+  | 'documentId'
+  | 'sourceId'
+  | 'contentSha256'
+  | 'artifactStart'
+  | 'artifactEnd'
+>;
 
 export type StoredProposal = {
   id: string;
@@ -612,6 +627,12 @@ export interface ToolStepStore {
   ): Promise<void>;
   /** From the run and the step, so a retry writes the same object and the same row. */
   draftIdFor(context: AgentContext, input: { runId: string; stepNumber: number }): string;
+  /** Resolve inline citations from the originating request before hashing the draft bytes. */
+  prepareDraft(
+    tx: Tx,
+    context: AgentContext,
+    input: { runId: string; proposalId: string; text: string },
+  ): Promise<{ text: string; citations: readonly DraftCitation[] }>;
   /** Checks the initiator may add to this work now, and notes the bytes that are about to exist. */
   noteDraftUpload(
     tx: Tx,
@@ -638,6 +659,7 @@ export interface ToolStepStore {
       text: string;
       classification: AiClassification;
       evidence: readonly DraftEvidence[];
+      citations?: readonly DraftCitation[];
       write: GeneratedArtifactWrite;
     },
   ): Promise<{ classification: AiClassification }>;
@@ -1021,6 +1043,68 @@ export function createToolStepStore(deps: {
     draftIdFor: (context, input) =>
       idFromRequest('agent_draft', context.membershipId, input.runId, [input.stepNumber]),
 
+    async prepareDraft(tx, context, input) {
+      assertOwnRun(context, input.runId);
+      const uncited = { text: input.text, citations: [] };
+      if (!/\[S[0-9]/i.test(input.text)) return uncited;
+      const [origin] = await tx
+        .select({ evidence: mainInputSnapshots.presentedKnowledge })
+        .from(modelProposalInputs)
+        .innerJoin(
+          mainInputSnapshots,
+          and(
+            eq(mainInputSnapshots.organizationId, modelProposalInputs.organizationId),
+            eq(mainInputSnapshots.id, modelProposalInputs.snapshotId),
+          ),
+        )
+        .where(
+          and(
+            eq(modelProposalInputs.organizationId, context.organizationId),
+            eq(modelProposalInputs.proposalId, input.proposalId),
+            eq(mainInputSnapshots.runId, input.runId),
+            eq(mainInputSnapshots.viewerMembershipId, context.membershipId),
+            eq(mainInputSnapshots.state, 'response_received'),
+            eq(mainInputSnapshots.resultToolId, 'artifact.draft.create'),
+          ),
+        );
+      if (!origin?.evidence) return uncited;
+
+      const { packageId, ordinals } = origin.evidence;
+      const passages = await tx
+        .select({
+          ordinal: knowledgeEvidenceItems.ordinal,
+          chunkId: knowledgeEvidenceItems.chunkId,
+          documentId: knowledgeEvidenceItems.documentId,
+          sourceId: knowledgeEvidenceItems.sourceId,
+          contentSha256: knowledgeEvidenceItems.contentSha256,
+        })
+        .from(knowledgeEvidenceItems)
+        .where(
+          and(
+            eq(knowledgeEvidenceItems.organizationId, context.organizationId),
+            eq(knowledgeEvidenceItems.packageId, packageId),
+            inArray(knowledgeEvidenceItems.ordinal, ordinals),
+          ),
+        );
+      if (passages.length !== ordinals.length) throw new AppError('INVALID_INPUT');
+      const byKey = new Map(passages.map((passage) => [`S${passage.ordinal}`, passage]));
+      const checked = checkCitations(input.text, new Set(byKey.keys()));
+      if (!checked.ok || checked.citations.length > 50) throw new AppError('INVALID_INPUT');
+      return {
+        text: checked.text,
+        citations: checked.citations.map((citation, index) => {
+          const passage = byKey.get(citation.citationKey);
+          if (!passage) throw new AppError('INVALID_INPUT');
+          return {
+            ...passage,
+            ordinal: index + 1,
+            artifactStart: citation.start,
+            artifactEnd: citation.end,
+          };
+        }),
+      };
+    },
+
     async noteDraftUpload(tx, context, input) {
       assertOwnRun(context, input.runId);
       const body = Buffer.from(input.text, 'utf8');
@@ -1096,6 +1180,15 @@ export function createToolStepStore(deps: {
         workUnitId: input.workUnitId,
         artifactId: input.draftId,
       });
+      if (input.citations?.length)
+        await tx.insert(knowledgeArtifactCitations).values(
+          input.citations.map((citation) => ({
+            ...citation,
+            organizationId: context.organizationId,
+            artifactId: input.draftId,
+            recordedByMembershipId: context.membershipId,
+          })),
+        );
       await tx.delete(blobLifecycle).where(eq(blobLifecycle.artifactId, input.draftId));
       if (input.evidence.length > 0) {
         await tx.insert(artifactEvidence).values(

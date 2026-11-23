@@ -3,10 +3,23 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
+import { createToolGateway } from '@ensemus/agent-runtime/tools';
 import { createWorkUnit, transitionWorkUnit } from '@ensemus/application';
 import { createContextSource } from '@ensemus/application/ai-context-source';
-import { claimQueuedRun, createTurnStore, finishRun } from '@ensemus/application/ai-runs';
-import { storeProposal, loadProposal } from '@ensemus/application/ai-tool-steps';
+import {
+  claimQueuedRun,
+  completeTurn,
+  createTurnStore,
+  finishRun,
+} from '@ensemus/application/ai-runs';
+import { createHaltCheck } from '@ensemus/application/ai-halt';
+import { createApprovalBinder } from '@ensemus/application/ai-tool-approvals';
+import { externalActionPort } from '@ensemus/application/ai-external-action-port';
+import {
+  createToolStepStore,
+  storeProposal,
+  loadProposal,
+} from '@ensemus/application/ai-tool-steps';
 import { compileEvidence } from '@ensemus/application/knowledge/compiler';
 import { proposeFact, reviewFact } from '@ensemus/application/knowledge/facts';
 import {
@@ -38,6 +51,8 @@ import {
 } from '../helpers/ai/fixtures';
 import { seedSearchableSource } from '../helpers/knowledge';
 import { urls } from '../helpers/stack';
+import { getArtifactVerification } from '@ensemus/application/knowledge/verification';
+import { LifecycleMemoryStore } from './saas-lifecycle-fixture';
 
 const hash = (body: string) => createHash('sha256').update(body).digest('hex');
 describe('exact main attempt inputs and accepted proposal origin (0416)', () => {
@@ -53,7 +68,7 @@ describe('exact main attempt inputs and accepted proposal origin (0416)', () => 
     await agent.close();
     await app.close();
   });
-  async function fixture(scopes = ['work.read']) {
+  async function fixture(scopes = ['work.read'], tools = ['work.read']) {
     const work = await createWorkUnit(app.db, a.owner, {
       title: 'Generated snapshot fixture',
       objective: 'Read exact inputs.',
@@ -68,7 +83,7 @@ describe('exact main attempt inputs and accepted proposal origin (0416)', () => 
       a.owner,
       testAgentSpec({ context: { allowed_scopes: scopes, memory_write_policy: 'none' } }),
     );
-    const runId = await seedQueuedRun(app.db, a.owner, { workUnitId: work.id, version });
+    const runId = await seedQueuedRun(app.db, a.owner, { workUnitId: work.id, version, tools });
     if (
       !(await claimQueuedRun(agent.db, {
         organizationId: a.organizationId,
@@ -347,6 +362,121 @@ describe('exact main attempt inputs and accepted proposal origin (0416)', () => 
       ),
     ).rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
   });
+  it('publishes citations from the exact presented package in the same transaction as the draft', async () => {
+    const text = 'Snapshotanchor records the confirmed delivery date.';
+    const source = await seedSearchableSource(app.db, a.owner, {
+      passages: [text, 'Snapshotanchor gives the separate billing instructions.'],
+      grants: [{ kind: 'organization' }],
+    });
+    const f = await fixture(
+      ['work.read', `knowledge.${source.sourceId}.read`],
+      ['artifact.draft.create'],
+    );
+    const compiled = await compileEvidence(
+      agent.db,
+      f.context,
+      {
+        model: createScriptedModelPort({
+          route: () => ({
+            decision: 'deny',
+            reasonCode: 'NO_APPROVED_MODEL',
+            policyVersion: 'generated-lexical-only',
+          }),
+        }),
+        authorizeAgentContext: async () => true,
+      },
+      {
+        purpose: 'agent_turn',
+        question: 'snapshotanchor',
+        queryClassification: 'internal',
+        workUnitId: f.work.id,
+        runId: f.runId,
+        sourceIds: [source.sourceId],
+        budgetTokens: 1000,
+        signal: new AbortController().signal,
+      },
+    );
+    if (!compiled.ok) throw new Error(`TEST_COMPILE_REFUSED:${compiled.code}`);
+    expect(compiled.items).toHaveLength(2);
+    const passage = compiled.items.find((item) => item.text === text);
+    if (!passage) throw new Error('TEST_EXPECTED_PASSAGE_MISSING');
+    const ordinal = Number(passage.citationKey.slice(1));
+    f.snapshot.presentedKnowledge = { packageId: randomUUID(), ordinals: [ordinal] };
+    await expect(f.admit('prepare')).rejects.toSatisfy(
+      (error: unknown) => pgCode(error) === 'EN119',
+    );
+    f.snapshot.presentedKnowledge = { packageId: compiled.packageId, ordinals: [ordinal] };
+    expect(await f.admit('prepare')).toBeNull();
+    expect(await f.admit('dispatch')).toBeNull();
+    const args = {
+      name: 'Generated brief.txt',
+      text: `${text}[${passage.citationKey}]`,
+      evidence: [],
+    };
+    await f.receive(args, 'artifact.draft.create');
+    const { proposalId } = await storeProposal(agent.db, f.context, {
+      runId: f.runId,
+      stepNumber: 1,
+      toolId: 'artifact.draft.create',
+      args,
+      originatingModel: {
+        stepId: f.start.stepId,
+        attempt: f.start.attempt,
+        inputSnapshotId: f.snapshot.id,
+      },
+    });
+    await completeTurn(agent.db, f.context, {
+      agentRunId: f.runId,
+      stepId: f.start.stepId,
+      attempt: f.start.attempt,
+      outcome: 'tool_proposed',
+      code: null,
+      delta: {},
+    });
+    const objects = new LifecycleMemoryStore();
+    const store = createToolStepStore({ database: agent.db, objects });
+    const halt = createHaltCheck();
+    const tools = createToolGateway({
+      source: createContextSource({ database: agent.db, readObject: (key) => objects.get(key) }),
+      store,
+      halt,
+      externalActions: externalActionPort,
+      approvals: createApprovalBinder({ externalActions: externalActionPort, halt }),
+    });
+    const omitted = compiled.items.find((item) => item.citationKey !== passage.citationKey)!;
+    await expect(
+      withTenantTx(agent.db, f.context, async (tx) => {
+        expect((await store.readRun(tx, f.context, f.runId, { lock: true }))?.inputsOpen).toBe(
+          true,
+        );
+        return store.prepareDraft(tx, f.context, {
+          proposalId,
+          runId: f.runId,
+          text: `${text}[${omitted.citationKey}]`,
+        });
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+    expect(
+      await tools.handle(f.context, {
+        runId: f.runId,
+        workUnitId: f.work.id,
+        agentVersionId: f.main.agentVersionId,
+        stepNumber: 2,
+      }),
+    ).toMatchObject({ outcome: 'done' });
+    const artifactId = store.draftIdFor(f.context, { runId: f.runId, stepNumber: 2 });
+    expect([...objects.objects.values()].map((value) => value.toString())).toEqual([text]);
+    expect(
+      await getArtifactVerification(app.db, a.owner, {
+        workUnitId: f.work.id,
+        artifactId,
+      }),
+    ).toMatchObject({
+      citations: [{ chunkId: passage.chunkId, available: true }],
+      grounding: null,
+    });
+  });
+
   it('retains the actual compiler fact hash and complete selected evidence, and refuses legacy fact packages without that proof', async () => {
     const source = await seedSearchableSource(app.db, a.owner, {
       passages: ['snapshotanchor is a generated verified input.'],

@@ -56,7 +56,7 @@ import type {
 } from './types';
 import type { MainModelAdmission } from '@ensemus/application/ai-model-admission';
 import { generationRequestHash } from './adapters';
-import { mainResultHash } from './main-input-snapshot';
+import { mainResultHash, presentedKnowledgeOf } from './main-input-snapshot';
 
 export type GatewayDeps = {
   entitlements: Entitlements;
@@ -370,8 +370,10 @@ export function createInferenceGateway(deps: GatewayDeps): InferenceGateway {
             ceiling = ceilingFor(sizing(outbound, maxOutputTokens));
           }
           const hardInputTokens = inputTokenBound(sizing(outbound, maxOutputTokens));
+          const presentedKnowledge = presentedKnowledgeOf(outbound);
           const snapshot = {
             id: randomUUID(),
+            ...(presentedKnowledge ? { presentedKnowledge } : {}),
             writerToken: randomUUID(),
             requestHash: generationRequestHash({
               providerKind: profile.providerKind,

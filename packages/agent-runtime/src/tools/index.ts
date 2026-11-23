@@ -358,15 +358,21 @@ async function artifactDraftCreate(
     runId: step.runId,
     stepNumber: step.stepNumber,
   });
-  const write = await inGate(turn, (tx) =>
-    deps.store.noteDraftUpload(tx, context, {
+  const { prepared, write } = await inGate(turn, async (tx) => {
+    const prepared = await deps.store.prepareDraft(tx, context, {
+      proposalId: turn.proposal.id,
+      runId: step.runId,
+      text: args.text,
+    });
+    const write = await deps.store.noteDraftUpload(tx, context, {
       draftId,
       workUnitId: step.workUnitId,
       runId: step.runId,
-      text: args.text,
-    }),
-  );
-  await deps.store.putDraft(context, { draftId, text: args.text, write });
+      text: prepared.text,
+    });
+    return { prepared, write };
+  });
+  await deps.store.putDraft(context, { draftId, text: prepared.text, write });
   try {
     return await inGate(turn, async (tx, facts) => {
       const written = await deps.store.insertDraft(tx, context, {
@@ -375,7 +381,8 @@ async function artifactDraftCreate(
         stepId: turn.stepId,
         workUnitId: step.workUnitId,
         name: args.name,
-        text: args.text,
+        text: prepared.text,
+        citations: prepared.citations,
         classification: strongest(facts.classification, classification),
         evidence: evidence.map(({ sourceType, sourceId, sourceSha256 }) => ({
           sourceType,

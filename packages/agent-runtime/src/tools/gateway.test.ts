@@ -260,6 +260,7 @@ function fakeStore(db: {
     readSuiteRead: () => Promise.resolve(null),
     closeSuiteRead: () => Promise.reject(new Error('No suite reads in these tests')),
     draftIdFor: (_context, input) => `draft-${input.runId}-${input.stepNumber}`,
+    prepareDraft: async (_tx, _context, input) => ({ text: input.text, citations: [] }),
     async noteDraftUpload(_tx, _context, input) {
       db.state.uploadsNoted.push(input.draftId);
       return {

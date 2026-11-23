@@ -1899,6 +1899,36 @@ describe('fitting the input: compaction and context_too_long', () => {
     ]);
   });
 
+  it('receipts only the knowledge passages sent after fitting the actual request', async () => {
+    const packageId = '068aa73e-019b-46eb-9db0-6a2bbe6dedc0';
+    const messages = [
+      message({ role: 'policy', partId: 'policy', text: 'Follow the rules.' }),
+      message({ role: 'task', partId: 'work:w1', text: 'Summarise the work.' }),
+      message({ role: 'evidence', partId: `knowledge:${packageId}:S1`, text: '[S1]\nOne.' }),
+      message({
+        role: 'evidence',
+        partId: `knowledge:${packageId}:S2`,
+        text: `[S2]\n${words('discard', 300)}`,
+      }),
+    ];
+    const admit = vi.fn<NonNullable<GatewayDeps['admitInTx']>>().mockResolvedValue(null);
+    const harness = setup({
+      deps: { admitInTx: admit },
+      profiles: limited(sizeOf([...messages.slice(0, 3), notice(1)])),
+    });
+    expect((await harness.run(compiledTurn({ messages }))).outcome).toBe('final_output');
+    expect(harness.adapter.calls[0]?.messages.map((value) => value.partId)).toEqual([
+      'policy',
+      'work:w1',
+      `knowledge:${packageId}:S1`,
+      'compaction',
+    ]);
+    expect(admit.mock.calls.map(([, , input]) => input.snapshot?.presentedKnowledge)).toEqual([
+      { packageId, ordinals: [1] },
+      { packageId, ordinals: [1] },
+    ]);
+  });
+
   it('fails with CONTEXT_TOO_LONG, holding nothing, when the policy and task alone do not fit', async () => {
     const harness = setup({ profiles: limited(10) });
     expect(await harness.run(long())).toMatchObject({
