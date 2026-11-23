@@ -899,6 +899,7 @@ describe('usage and budgets, as the real roles', () => {
       lender: RecordingLender,
     ) =>
       createInferenceGateway({
+        residency: { check: async () => ({ allowed: true, requiredRegion: null }) },
         entitlements,
         ledger: createUsageLedger(agent.db),
         withTx: (context, fn) => withTenantTx(agent.db, context, fn),

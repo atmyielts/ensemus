@@ -259,6 +259,7 @@ export async function seedQualifiedKnowledgeRoute(
   try {
     const calls = createKnowledgeCallStore(agent.db);
     const gateway = createKnowledgeModelGateway({
+      residency: { check: async () => ({ allowed: true, requiredRegion: null }) },
       store: calls,
       // A hosted deployment, as the worker binds it from its SaaS config. Sovereign still answers by
       // its licence, and Cloud model calls stay closed (no prepaid hold is bound yet).

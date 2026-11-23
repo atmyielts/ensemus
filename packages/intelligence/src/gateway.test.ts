@@ -103,6 +103,7 @@ function setup(options: Options = {}) {
   const endpoints: VerifiedEndpoint[] = [];
   const router = createModelRouter({ profiles: store, egress });
   const deps: GatewayDeps = {
+    residency: { check: async () => ({ allowed: true, requiredRegion: null }) },
     entitlements: entitlements(log),
     ledger,
     withTx: async <T>(_context: AgentContext, fn: (tx: Tx) => Promise<T>) => {
@@ -153,6 +154,75 @@ const internal = (overrides: Partial<CompiledTurn> = {}) =>
 
 const pinnedTo = (profileId: string, profileVersion = 1) =>
   compiledTurn({ task: task({ pinned: { profileId, profileVersion } }) });
+
+describe('regional model dispatch', () => {
+  const refused = {
+    allowed: false,
+    requiredRegion: 'test-region-a',
+    code: 'TARGET_OUTSIDE_REGION',
+  } as const;
+  it('records a regional denial before reserving spend, opening a key or calling the adapter', async () => {
+    const check = vi.fn<GatewayDeps['residency']['check']>().mockResolvedValue(refused);
+    const harness = setup({
+      profiles: [byomProfile({ region: 'test-region-b' })],
+      deps: { residency: { check } },
+    });
+    expect(await harness.run(internal())).toMatchObject({
+      outcome: 'policy_denied',
+      decisionCode: 'RESIDENCY_DENIED',
+    });
+    expect(check).toHaveBeenCalledWith(expect.anything(), {
+      surface: 'inference',
+      classification: 'internal',
+      targetRegion: 'test-region-b',
+    });
+    expect(harness.egress.rows.at(-1)).toMatchObject({
+      decision: 'deny',
+      reasonCode: 'RESIDENCY_DENIED',
+    });
+    expect(harness.log).not.toContain('ledger.reserve');
+    expectNothingLeft(harness);
+  });
+  it('checks a fallback model’s own region before a second call', async () => {
+    const check = vi.fn<GatewayDeps['residency']['check']>(async (_context, request) =>
+      request.targetRegion === 'test-region-a'
+        ? { allowed: true, requiredRegion: 'test-region-a' }
+        : refused,
+    );
+    const harness = setup({
+      profiles: [
+        byomProfile({ alias: 'a', region: 'test-region-a', fallbackProfileIds: ['second'] }),
+        byomProfile({ id: 'second', alias: 'b', region: 'test-region-b' }),
+      ],
+      script: [{ kind: 'failure', failure: 'auth_failed' }],
+      deps: { residency: { check } },
+    });
+    expect(await harness.run(internal())).toMatchObject({ decisionCode: 'RESIDENCY_DENIED' });
+    expect(check).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ targetRegion: 'test-region-b' }),
+    );
+    expect(harness.egress.rows.at(-1)).toMatchObject({
+      profileId: 'second',
+      reasonCode: 'RESIDENCY_DENIED',
+    });
+    expect(harness.adapter.hits).toBe(1);
+    expect(harness.lender.asked).toHaveLength(1);
+  });
+
+  it('releases its reservation when requirements change before dispatch', async () => {
+    const check = vi
+      .fn<GatewayDeps['residency']['check']>()
+      .mockResolvedValueOnce({ allowed: true, requiredRegion: null })
+      .mockResolvedValueOnce(refused);
+    const harness = setup({ deps: { residency: { check } } });
+    expect(await harness.run(internal())).toMatchObject({ decisionCode: 'RESIDENCY_DENIED' });
+    expect(check).toHaveBeenCalledTimes(2);
+    expect(harness.log).toContain('ledger.release');
+    expect(harness.log).not.toContain('ledger.settle');
+    expect(harness.adapter.hits).toBe(0);
+  });
+});
 
 describe('the fixed order (FD-8)', () => {
   it('refuses freshly exhausted run headroom before a reservation, key or provider call', async () => {

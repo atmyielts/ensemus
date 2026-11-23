@@ -29,7 +29,8 @@ import type { CompileDeps } from '@ensemus/application/knowledge/compiler';
 import { createDelegatedWorkPurge } from '@ensemus/application/knowledge/delegated-work-purge';
 import { createDelegatedRecordPurge } from '@ensemus/application/knowledge/delegated-record-purge';
 import { createEntitlements } from '@ensemus/commercial';
-import { loadModelEgressSettings, loadSaasConfig } from '@ensemus/config';
+import { loadModelEgressSettings, loadResidencyPolicy, loadSaasConfig } from '@ensemus/config';
+import { createResidencyGate } from '@ensemus/application';
 import { withTenantTx, type AgentContext, type AppDatabase } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
 import {
@@ -70,6 +71,7 @@ export function createAgentServices(deps: {
   const { database, objects, log } = deps;
   const env = deps.env ?? process.env;
   const settings = loadModelEgressSettings(env);
+  const residency = createResidencyGate({ database, policy: loadResidencyPolicy(env) });
   const entitlements = createEntitlements(database, {
     billingEnabled: loadSaasConfig(env).billingEnabled,
   });
@@ -87,6 +89,7 @@ export function createAgentServices(deps: {
   });
   const router = createModelRouter({ profiles, egress, bundle });
   const gateway = createInferenceGateway({
+    residency,
     entitlements,
     ledger,
     withTx: (context, use) => withTenantTx(database, context, use),
@@ -108,6 +111,7 @@ export function createAgentServices(deps: {
     ...(deps.knowledgeCloudSpend ? { cloudSpend: deps.knowledgeCloudSpend } : {}),
   });
   const knowledgeGateway = createKnowledgeModelGateway({
+    residency,
     store: knowledgeCalls,
     entitlements,
     credentials,
@@ -155,6 +159,14 @@ export function createAgentServices(deps: {
   });
   const watcher = createHaltWatcher({ pollMs: HALT_POLL_MS, read: switchReaderFor(database), log });
   const probe = createProfileProber({
+    allowsResidency: async (organizationId, targetRegion) =>
+      (
+        await residency.check(createServiceContext(organizationId), {
+          surface: 'inference',
+          classification: 'public',
+          targetRegion,
+        })
+      ).allowed,
     load: (input) => loadProfileForProbe(database, input),
     adapter,
     guard,

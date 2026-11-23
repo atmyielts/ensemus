@@ -3,7 +3,8 @@
 // slice and the usage slice's ledger is not used here: a double stands in for it, so this file is about routing.
 // Written and typechecked. It has not been run yet: no container may run in this mode.
 import { randomUUID } from 'node:crypto';
-import { createWorkUnit } from '@ensemus/application';
+import { createResidencyGate, createWorkUnit } from '@ensemus/application';
+import { NO_RESIDENCY_POLICY, type ResidencyPolicy } from '@ensemus/domain/residency';
 import {
   createEgressLog,
   listEgressDecisions,
@@ -13,13 +14,17 @@ import { createProfileStore } from '@ensemus/application/ai-model-profiles';
 import type { AgentContext, UsageLedger } from '@ensemus/application/ai-ports';
 import {
   agentRuns,
+  auditEvents,
   egressDecisions,
+  executionSteps,
   modelProfiles,
   openAppDatabase,
   policyBundles,
+  residencyRequirements,
   withTenantTx,
 } from '@ensemus/database';
 import { withRunLookupTx } from '@ensemus/database/agent';
+import { createServiceContext } from '@ensemus/database/service';
 import {
   createInferenceGateway,
   createModelRouter,
@@ -37,9 +42,11 @@ import {
   seedQueuedRun,
   seedRateCard,
   sha256Of,
+  withAdmittedRunTx,
   type AiTenant,
 } from '../helpers/ai/fixtures';
 import { urls } from '../helpers/stack';
+import { clearDeploymentProfile, setDeploymentProfile } from '../helpers/federation';
 
 describe('routing, as the real roles', () => {
   let app: ReturnType<typeof openAppDatabase>;
@@ -283,8 +290,13 @@ describe('routing, as the real roles', () => {
       timeoutMs: 1_000,
     });
 
-    const gatewayWith = (adapter: ScriptedModelAdapter, lender: RecordingLender) =>
+    const gatewayWith = (
+      adapter: ScriptedModelAdapter,
+      lender: RecordingLender,
+      policy: ResidencyPolicy = NO_RESIDENCY_POLICY,
+    ) =>
       createInferenceGateway({
+        residency: createResidencyGate({ database: agent.db, policy }),
         entitlements: {
           async check() {
             return { ok: true, billable: false, commercialMode: 'byom' };
@@ -324,6 +336,90 @@ describe('routing, as the real roles', () => {
       attempt: 1,
       workUnitId: run.workUnitId,
       agentVersionId: run.versionId,
+    });
+
+    it('keeps an out-of-region model idle under the native worker role and records a content-free denial', async () => {
+      const tenant = await seedAiTenant(app.db);
+      const homeRegion = 'test-region-a',
+        targetRegion = 'test-region-b';
+      await activeProfile(tenant, { region: targetRegion });
+      const run = await runFor(tenant);
+      const step = stepFor(run);
+      await withAdmittedRunTx(agent.db, run.context, (tx) =>
+        tx.insert(executionSteps).values({
+          organizationId: tenant.organizationId,
+          id: step.stepId,
+          runId: step.runId,
+          stepNumber: step.stepNumber,
+          kind: 'model_turn',
+          state: 'in_flight',
+          labelCode: 'THINKING',
+        }),
+      );
+      await setDeploymentProfile({ homeRegion });
+      try {
+        await withTenantTx(app.db, tenant.owner, (tx) =>
+          tx.insert(residencyRequirements).values({
+            organizationId: tenant.organizationId,
+            scope: 'internal',
+            region: homeRegion,
+            setByMembershipId: tenant.owner.membershipId,
+          }),
+        );
+        const adapter = new ScriptedModelAdapter([]);
+        const lender = new RecordingLender(Buffer.from('unused'));
+        const policy = {
+          homeRegion,
+          surfaces: { inference: { regions: [homeRegion], evidenceRef: 'Generated declaration' } },
+        };
+        const unconfiguredTenant = await createResidencyGate({ database: agent.db, policy }).check(
+          createServiceContext(b.organizationId),
+          { surface: 'inference', classification: 'internal', targetRegion },
+        );
+        expect(unconfiguredTenant).toEqual({ allowed: true, requiredRegion: null });
+        const gateway = gatewayWith(adapter, lender, policy);
+        for (let attempt = 0; attempt < 2; attempt++) {
+          expect(
+            await gateway.turn(
+              run.context,
+              step,
+              compiledFor(run.runId, 'internal'),
+              new AbortController().signal,
+            ),
+          ).toMatchObject({
+            outcome: 'policy_denied',
+            decisionCode: 'RESIDENCY_DENIED',
+          });
+        }
+        expect(adapter.hits).toBe(0);
+        expect(lender.asked).toHaveLength(0);
+        expect(await rowsFor(tenant, run.runId)).toContainEqual(
+          expect.objectContaining({ decision: 'deny', reasonCode: 'RESIDENCY_DENIED' }),
+        );
+        const audit = await withTenantTx(app.db, tenant.owner, (tx) =>
+          tx
+            .select({
+              action: auditEvents.action,
+              actorType: auditEvents.actorType,
+              actorId: auditEvents.actorId,
+              targetRef: auditEvents.targetRef,
+              safeReason: auditEvents.safeReason,
+            })
+            .from(auditEvents)
+            .where(eq(auditEvents.action, 'residency.denied')),
+        );
+        expect(audit).toEqual([
+          {
+            action: 'residency.denied',
+            actorType: 'agent',
+            actorId: run.runId,
+            targetRef: 'residency:inference',
+            safeReason: 'TARGET_OUTSIDE_REGION',
+          },
+        ]);
+      } finally {
+        await clearDeploymentProfile();
+      }
     });
 
     it('QA-010: restricted data and a profile that lists it, but is outside: zero hits, one row, no key', async () => {

@@ -195,6 +195,8 @@ const DECISION_NOTE = new Map<string, string>(
     PURPOSE_NOT_ON_PROFILE: 'This model is not approved for this purpose.',
     WRONG_REGION: 'This model is in the wrong region.',
     REGION_REQUIRED: 'This model has no region recorded.',
+    RESIDENCY_DENIED:
+      "This model request could not meet your organization's data-region requirement.",
     CONTRACT_MISSING: 'No contract is recorded for this model.',
     PROFILE_NOT_ACTIVE: 'This model is not active.',
     PROFILE_CHANGED: 'This model’s settings changed during the run.',

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createKnowledgeModelGateway } from './knowledge-model-gateway';
 import { operationKey } from '@ensemus/knowledge/model-operations';
 import type {
@@ -8,6 +8,7 @@ import type {
   PrepareKnowledgeCall,
 } from '@ensemus/application/ai-knowledge-ports';
 import type { TenantContext } from '@ensemus/application/ai-ports';
+import type { ResidencyGate } from '@ensemus/application';
 import type { KnowledgeModelPurpose } from '@ensemus/domain/knowledge-models';
 import { protocolForPurpose } from '@ensemus/domain/knowledge-models';
 import { ModelCallFailed } from '@ensemus/knowledge/ports';
@@ -24,6 +25,7 @@ function fixture(
     freshDenied?: boolean;
     profileChanged?: boolean;
     keyDenied?: boolean;
+    checkResidency?: ResidencyGate['check'];
     canary?: string;
     denyRestricted?: boolean;
     output?: AdapterResult;
@@ -133,6 +135,9 @@ function fixture(
     },
   };
   const model = createKnowledgeModelGateway({
+    residency: {
+      check: options.checkResidency ?? (async () => ({ allowed: true, requiredRegion: null })),
+    },
     store,
     entitlements: {
       check: async () => ({ ok: true, billable: false, commercialMode: 'sovereign' }),
@@ -219,6 +224,47 @@ function fixture(
   };
 }
 describe('genuine Knowledge model gateway controls', () => {
+  it.each([false, true])(
+    'fences an unknown embedding location before provider dispatch (after preparation: %s)',
+    async (afterPreparation) => {
+      const check = vi
+        .fn<ResidencyGate['check']>()
+        .mockResolvedValue({
+          allowed: false,
+          requiredRegion: 'test-region-a',
+          code: 'TARGET_REGION_UNKNOWN',
+        });
+      if (afterPreparation) check.mockResolvedValueOnce({ allowed: true, requiredRegion: null });
+      const f = fixture({ checkResidency: check });
+      const route = await f.model.route({
+        organizationId: f.context.organizationId,
+        purpose: 'embed',
+        classification: 'internal',
+      });
+      if (route.decision !== 'allow') throw new Error('TEST_ROUTE_REFUSED');
+      await expect(
+        f.model.embed(
+          f.context.organizationId,
+          route.route,
+          ['generated passage'],
+          new AbortController().signal,
+          f.metadata,
+        ),
+      ).rejects.toMatchObject({ code: 'EGRESS_DENIED' });
+      expect(check).toHaveBeenLastCalledWith(f.context, {
+        surface: 'embeddings',
+        classification: 'internal',
+        targetRegion: null,
+      });
+      expect(f.counts()).toMatchObject({
+        prepared: Number(afterPreparation),
+        settled: Number(afterPreparation),
+        dispatched: 0,
+        embeds: 0,
+        lent: 0,
+      });
+    },
+  );
   it('uses the actual embedding adapter under embed and structured ranking under rerank', async () => {
     const f = fixture(),
       signal = new AbortController().signal;

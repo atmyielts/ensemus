@@ -65,7 +65,8 @@ export type ResidencyDenialCode = (typeof RESIDENCY_DENIAL_CODES)[number];
 
 export type ResidencyDecision =
   | { allowed: true; requiredRegion: string | null }
-  | { allowed: false; requiredRegion: string; code: ResidencyDenialCode };
+  | { allowed: false; requiredRegion: string; code: ResidencyDenialCode }
+  | { allowed: false; requiredRegion: null; code: 'REQUIREMENTS_UNAVAILABLE' };
 
 /**
  * May this data go to this surface? With no requirement it may, and this claims nothing about where it goes.

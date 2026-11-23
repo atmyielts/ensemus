@@ -54,12 +54,14 @@ import type {
   RouteDecision,
   TurnOutcome,
 } from './types';
+import type { ResidencyGate } from '@ensemus/application';
 import type { MainModelAdmission } from '@ensemus/application/ai-model-admission';
 import { generationRequestHash } from './adapters';
 import { mainResultHash, presentedKnowledgeOf } from './main-input-snapshot';
 
 export type GatewayDeps = {
   entitlements: Entitlements;
+  residency: ResidencyGate;
   ledger: UsageLedger;
   /** Runs its own short transaction for each reservation and settlement. */
   withTx: <T>(context: AgentContext, fn: (tx: Tx) => Promise<T>) => Promise<T>;
@@ -280,6 +282,20 @@ export function createInferenceGateway(deps: GatewayDeps): InferenceGateway {
           expiresAt: null,
         });
 
+      const residencyAllows = async (
+        profile: RoutableProfile,
+        classification: InferenceTask['classification'],
+      ) => {
+        const decision = await deps.residency.check(context, {
+          surface: 'inference',
+          classification,
+          targetRegion: profile.region,
+        });
+        if (!decision.allowed)
+          await record(profile, classification, 'deny', 'RESIDENCY_DENIED', route.policyVersion);
+        return decision.allowed;
+      };
+
       // A customer on their own model is not put on Ensemus's bill without a stored approval, even when
       // that is the only profile left active. This is the one check that needs the commercial mode.
       if (
@@ -388,6 +404,12 @@ export function createInferenceGateway(deps: GatewayDeps): InferenceGateway {
           };
           const reservedMicros = costOf(ceiling, rateCard).totalMicros;
 
+          try {
+            if (!(await residencyAllows(profile, dataClass))) return refuse('RESIDENCY_DENIED');
+          } catch {
+            return refuse('POLICY_UNREADABLE');
+          }
+
           // 7. In one short transaction, halt check and reservation. A halt rolls the reservation back.
           let reservation: Reservation;
           try {
@@ -476,6 +498,10 @@ export function createInferenceGateway(deps: GatewayDeps): InferenceGateway {
                 await release();
                 return refuse('SECRET_FOUND_IN_PAYLOAD');
               }
+              if (!(await residencyAllows(profile, 'restricted'))) {
+                await release();
+                return refuse('RESIDENCY_DENIED');
+              }
               dataClass = 'restricted';
               const hitParts = new Set(scan.hits.map((hit) => hit.partId));
               messages = messages.map((message) =>
@@ -535,6 +561,13 @@ export function createInferenceGateway(deps: GatewayDeps): InferenceGateway {
           const sending = outbound;
           const send = async (apiKey: Buffer | null) => {
             if (signal.aborted) throw new AdmissionRefused('HALTED');
+            let inRegion: boolean;
+            try {
+              inRegion = await residencyAllows(profile, dataClass);
+            } catch {
+              throw new AdmissionRefused('POLICY_UNREADABLE');
+            }
+            if (!inRegion) throw new AdmissionRefused('RESIDENCY_DENIED');
             if (deps.admitInTx)
               await deps.withTx(context, async (tx) => {
                 let denial: AiReasonCode | null;

@@ -177,8 +177,8 @@
     },
     {
       "path": "02-architecture/08-deployment-topologies.md",
-      "size_bytes": 6241,
-      "sha256": "3e43ffcc42b78c3b4faaff27751a2cee8042af1f5a6c804cb5dd166603944439"
+      "size_bytes": 6698,
+      "sha256": "068a7e9f1874b2a87e5b268ba52ea0f5682b187ea32fe310a8d3eb6660d831b8"
     },
     {
       "path": "02-architecture/09-performance-scaling.md",

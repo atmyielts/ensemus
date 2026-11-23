@@ -56,7 +56,11 @@ const profile = (overrides: Partial<RoutableProfile> = {}): RoutableProfile => (
 function harness(
   script: readonly ScriptStep[],
   loaded: RoutableProfile | null = profile(),
-  overrides: { guard?: EndpointGuard; credentials?: CredentialLender } = {},
+  overrides: {
+    guard?: EndpointGuard;
+    credentials?: CredentialLender;
+    allowsResidency?: () => Promise<boolean>;
+  } = {},
 ) {
   endpointOk.value = true;
   const adapter = new ScriptedModelAdapter(script);
@@ -70,6 +74,7 @@ function harness(
   };
   const failures: string[] = [];
   const prober = createProfileProber({
+    allowsResidency: overrides.allowsResidency ?? (async () => true),
     load: async () => loaded,
     adapter,
     guard,
@@ -79,6 +84,16 @@ function harness(
   });
   return { adapter, lender, asked, prober, failures };
 }
+
+it('does not open a credential or call an out-of-region provider during a probe', async () => {
+  const { adapter, lender, prober, failures } = harness([], profile(), {
+    allowsResidency: async () => false,
+  });
+  await expect(prober.probe(target)).resolves.toBe('failed');
+  expect(failures).toEqual(['RESIDENCY_DENIED']);
+  expect(adapter.hits).toBe(0);
+  expect(lender.asked).toHaveLength(0);
+});
 
 describe('a probe that passes', () => {
   it('sends one call through the guard, with the lent key', async () => {
@@ -160,6 +175,7 @@ describe('a probe fails closed', () => {
 
   it('when the load throws', async () => {
     const prober = createProfileProber({
+      allowsResidency: async () => true,
       load: () => Promise.reject(new Error('database gone')),
       adapter: new ScriptedModelAdapter([]),
       guard: { fetchFor: () => fetch },
@@ -227,6 +243,7 @@ describe('a probe fails closed', () => {
     const secret = key.toString('hex');
     const prober = (failures: string[]) =>
       createProfileProber({
+        allowsResidency: async () => true,
         load: async () => profile(),
         adapter: {
           generate: async () => {

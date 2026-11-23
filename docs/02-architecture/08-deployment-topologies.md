@@ -65,3 +65,9 @@ statement. The view withholds the overall in-region statement if the profile and
 a surface lacks a matching declaration, or this organization's active models have outside or unknown
 regions. Model endpoints and credentials are excluded from the response. Reading this view changes
 no routing and makes no outbound requests.
+
+Set the same home region and mount the same read-only policy file on the agent worker.
+The worker checks tenant residency requirements before agent model calls, their retries and
+fallbacks, Knowledge model calls, and connectivity checks. It rechecks requirements before
+dispatch and records denials with a reason code and surface. These checks cover inference and
+embeddings. The posture page also reports operator declarations for the remaining surfaces.

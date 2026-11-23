@@ -1,19 +1,28 @@
 // Owned by the residency slice (EXP-09). See docs/06-delivery/m11c-slices.md and ADR-035 D6. A requirement is a
 // tenant's own, and setting one takes an owner. The statement about where things happen is the operator's.
 import {
+  actorOf,
+  auditEvents,
   modelProfiles,
+  residencyRequirements,
   withTenantTx,
   type AppDatabase,
   type TenantContext,
 } from '@ensemus/database';
 import {
+  checkResidency,
+  REGION_PATTERN,
+  RESIDENCY_SCOPES,
+  RESIDENCY_SURFACES,
   residencyPosture,
+  type ResidencyDecision,
   type ResidencyPolicy,
   type ResidencyPosture,
   type ResidencyScope,
   type ResidencySurface,
 } from '@ensemus/domain/residency';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
+import { AUDIT_RESIDENCY_DENIED } from '@ensemus/domain/federation-events';
 import { requireTenancyViewer } from './tenancy';
 import type { ProcessingLocationSource, ResidencyGate } from './tenancy-ports';
 
@@ -47,11 +56,70 @@ export function setResidencyRequirement(
  * The real gate. Reads this tenant's requirements under its own binding and asks `checkResidency`. A denial
  * writes one audit row, with a code and no data. An error reading them is a denial: this fails closed.
  */
-export function createResidencyGate(_deps: {
+export function createResidencyGate({
+  database,
+  policy,
+}: {
   database: AppDatabase;
   policy: ResidencyPolicy;
 }): ResidencyGate {
-  throw new Error('NOT_IMPLEMENTED');
+  const unavailable = {
+    allowed: false,
+    requiredRegion: null,
+    code: 'REQUIREMENTS_UNAVAILABLE',
+  } as const;
+  return {
+    async check(context, request) {
+      if (!RESIDENCY_SURFACES.includes(request.surface)) return unavailable;
+      let decision: ResidencyDecision;
+      try {
+        const rows = await withTenantTx(database, context, (tx) =>
+          tx
+            .select({ scope: residencyRequirements.scope, region: residencyRequirements.region })
+            .from(residencyRequirements)
+            .where(eq(residencyRequirements.organizationId, context.organizationId)),
+        );
+        decision = RESIDENCY_SCOPES.some(
+          (scope) => scope !== 'all' && scope === request.classification,
+        )
+          ? checkResidency({
+              ...request,
+              policy,
+              requirements: rows.map((row) => ({
+                region: row.region,
+                scope: row.scope as ResidencyScope,
+              })),
+            })
+          : unavailable;
+      } catch {
+        decision = unavailable;
+      }
+      if (!decision.allowed) {
+        const { code } = decision;
+        const actor = actorOf(context);
+        try {
+          await withTenantTx(database, context, async (tx) => {
+            const key = `${AUDIT_RESIDENCY_DENIED}:${actor.actorId ?? actor.actorType}:${request.surface}:${code}`;
+            await tx
+              .insert(auditEvents)
+              .values({
+                organizationId: context.organizationId,
+                ...actor,
+                action: AUDIT_RESIDENCY_DENIED,
+                targetRef: `residency:${request.surface}`,
+                decision: 'deny',
+                safeReason: code,
+                dedupeKey: sql`${key} || ':' || to_char(now() at time zone 'UTC', 'YYYYMMDDHH24')`,
+              })
+              .onConflictDoNothing();
+          });
+        } catch {
+          // A database outage must never turn an unavailable decision into permission to send.
+        }
+      }
+      return decision;
+    },
+  };
 }
 
 /** What this deployment states, with what each source says is really connected. Nothing more. */
@@ -76,7 +144,7 @@ export async function getResidencyPosture(
   const add = (surface: ResidencySurface, region: string | null) => {
     // Invalid values and unavailable observations cannot match even a configured region named "unknown".
     (observed[surface] ??= new Set()).add(
-      region && /^[a-z][a-z0-9-]{1,31}$/.test(region) ? region : 'Unknown',
+      region && REGION_PATTERN.test(region) ? region : 'Unknown',
     );
   };
   for (const profile of profiles) {

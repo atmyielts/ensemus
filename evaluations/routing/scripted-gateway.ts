@@ -42,6 +42,7 @@ export function scriptedGateway(input: {
   const bundle = async () => input.bundle ?? null;
   const router = createModelRouter({ profiles, egress, bundle });
   const gateway = createInferenceGateway({
+    residency: { check: async () => ({ allowed: true, requiredRegion: null }) },
     router,
     egress,
     ledger,

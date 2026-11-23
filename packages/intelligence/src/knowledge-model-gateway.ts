@@ -5,6 +5,7 @@ import type {
   KnowledgeModelCandidate,
   KnowledgeModelPrincipal,
 } from '@ensemus/application/ai-knowledge-ports';
+import type { ResidencyGate } from '@ensemus/application';
 import type { Entitlements } from '@ensemus/application/ai-ports';
 import {
   qualifiedFor,
@@ -38,6 +39,7 @@ import { egressFacts, hostOf, protocolOf } from './router/facts';
 export type KnowledgeModelGatewayDeps = {
   store: KnowledgeCallStore;
   entitlements: Entitlements;
+  residency: ResidencyGate;
   credentials: CredentialLender;
   guard: EndpointGuard;
   adapter: ModelAdapter;
@@ -213,6 +215,15 @@ export function createKnowledgeModelGateway(deps: KnowledgeModelGatewayDeps) {
         await deps.bundle(principal),
       );
       if (!decision || decision.decision !== 'allow') throw denied();
+      const assertResidency = async () => {
+        const decision = await deps.residency.check(context, {
+          surface: operation.purpose === 'embed' ? 'embeddings' : 'inference',
+          classification,
+          targetRegion: profile.region,
+        });
+        if (!decision.allowed) throw denied();
+      };
+      await assertResidency();
       if (classification !== baseline)
         messages = messages.map((message) => ({
           ...message,
@@ -288,6 +299,7 @@ export function createKnowledgeModelGateway(deps: KnowledgeModelGatewayDeps) {
         | Awaited<ReturnType<EmbeddingAdapter['embed']>>
         | Awaited<ReturnType<RerankAdapter['rerank']>>;
       const send = async (apiKey: Buffer | null) => {
+        await assertResidency();
         if (!(await deps.store.dispatch(principal, claim.callId))) {
           duplicate = true;
           throw unavailable();
@@ -360,13 +372,15 @@ export function createKnowledgeModelGateway(deps: KnowledgeModelGatewayDeps) {
           );
         else if (profile.providerKind === 'local_openai_compatible') result = await send(null);
         else throw unavailable();
-      } catch {
+      } catch (error) {
+        const outsideRegion = error instanceof ModelCallFailed && error.code === 'EGRESS_DENIED';
         if (!duplicate)
           await deps.store.settle(principal, claim.callId, {
             usage: null,
             mayHaveBilled: claimed,
-            reasonCode: 'CREDENTIAL_OR_DISPATCH_UNAVAILABLE',
+            reasonCode: outsideRegion ? 'RESIDENCY_DENIED' : 'CREDENTIAL_OR_DISPATCH_UNAVAILABLE',
           });
+        if (outsideRegion) throw error;
         throw unavailable();
       }
       const settled = await deps.store.settle(principal, claim.callId, {
