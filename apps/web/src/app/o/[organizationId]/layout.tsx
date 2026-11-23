@@ -98,7 +98,7 @@ export default async function OrganizationLayout({
               organizationName={organization.name}
               base={base}
             />
-            <main id="main" tabIndex={-1}>
+            <main id="main" tabIndex={0}>
               <DraftScope account={actor.userId}>{children}</DraftScope>
             </main>
             <MobileWorkspaceNavigation groups={navigation}>

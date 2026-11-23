@@ -4,6 +4,19 @@
 @import 'shadcn/tailwind.css';
 @import './design-system.css';
 @custom-variant dark (&:is(.dark *));
+
+/* Keep the keyboard outline above component utilities that reset the native outline. */
+:focus-visible {
+  outline: 2px solid var(--focus-color);
+  outline-offset: 2px;
+}
+:where(input, select, textarea):focus-visible {
+  outline-offset: 0;
+}
+:where(#main, .destination-row):focus-visible {
+  outline-offset: -2px;
+}
+
 /* Shared legacy surfaces adopt the same tokens while their controls move to shadcn/ui.
    Keeping them in a lower cascade layer lets the real shadcn component utilities own their states. */
 @layer legacy {
@@ -46,8 +59,6 @@
     background: var(--accent-soft);
   }
   :focus-visible {
-    outline: 2px solid var(--focus-color);
-    outline-offset: 2px;
     border-radius: 6px;
     box-shadow: 0 0 0 5px var(--focus-halo);
   }
@@ -1100,8 +1111,6 @@
   input:focus-visible,
   select:focus-visible,
   textarea:focus-visible {
-    outline: 2px solid var(--focus-color);
-    outline-offset: 0;
     border-color: var(--focus-color);
     border-radius: var(--radius-small);
   }
@@ -1550,9 +1559,6 @@
   }
   .destination-row:hover {
     background: var(--surface-2);
-  }
-  .destination-row:focus-visible {
-    outline-offset: -2px;
   }
   .destination-icon {
     display: grid;
