@@ -223,8 +223,14 @@ export async function requestDerivationOnce(
   key: string,
   meetingId: string,
   body: RequestDerivationBody,
+  expectedNotesId?: string,
 ) {
-  const input = { meetingId, purpose: body.purpose, providerApprovalId: body.provider_approval_id };
+  const input = {
+    meetingId,
+    purpose: body.purpose,
+    providerApprovalId: body.provider_approval_id,
+    ...(expectedNotesId !== undefined ? { expectedNotesId } : {}),
+  };
   const id = await studioOnce(
     database,
     context,

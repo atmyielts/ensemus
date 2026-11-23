@@ -5,6 +5,7 @@ import {
   beginMeetingDerivation,
   claimMeetingModelDispatch,
   listMeetingDerivations,
+  listMeetingProcessingOptions,
   listMeetingSummaries,
   listProposedItems,
   requestMeetingDerivation,
@@ -263,6 +264,34 @@ describe('governed meeting model transport', () => {
     ]);
     expect(sent).toHaveLength(before);
     expect(noKey).not.toHaveBeenCalled();
+  });
+
+  it('shows the organizer only eligible model choices and refuses stale notes', async () => {
+    const { room, profileId, approval } = await setup();
+    const narrower = await seedModelApproval(app.db, owner(), {
+      targetRef: modelProfileRef(profileId),
+      maxClassification: 'internal',
+    });
+    const options = await listMeetingProcessingOptions(app.db, owner(), room.id);
+    expect(options.some((option) => option.approvalId === narrower)).toBe(false);
+    expect(options.filter((option) => option.label === `test-${profileId.slice(0, 8)}`)).toEqual([
+      expect.objectContaining({ approvalId: approval, purpose: 'summarize' }),
+      expect.objectContaining({ approvalId: approval, purpose: 'extract_items' }),
+    ]);
+    await expect(
+      listMeetingProcessingOptions(app.db, tenants.a.admin.context, room.id),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+
+    await seedNotes(app.db, owner(), { meetingId: room.id, version: 2 });
+    await expect(
+      requestMeetingDerivation(app.db, owner(), {
+        meetingId: room.id,
+        purpose: 'summarize',
+        providerApprovalId: approval,
+        expectedNotesId: room.notesId,
+      }),
+    ).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+    expect(await listMeetingDerivations(app.db, owner(), room.id)).toHaveLength(1);
   });
 
   it('does not resend after a committed dispatch when the worker has lost the result', async () => {

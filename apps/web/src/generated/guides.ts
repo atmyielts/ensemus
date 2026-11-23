@@ -10433,7 +10433,7 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
           },
           {
             "t": "text",
-            "v": " in the workspace to register a meeting and store plain-text notes. The manual workflow stores only the notes you enter. Provider runs and connector imports are still being implemented."
+            "v": " in the workspace to register a meeting and store plain-text notes. The manual workflow stores only the notes you enter. Connector imports are still being implemented."
           }
         ]
       },
@@ -10628,6 +10628,75 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
           {
             "t": "text",
             "v": "Only the organizer and listed participants can read the title, participants and notes. Owners and administrators outside the room see only meeting status and metadata; their role does not give them the content. A person outside the company cannot read it here."
+          }
+        ]
+      },
+      {
+        "b": "h",
+        "level": 2,
+        "inline": [
+          {
+            "t": "text",
+            "v": "Request a summary or suggestions"
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "With current notes and everyone's consent in place, the organizer opens "
+          },
+          {
+            "t": "strong",
+            "v": "Meeting processing"
+          },
+          {
+            "t": "text",
+            "v": ", chooses a "
+          },
+          {
+            "t": "strong",
+            "v": "Result and provider"
+          },
+          {
+            "t": "text",
+            "v": ", and selects "
+          },
+          {
+            "t": "strong",
+            "v": "Queue request"
+          },
+          {
+            "t": "text",
+            "v": ". The form shows the notes version it will send. If a newer version is saved while the page is open, review it and submit a new request."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "The list shows workspace-approved models eligible for the meeting's classification and selected result. Restricted meeting notes cannot be sent to a model. A request can still stop if consent, approval, or workspace policy changes before it runs."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "The organizer and listed participants can see the recent requests and their progress. Use "
+          },
+          {
+            "t": "strong",
+            "v": "Refresh status"
+          },
+          {
+            "t": "text",
+            "v": " while a request is queued or processing. When a result is ready, it appears below the request list."
           }
         ]
       },

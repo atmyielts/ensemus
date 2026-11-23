@@ -1057,8 +1057,8 @@
     },
     {
       "path": "06-delivery/release-candidate-2026-11-21.md",
-      "size_bytes": 99301,
-      "sha256": "0a9438304f06b4317790d2f82ae9d9bc5c1eba4f7c7c3538cedb2677c3a29098"
+      "size_bytes": 100479,
+      "sha256": "1a1f90783f0dbef87fbb5450b8d72a3960e4e367a4f3f3a17679953356319d29"
     },
     {
       "path": "06-delivery/release-candidate-source-ledger.json",
@@ -1427,8 +1427,8 @@
     },
     {
       "path": "guides/user/meetings.md",
-      "size_bytes": 5144,
-      "sha256": "5042a266899dfe17c80b7d96ad2ca2ec626d7d1d6bb693bc05be6d9e35e60110"
+      "size_bytes": 5967,
+      "sha256": "0f9846e0ace5669fefc71fdf75f21ddc388153629a3c420a0375571e12155ae4"
     },
     {
       "path": "guides/user/members-and-invitations.md",

@@ -1256,3 +1256,21 @@ the normal adapter through a loopback fake provider. It covered summaries, follo
 secret scanning, preflight revocation and lost results. Worker and web builds passed. Six
 captured histories replayed, including four legacy histories and two for the new worker routing.
 No live provider or customer meeting was used.
+
+### Meeting processing in the workspace (EXP-03)
+
+The organizer can now choose an approved model and request a summary or follow-up suggestions
+from the meeting page. Eligible choices are checked against the meeting's classification and
+the requested result. The form binds the displayed notes version to the request. If the notes
+changed, it asks the organizer to review the current version before submitting again.
+
+The organizer and participants see recent requests and their current state. The page refreshes
+while a request is active and provides a native refresh button. Results use the existing
+summary and suggestion review surfaces. Restricted notes and meetings without an applicable
+profile have an explicit unavailable state.
+
+Thirteen PostgreSQL cases passed. Production Chromium checks covered desktop and 320px,
+including a stale submission, a successful queue request and manual status refresh. A separate
+320px check with JavaScript disabled invoked the native agent Activity directly with a local
+fake provider and verified that the resulting model-generated summary appeared after refresh.
+Live-provider validation and connected notes import remain pending.

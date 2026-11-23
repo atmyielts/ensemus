@@ -206,7 +206,12 @@ async function publishRun(
 export function requestMeetingDerivation(
   database: AppDatabase,
   context: TenantContext,
-  input: { meetingId: string; purpose: DerivationPurpose; providerApprovalId: string },
+  input: {
+    meetingId: string;
+    purpose: DerivationPurpose;
+    providerApprovalId: string;
+    expectedNotesId?: string;
+  },
 ): Promise<DerivationRunView> {
   return withMeetingPerson(database, context, async (tx, viewer) => {
     const parsed = requestDerivationSchema.safeParse({
@@ -221,8 +226,13 @@ export function requestMeetingDerivation(
       room,
       parsed.data.provider_approval_id,
       parsed.data.purpose,
+      input.expectedNotesId === undefined ? undefined : validId(input.expectedNotesId),
     );
-    if ('code' in allowed) refuseRequest(allowed.code);
+    if ('code' in allowed) {
+      if (allowed.code === 'NOTES_NOT_CURRENT' && input.expectedNotesId !== undefined)
+        throw new AppError('VERSION_CONFLICT');
+      refuseRequest(allowed.code);
+    }
     const [prior] = await tx
       .select()
       .from(meetingDerivationRuns)
@@ -261,10 +271,11 @@ export function listMeetingDerivations(
   database: AppDatabase,
   context: TenantContext,
   meetingId: string,
+  options: { recentOnly?: boolean } = {},
 ): Promise<readonly DerivationRunView[]> {
   return withMeetingPerson(database, context, async (tx, viewer) => {
     const room = await meetingForContent(tx, meetingId, viewer);
-    const rows = await tx
+    const query = tx
       .select()
       .from(meetingDerivationRuns)
       .where(
@@ -274,6 +285,7 @@ export function listMeetingDerivations(
         ),
       )
       .orderBy(desc(meetingDerivationRuns.createdAt), desc(meetingDerivationRuns.id));
+    const rows = await (options.recentOnly ? query.limit(10) : query);
     return rows.map(view);
   });
 }

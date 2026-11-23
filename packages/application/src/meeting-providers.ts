@@ -2,6 +2,7 @@ import { approveProviderSchema, type ApproveProviderBody } from '@ensemus/contra
 import {
   connections,
   meetingProviderApprovals,
+  meetingSettings,
   modelProfiles,
   type AppDatabase,
   type TenantContext,
@@ -9,6 +10,10 @@ import {
 } from '@ensemus/database';
 import {
   canAdministerMeetings,
+  checkProviderApproval,
+  DERIVATION_PURPOSES,
+  type DerivationPurpose,
+  type ProviderApprovalFacts,
   modelProfileRef,
   type MeetingPurpose,
   type ProviderApprovalKind,
@@ -17,11 +22,12 @@ import {
   MEETING_PROVIDER_APPROVED,
   MEETING_PROVIDER_REVOKED,
 } from '@ensemus/domain/expansion-events';
-import { and, asc, desc, eq, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, isNull, sql } from 'drizzle-orm';
+import type { Classification } from '@ensemus/domain/policy';
 import { AppError } from './errors';
 import { emit } from './events';
 import { idSchema } from './ids';
-import { withMeetingPerson } from './meeting-manual';
+import { meetingForContent, withMeetingPerson } from './meeting-manual';
 import type { ProviderApprovalView } from './meetings';
 import { assertInteractivePrivilege } from './product/privileged';
 import { auditAction } from './work';
@@ -255,4 +261,90 @@ async function recordChange(
     payload: { provider_approval_id: id },
   });
   await auditAction(tx, context, event, 'meeting_provider_approval:' + id);
+}
+
+export type MeetingProcessingOption = {
+  approvalId: string;
+  purpose: DerivationPurpose;
+  label: string;
+};
+
+/** An organizer needs names for the applicable approvals, never endpoint URLs or credential references. */
+export function listMeetingProcessingOptions(
+  database: AppDatabase,
+  context: TenantContext,
+  meetingId: string,
+) {
+  return withMeetingPerson(
+    database,
+    context,
+    async (tx, viewer): Promise<MeetingProcessingOption[]> => {
+      const room = await meetingForContent(tx, meetingId, viewer);
+      if (room.organizerMembershipId !== viewer.membershipId) throw new AppError('FORBIDDEN');
+      if (room.status !== 'open' || room.classification === 'restricted') return [];
+      const [settings] = await tx
+        .select({ enabled: meetingSettings.enabled })
+        .from(meetingSettings)
+        .where(eq(meetingSettings.organizationId, room.organizationId));
+      if (!settings?.enabled) return [];
+
+      const approval = meetingProviderApprovals;
+      const profile = modelProfiles;
+      const now = new Date();
+      const rows = await tx
+        .select({
+          approvalId: approval.id,
+          kind: approval.kind,
+          purposes: approval.purposes,
+          maxClassification: approval.maxClassification,
+          revokedAt: approval.revokedAt,
+          expiresAt: approval.expiresAt,
+          label: profile.alias,
+          profileId: profile.id,
+          modelPurposes: profile.allowedPurposes,
+          modelClasses: profile.allowedClasses,
+          capabilities: profile.capabilities,
+        })
+        .from(approval)
+        .innerJoin(
+          profile,
+          and(
+            eq(profile.organizationId, approval.organizationId),
+            eq(approval.targetRef, sql`'model_profile:' || ${profile.id}::text`),
+          ),
+        )
+        .where(
+          and(
+            eq(approval.organizationId, room.organizationId),
+            eq(approval.kind, 'model'),
+            isNull(approval.revokedAt),
+            gt(approval.expiresAt, now),
+            eq(profile.status, 'active'),
+            eq(profile.billingOwner, 'customer'),
+          ),
+        )
+        .orderBy(asc(profile.alias), desc(approval.approvedAt), asc(approval.id));
+
+      const classification = room.classification as Classification;
+      return DERIVATION_PURPOSES.flatMap((purpose) => {
+        const chosen = new Map<string, MeetingProcessingOption>();
+        for (const row of rows) {
+          if (
+            chosen.has(row.profileId) ||
+            !row.capabilities.includes('structured_output') ||
+            !row.modelClasses.includes(classification) ||
+            !row.modelPurposes.includes(purpose === 'summarize' ? 'compose' : 'extract') ||
+            !checkProviderApproval(
+              row as ProviderApprovalFacts,
+              { kind: 'model', purpose, classification },
+              now,
+            ).ok
+          )
+            continue;
+          chosen.set(row.profileId, { approvalId: row.approvalId, purpose, label: row.label });
+        }
+        return [...chosen.values()];
+      });
+    },
+  );
 }

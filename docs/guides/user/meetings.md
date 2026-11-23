@@ -6,14 +6,14 @@ tickets: [EXP-03]
 modes: [cloud, byom, sovereign]
 status: written_untested
 sources: [apps/web/src/app/o/[organizationId]/meetings/providers/page.tsx, packages/application/src/meeting-manual.ts, apps/web/src/app/o/[organizationId]/meetings/page.tsx, apps/web/src/app/o/[organizationId]/meetings/[meetingId]/page.tsx, apps/web/src/app/o/[organizationId]/meetings/actions.ts, packages/database/migrations/0752_meeting_consent_administration.sql]
-tests: [tests/integration/meeting-proposals.test.ts, tests/integration/meeting-manual.test.ts, tests/stack/meeting-manual-api.test.ts, tests/browser/specs/meeting-manual.spec.ts]
+tests: [tests/integration/meeting-proposals.test.ts, tests/integration/meeting-manual.test.ts, tests/stack/meeting-manual-api.test.ts, tests/browser/specs/meeting-manual.spec.ts, tests/browser/specs/meeting-processing.spec.ts]
 ---
 
 # Meetings and private notes
 
 > **Not yet tested end to end.** This page was written from the code, and nobody has followed it on a running system yet.
 
-Open **Meetings** in the workspace to register a meeting and store plain-text notes. The manual workflow stores only the notes you enter. Provider runs and connector imports are still being implemented.
+Open **Meetings** in the workspace to register a meeting and store plain-text notes. The manual workflow stores only the notes you enter. Connector imports are still being implemented.
 
 ## Turn meetings on
 
@@ -42,6 +42,14 @@ An unanswered participant can be removed before notes exist. A recorded answer s
 Everyone listed must agree first. The organizer then opens **Add notes**, enters plain text and chooses **Store notes**. Another save creates a new version. The page shows the latest version. Empty notes and notes exceeding the byte limit are refused.
 
 Only the organizer and listed participants can read the title, participants and notes. Owners and administrators outside the room see only meeting status and metadata; their role does not give them the content. A person outside the company cannot read it here.
+
+## Request a summary or suggestions
+
+With current notes and everyone's consent in place, the organizer opens **Meeting processing**, chooses a **Result and provider**, and selects **Queue request**. The form shows the notes version it will send. If a newer version is saved while the page is open, review it and submit a new request.
+
+The list shows workspace-approved models eligible for the meeting's classification and selected result. Restricted meeting notes cannot be sent to a model. A request can still stop if consent, approval, or workspace policy changes before it runs.
+
+The organizer and listed participants can see the recent requests and their progress. Use **Refresh status** while a request is queued or processing. When a result is ready, it appears below the request list.
 
 ## Review summaries and suggestions
 

@@ -167,6 +167,8 @@ export function importMeetingNotes(
 }
 
 export {
+  listMeetingProcessingOptions,
+  type MeetingProcessingOption,
   approveMeetingProvider,
   getMeetingProviderApproval,
   listMeetingProviderApprovals,

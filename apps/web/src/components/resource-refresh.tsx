@@ -4,7 +4,13 @@ import { useRouter } from 'next/navigation';
 
 /** Follow a durable background result by repeating the authorized server read, never its mutation.
  * A bounded watch avoids endlessly polling a stopped worker. The page always retains a native link. */
-export function ResourceRefresh({ active }: { active: boolean }) {
+export function ResourceRefresh({
+  active,
+  announce = true,
+}: {
+  active: boolean;
+  announce?: boolean;
+}) {
   const router = useRouter(),
     [watching, setWatching] = useState(false);
   useEffect(() => {
@@ -21,7 +27,7 @@ export function ResourceRefresh({ active }: { active: boolean }) {
     }, 5000);
     return () => clearInterval(timer);
   }, [active, router]);
-  if (!active) return null;
+  if (!active || !announce) return null;
   return (
     <p className="muted" role="status">
       {watching

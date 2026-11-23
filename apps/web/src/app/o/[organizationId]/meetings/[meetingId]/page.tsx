@@ -5,6 +5,8 @@ import {
   getMeeting,
   getMeetingSettings,
   listDirectory,
+  listMeetingDerivations,
+  listMeetingProcessingOptions,
   listMeetingSummaries,
   listProposedItems,
 } from '@ensemus/application';
@@ -21,6 +23,7 @@ import { NativeSelect } from '@/components/ui/native-select';
 import { canReassignOrganizer } from '@ensemus/domain/meeting';
 import { can } from '@ensemus/domain/policy';
 import { MeetingDerivedContent } from './derived-content';
+import { MeetingProcessing } from './processing';
 import { SubmitButton } from '@/components/submit-button';
 import { ConfirmForm } from '@/components/confirm-form';
 import { requireTenant } from '@/server/tenant';
@@ -32,7 +35,12 @@ export default async function MeetingPage({
   searchParams,
 }: {
   params: Promise<{ organizationId: string; meetingId: string }>;
-  searchParams: Promise<{ error?: string; proposal?: string }>;
+  searchParams: Promise<{
+    error?: string;
+    proposal?: string;
+    processing?: string;
+    processingError?: string;
+  }>;
 }) {
   const { organizationId, meetingId } = await params,
     { actor, database, context } = await requireTenant(organizationId);
@@ -48,13 +56,16 @@ export default async function MeetingPage({
     readable = meeting.title !== null,
     open = meeting.status === 'open';
   const query = await searchParams;
-  const [summaries, proposals] =
+  const canRequestProcessing = organizer && settings.enabled && meeting.consent === 'complete';
+  const [summaries, proposals, runs, options] =
     readable && open && meeting.currentNotes
       ? await Promise.all([
           listMeetingSummaries(database, context, meetingId),
           listProposedItems(database, context, meetingId),
+          listMeetingDerivations(database, context, meetingId, { recentOnly: true }),
+          canRequestProcessing ? listMeetingProcessingOptions(database, context, meetingId) : [],
         ])
-      : ([[], []] as const);
+      : ([[], [], [], []] as const);
   const mayDecide = open && meeting.consent === 'complete';
   const mayCreateFromProposal =
     mayDecide &&
@@ -261,6 +272,26 @@ export default async function MeetingPage({
                 <p className="muted">Everyone listed must agree before notes can be stored.</p>
               ))}
           </section>
+          {open && meeting.currentNotes && (organizer || runs.length > 0) && (
+            <MeetingProcessing
+              organizationId={organizationId}
+              meetingId={meetingId}
+              notes={meeting.currentNotes}
+              runs={runs}
+              options={options}
+              submitted={query.processing}
+              error={query.processingError}
+              unavailable={
+                organizer && options.length === 0
+                  ? !settings.enabled
+                    ? 'Meeting processing is turned off for this workspace.'
+                    : meeting.classification === 'restricted'
+                      ? 'Restricted meeting notes cannot be sent to a model.'
+                      : 'A workspace administrator must approve a model for this meeting’s classification.'
+                  : null
+              }
+            />
+          )}
           <MeetingDerivedContent
             organizationId={organizationId}
             meetingId={meetingId}
