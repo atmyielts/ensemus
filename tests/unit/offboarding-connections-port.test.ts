@@ -103,7 +103,7 @@ describe('offboarding connections port (LIFE-04)', () => {
     );
     await createProcessRunWindDown()(tx, context);
     const read = sent[0]!;
-    expect(read.text).toMatch(/for update of "studio"\."process_runs"/i);
+    expect(read.text).toMatch(/for update of "process_runs"\s*$/i);
     expect(read.params).toEqual(expect.arrayContaining(['running', 'waiting']));
     const update = sent.find(({ text }) => /^update "studio"\."process_runs"/i.test(text))!;
     expect(update.text).not.toMatch(/"status"|"version"/);
