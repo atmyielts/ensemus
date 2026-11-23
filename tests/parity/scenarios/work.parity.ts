@@ -2,8 +2,6 @@
 // use only what M2 built, so none of them needs a seam. Each one asserts what must hold, and returns what
 // it saw, so the gate can also hold the three modes to behaving alike. A refusal here always shows the
 // refusal and that nothing happened, by reading the state back.
-//
-// None of this has run: it is typechecked only, until the owner runs the parity gate.
 import { randomUUID } from 'node:crypto';
 import { objectKey } from '@ensemus/application';
 import { ledgerKeyFor } from '@ensemus/domain/tombstone-ledger';
@@ -203,7 +201,8 @@ describeParity('work', {
     );
     expect(reverse).toEqual({
       code: 'DEPENDENCY_CYCLE',
-      message: 'That dependency would create a loop.',
+      message:
+        'That would make these pieces of work wait for each other forever, so it was not added.',
     });
     const edgesAfterReverse = await edges();
     expect(edgesAfterReverse).toBe(1);
@@ -292,7 +291,8 @@ describeParity('work', {
     );
     expect(withoutEvidence).toEqual({
       code: 'EVIDENCE_MISSING',
-      message: 'The evidence this work requires has not been provided yet.',
+      message:
+        'This work cannot be marked done yet. Add what “Done when” asks for, then try again.',
     });
     expect(await rowOf(su, id)).toEqual(held);
     const statusAfterRefusal = await statusShown(page, owner);
@@ -500,7 +500,8 @@ describeParity('work', {
     );
     expect(changedAction).toEqual({
       code: 'APPROVAL_HASH_MISMATCH',
-      message: 'The action changed after you reviewed it. Please review it again.',
+      message:
+        'The action changed after you reviewed it. Please review it again before you decide.',
     });
     const afterChangedAction = await statusShown(open.path, reviewer);
     expect(afterChangedAction).toBe('Waiting');
@@ -560,7 +561,8 @@ describeParity('work', {
     );
     expect(decideExpired).toEqual({
       code: 'APPROVAL_EXPIRED',
-      message: 'This approval has expired.',
+      message:
+        'The time to decide this approval has passed. Ask for a new one if it is still needed.',
     });
     const reviewAfterExpiry = await read(lapse.path, reviewer.jar);
     const expiredOffersDecision = reviewAfterExpiry.html.includes('name="decision"');
@@ -714,12 +716,12 @@ describeParity('work', {
       { says: 'You were put on some work', reminder: false, unread: true },
       { says: 'An approval needs your decision', reminder: false, unread: true },
     ]);
-    const home = sectionOf(
-      (await read(`/o/${organization}`, reviewer.jar)).html,
-      'approvals-heading',
-    );
-    expect(home).toContain(title);
-    expect(home).toContain(`href="${path}"`);
+    const reviewsPath = `/o/${organization}?view=reviews`;
+    const reviewerHome = await read(reviewsPath, reviewer.jar);
+    expect(reviewerHome.status).toBe(200);
+    const reviewQueue = sectionOf(reviewerHome.html, 'review-queue-heading');
+    expect(reviewQueue).toContain(title);
+    expect(reviewQueue).toContain(`href="${path}"`);
 
     // Told by reference only, and only the person asked is told.
     const { rows: stored } = await su.query<{ reference: string; reminders: number }>(
@@ -730,8 +732,12 @@ describeParity('work', {
     expect(stored).toEqual([{ reference: 'approval', reminders: 0 }]);
     const bystanderRows = await inboxRows(bystander, organization);
     expect(bystanderRows).toEqual([]);
-    const bystanderHome = (await read(`/o/${organization}`, bystander.jar)).html;
-    expect(sectionOf(bystanderHome, 'approvals-heading')).not.toContain(title);
+    const bystanderHome = await read(reviewsPath, bystander.jar);
+    expect(bystanderHome.status).toBe(200);
+    const bystanderMain = mainOf(bystanderHome.html);
+    expect(bystanderMain).toContain('No reviews waiting');
+    expect(bystanderMain).not.toContain(title);
+    expect(bystanderMain).not.toContain(`href="${path}"`);
     const outsider = await read(inboxPath(organization), rival.owner.jar);
     expect(outsider.status).toBe(404);
     expect(outsider.html).not.toContain(title);
@@ -774,10 +780,7 @@ describeParity('work', {
     );
     expect(locationOf(opening)).toBe(path);
 
-    // No outside channel carried any of this.
-    const page = mainOf((await read(inboxPath(organization), reviewer.jar)).html);
-    const statement = 'Reminders appear here, and nothing is sent by email yet.';
-    expect(page).toContain(statement);
+    // The Inbox works with no provider connection or external action.
     const externalActions = await countOf(
       su,
       'integrations.external_actions where organization_id = $1',
@@ -810,7 +813,6 @@ describeParity('work', {
       stored,
       bystanderRows: bystanderRows.length,
       outsider: outsider.status,
-      statement,
       externalActions,
       connections,
       decidedRow: decidedRow ?? null,

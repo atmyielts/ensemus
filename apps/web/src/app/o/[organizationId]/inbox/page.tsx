@@ -73,7 +73,7 @@ export default async function InboxPage({
     <>
       <PageHead
         title="Inbox"
-        description="Updates and decisions for you. Reminders come first, then anything you have not opened. For now nothing is sent by email yet, so this is the place to check."
+        description="Review requests and work updates. Reminders come first, followed by unread items."
       />
       <ErrorNotice code={error} />
       {unread > INBOX_SIZE && (

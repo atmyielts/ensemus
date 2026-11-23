@@ -2,8 +2,6 @@
 // docs/01-product/05-commercial-modes.md). Each scenario here is a denied case, so each one shows that
 // the thing was refused, that nothing happened, and, with a control, that the same request from someone
 // allowed really does work. Without the control a broken page would pass as "nothing leaked".
-//
-// Written against the base tree, and not run: the gate has never started a container (ADR-036).
 import { randomUUID } from 'node:crypto';
 import type { ApprovalStatus } from '@ensemus/domain/approval';
 import type { ExternalActionStatus } from '@ensemus/domain/external-action';
@@ -272,14 +270,17 @@ describeParity('boundary', {
     const seenBy = async (who: typeof a) => {
       const { status, html } = await read(clientsPage(who.organization), who.owner.jar);
       expect(status).toBe(200);
-      const listed = occurrences(sectionOf(html, 'clients-heading'), `<li>${name}</li>`);
+      const client = await clientIdOf(su, who.organization, name);
+      const directory = sectionOf(html, 'clients-heading');
+      const listed = occurrences(directory, `>${name}</span>`);
+      expect(directory).toContain(`href="/o/${who.organization}/clients/${client}/access"`);
       const choices = [
         ...sectionOf(html, 'projects-heading').matchAll(
           new RegExp(`<option value="([0-9a-f-]{36})"[^>]*>${name}</option>`, 'g'),
         ),
       ].map((match) => match[1]);
       expect(listed).toBe(1);
-      expect(choices).toEqual([await clientIdOf(su, who.organization, name)]);
+      expect(choices).toEqual([client]);
       return { listed, choices: choices.length };
     };
     const inA = await seenBy(a);
@@ -300,7 +301,14 @@ describeParity('boundary', {
       name: projectOfRival,
       clientId: await clientIdOf(su, a.organization, name),
     });
-    expect(locationOf(refused)).toBe(`${page}?error=INVALID_INPUT`);
+    expect(locationOf(refused)).toBe(`${page}?error=NOT_FOUND`);
+    const missingProjectName = fresh('Project');
+    const missing = await post(page, rival.owner.jar, form, {
+      name: missingProjectName,
+      clientId: randomUUID(),
+    });
+    expect(locationOf(missing)).toBe(locationOf(refused));
+    expect(await countRows(su, 'work.projects', 'name', missingProjectName)).toBe(0);
     const projectsMade = await countRows(su, 'work.projects', 'name', projectOfRival);
     expect(projectsMade).toBe(0);
     const reasons = await refusalsOn(
@@ -308,6 +316,7 @@ describeParity('boundary', {
       rival.organization,
       await membershipOf(su, rival.owner, rival.organization),
     );
+    // Repeated refusals share an audit entry for this member, surface and reason within an hour.
     expect(reasons.map((row) => row.safe_reason)).toEqual(['FOREIGN_REFERENCE']);
 
     return {
@@ -543,7 +552,7 @@ describeParity('boundary', {
       name: projectForged,
       clientId: theirClients[0].id as string,
     });
-    expect(locationOf(foreign)).toBe(`${clients}?error=INVALID_INPUT`);
+    expect(locationOf(foreign)).toBe(`${clients}?error=NOT_FOUND`);
     const projectsForged = await countRows(su, 'work.projects', 'name', projectForged);
     expect(projectsForged).toBe(0);
 
