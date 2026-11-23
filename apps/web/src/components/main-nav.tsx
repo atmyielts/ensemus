@@ -21,6 +21,7 @@ import {
   type NavItem,
 } from './navigation-model';
 import { NavigationIcon } from './navigation-icon';
+import { BrandMark } from './brand-identity';
 
 type Announce = (label: string, pending: boolean) => void;
 const NavigationPending = createContext<Announce | null>(null);
@@ -151,31 +152,44 @@ export function MainNav({ groups, label = 'Main' }: { groups: NavGroup[]; label?
   );
 }
 
-/** The shell's position marker stays identical across server pages, without another feature sidebar. */
+/** Position and workspace tools share the same header across desktop and mobile. */
 export function WorkspaceContext({
   groups,
   organizationName,
   base,
+  mobileMenu,
 }: {
   groups: NavGroup[];
   organizationName: string;
   base: string;
+  mobileMenu: ReactNode;
 }) {
   const pathname = usePathname();
   const current = currentNavigation(groups, pathname);
   return (
-    <div className="workspace-context" aria-label="Workspace location">
-      <Link href={base}>{organizationName}</Link>
-      <span aria-hidden="true">/</span>
-      {current && pathname !== current.href ? (
-        <Link href={current.href}>{current.label}</Link>
-      ) : (
-        <span>{current?.label ?? 'Workspace'}</span>
-      )}
+    <header className="workspace-context" aria-label="Workspace header">
+      {mobileMenu}
+      <Link className="mobile-workspace-home" href={base}>
+        <BrandMark />
+        <span className="workspace-name" title={organizationName}>
+          {organizationName}
+        </span>
+      </Link>
+      <div className="workspace-location">
+        <Link className="workspace-name" href={base} title={organizationName}>
+          {organizationName}
+        </Link>
+        <span aria-hidden="true">/</span>
+        {current && pathname !== current.href ? (
+          <Link href={current.href}>{current.label}</Link>
+        ) : (
+          <span>{current?.label ?? 'Workspace'}</span>
+        )}
+      </div>
       <div className="workspace-tools">
         <WorkspaceSearch base={base} />
         <ThemeToggle />
       </div>
-    </div>
+    </header>
   );
 }

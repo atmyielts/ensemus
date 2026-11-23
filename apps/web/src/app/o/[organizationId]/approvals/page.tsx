@@ -1,5 +1,6 @@
 import { Card } from '@/components/ui/card';
 import { listDirectory, listMyPendingApprovals } from '@ensemus/application';
+import { ChevronRightIcon } from 'lucide-react';
 import Link from 'next/link';
 import {
   ActionLink,
@@ -54,7 +55,7 @@ export default async function ApprovalsPage({
     <>
       <PageHead
         title="Approvals"
-        description="What people and assistants have asked you to decide, the soonest first. Nothing goes ahead until you approve it."
+        description="Review requests from your team and assistants, ordered by deadline."
       />
       <ErrorNotice code={error} />
       {pending.length === 0 ? (
@@ -71,33 +72,37 @@ export default async function ApprovalsPage({
           would change.
         </Empty>
       ) : (
-        <Card asChild>
+        <Card asChild className="approval-queue">
           <section className="card" aria-labelledby="waiting-heading">
             <h2 id="waiting-heading">Waiting for you</h2>
-            <ul className="list approval-rows">
+            <ul className="approval-rows" role="list">
               {pending.map((approval, index) => {
                 const who = askedBy(index);
                 return (
                   <li key={approval.id}>
-                    <span>
-                      <Link href={`${base}/approvals/${approval.id}`}>{approval.workTitle}</Link>
-                      <br />
-                      <small>
-                        {TOOL_WORDS[approval.toolName] ?? 'A proposed action'}
-                        {who &&
-                          (approval.toolName === 'work.review' ? (
-                            <> · Asked by {who}</>
-                          ) : (
-                            <> · An assistant asked, for {who}</>
-                          ))}
-                      </small>
-                    </span>
-                    <span className="row">
-                      <small className="nowrap">
-                        Decide by {formatDateTime(approval.expiresAt)}
-                      </small>
-                      <StatusBadge status="pending" />
-                    </span>
+                    <Link
+                      className="approval-row"
+                      href={`${base}/approvals/${approval.id}`}
+                      aria-labelledby={`approval-${approval.id}`}
+                    >
+                      <span className="approval-subject">
+                        <span id={`approval-${approval.id}`} className="approval-title">
+                          {approval.workTitle}
+                        </span>
+                        <small>
+                          {TOOL_WORDS[approval.toolName] ?? 'A proposed action'}
+                          {' · '}
+                          {approval.toolName === 'work.review'
+                            ? `Asked by ${who}`
+                            : `An assistant asked, for ${who}`}
+                        </small>
+                      </span>
+                      <span className="approval-meta">
+                        <small>Decide by {formatDateTime(approval.expiresAt)}</small>
+                        <StatusBadge status="pending" />
+                      </span>
+                      <ChevronRightIcon className="approval-chevron" aria-hidden="true" />
+                    </Link>
                   </li>
                 );
               })}

@@ -114,24 +114,32 @@ for (const javaScriptEnabled of [true, false])
         expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1);
       }
       if (javaScriptEnabled) expect(await axeFindings(page)).toEqual([]);
-      // The mobile bar returns to content height; desktop viewport locking must not hide its menu.
       await page.setViewportSize({ width: 390, height: 720 });
       await page.goto(base);
-      const sidebar = page.locator('.sidebar'),
-        menu = sidebar.locator('.mobile-navigation'),
-        summary = menu.locator(':scope > summary');
-      await expect(sidebar.locator('.desktop-navigation')).toBeHidden();
-      await insideViewport(page, sidebar.getByRole('button', { name: 'Sign out', exact: true }));
+      const header = page.getByRole('banner', { name: 'Workspace header' }),
+        menu = header.locator('.mobile-navigation'),
+        summary = menu.locator(':scope > summary'),
+        signOut = menu.getByRole('button', { name: 'Sign out', exact: true });
+      await expect(page.locator('.sidebar')).toBeHidden();
+      await expect(signOut).toBeHidden();
+      await insideViewport(page, summary);
       await summary.focus();
       await page.keyboard.press('Enter');
       await expect(menu).toHaveAttribute('open', '');
       await expect(
         page.getByRole('navigation', { name: 'Mobile main', exact: true }),
       ).toBeVisible();
-      await insideViewport(page, sidebar.getByRole('button', { name: 'Sign out', exact: true }));
+      await signOut.scrollIntoViewIfNeeded();
+      await insideViewport(page, signOut);
       expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1);
-      await summary.focus();
-      await page.keyboard.press('Enter');
+      if (javaScriptEnabled) {
+        await signOut.focus();
+        await page.keyboard.press('Escape');
+      } else {
+        await summary.focus();
+        await page.keyboard.press('Enter');
+      }
       await expect(menu).not.toHaveAttribute('open', '');
-      await insideViewport(page, sidebar.getByRole('button', { name: 'Sign out', exact: true }));
+      await expect(signOut).toBeHidden();
+      await expect(summary).toBeFocused();
     });

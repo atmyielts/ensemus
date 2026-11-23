@@ -13,6 +13,7 @@ for (const theme of ['light', 'dark'] as const)
         ['home', base],
         ['work-list', `${base}/work`],
         ['long-work-detail', `${base}/work/${world.work.long}`],
+        ['approvals', `${base}/approvals`],
         ['approval', `${base}/approvals/${world.approvals.holding}`],
         ['administration', `${base}/settings`],
         ['model-connections', `${base}/settings/models`],
@@ -27,7 +28,7 @@ for (const theme of ['light', 'dark'] as const)
         expect(await axeFindings(page), label).toEqual([]);
         await saveLook(page, `interface-${theme}-${width}`, label);
       }
-      if (width <= 760) {
+      if (width < 768) {
         const menu = page.locator('details.mobile-navigation');
         await menu.locator('summary').focus();
         await page.keyboard.press('Enter');
@@ -81,8 +82,8 @@ test('long account and organization names preserve a usable narrow workspace', a
   const page = await open(person, { width: 320, height: 900 });
   await page.goto(`/o/${organization}`);
   expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1);
-  const header = await page.locator('.sidebar').boundingBox();
-  expect(header?.height).toBeLessThanOrEqual(220);
+  const header = await page.getByRole('banner', { name: 'Workspace header' }).boundingBox();
+  expect(header?.height).toBeLessThanOrEqual(56);
   await page.locator('details.mobile-navigation > summary').click();
   await expect(page.getByRole('navigation', { name: 'Mobile main' })).toBeVisible();
   expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1);

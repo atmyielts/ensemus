@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { BrandIdentity } from '@/components/brand-identity';
 import { ThemeToggle } from '@/components/theme-toggle';
 // Shared display pieces (UX-11). Copy follows the spec's employee-facing terms: "work", "approval"
 // and plain status words, never internal names.
@@ -121,10 +122,7 @@ export function Wordmark() {
   return (
     <div className="wordmark">
       <Link className="inline-flex items-center gap-2.5 text-foreground no-underline" href="/">
-        <span className="brand-mark" aria-hidden="true">
-          en
-        </span>
-        ensemus
+        <BrandIdentity />
       </Link>
       <ThemeToggle />
     </div>
