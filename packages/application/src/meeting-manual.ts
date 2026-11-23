@@ -24,6 +24,7 @@ import {
   canAdministerMeetings,
   canManageMeeting,
   canReadMeetingContent,
+  canReassignOrganizer,
   canSeeMeeting,
   consentBasisFor,
   consentStateOf,
@@ -99,6 +100,8 @@ async function human<T>(
   ).catch((error) => {
     const code = pgCode(error);
     // Service checks give the detailed reason; concurrent SQL refusals still have safe public codes.
+    if (code === 'EN405') throw new AppError('MFA_REQUIRED');
+    if (code === 'EN410') throw new AppError('SSO_REQUIRED');
     if (code === 'EN110') throw new AppError('CONSENT_INCOMPLETE');
     if (code === 'EN111') throw new AppError('PROVIDER_NOT_APPROVED');
     if (code === 'EN112' || code === '23503' || code === '23505')
@@ -374,6 +377,41 @@ export function listMeetings(
     };
   });
 }
+/** Administrative recovery changes who can organize, without reading any room content. */
+export function reassignMeetingOrganizer(
+  database: AppDatabase,
+  context: TenantContext,
+  input: { meetingId: string; expectedVersion: number; organizerMembershipId: string },
+): Promise<void> {
+  return human(database, context, async (tx, viewer) => {
+    if (!canReassignOrganizer(viewer.role)) throw new AppError('FORBIDDEN');
+    const value = parsed(
+      z.strictObject({ meetingId: id, expectedVersion: version, organizerMembershipId: id }),
+      input,
+    );
+    await assertInteractivePrivilege(tx, context, 'meeting.manage');
+    // The UPDATE's database guard locks the members and requires the next organizer to
+    // already be in the room. Return only the row identity, and audit in the same transaction.
+    const [row] = await tx
+      .select({ id: meetings.id, status: meetings.status, version: meetings.version })
+      .from(meetings)
+      .where(eq(meetings.id, value.meetingId))
+      .for('update');
+    if (!row) throw new AppError('NOT_FOUND');
+    if (row.status !== 'open') throw new AppError('MEETING_PURGED');
+    if (row.version !== value.expectedVersion) throw new AppError('VERSION_CONFLICT');
+    await tx
+      .update(meetings)
+      .set({
+        organizerMembershipId: value.organizerMembershipId,
+        version: row.version + 1,
+        updatedAt: new Date(),
+      })
+      .where(eq(meetings.id, row.id));
+    await auditAction(tx, context, 'meeting.organizer_reassigned', meetingTargetRef(row.id));
+  });
+}
+
 async function changeable(
   tx: Tx,
   context: TenantContext,

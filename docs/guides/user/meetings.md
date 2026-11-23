@@ -37,6 +37,13 @@ Everyone listed must agree first. The organizer then opens **Add notes**, enters
 
 Only the organizer and listed participants can read the title, participants and notes. Owners and administrators outside the room see only meeting status and metadata; their role does not give them the content. A person outside the company cannot read it here.
 
+## Hand off a meeting
+
+If the organizer's membership has been disabled, an owner or admin can open **Hand off meeting**
+and choose an active member who was already listed in the meeting. Company sign-in policy applies.
+The selected member can organize the meeting. The participant list, consent records and notes stay
+with the meeting, and the handoff is recorded in the audit log.
+
 ## Withdraw
 
 A participant opens **Withdraw consent**, reads the consequence, checks the confirmation, and chooses **Withdraw and remove notes**. For an outside participant, the organizer attests to the withdrawal.

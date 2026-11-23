@@ -10288,7 +10288,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Hand a meeting on when its organizer has left. Owners and admins, who still see nothing it said */
+        /**
+         * Hand off a meeting whose organizer has left to an active participant
+         * @description Owners and admins can change the organizer without gaining access to the meeting's content. The participant list and consent records are preserved.
+         */
         post: {
             parameters: {
                 query?: never;

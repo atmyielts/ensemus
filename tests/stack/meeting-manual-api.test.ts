@@ -1,8 +1,17 @@
 // Generated people use the production HTTP routes and their published response contracts.
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { disableMember } from '@ensemus/application';
 import { openAppDatabase } from '@ensemus/database';
-import { BASE, createOrganization, join, signUp, type Person } from '../helpers/forms';
+import {
+  BASE,
+  createOrganization,
+  join,
+  read,
+  signUp,
+  submit,
+  type Person,
+} from '../helpers/forms';
 import { nativePersonContext } from '../helpers/product';
 import { urls } from '../helpers/stack';
 import { contractProblems } from '../helpers/openapi';
@@ -316,5 +325,72 @@ describe('manual meeting HTTP lifecycle', () => {
         )
       ).body.code,
     ).toBe('MEETING_PURGED');
+  });
+  it('hands off an orphaned meeting through the API and the private administrator form', async () => {
+    const session = (await (
+      await fetch(BASE + '/api/auth/get-session', { headers: { cookie: owner.jar.cookie } })
+    ).json()) as { user: { id: string }; session: { id: string } };
+    const ownerContext = await nativePersonContext(
+      app.db,
+      { userId: session.user.id, sessionId: session.session.id },
+      org,
+    );
+    const meetings = [];
+    for (const title of ['PRIVATE_API_HANDOFF', 'PRIVATE_FORM_HANDOFF']) {
+      const created = await call(
+        member,
+        'POST',
+        base() + '/meetings',
+        {
+          title,
+          occurred_at: new Date().toISOString(),
+        },
+        { 'idempotency-key': randomUUID() },
+      );
+      expect(created.response.status).toBe(201);
+      const path = base() + `/meetings/${created.body.id}`;
+      const joined = await call(
+        member,
+        'POST',
+        path + '/participants',
+        {
+          kind: 'member',
+          membership_id: ownerContext.membershipId,
+        },
+        { 'if-match': `"${created.body.version}"` },
+      );
+      expect(joined.response.status).toBe(201);
+      meetings.push({
+        id: created.body.id as string,
+        path,
+        version: created.body.version + 1,
+        title,
+      });
+    }
+    const [apiMeeting, formMeeting] = meetings;
+    const handoff = apiMeeting!.path + '/organizer';
+    const body = { organizer_membership_id: ownerContext.membershipId };
+    const current = { 'if-match': `"${apiMeeting!.version}"` };
+    expect((await call(owner, 'POST', handoff, body)).response.status).toBe(428);
+    expect((await call(owner, 'POST', handoff, body, current)).response.status).toBe(409);
+    await disableMember(app.db, ownerContext, { membershipId: memberId });
+    expect((await call(owner, 'POST', handoff, body, current)).response.status).toBe(204);
+    expect((await call(owner, 'POST', handoff, body, current)).response.status).toBe(409);
+    expect((await call(owner, 'GET', apiMeeting!.path)).body.organizer_membership_id).toBe(
+      ownerContext.membershipId,
+    );
+
+    const pagePath = `/o/${org}/meetings/${formMeeting!.id}`;
+    const page = await read(pagePath, owner.jar);
+    expect(page.html).toContain('Hand off meeting');
+    const posted = await submit(pagePath, owner.jar, /name="organizerMembershipId"/, {
+      organizerMembershipId: ownerContext.membershipId,
+    });
+    expect(posted.status).toBe(303);
+    expect(posted.headers.get('location')).toBe(pagePath);
+    expect((await read(pagePath, owner.jar)).html).not.toContain('Hand off meeting');
+    expect((await call(owner, 'GET', formMeeting!.path)).body.organizer_membership_id).toBe(
+      ownerContext.membershipId,
+    );
   });
 });

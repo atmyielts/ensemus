@@ -210,7 +210,7 @@ export function reassignMeetingOrganizer(
   _context: TenantContext,
   _input: { meetingId: string; expectedVersion: number; organizerMembershipId: string },
 ): Promise<void> {
-  throw new Error('NOT_IMPLEMENTED');
+  return manual.reassignMeetingOrganizer(_database, _context, _input);
 }
 
 /**

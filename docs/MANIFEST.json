@@ -1057,8 +1057,8 @@
     },
     {
       "path": "06-delivery/release-candidate-2026-11-21.md",
-      "size_bytes": 94380,
-      "sha256": "8e0b004f655925b774ed7a2a622cee7159ff849d5ca251476d47657a5c6d53a1"
+      "size_bytes": 96129,
+      "sha256": "f6c95e148eb8820c1c5bedf2fa4f4fbcf76b70455e919fddd115e86fa0c3d2dc"
     },
     {
       "path": "06-delivery/release-candidate-source-ledger.json",
@@ -1427,8 +1427,8 @@
     },
     {
       "path": "guides/user/meetings.md",
-      "size_bytes": 3768,
-      "sha256": "c757f958acfe57ade92e52b5ec25996868a03dee0a57b10c2004b2f439a447b8"
+      "size_bytes": 4151,
+      "sha256": "79e837cd19289305877b764be28eef6b7bb5f71c5cf82ee0026f3e1d1fa77c4e"
     },
     {
       "path": "guides/user/members-and-invitations.md",
@@ -1687,8 +1687,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 564846,
-      "sha256": "6e87b20a8f5cf225c885734eca1dfb4925b045c6a43c167c213ff63b819fd1d4"
+      "size_bytes": 564954,
+      "sha256": "60c31e568e5193859567e07084b735ae3fccc70d336a45ac4da7fb0e00c1f1bb"
     },
     {
       "path": "specifications/qa-scenarios.csv",

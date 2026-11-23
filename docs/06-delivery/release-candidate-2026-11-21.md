@@ -1183,3 +1183,30 @@ container memory kill for Temporal during the qualification backlog. Compose now
 a 1 GiB ceiling while retaining the 512 MiB Go target and the two cache limits. The local
 container applied the new ceiling, reached healthy status and answered its namespace RPC.
 Eleven targeted tests passed. Stability across the recurring backlog still needs a longer run.
+
+
+### Meeting organizer handoff (EXP-03)
+
+An owner or administrator can hand off an open meeting whose organizer's membership is disabled.
+The recipient must be an active member already listed in that meeting. The service checks the
+current meeting version and applies company MFA and SSO policy. The database validates the write
+before it changes ownership, and the service records an audit event in the same transaction.
+The participant list, consent history and notes are preserved.
+
+Migration 0753 adds statement and row checks for organizer changes. The statement check takes the
+privilege lock before the row update. The row check limits the effect to the organizer, version and
+update time, and locks the former and incoming membership rows. This migration still needs human
+security review. The organizer endpoint is active in OpenAPI, the web form uses the existing
+meeting components, and Help documents the handoff. The release contract now has 56 planned
+operations remaining.
+
+All 20 native PostgreSQL meeting tests, seven HTTP and native form cases and 100 focused unit
+checks passed. The handoff tests cover stale versions, simultaneous requests, MFA, a foreign
+recipient, worker refusal and organizer access after the handoff. HTTP ran on an isolated Next.js
+development server against the qualification database. Affected lint, web and test type checks,
+generated contracts and guide checks passed. The running Jafary preview retains its existing
+build and data. Production build and release CI acceptance remain open.
+
+The local Temporal service later restarted under the 1 GiB limit. The WSL kernel confirmed a
+container memory kill. The container recovered and served requests, and sustained workload
+qualification remains open.

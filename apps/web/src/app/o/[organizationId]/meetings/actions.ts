@@ -6,6 +6,7 @@ import {
   createMeeting,
   isAuditedRefusal,
   recordMeetingConsent,
+  reassignMeetingOrganizer,
   refusalCode,
   removeMeetingParticipant,
   updateMeetingSettings,
@@ -156,6 +157,24 @@ export async function removeParticipantAction(form: FormData): Promise<void> {
     await removeMeetingParticipant(t.database, t.context, {
       meetingId,
       participantId: idOf(form, 'participantId'),
+      expectedVersion: Number(text(form, 'version')),
+    });
+    revalidatePath(`/o/${org}/meetings`, 'layout');
+  } catch (error) {
+    code = await fail(t, error);
+  }
+  redirect(`/o/${org}/meetings/${meetingId}${code ? '?error=' + encodeURIComponent(code) : ''}`);
+}
+
+export async function reassignOrganizerAction(form: FormData): Promise<void> {
+  const org = idOf(form, 'organizationId'),
+    meetingId = idOf(form, 'meetingId'),
+    t = await requireTenant(org);
+  let code: string | null = null;
+  try {
+    await reassignMeetingOrganizer(t.database, t.context, {
+      meetingId,
+      organizerMembershipId: idOf(form, 'organizerMembershipId'),
       expectedVersion: Number(text(form, 'version')),
     });
     revalidatePath(`/o/${org}/meetings`, 'layout');

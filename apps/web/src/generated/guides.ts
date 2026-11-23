@@ -10584,6 +10584,33 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
         "inline": [
           {
             "t": "text",
+            "v": "Hand off a meeting"
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "If the organizer's membership has been disabled, an owner or admin can open "
+          },
+          {
+            "t": "strong",
+            "v": "Hand off meeting"
+          },
+          {
+            "t": "text",
+            "v": " and choose an active member who was already listed in the meeting. Company sign-in policy applies. The selected member can organize the meeting. The participant list, consent records and notes stay with the meeting, and the handoff is recorded in the audit log."
+          }
+        ]
+      },
+      {
+        "b": "h",
+        "level": 2,
+        "inline": [
+          {
+            "t": "text",
             "v": "Withdraw"
           }
         ]

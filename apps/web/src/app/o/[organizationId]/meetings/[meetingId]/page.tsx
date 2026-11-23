@@ -9,11 +9,14 @@ import {
   formatDateTime,
 } from '@/components/ui';
 import { Badge } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
+import { canReassignOrganizer } from '@ensemus/domain/meeting';
 import { SubmitButton } from '@/components/submit-button';
 import { ConfirmForm } from '@/components/confirm-form';
 import { requireTenant } from '@/server/tenant';
 import { MeetingForm } from '../meeting-form';
-import { consentAction, removeParticipantAction } from '../actions';
+import { consentAction, reassignOrganizerAction, removeParticipantAction } from '../actions';
 export const metadata = { title: 'Meeting | Ensemus' };
 export default async function MeetingPage({
   params,
@@ -35,16 +38,22 @@ export default async function MeetingPage({
     organizer = meeting.organizerMembershipId === context.membershipId,
     readable = meeting.title !== null,
     open = meeting.status === 'open';
-  const people =
-    organizer && open && !meeting.currentNotes
-      ? (await listDirectory(database, context))
-          .filter(
-            (p) =>
-              p.status === 'active' &&
-              !meeting.participants.some((x) => x.membershipId === p.membershipId),
-          )
-          .map((p) => ({ membershipId: p.membershipId, name: p.name }))
-      : [];
+  const canAdd = organizer && open && !meeting.currentNotes;
+  const canHandoff = open && canReassignOrganizer(context.role);
+  const directory = canAdd || canHandoff ? await listDirectory(database, context) : [];
+  const organizerLeft = directory.some(
+    (person) =>
+      person.membershipId === meeting.organizerMembershipId && person.status === 'disabled',
+  );
+  const people = canAdd
+    ? directory
+        .filter(
+          (p) =>
+            p.status === 'active' &&
+            !meeting.participants.some((x) => x.membershipId === p.membershipId),
+        )
+        .map((p) => ({ membershipId: p.membershipId, name: p.name }))
+    : [];
   const shared = (participantId: string) => (
     <>
       <input type="hidden" name="organizationId" value={organizationId} />
@@ -73,6 +82,38 @@ export default async function MeetingPage({
                 : meeting.consent}
         </Badge>
       </div>
+      {canHandoff && organizerLeft && (
+        <details className="group">
+          <summary>Hand off meeting</summary>
+          <form className="fields" action={reassignOrganizerAction}>
+            <input type="hidden" name="organizationId" value={organizationId} />
+            <input type="hidden" name="meetingId" value={meetingId} />
+            <input type="hidden" name="version" value={meeting.version} />
+            <p className="muted">
+              The organizer has left. Choose an active member who was already listed in the meeting.
+              The handoff keeps the existing participants and consent records.
+            </p>
+            <Label>
+              New organizer
+              <NativeSelect name="organizerMembershipId" defaultValue="" required>
+                <option value="" disabled>
+                  Choose a member
+                </option>
+                {directory
+                  .filter((person) => person.status === 'active')
+                  .map((person) => (
+                    <option key={person.membershipId} value={person.membershipId}>
+                      {person.name}
+                    </option>
+                  ))}
+              </NativeSelect>
+            </Label>
+            <div>
+              <SubmitButton>Hand off meeting</SubmitButton>
+            </div>
+          </form>
+        </details>
+      )}
       {!readable ? (
         <p className="notice">
           You can see this meeting’s status. Its title, participants and notes are private to the

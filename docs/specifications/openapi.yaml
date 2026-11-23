@@ -8787,11 +8787,11 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/MeetingID"
     post:
-      x-ensemus-status: planned
       tags:
         - meetings
-      summary: Hand a meeting on when its organizer has left. Owners and admins, who
-        still see nothing it said
+      summary: Hand off a meeting whose organizer has left to an active participant
+      description: Owners and admins can change the organizer without gaining access
+        to the meeting's content. The participant list and consent records are preserved.
       parameters:
         - $ref: "#/components/parameters/IfMatch"
       requestBody:

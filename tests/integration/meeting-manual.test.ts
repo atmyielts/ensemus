@@ -7,6 +7,7 @@ import {
   domainEvents,
   meetingConsentRecords,
   meetingNotes,
+  meetings,
   memberships,
   openAppDatabase,
   tombstones,
@@ -18,12 +19,14 @@ import { ledgerKeyFor, serializeLedgerEntry } from '@ensemus/domain/tombstone-le
 import {
   addMeetingParticipant,
   createMeeting,
+  disableMember,
   getMeeting,
   getMeetingSettings,
   importMeetingNotes,
   listMeetings,
   purgeMeetingContentInTx,
   recordMeetingConsent,
+  reassignMeetingOrganizer,
   removeMeetingParticipant,
   countUnappliedTombstones,
   reapplyTombstoneLedger,
@@ -501,6 +504,127 @@ describe('manual meeting registration, consent and notes', () => {
     expect(await updateMeetingSettings(app.db, fresh.a.admin.context, input)).toMatchObject({
       enabled: true,
     });
+  });
+
+  it('hands a former organizer’s meeting to a listed member without widening room access', async () => {
+    const fresh = await makeTwoTenants(app.db);
+    const owner = fresh.a.owner.context;
+    const admin = fresh.a.admin.context;
+    const former = fresh.a.member.context;
+    await updateMeetingSettings(app.db, owner, {
+      enabled: true,
+      noticeRef: notice,
+      expectedVersion: 1,
+    });
+    const first = await createMeeting(app.db, former, {
+      title: 'PRIVATE_HANDOFF_TITLE',
+      occurredAt: new Date(),
+    });
+    const next = await addMeetingParticipant(app.db, former, {
+      meetingId: first.id,
+      expectedVersion: first.version,
+      participant: { kind: 'member', membershipId: owner.membershipId },
+    });
+    for (const [actor, participantId] of [
+      [former, first.participants[0]!.id],
+      [owner, next.id],
+    ] as const)
+      await recordMeetingConsent(app.db, actor, {
+        meetingId: first.id,
+        participantId,
+        decision: 'granted',
+        noticeRef: notice,
+      });
+    await importMeetingNotes(app.db, former, {
+      meetingId: first.id,
+      text: 'PRIVATE_HANDOFF_NOTES',
+    });
+    const before = await getMeeting(app.db, admin, first.id);
+    const input = {
+      meetingId: before.id,
+      expectedVersion: before.version,
+      organizerMembershipId: owner.membershipId,
+    };
+    await expect(reassignMeetingOrganizer(app.db, admin, input)).rejects.toEqual(
+      refused('INVALID_STATE'),
+    );
+    await expect(reassignMeetingOrganizer(app.db, former, input)).rejects.toEqual(
+      refused('FORBIDDEN'),
+    );
+    await expect(reassignMeetingOrganizer(app.db, fresh.b.admin.context, input)).rejects.toEqual(
+      refused('NOT_FOUND'),
+    );
+    await expect(
+      reassignMeetingOrganizer(app.db, createServiceContext(owner.organizationId), input),
+    ).rejects.toEqual(refused('FORBIDDEN'));
+
+    await disableMember(app.db, owner, { membershipId: former.membershipId });
+    await expect(
+      reassignMeetingOrganizer(app.db, admin, {
+        ...input,
+        organizerMembershipId: admin.membershipId,
+      }),
+    ).rejects.toEqual(refused('INVALID_STATE'));
+    await expect(
+      reassignMeetingOrganizer(app.db, admin, {
+        ...input,
+        organizerMembershipId: fresh.b.owner.context.membershipId,
+      }),
+    ).rejects.toEqual(refused('INVALID_STATE'));
+    await expect(
+      withTenantTx(worker.db, createServiceContext(owner.organizationId), (tx) =>
+        tx
+          .update(meetings)
+          .set({ organizerMembershipId: owner.membershipId, version: before.version + 1 })
+          .where(eq(meetings.id, first.id)),
+      ),
+    ).rejects.toMatchObject({ cause: { code: 'EN405' } });
+
+    await proveSecondFactor(fresh.a.owner);
+    await updateSecurityPolicy(
+      app.db,
+      owner,
+      { sessionId: fresh.a.owner.sessionId },
+      {
+        expectedVersion: 1,
+        mfaForAdministration: true,
+        mfaMaxAgeSeconds: 900,
+        ssoEnforcement: 'optional',
+      },
+    );
+    await expect(reassignMeetingOrganizer(app.db, admin, input)).rejects.toEqual(
+      refused('MFA_REQUIRED'),
+    );
+    await proveSecondFactor(fresh.a.admin);
+    const outcomes = await Promise.allSettled([
+      reassignMeetingOrganizer(app.db, admin, input),
+      reassignMeetingOrganizer(app.db, admin, input),
+    ]);
+    const denied = outcomes.filter((result) => result.status === 'rejected');
+    expect(denied).toHaveLength(1);
+    expect(denied[0]?.reason).toEqual(refused('VERSION_CONFLICT'));
+
+    expect(await getMeeting(app.db, admin, first.id)).toEqual({
+      ...before,
+      organizerMembershipId: owner.membershipId,
+      version: before.version + 1,
+      title: null,
+      currentNotes: null,
+      participants: [],
+    });
+    const after = await getMeeting(app.db, owner, first.id);
+    expect(after.currentNotes?.text).toBe('PRIVATE_HANDOFF_NOTES');
+    expect(after.consent).toBe('complete');
+    expect(after.participants.map((participant) => participant.id)).toEqual([
+      first.participants[0]!.id,
+      next.id,
+    ]);
+    await expect(
+      importMeetingNotes(app.db, owner, {
+        meetingId: first.id,
+        text: 'New version by the new organizer',
+      }),
+    ).resolves.toMatchObject({ version: 2 });
   });
 
   it("refuses service callers even if they supply a valid person's IDs", async () => {

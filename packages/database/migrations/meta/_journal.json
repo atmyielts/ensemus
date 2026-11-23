@@ -1135,6 +1135,13 @@
       "when": 1794201807634,
       "tag": "0752_meeting_consent_administration",
       "breakpoints": true
+    },
+    {
+      "idx": 162,
+      "version": "7",
+      "when": 1794201807635,
+      "tag": "0753_meeting_organizer_handoff",
+      "breakpoints": true
     }
   ]
 }
