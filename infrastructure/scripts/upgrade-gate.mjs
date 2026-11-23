@@ -14,6 +14,7 @@ import { cpSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL, URL } from 'node:url';
+import { statusOn } from '../../tests/helpers/rendered-status.ts';
 import { assertDiskHeadroom } from './disk-headroom.mjs';
 import { cleanupUpgradeScratch } from './upgrade-cleanup.mjs';
 
@@ -268,8 +269,6 @@ async function main() {
           statement,
         )
         .trim();
-    const statusOn = (html) =>
-      /<dt>Status<\/dt><dd><span class="badge[^"]*">([^<]+)</.exec(html)?.[1];
     const migrationsApplied = () =>
       Number(sql('select count(*) from drizzle.__drizzle_migrations'));
 

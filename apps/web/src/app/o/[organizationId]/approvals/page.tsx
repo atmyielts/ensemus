@@ -79,30 +79,30 @@ export default async function ApprovalsPage({
               {pending.map((approval, index) => {
                 const who = askedBy(index);
                 return (
-                  <li key={approval.id}>
-                    <Link
-                      className="approval-row"
-                      href={`${base}/approvals/${approval.id}`}
-                      aria-labelledby={`approval-${approval.id}`}
-                    >
-                      <span className="approval-subject">
-                        <span id={`approval-${approval.id}`} className="approval-title">
-                          {approval.workTitle}
-                        </span>
-                        <small>
-                          {TOOL_WORDS[approval.toolName] ?? 'A proposed action'}
-                          {' · '}
-                          {approval.toolName === 'work.review'
-                            ? `Asked by ${who}`
-                            : `An assistant asked, for ${who}`}
-                        </small>
-                      </span>
-                      <span className="approval-meta">
-                        <small>Decide by {formatDateTime(approval.expiresAt)}</small>
-                        <StatusBadge status="pending" />
-                      </span>
-                      <ChevronRightIcon className="approval-chevron" aria-hidden="true" />
-                    </Link>
+                  <li key={approval.id} className="approval-row">
+                    <div className="approval-subject">
+                      <Link
+                        className="approval-title"
+                        href={`${base}/approvals/${approval.id}`}
+                        aria-describedby={`approval-${approval.id}-source approval-${approval.id}-deadline`}
+                      >
+                        {approval.workTitle}
+                      </Link>
+                      <small id={`approval-${approval.id}-source`}>
+                        {TOOL_WORDS[approval.toolName] ?? 'A proposed action'}
+                        {' · '}
+                        {approval.toolName === 'work.review'
+                          ? `Asked by ${who}`
+                          : `An assistant asked, for ${who}`}
+                      </small>
+                    </div>
+                    <div className="approval-meta">
+                      <small id={`approval-${approval.id}-deadline`}>
+                        Decide by {formatDateTime(approval.expiresAt)}
+                      </small>
+                      <StatusBadge status="pending" />
+                    </div>
+                    <ChevronRightIcon className="approval-chevron" aria-hidden="true" />
                   </li>
                 );
               })}

@@ -19,14 +19,11 @@ import {
   type Values,
   visit,
 } from '../helpers/forms';
+import { statusOn } from '../helpers/rendered-status';
 import { compose, urls } from '../helpers/stack';
 
 const PLAN_TIMEOUT = 45_000;
 const BASE_URL = 'https://x.invalid';
-
-/** Status as the page states it to a person, not as the database holds it. */
-const statusOn = (html: string) =>
-  /<dt>Status<\/dt><dd><span class="badge[^"]*">([^<]+)</.exec(html)?.[1];
 
 const locationOf = (response: Response) => response.headers.get('location') ?? '';
 

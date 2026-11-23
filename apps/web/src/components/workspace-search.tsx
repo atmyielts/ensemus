@@ -36,7 +36,6 @@ export function WorkspaceSearch({ base }: { base: string }) {
         <Link
           ref={trigger}
           href={`${base}/search`}
-          aria-label="Search"
           aria-haspopup="dialog"
           aria-expanded={open}
           onClick={(event) => {
@@ -54,7 +53,10 @@ export function WorkspaceSearch({ base }: { base: string }) {
         >
           <SearchIcon aria-hidden="true" />
           <span className="workspace-search-label">Search</span>
-          <kbd className="workspace-search-shortcut rounded border border-border px-1 font-mono text-[10px]">
+          <kbd
+            aria-hidden="true"
+            className="workspace-search-shortcut rounded border border-border px-1 font-mono text-[10px]"
+          >
             ⌘ K
           </kbd>
         </Link>

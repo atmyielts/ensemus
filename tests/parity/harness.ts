@@ -43,7 +43,9 @@ const DEPLOYMENT_NAMES: Readonly<Record<CommercialMode, string>> = {
 };
 
 export const statedDeployment = (html: string) =>
-  /This deployment is ([^<.]+)\./.exec(html.replaceAll('<!-- -->', ''))?.[1];
+  /<p\b[^>]*>(?:This deployment is|You are using) ([^<.]+)\.<\/p>/.exec(
+    html.replaceAll('<!-- -->', ''),
+  )?.[1];
 
 export interface ParityContext {
   readonly mode: CommercialMode;

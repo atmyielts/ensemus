@@ -375,6 +375,7 @@
     border-top: 1px solid var(--border);
   }
   .approval-row {
+    position: relative;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto 16px;
     align-items: center;
@@ -384,7 +385,7 @@
     text-decoration: none;
   }
   .approval-row:hover,
-  .approval-row:focus-visible {
+  .approval-row:focus-within {
     background: var(--accent);
   }
   .approval-subject {
@@ -394,7 +395,16 @@
     overflow-wrap: anywhere;
   }
   .approval-title {
+    width: fit-content;
+    max-width: 100%;
+    color: inherit;
     font-weight: 550;
+    text-decoration: none;
+  }
+  .approval-title::after {
+    position: absolute;
+    inset: 0;
+    content: '';
   }
   .approval-row small {
     color: var(--muted-foreground);
@@ -722,9 +732,16 @@
     .mobile-navigation > summary::after,
     .mobile-navigation:not([open]) > summary > svg:nth-child(2),
     .mobile-navigation[open] > summary > svg:first-child,
-    .workspace-search-label,
     .workspace-search-shortcut {
       display: none;
+    }
+    .workspace-search-label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
     }
     .mobile-navigation > summary:hover,
     .mobile-navigation[open] > summary {

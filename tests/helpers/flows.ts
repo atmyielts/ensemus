@@ -9,9 +9,7 @@ export const locationOf = (response: Response) => response.headers.get('location
 export const mainOf = (html: string) =>
   (/<main[\s\S]*<\/main>/.exec(html)?.[0] ?? '').replaceAll('<!-- -->', '');
 
-/** Status as the page states it to a person, not as the database holds it. */
-export const statusOn = (html: string) =>
-  /<dt>Status<\/dt><dd><span class="badge[^"]*">([^<]+)</.exec(html)?.[1];
+export { statusOn } from './rendered-status';
 
 /** One card of a page, by the ID of its heading. Empty when the page does not have it. */
 export const sectionOf = (html: string, heading: string) =>
