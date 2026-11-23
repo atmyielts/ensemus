@@ -408,27 +408,30 @@ async function fail(
   onboardingId: string,
   code: string,
 ) {
-  return withTenantTx(database, context, async (tx) => {
-    const row = await locked(tx, onboardingId);
-    if (terminal(row.state)) return step(row.state as OnboardingState);
-    if (row.sendWorkUnitId) {
-      const [send] = await tx
-        .select()
-        .from(workUnits)
-        .where(eq(workUnits.id, row.sendWorkUnitId))
-        .for('update');
-      if (
-        send &&
-        ['queued', 'ready', 'running', 'blocked', 'awaiting_approval'].includes(send.status)
-      )
-        await applyTransition(tx, context, send, 'cancelled', {
-          reason: 'Onboarding no longer has its required verified inputs.',
-        });
-    }
-    return step(
-      (await move(tx, context, row, 'failed', { stateCode: code })).state as OnboardingState,
-    );
-  });
+  return withTenantTx(database, context, async (tx) =>
+    failInTx(tx, context, await locked(tx, onboardingId), code),
+  );
+}
+
+async function failInTx(tx: Tx, context: TenantContext, row: Row, code: string) {
+  if (terminal(row.state)) return step(row.state as OnboardingState);
+  if (row.sendWorkUnitId) {
+    const [send] = await tx
+      .select()
+      .from(workUnits)
+      .where(eq(workUnits.id, row.sendWorkUnitId))
+      .for('update');
+    if (
+      send &&
+      ['queued', 'ready', 'running', 'blocked', 'awaiting_approval'].includes(send.status)
+    )
+      await applyTransition(tx, context, send, 'cancelled', {
+        reason: 'Onboarding no longer has its required verified inputs.',
+      });
+  }
+  return step(
+    (await move(tx, context, row, 'failed', { stateCode: code })).state as OnboardingState,
+  );
 }
 async function work(tx: Tx, context: TenantContext, workId: string) {
   return loadReadable(tx, context, workId, true);
@@ -773,18 +776,44 @@ export async function advanceClientOnboarding(
       if (row.state === 'waiting_for_acceptance') {
         if (!candidate || candidate !== row.briefArtifactId) throw new AppError('VERSION_CONFLICT');
         await stableSources(tx, candidate, sourceIds);
+        const v = knowledgeArtifactVerifications;
+        const [decision] = await tx
+          .select({
+            id: v.id,
+            decidedBy: v.decidedByMembershipId,
+            rejectsCurrentBrief: sql<boolean>`${v.verdict}='rejected'
+              and ${v.workUnitId}=${brief.id}::uuid
+              and ${v.objectiveSha256}=${row.briefObjectiveSha256}
+              and ${v.citationsSha256}=knowledge.artifact_citation_digest(${candidate}::uuid)
+              and exists(select 1 from ${artifactAclCatalog}
+                where ${artifactAclCatalog.organizationId}=${actor.organizationId}::uuid
+                  and ${artifactAclCatalog.artifactId}=${candidate}::uuid
+                  and ${artifactAclCatalog.sha256}=${v.artifactSha256} and ${artifactAclCatalog.alive})
+              and exists(select 1 from ${artifactWorkLinks}
+                where ${artifactWorkLinks.organizationId}=${actor.organizationId}::uuid
+                  and ${artifactWorkLinks.artifactId}=${candidate}::uuid
+                  and ${artifactWorkLinks.workUnitId}=${brief.id}::uuid)`,
+          })
+          .from(v)
+          .where(
+            and(
+              eq(v.organizationId, actor.organizationId),
+              eq(v.artifactId, candidate),
+              eq(v.kind, 'human'),
+              sql`${v.proofOrder} is not null`,
+            ),
+          )
+          .orderBy(desc(v.proofOrder))
+          .limit(1);
+        if (!decision || decision.decidedBy !== row.reviewerMembershipId)
+          return step('waiting_for_acceptance');
+        if (decision.rejectsCurrentBrief) return failInTx(tx, actor, row, 'BRIEF_REJECTED');
         const proof = await tx.execute<{ id: string | null }>(
           sql`select knowledge.artifact_acceptance_id(${candidate}::uuid,${brief.id}::uuid) as id`,
         );
-        if (!proof.rows[0]?.id) return step('waiting_for_acceptance');
-        const [accepted] = await tx
-          .select()
-          .from(knowledgeArtifactVerifications)
-          .where(eq(knowledgeArtifactVerifications.id, proof.rows[0].id));
-        if (!accepted || accepted.decidedByMembershipId !== row.reviewerMembershipId)
-          return step('waiting_for_acceptance');
+        if (proof.rows[0]?.id !== decision.id) return step('waiting_for_acceptance');
         row = await move(tx, actor, row, 'waiting_for_acceptance', {
-          acceptedVerificationId: accepted.id,
+          acceptedVerificationId: decision.id,
         });
         await completeWork(tx, actor, await work(tx, actor, brief.id));
         await completeWork(tx, actor, await work(tx, actor, review.id));

@@ -33,6 +33,10 @@ const outcomes = new Map<string, string>([
     'The run did not produce exactly one confirmed brief. Open the brief work to inspect its outputs before starting another onboarding.',
   ],
   [
+    'BRIEF_REJECTED',
+    'The named reviewer rejected the brief. Open the brief verification page to read the review.',
+  ],
+  [
     'BRIEF_UNAVAILABLE',
     'The brief or its supporting information is no longer available to this onboarding. Open the linked work to review current access.',
   ],

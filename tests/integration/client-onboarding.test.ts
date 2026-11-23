@@ -79,6 +79,7 @@ import { nativeMfaOwner } from '../helpers/knowledge-native';
 import { urls } from '../helpers/stack';
 import { createClientOnboardingActivities } from '@ensemus/workflows/client-onboarding-activities';
 import { LifecycleMemoryStore } from './saas-lifecycle-fixture';
+import { draftRunOutput, startRunning } from '../helpers/ai/run-output';
 
 describe('deal won to one verified onboarding', () => {
   let database: ReturnType<typeof openAppDatabase>, auth: pg.Client;
@@ -361,6 +362,61 @@ describe('deal won to one verified onboarding', () => {
       ).toBeNull();
     }
   });
+  it('stops onboarding when the named reviewer rejects the current brief', async () => {
+    const created = await startClientOnboarding(database.db, owner, input());
+    const gateway = runs();
+    const store = new LifecycleMemoryStore();
+    await advance(created.onboardingId, gateway.port, store);
+    const stored = await row(created.onboardingId);
+    const workUnitId = stored.briefWorkUnitId!;
+    const writer = await prepareRunInputContext(agent.db, owner.organizationId, stored.agentRunId!);
+    await startRunning(agent.db, writer);
+    const draft = await draftRunOutput(agent.db, store, writer, {
+      workUnitId,
+      stepNumber: 1,
+      name: 'Generated review draft.txt',
+      text: briefText,
+    });
+    gateway.state = {
+      ...gateway.state!,
+      status: 'completed',
+      artifactState: 'ready',
+      artifactIds: [draft.id],
+    };
+    expect(await advance(created.onboardingId, gateway.port, store)).toMatchObject({
+      state: 'waiting_for_acceptance',
+    });
+    const review = { workUnitId, artifactId: draft.id };
+    const proof = await getArtifactVerification(database.db, reviewer, review);
+    const reject = (person: TenantContext) =>
+      decideArtifact(database.db, person, {
+        ...review,
+        artifactSha256: proof.artifactSha256,
+        objectiveSha256: proof.objectiveSha256,
+        citationsSha256: proof.citationsSha256,
+        verdict: 'rejected',
+        reason: 'Generated review note.',
+      });
+    await reject(owner);
+    expect(await advance(created.onboardingId, gateway.port, store)).toMatchObject({
+      state: 'waiting_for_acceptance',
+    });
+    await reject(reviewer);
+    expect(await advance(created.onboardingId, gateway.port, store)).toMatchObject({
+      state: 'failed',
+      waitFor: 'nothing',
+    });
+    const stopped = await row(created.onboardingId);
+    expect(stopped).toMatchObject({
+      stateCode: 'BRIEF_REJECTED',
+      emailExternalActionId: null,
+      emailApprovalId: null,
+    });
+    expect((await getWorkDetail(database.db, owner, stopped.sendWorkUnitId!)).work.status).toBe(
+      'cancelled',
+    );
+  });
+
   it('hands a real cited run to its human reviewer before creating an email approval', async () => {
     const created = await startClientOnboarding(database.db, owner, input());
     const port = createOnboardingAgentRuns();
