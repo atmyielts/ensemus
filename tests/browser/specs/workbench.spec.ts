@@ -19,16 +19,22 @@ test('a work selection, its full details and the native search link work without
 }) => {
   const page = await open(person, { javaScriptEnabled: false, width: 320 });
   await page.goto(`/o/${organization}`);
-  await page.locator('.queue-row').filter({ hasText: title }).click();
+  const row = page.getByRole('link', { name: new RegExp(title) });
+  await row.click();
   const preview = page.getByRole('complementary', { name: 'Selected work' });
   await expect(preview).toContainText(title);
+  await expect(preview.getByRole('heading', { name: title, exact: true })).toBeInViewport();
+  await expect(row).toBeHidden();
   await expect(preview.getByRole('link', { name: 'Open work details' })).toHaveAttribute(
     'href',
     workPath(organization, work),
   );
-  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+  expect(
+    await page.getByRole('main').evaluate((main) => main.scrollWidth - main.clientWidth),
+  ).toBeLessThanOrEqual(1);
   await preview.getByRole('link', { name: 'Close work preview' }).click();
   await expect(preview).toHaveCount(0);
+  await expect(row).toBeVisible();
   await page.getByRole('link', { name: /^Search/ }).click();
   await expect(page).toHaveURL(new RegExp(`/o/${organization}/search$`));
 });

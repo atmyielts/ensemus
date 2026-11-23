@@ -1068,6 +1068,7 @@
   }
   .inbox-item {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     justify-items: start;
   }
   .due-word {
@@ -1441,11 +1442,12 @@
       flex-wrap: nowrap;
       overflow-x: auto;
       scrollbar-width: none;
-      margin-inline: calc(-1 * var(--space-1));
       padding-inline: var(--space-1);
+      scroll-padding-inline: var(--space-1);
     }
     .section-navigation a {
       flex: none;
+      min-height: 44px;
     }
     /* Every row reads the same way: its title, then its details underneath. */
     .list > li {

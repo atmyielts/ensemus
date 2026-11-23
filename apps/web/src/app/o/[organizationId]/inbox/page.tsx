@@ -107,7 +107,7 @@ export default async function InboxPage({
                       name="target"
                       value={targetPath(base, notification.targetRef)}
                     />
-                    <SubmitButton className="link">
+                    <SubmitButton className="link h-auto min-h-8 max-w-full py-2 text-start leading-snug wrap-anywhere whitespace-normal">
                       {KIND_WORDS[notification.kind] ?? 'Something needs your attention'}
                     </SubmitButton>
                     {titleOf.has(notification.targetRef) && (
