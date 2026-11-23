@@ -35,6 +35,7 @@ import { lifecycleArtifact, lifecycleTenant, LifecycleMemoryStore } from './saas
 
 describe('legal holds survive every deletion path under actual roles', () => {
   const database = openAppDatabase(urls.app()),
+    worker = openAppDatabase(urls.worker()),
     auth = new pg.Client({ connectionString: urls.auth() });
   beforeAll(async () => {
     await auth.connect();
@@ -42,6 +43,7 @@ describe('legal holds survive every deletion path under actual roles', () => {
   afterAll(async () => {
     await auth.end();
     await database.close();
+    await worker.close();
   });
   it('hides holds from admins and members, and rejects another tenant scope', async () => {
     const owner = await lifecycleTenant(database.db, auth),
@@ -115,7 +117,7 @@ describe('legal holds survive every deletion path under actual roles', () => {
         scopes: [{ type, id: target }],
       });
       expect(
-        await withTenantTx(database.db, service, (tx) =>
+        await withTenantTx(worker.db, service, (tx) =>
           isHeldInTx(tx, service, { type: 'artifact', id: file.artifactId }),
         ),
       ).toBe(true);
@@ -223,7 +225,7 @@ describe('legal holds survive every deletion path under actual roles', () => {
     // refuse_held_tombstone and refuse_held_delete judge the deletion time), and removes the row.
     const failures: unknown[] = [];
     const applied = await reapplyTombstoneLedger(
-      database.db,
+      worker.db,
       store,
       createServiceContext,
       (error) => failures.push(error),
