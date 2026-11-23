@@ -827,3 +827,14 @@ platform or launch qualification. Current joined CI/integration, module APIs, co
 erasure reach, customer connector setup, durable/provider acceptance and human review remain open.
 Commit d930fbf and its history were pushed to origin/codex/release-candidate before this UI checkpoint;
 subsequent Git history records the UI push. Earlier statements of local-only status above are historical.
+
+## Current Linux CI startup repair (QA-007, PLAT-11; 2026-11-23)
+
+PR #4 at 12c6128 started Actions run 45144849819. Browser and connector jobs failed before tests:
+`server.mjs` imported `./sigv4.mjs`, but the test overlay mounted only the entry file. The overlay now
+mounts the complete two-file fake-model source directory read-only. No shipped image, runtime provider,
+network permission or model assertion changed. On the existing isolated qualification stack, starting
+only fake-model with --no-deps --wait succeeded and its internal /__fake/stats answered HTTP 200.
+The focused Compose formatting check passed. This proves fixture startup, not application or provider
+acceptance; the Linux integration jobs also reported separate native authority/lifecycle failures.
+The shared runtime fixture repair is pushed as its own checkpoint before continuing customer connector setup.

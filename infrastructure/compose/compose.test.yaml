@@ -63,7 +63,8 @@ services:
       FAKE_MODEL_HOST: 0.0.0.0
       FAKE_MODEL_PORT: 8000
     volumes:
-      - ../../tests/fixtures/fake-model/server.mjs:/fixture/server.mjs:ro
+      # Keep the test server and its local SigV4 verifier together; neither ships in app images.
+      - ../../tests/fixtures/fake-model:/fixture:ro
     networks:
       agents: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.20' }
     healthcheck:
