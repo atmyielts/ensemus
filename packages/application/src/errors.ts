@@ -130,7 +130,10 @@ export type ErrorCode =
   | 'CONSENT_NOT_YOURS'
   | 'CONSENT_NOTICE_NOT_CURRENT'
   | 'PROVIDER_NOT_APPROVED'
+  | 'PROVIDER_APPROVAL_EXPIRED'
+  | 'CLASSIFICATION_NOT_ALLOWED'
   | 'MEETING_PURGED'
+  | 'MEETING_NOTES_REQUIRED'
   | 'MEETING_PARTICIPANTS_FROZEN'
   | 'PROPOSAL_ALREADY_DECIDED'
   | 'FEATURE_NOT_ENABLED'
@@ -319,7 +322,11 @@ const MESSAGES: Record<ErrorCode, string> = {
   CONSENT_NOT_YOURS: 'Only that person can record this, or the organizer for someone outside.',
   CONSENT_NOTICE_NOT_CURRENT: 'The notice changed. Read the current one and answer again.',
   PROVIDER_NOT_APPROVED: 'An administrator has not approved this provider for this use.',
+  PROVIDER_APPROVAL_EXPIRED: 'The approval for this provider expired.',
+  CLASSIFICATION_NOT_ALLOWED:
+    'This provider approval does not cover this meeting’s classification.',
   MEETING_PURGED: 'This meeting was removed when someone withdrew their consent.',
+  MEETING_NOTES_REQUIRED: 'Add notes before requesting a summary or suggestions.',
   MEETING_PARTICIPANTS_FROZEN: 'Notes exist, so who was there can no longer change.',
   PROPOSAL_ALREADY_DECIDED: 'Someone has already decided this.',
   FEATURE_NOT_ENABLED: 'This is not switched on for this deployment.',
@@ -507,7 +514,10 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   CONSENT_NOT_YOURS: 403,
   CONSENT_NOTICE_NOT_CURRENT: 409,
   PROVIDER_NOT_APPROVED: 409,
+  PROVIDER_APPROVAL_EXPIRED: 409,
+  CLASSIFICATION_NOT_ALLOWED: 409,
   MEETING_PURGED: 409,
+  MEETING_NOTES_REQUIRED: 409,
   MEETING_PARTICIPANTS_FROZEN: 409,
   PROPOSAL_ALREADY_DECIDED: 409,
   FEATURE_NOT_ENABLED: 409,

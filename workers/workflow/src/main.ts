@@ -177,8 +177,8 @@ async function main() {
       ),
       ...createRetentionActivities({ database: db, sources: ports.retentionSources }),
       ...createOffboardingActivities({ database: db, ports: ports.offboarding }),
-      // M4 plugs its model gateway and egress gate in here at the final merge. Until then a run ends
-      // MODEL_UNAVAILABLE and says so, and no meeting content can leave (ADR-033 D6).
+      // Keep production meeting egress closed until the governed model worker attaches an exact
+      // profile and records its egress decision (ADR-033 D6).
       ...createMeetingDerivationActivities({
         database: db,
         model: noMeetingModel,

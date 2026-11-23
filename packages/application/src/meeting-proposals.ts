@@ -1,18 +1,14 @@
 // Owned by the meetings-proposals slice (EXP-03). See docs/06-delivery/m11a-slices.md and ADR-033 D7. Derived work
 // is proposed, never applied: this is the only path from a proposal to a Work Unit, and it takes a person.
 import {
-  meetingParticipants,
   meetingProposedItems,
-  meetings,
   meetingSummaries,
   type AppDatabase,
   type TenantContext,
   type Tx,
 } from '@ensemus/database';
 import {
-  canReadMeetingContent,
   proposedItemTargetRef,
-  type MeetingViewer,
   type ProposedItemKind,
   type ProposedItemStatus,
 } from '@ensemus/domain/meeting';
@@ -23,7 +19,7 @@ import { z } from 'zod';
 import { AppError, pgCode } from './errors';
 import { emit } from './events';
 import { idSchema } from './ids';
-import { withMeetingPerson } from './meeting-manual';
+import { meetingForContent, withMeetingPerson } from './meeting-manual';
 import { auditAction, createWorkUnitInTx } from './work';
 
 export type ProposedItemView = {
@@ -58,38 +54,6 @@ function validId(value: string) {
   const parsed = idSchema.safeParse(value);
   if (!parsed.success) throw new AppError('INVALID_INPUT');
   return parsed.data;
-}
-
-async function meetingForContent(tx: Tx, id: string, viewer: MeetingViewer, lock = false) {
-  const query = tx
-    .select({
-      id: meetings.id,
-      organizationId: meetings.organizationId,
-      organizerMembershipId: meetings.organizerMembershipId,
-      status: meetings.status,
-      classification: meetings.classification,
-    })
-    .from(meetings)
-    .where(eq(meetings.id, validId(id)));
-  const [meeting] = await (lock ? query.for('update') : query);
-  if (!meeting) throw new AppError('NOT_FOUND');
-  const [participant] =
-    meeting.organizerMembershipId === viewer.membershipId
-      ? []
-      : await tx
-          .select({ id: meetingParticipants.id })
-          .from(meetingParticipants)
-          .where(
-            and(
-              eq(meetingParticipants.organizationId, meeting.organizationId),
-              eq(meetingParticipants.meetingId, meeting.id),
-              eq(meetingParticipants.membershipId, viewer.membershipId),
-            ),
-          )
-          .limit(1);
-  if (!canReadMeetingContent({ ...meeting, isParticipant: participant !== undefined }, viewer))
-    throw new AppError('NOT_FOUND');
-  return meeting;
 }
 
 async function proposalMeetingId(tx: Tx, id: string) {

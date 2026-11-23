@@ -1,10 +1,51 @@
-// Owned by the meetings-derivation slice (EXP-03). See docs/06-delivery/m11a-slices.md and ADR-033 D6. A person
-// asks, the worker rechecks everything right before the provider sees anything, and what comes back is stored
-// as a model's guess, or thrown away if someone said no in the meantime.
-import type { AppDatabase, TenantContext } from '@ensemus/database';
-import type { DerivationPurpose, DerivationStatus, MeetingStopCode } from '@ensemus/domain/meeting';
+import {
+  meetingItemsOutputSchema,
+  meetingSummaryOutputSchema,
+  requestDerivationSchema,
+} from '@ensemus/contracts/meetings';
+import {
+  meetingDerivationRuns,
+  meetingNotes,
+  meetingParticipants,
+  meetingProposedItems,
+  meetingProviderApprovals,
+  meetings,
+  meetingSettings,
+  meetingSummaries,
+  withTenantTx,
+  type AppDatabase,
+  type TenantContext,
+  type Tx,
+} from '@ensemus/database';
+import {
+  AGGREGATE_MEETING_DERIVATION,
+  MEETING_DERIVATION_COMPLETED,
+  MEETING_DERIVATION_REQUESTED,
+  MEETING_DERIVATION_STOPPED,
+  NOTIFY_MEETING_DERIVATION_STOPPED,
+  NOTIFY_MEETING_ITEMS_PROPOSED,
+} from '@ensemus/domain/expansion-events';
+import {
+  checkBeforeDerivation,
+  checkProviderApproval,
+  MAX_SUMMARY_BYTES,
+  MEETING_STOP_CODES,
+  meetingTargetRef,
+  type DerivationPurpose,
+  type DerivationStatus,
+  type MeetingStatus,
+  type MeetingStopCode,
+  type ProviderApprovalFacts,
+} from '@ensemus/domain/meeting';
 import type { Classification } from '@ensemus/domain/policy';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { z } from 'zod';
+import { AppError } from './errors';
+import { emit } from './events';
 import type { MeetingModelAnswer } from './expansion-ports';
+import { idSchema } from './ids';
+import { meetingForContent, withMeetingPerson } from './meeting-manual';
+import { auditAction, notify } from './work';
 
 export type DerivationRunView = {
   id: string;
@@ -17,28 +58,296 @@ export type DerivationRunView = {
   finishedAt: Date | null;
 };
 
-/**
- * The organizer asks for one version of the notes to go to one approved provider for one purpose. Emits
- * MEETING_DERIVATION_REQUESTED. CONSENT_INCOMPLETE and PROVIDER_NOT_APPROVED are refusals here as well as in
- * the trigger, so a person hears the reason. A service context is refused, so nothing runs by itself.
- */
+type Run = typeof meetingDerivationRuns.$inferSelect;
+type Room = Pick<
+  typeof meetings.$inferSelect,
+  'id' | 'organizationId' | 'organizerMembershipId' | 'status' | 'classification'
+>;
+const open = (run: Run) => run.status === 'requested' || run.status === 'running';
+const view = (row: Run): DerivationRunView => ({
+  id: row.id,
+  meetingId: row.meetingId,
+  purpose: row.purpose as DerivationPurpose,
+  status: row.status as DerivationStatus,
+  statusCode: row.statusCode as MeetingStopCode | null,
+  requestedByMembershipId: row.requestedByMembershipId,
+  createdAt: row.createdAt,
+  finishedAt: row.finishedAt,
+});
+const runIs = (context: TenantContext, id: string) =>
+  and(
+    eq(meetingDerivationRuns.organizationId, context.organizationId),
+    eq(meetingDerivationRuns.id, id),
+  );
+
+function validId(id: string) {
+  const parsed = idSchema.safeParse(id);
+  if (!parsed.success) throw new AppError('INVALID_INPUT');
+  return parsed.data;
+}
+
+async function latestNotes(tx: Tx, room: Room) {
+  const [row] = await tx
+    .select({
+      id: meetingNotes.id,
+      sha: meetingNotes.bodySha256,
+      purged: sql<boolean>`${meetingNotes.body} is null`,
+    })
+    .from(meetingNotes)
+    .where(
+      and(
+        eq(meetingNotes.organizationId, room.organizationId),
+        eq(meetingNotes.meetingId, room.id),
+      ),
+    )
+    .orderBy(desc(meetingNotes.version))
+    .limit(1);
+  return row;
+}
+
+async function hasConsent(tx: Tx, room: Room) {
+  const result = await tx.execute<{ granted: boolean }>(
+    sql`select meetings.consent_complete(${room.organizationId}::uuid, ${room.id}::uuid) as granted`,
+  );
+  return result.rows[0]?.granted === true;
+}
+
+async function checkStart(
+  tx: Tx,
+  room: Room,
+  approvalId: string,
+  purpose: DerivationPurpose,
+  expectedNotesId?: string,
+) {
+  const [settings] = await tx
+    .select({ enabled: meetingSettings.enabled })
+    .from(meetingSettings)
+    .where(eq(meetingSettings.organizationId, room.organizationId))
+    .for('share');
+  const notes = await latestNotes(tx, room);
+  const [approval] = await tx
+    .select()
+    .from(meetingProviderApprovals)
+    .where(
+      and(
+        eq(meetingProviderApprovals.organizationId, room.organizationId),
+        eq(meetingProviderApprovals.id, approvalId),
+      ),
+    )
+    .for('share');
+  const classification = room.classification as Classification;
+  const target = approval?.targetRef.startsWith('model_profile:')
+    ? idSchema.safeParse(approval.targetRef.slice('model_profile:'.length))
+    : null;
+  const check = checkBeforeDerivation({
+    meetingStatus: room.status as MeetingStatus,
+    consent: (await hasConsent(tx, room)) ? 'complete' : 'pending',
+    provider: checkProviderApproval(
+      target?.success ? (approval as ProviderApprovalFacts) : null,
+      { kind: 'model', purpose, classification },
+      new Date(),
+    ),
+    notesCurrent:
+      notes !== undefined && (expectedNotesId === undefined || notes.id === expectedNotesId),
+    notesPurged: notes?.purged ?? false,
+  });
+  if (room.status === 'purged') return { code: 'MEETING_PURGED' } as const;
+  if (!settings?.enabled) return { code: 'MEETINGS_NOT_ENABLED' } as const;
+  if (!check.ok) return { code: check.code } as const;
+  if (!notes || !target?.success) throw new AppError('INVALID_STATE');
+  return { notes, modelProfileId: target.data, classification } as const;
+}
+
+function refuseRequest(code: MeetingStopCode): never {
+  switch (code) {
+    case 'MEETINGS_NOT_ENABLED':
+    case 'MEETING_PURGED':
+    case 'CONSENT_INCOMPLETE':
+    case 'PROVIDER_APPROVAL_EXPIRED':
+    case 'CLASSIFICATION_NOT_ALLOWED':
+      throw new AppError(code);
+    case 'NOTES_NOT_CURRENT':
+      throw new AppError('MEETING_NOTES_REQUIRED');
+    default:
+      throw new AppError('PROVIDER_NOT_APPROVED');
+  }
+}
+
+async function publishRun(
+  tx: Tx,
+  context: TenantContext,
+  room: Room,
+  run: Run,
+  eventType: string,
+  version: number,
+  code?: MeetingStopCode,
+) {
+  await emit(tx, context, {
+    eventType,
+    aggregateType: AGGREGATE_MEETING_DERIVATION,
+    aggregateId: run.id,
+    aggregateVersion: version,
+    classification: room.classification,
+    payload: { meeting_id: room.id, purpose: run.purpose, ...(code ? { code } : {}) },
+  });
+  await auditAction(tx, context, eventType, meetingTargetRef(room.id), code);
+}
+
+/** Queues the latest consented notes once for an exact provider and purpose. */
 export function requestMeetingDerivation(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: { meetingId: string; purpose: DerivationPurpose; providerApprovalId: string },
+  database: AppDatabase,
+  context: TenantContext,
+  input: { meetingId: string; purpose: DerivationPurpose; providerApprovalId: string },
 ): Promise<DerivationRunView> {
-  throw new Error('NOT_IMPLEMENTED');
+  return withMeetingPerson(database, context, async (tx, viewer) => {
+    const parsed = requestDerivationSchema.safeParse({
+      purpose: input.purpose,
+      provider_approval_id: input.providerApprovalId,
+    });
+    if (!parsed.success) throw new AppError('INVALID_INPUT');
+    const room = await meetingForContent(tx, input.meetingId, viewer, true);
+    if (room.organizerMembershipId !== viewer.membershipId) throw new AppError('FORBIDDEN');
+    const allowed = await checkStart(
+      tx,
+      room,
+      parsed.data.provider_approval_id,
+      parsed.data.purpose,
+    );
+    if ('code' in allowed) refuseRequest(allowed.code);
+    const [prior] = await tx
+      .select()
+      .from(meetingDerivationRuns)
+      .where(
+        and(
+          eq(meetingDerivationRuns.organizationId, room.organizationId),
+          eq(meetingDerivationRuns.notesId, allowed.notes.id),
+          eq(meetingDerivationRuns.purpose, parsed.data.purpose),
+          inArray(meetingDerivationRuns.status, ['requested', 'running']),
+        ),
+      );
+    if (prior) {
+      if (prior.providerApprovalId !== parsed.data.provider_approval_id)
+        throw new AppError('INVALID_STATE');
+      return view(prior);
+    }
+
+    const [run] = await tx
+      .insert(meetingDerivationRuns)
+      .values({
+        organizationId: room.organizationId,
+        meetingId: room.id,
+        notesId: allowed.notes.id,
+        providerApprovalId: parsed.data.provider_approval_id,
+        purpose: parsed.data.purpose,
+        requestedByMembershipId: viewer.membershipId,
+      })
+      .returning();
+    if (!run) throw new AppError('INVALID_STATE');
+    await publishRun(tx, context, room, run, MEETING_DERIVATION_REQUESTED, run.version);
+    return view(run);
+  });
 }
 
 export function listMeetingDerivations(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _meetingId: string,
+  database: AppDatabase,
+  context: TenantContext,
+  meetingId: string,
 ): Promise<readonly DerivationRunView[]> {
-  throw new Error('NOT_IMPLEMENTED');
+  return withMeetingPerson(database, context, async (tx, viewer) => {
+    const room = await meetingForContent(tx, meetingId, viewer);
+    const rows = await tx
+      .select()
+      .from(meetingDerivationRuns)
+      .where(
+        and(
+          eq(meetingDerivationRuns.organizationId, room.organizationId),
+          eq(meetingDerivationRuns.meetingId, room.id),
+        ),
+      )
+      .orderBy(desc(meetingDerivationRuns.createdAt), desc(meetingDerivationRuns.id));
+    return rows.map(view);
+  });
 }
 
-/** Everything a provider call takes. Lives only in the worker's memory and never crosses Temporal. */
+/** Native platform worker only. Every runner takes the room lock before the run lock, as withdrawal does. */
+function withWorkerRun<T>(
+  database: AppDatabase,
+  context: TenantContext,
+  runId: string,
+  use: (tx: Tx, room: Room, run: Run) => Promise<T>,
+): Promise<T | null> {
+  if (context.actorType !== 'service') throw new AppError('FORBIDDEN');
+  return withTenantTx(database, context, async (tx) => {
+    const identity = await tx.execute<{ allowed: boolean }>(
+      sql`select current_user='ensemus_worker' and session_user='ensemus_worker' as allowed`,
+    );
+    if (identity.rows[0]?.allowed !== true) throw new AppError('FORBIDDEN');
+    const selector = runIs(context, validId(runId));
+    const [parent] = await tx
+      .select({ id: meetingDerivationRuns.meetingId })
+      .from(meetingDerivationRuns)
+      .where(selector);
+    if (!parent) return null;
+    const [room] = await tx
+      .select({
+        id: meetings.id,
+        organizationId: meetings.organizationId,
+        organizerMembershipId: meetings.organizerMembershipId,
+        status: meetings.status,
+        classification: meetings.classification,
+      })
+      .from(meetings)
+      .where(and(eq(meetings.organizationId, context.organizationId), eq(meetings.id, parent.id)))
+      .for('update');
+    if (!room) return null;
+    const [run] = await tx.select().from(meetingDerivationRuns).where(selector).for('update');
+    return run ? use(tx, room, run) : null;
+  });
+}
+
+async function participants(tx: Tx, room: Room) {
+  const people = await tx
+    .select({ member: meetingParticipants.membershipId })
+    .from(meetingParticipants)
+    .where(
+      and(
+        eq(meetingParticipants.organizationId, room.organizationId),
+        eq(meetingParticipants.meetingId, room.id),
+      ),
+    )
+    .orderBy(asc(meetingParticipants.createdAt), asc(meetingParticipants.id));
+  return people.map((person) => person.member);
+}
+
+async function stop(
+  tx: Tx,
+  context: TenantContext,
+  room: Room,
+  run: Run,
+  to: 'failed' | 'refused',
+  code: MeetingStopCode,
+) {
+  const version = run.version + 1;
+  await tx
+    .update(meetingDerivationRuns)
+    .set({
+      status: to,
+      statusCode: code,
+      version,
+      finishedAt: new Date(),
+    })
+    .where(runIs(context, run.id));
+  await publishRun(tx, context, room, run, MEETING_DERIVATION_STOPPED, version, code);
+  await notify(
+    tx,
+    context,
+    [run.requestedByMembershipId, room.organizerMembershipId],
+    NOTIFY_MEETING_DERIVATION_STOPPED,
+    meetingTargetRef(room.id),
+  );
+}
+
+/** Notes and positional mapping stay in the worker that makes the call. */
 export type PreparedDerivation = {
   runId: string;
   meetingId: string;
@@ -47,46 +356,213 @@ export type PreparedDerivation = {
   modelProfileId: string;
   notes: string;
   notesSha256: string;
-  /** Members by position, as the model is told to refer to them. Outsiders hold a place and no ID. */
   participants: readonly (string | null)[];
 };
 
 export type BeginDerivation =
   | { kind: 'go'; prepared: PreparedDerivation }
-  /** Already finished, by an earlier try of this Activity. Nothing to do and nothing to contact. */
   | { kind: 'done'; status: DerivationStatus }
   | { kind: 'stopped'; code: MeetingStopCode };
 
-/**
- * Service context. Under the meeting's lock, runs checkBeforeDerivation and moves the run to `running`, and if
- * anything has changed, moves it to `refused` with the code instead. This is the last thing before notes leave.
- */
-export function beginMeetingDerivation(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: { derivationRunId: string; temporalRunId: string },
+export async function beginMeetingDerivation(
+  database: AppDatabase,
+  context: TenantContext,
+  input: { derivationRunId: string; temporalRunId: string },
 ): Promise<BeginDerivation> {
-  throw new Error('NOT_IMPLEMENTED');
+  const temporalRunId = validId(input.temporalRunId);
+  return (
+    (await withWorkerRun<BeginDerivation>(
+      database,
+      context,
+      input.derivationRunId,
+      async (tx, room, run) => {
+        if (!open(run)) return { kind: 'done', status: run.status as DerivationStatus };
+        if (run.status === 'running' && run.temporalRunId !== temporalRunId)
+          return { kind: 'done', status: 'cancelled' };
+
+        const purpose = run.purpose as DerivationPurpose;
+        const allowed = await checkStart(tx, room, run.providerApprovalId, purpose, run.notesId);
+        if ('code' in allowed) {
+          await stop(tx, context, room, run, 'refused', allowed.code);
+          return { kind: 'stopped', code: allowed.code };
+        }
+        const [notes] = await tx
+          .select({ text: meetingNotes.body })
+          .from(meetingNotes)
+          .where(
+            and(
+              eq(meetingNotes.organizationId, room.organizationId),
+              eq(meetingNotes.meetingId, room.id),
+              eq(meetingNotes.id, allowed.notes.id),
+            ),
+          );
+        if (!notes?.text) throw new AppError('INVALID_STATE');
+        if (run.status === 'requested') {
+          await tx
+            .update(meetingDerivationRuns)
+            .set({
+              status: 'running',
+              temporalRunId,
+              version: run.version + 1,
+              startedAt: new Date(),
+            })
+            .where(runIs(context, run.id));
+        }
+        return {
+          kind: 'go',
+          prepared: {
+            runId: run.id,
+            meetingId: room.id,
+            purpose,
+            classification: allowed.classification,
+            modelProfileId: allowed.modelProfileId,
+            notes: notes.text,
+            notesSha256: allowed.notes.sha,
+            participants: await participants(tx, room),
+          },
+        };
+      },
+    )) ?? { kind: 'done', status: 'cancelled' }
+  );
 }
 
-/**
- * Service context. Parses the output against @ensemus/contracts/meetings and stores it, or refuses the run with
- * MODEL_OUTPUT_INVALID. Items start `proposed`, and tell the organizer and participants. If the run is no
- * longer `running`, because consent went while the model was thinking, the answer is dropped and this returns
- * `dropped`. Nothing is kept of it.
- */
-export function finishMeetingDerivation(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: { derivationRunId: string; answer: MeetingModelAnswer },
-): Promise<{ status: DerivationStatus | 'dropped'; items: number }> {
-  throw new Error('NOT_IMPLEMENTED');
+const receiptSchema = z.strictObject({
+  modelRef: z.string().regex(/^[A-Za-z0-9._:/-]{1,128}$/),
+  inputTokens: z.int().min(0).max(2_147_483_647),
+  outputTokens: z.int().min(0).max(2_147_483_647),
+});
+const safeText = (text: string) => !text.includes('\u0000');
+
+type DerivedResult = { status: DerivationStatus | 'dropped'; items: number };
+
+export async function finishMeetingDerivation(
+  database: AppDatabase,
+  context: TenantContext,
+  input: { derivationRunId: string; temporalRunId: string; answer: MeetingModelAnswer },
+): Promise<DerivedResult> {
+  const temporalRunId = validId(input.temporalRunId);
+  const { output, ...receipt } = input.answer;
+  return (
+    (await withWorkerRun<DerivedResult>(
+      database,
+      context,
+      input.derivationRunId,
+      async (tx, room, run) => {
+        if (
+          run.temporalRunId !== temporalRunId ||
+          room.status !== 'open' ||
+          !(await hasConsent(tx, room))
+        )
+          return { status: 'dropped', items: 0 };
+        if (run.status !== 'running') return { status: run.status as DerivationStatus, items: 0 };
+
+        const metadata = receiptSchema.safeParse(receipt);
+        const summary =
+          run.purpose === 'summarize' ? meetingSummaryOutputSchema.safeParse(output) : null;
+        const items =
+          run.purpose === 'extract_items' ? meetingItemsOutputSchema.safeParse(output) : null;
+        const summaryText = summary?.success ? summary.data.summary : null;
+        const suggestions = items?.success ? items.data.items : null;
+        const invalidSummary =
+          summaryText === null ||
+          !safeText(summaryText) ||
+          Buffer.byteLength(summaryText) > MAX_SUMMARY_BYTES;
+        const invalidItems =
+          suggestions === null ||
+          suggestions.some(
+            (item) =>
+              !safeText(item.title) || (item.detail !== undefined && !safeText(item.detail)),
+          );
+        if (!metadata.success || (run.purpose === 'summarize' ? invalidSummary : invalidItems)) {
+          await stop(tx, context, room, run, 'refused', 'MODEL_OUTPUT_INVALID');
+          return { status: 'refused', items: 0 };
+        }
+
+        const key = {
+          organizationId: room.organizationId,
+          meetingId: room.id,
+          runId: run.id,
+          classification: room.classification,
+        };
+        if (summaryText !== null) {
+          const [source] = await tx
+            .select({ sha: meetingNotes.bodySha256 })
+            .from(meetingNotes)
+            .where(
+              and(
+                eq(meetingNotes.organizationId, room.organizationId),
+                eq(meetingNotes.id, run.notesId),
+              ),
+            );
+          if (!source) throw new AppError('INVALID_STATE');
+          await tx
+            .insert(meetingSummaries)
+            .values({ ...key, sourceNotesSha256: source.sha, body: summaryText });
+        }
+        if (suggestions?.length) {
+          const people = await participants(tx, room);
+          await tx.insert(meetingProposedItems).values(
+            suggestions.map((item, index) => ({
+              ...key,
+              ordinal: index + 1,
+              kind: item.kind,
+              title: item.title,
+              detail: item.detail ?? null,
+              suggestedDueOn: z.iso.date().safeParse(item.suggested_due_on).data ?? null,
+              suggestedOwnerMembershipId:
+                item.suggested_participant === undefined
+                  ? null
+                  : (people[item.suggested_participant - 1] ?? null),
+            })),
+          );
+          await notify(
+            tx,
+            context,
+            [room.organizerMembershipId, ...people],
+            NOTIFY_MEETING_ITEMS_PROPOSED,
+            meetingTargetRef(room.id),
+          );
+        }
+        const version = run.version + 1;
+        await tx
+          .update(meetingDerivationRuns)
+          .set({
+            ...metadata.data,
+            status: 'completed',
+            version,
+            finishedAt: new Date(),
+          })
+          .where(runIs(context, run.id));
+        await publishRun(tx, context, room, run, MEETING_DERIVATION_COMPLETED, version);
+        return { status: 'completed', items: suggestions?.length ?? 0 };
+      },
+    )) ?? { status: 'dropped', items: 0 }
+  );
 }
 
-export function stopMeetingDerivation(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: { derivationRunId: string; code: MeetingStopCode; to: 'failed' | 'refused' },
-): Promise<void> {
-  throw new Error('NOT_IMPLEMENTED');
+export async function stopMeetingDerivation(
+  database: AppDatabase,
+  context: TenantContext,
+  input: {
+    derivationRunId: string;
+    temporalRunId: string;
+    code: MeetingStopCode;
+    to: 'failed' | 'refused';
+  },
+): Promise<DerivationStatus> {
+  const temporalRunId = validId(input.temporalRunId);
+  if (!MEETING_STOP_CODES.includes(input.code)) throw new AppError('INVALID_INPUT');
+  return (
+    (await withWorkerRun<DerivationStatus>(
+      database,
+      context,
+      input.derivationRunId,
+      async (tx, room, run) => {
+        if (!open(run)) return run.status as DerivationStatus;
+        if (run.status === 'running' && run.temporalRunId !== temporalRunId) return 'cancelled';
+        await stop(tx, context, room, run, input.to, input.code);
+        return input.to;
+      },
+    )) ?? 'cancelled'
+  );
 }

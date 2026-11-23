@@ -33,6 +33,7 @@ import {
   meetingTargetRef,
   type ConsentBasis,
   type ConsentDecision,
+  type MeetingViewer,
   type ParticipantKind,
 } from '@ensemus/domain/meeting';
 import { TOMBSTONE_RECORDED } from '@ensemus/domain/tombstone-ledger';
@@ -192,6 +193,38 @@ async function load(tx: Tx, meetingId: string, lock = false) {
   if (!row) throw new AppError('NOT_FOUND');
   return row;
 }
+export async function meetingForContent(tx: Tx, id: string, viewer: MeetingViewer, lock = false) {
+  const query = tx
+    .select({
+      id: meetings.id,
+      organizationId: meetings.organizationId,
+      organizerMembershipId: meetings.organizerMembershipId,
+      status: meetings.status,
+      classification: meetings.classification,
+    })
+    .from(meetings)
+    .where(eq(meetings.id, parsed(idSchema, id)));
+  const [meeting] = await (lock ? query.for('update') : query);
+  if (!meeting) throw new AppError('NOT_FOUND');
+  const [participant] =
+    meeting.organizerMembershipId === viewer.membershipId
+      ? []
+      : await tx
+          .select({ id: meetingParticipants.id })
+          .from(meetingParticipants)
+          .where(
+            and(
+              eq(meetingParticipants.organizationId, meeting.organizationId),
+              eq(meetingParticipants.meetingId, meeting.id),
+              eq(meetingParticipants.membershipId, viewer.membershipId),
+            ),
+          )
+          .limit(1);
+  if (!canReadMeetingContent({ ...meeting, isParticipant: participant !== undefined }, viewer))
+    throw new AppError('NOT_FOUND');
+  return meeting;
+}
+
 async function people(tx: Tx, meetingId: string): Promise<MeetingParticipantView[]> {
   const listed = await tx
     .select({
