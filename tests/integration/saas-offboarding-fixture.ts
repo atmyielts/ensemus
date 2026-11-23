@@ -41,6 +41,7 @@ export async function readyToErase(
   database: AppDatabase,
   owner: TenantContext,
   ports = offboardingPorts(),
+  workerDatabase = database,
 ) {
   if (!interactiveSessionOf(owner))
     owner = await nativeSovereignContext(database, owner.userId, owner.organizationId);
@@ -53,11 +54,11 @@ export async function readyToErase(
       { confirmName: organization.name },
       ports.offboardingAgents,
     );
-  await advanceOffboarding(database, service, ports, {
+  await advanceOffboarding(workerDatabase, service, ports, {
     offboardingId: input.offboardingId,
     now: new Date(),
   });
-  await setTransitionEnd(database, service, {
+  await setTransitionEnd(workerDatabase, service, {
     offboardingId: input.offboardingId,
     transitionEndsAt: new Date(Date.now() - 1000),
     operatorRef: 'test-operator@example.invalid',
@@ -65,7 +66,7 @@ export async function readyToErase(
   for (let step = 0; step < 12; step++) {
     const view = await getOffboarding(database, owner);
     if (view?.state === 'ready_for_erasure') return { ...input, service, ports };
-    await advanceOffboarding(database, service, ports, {
+    await advanceOffboarding(workerDatabase, service, ports, {
       offboardingId: input.offboardingId,
       now: new Date(),
     });

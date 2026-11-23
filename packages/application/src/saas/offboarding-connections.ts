@@ -16,6 +16,7 @@ import { AGGREGATE_PROCESS_RUN, PROCESS_RUN_STOP_REQUESTED } from '@ensemus/doma
 import { and, asc, eq, gt, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { AppError } from '../errors';
 import { emit } from '../events';
+import { rowLockTarget } from '../row-lock';
 import type { OffboardingPorts } from './ports';
 
 const PAGE = 100;
@@ -137,7 +138,7 @@ export function createProcessRunWindDown(): OffboardingPorts['windDowns'][number
         ),
       )
       .orderBy(asc(processRuns.id))
-      .for('update', { of: processRuns });
+      .for('update', { of: rowLockTarget(processRuns) });
     for (const run of live) {
       await tx
         .update(processRuns)

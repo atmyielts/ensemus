@@ -25,11 +25,13 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { lifecycleTenant } from './saas-lifecycle-fixture';
 import { offboardingPorts, readyToErase } from './saas-offboarding-fixture';
+import { inFixtureTenant } from '../helpers/fixture-tenant';
 import { urls } from '../helpers/stack';
 
 describe('offboarding revokes every connection (LIFE-04)', () => {
-  // The offboarding revoke is the platform worker's, under its own login (0701).
-  const database = openAppDatabase(urls.worker()),
+  // The owner starts offboarding through the web login; the platform worker revokes connections.
+  const app = openAppDatabase(urls.app()),
+    worker = openAppDatabase(urls.worker()),
     auth = new pg.Client({ connectionString: urls.auth() }),
     // Writes connections the way consent and setup leave them, which a service may not.
     superuser = new pg.Client({ connectionString: urls.superuser() });
@@ -40,7 +42,8 @@ describe('offboarding revokes every connection (LIFE-04)', () => {
   afterAll(async () => {
     await auth.end();
     await superuser.end();
-    await database.close();
+    await app.close();
+    await worker.close();
   });
 
   const ports = () => ({
@@ -50,19 +53,21 @@ describe('offboarding revokes every connection (LIFE-04)', () => {
   });
 
   async function connected() {
-    const owner = await lifecycleTenant(database.db, auth);
+    const owner = await lifecycleTenant(app.db, auth);
     const insert = async (ownerMembershipId: string | null) => {
       const id: string = randomUUID();
-      await superuser.query(
-        `insert into integrations.connections
-           (organization_id, id, connector_type, display_name, state, granted_scopes, owner_membership_id)
-         values ($1, $2, 'google_workspace', 'Generated connection', 'active', $3, $4)`,
-        [
-          owner.organizationId,
-          id,
-          ['https://www.googleapis.com/auth/drive.metadata.readonly'],
-          ownerMembershipId,
-        ],
+      await inFixtureTenant(superuser, owner.organizationId, () =>
+        superuser.query(
+          `insert into integrations.connections
+             (organization_id, id, connector_type, display_name, state, granted_scopes, owner_membership_id)
+           values ($1, $2, 'google_workspace', 'Generated connection', 'active', $3, $4)`,
+          [
+            owner.organizationId,
+            id,
+            ['https://www.googleapis.com/auth/drive.metadata.readonly'],
+            ownerMembershipId,
+          ],
+        ),
       );
       return id;
     };
@@ -73,20 +78,20 @@ describe('offboarding revokes every connection (LIFE-04)', () => {
 
   it('reaches ready_for_erasure with every connection revoked through the ordinary revoke', async () => {
     const { owner, ids } = await connected();
-    const ready = await readyToErase(database.db, owner, ports());
-    expect((await getOffboarding(database.db, owner))!.state).toBe('ready_for_erasure');
+    const ready = await readyToErase(app.db, owner, ports(), worker.db);
+    expect((await getOffboarding(app.db, owner))!.state).toBe('ready_for_erasure');
     const service = createServiceContext(owner.organizationId);
-    const rows = await withAccountTx(database.db, service, (tx) =>
+    const rows = await withAccountTx(worker.db, service, (tx) =>
       tx.select().from(connections).orderBy(connections.id),
     );
     expect(rows.map((row) => row.state)).toEqual(['revoked', 'revoked']);
     expect(rows.every((row) => row.revokedAt !== null && row.version === 2)).toBe(true);
-    const events = await withAccountTx(database.db, service, (tx) =>
+    const events = await withAccountTx(worker.db, service, (tx) =>
       tx.select().from(domainEvents).where(eq(domainEvents.eventType, 'connection.revoked')),
     );
     expect(events.map((event) => event.aggregateId).sort()).toEqual([...ids].sort());
     expect(events.every((event) => event.actorType === 'system')).toBe(true);
-    const audits = await withAccountTx(database.db, service, (tx) =>
+    const audits = await withAccountTx(worker.db, service, (tx) =>
       tx.select().from(auditEvents).where(eq(auditEvents.action, 'connection.revoked')),
     );
     expect(audits).toHaveLength(2);
@@ -98,11 +103,11 @@ describe('offboarding revokes every connection (LIFE-04)', () => {
     const { owner, ids } = await connected();
     const service = createServiceContext(owner.organizationId);
     await expect(
-      withTenantTx(database.db, service, (tx) =>
+      withTenantTx(worker.db, service, (tx) =>
         createOffboardingConnectionsPort().revokeAllInTx(tx, service),
       ),
     ).rejects.toBeTruthy();
-    const rows = await withTenantTx(database.db, owner, (tx) =>
+    const rows = await withTenantTx(app.db, owner, (tx) =>
       tx.select({ id: connections.id, state: connections.state }).from(connections),
     );
     expect(rows.filter((row) => ids.includes(row.id)).map((row) => row.state)).toEqual([

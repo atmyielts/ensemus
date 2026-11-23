@@ -35,7 +35,8 @@ const RUNTIME = [
 
 describe('runtime restore contributors (ADR-030 D11)', () => {
   // restore-reconcile runs in the platform worker's image, under its login (ADR-039).
-  const app = openAppDatabase(urls.worker(), { max: 4 }),
+  const app = openAppDatabase(urls.app(), { max: 4 }),
+    worker = openAppDatabase(urls.worker(), { max: 4 }),
     agent = openAgentTestDatabase(4),
     su = new pg.Client({ connectionString: urls.superuser() });
   beforeAll(async () => {
@@ -44,6 +45,7 @@ describe('runtime restore contributors (ADR-030 D11)', () => {
   afterAll(async () => {
     await su.end();
     await agent.close();
+    await worker.close();
     await app.close();
   });
 
@@ -52,7 +54,7 @@ describe('runtime restore contributors (ADR-030 D11)', () => {
       createRuntimeRestoreRecoveryBindings({
         ...(withAgent ? { agentDatabase: agent.db } : {}),
         probeRun,
-        knowledgeStore: nativeKnowledgeStore(app.db, memoryTransport()),
+        knowledgeStore: nativeKnowledgeStore(worker.db, memoryTransport()),
       }),
     ).filter(({ name }) => (RUNTIME as readonly string[]).includes(name));
 
@@ -60,7 +62,7 @@ describe('runtime restore contributors (ADR-030 D11)', () => {
     const context = createServiceContext(tenant.organizationId);
     const reports = [];
     // In the command's order: runs before transcripts, so a closed run's transcript is purged the same pass.
-    for (const contributor of list) reports.push(await contributor.reconcile(app.db, context));
+    for (const contributor of list) reports.push(await contributor.reconcile(worker.db, context));
     return reports;
   };
 
@@ -121,7 +123,7 @@ describe('runtime restore contributors (ADR-030 D11)', () => {
         where r.organization_id=$1 and r.id=$2`,
       [tenant.organizationId, run.runId],
     );
-    expect(row).toMatchObject({ status: 'failed', stop_code: 'STRANDED', fence_generation: 1 });
+    expect(row).toMatchObject({ status: 'failed', stop_code: 'STRANDED', fence_generation: '1' });
     expect(row.fenced_at).not.toBeNull();
     expect(row.payloads_purged_at).not.toBeNull();
     const {
