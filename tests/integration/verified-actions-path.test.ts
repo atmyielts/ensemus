@@ -110,6 +110,7 @@ type Tenant = {
 
 describe('the whole path', () => {
   let app: ReturnType<typeof openAppDatabase>;
+  let connector: ReturnType<typeof openAppDatabase>;
   let secretsDb: ReturnType<typeof openSecretsDatabase>;
   let dispatcher: ReturnType<typeof openDispatcherDatabase>;
   let auth: pg.Client;
@@ -130,7 +131,7 @@ describe('the whole path', () => {
   const certificate = generateTestCertificate(RELAY_NAME);
 
   const deps = () => ({
-    database: app.db,
+    database: connector.db,
     registry: createConnectorRegistry([
       createEmailConnector({
         tls: 'required',
@@ -154,7 +155,7 @@ describe('the whole path', () => {
   });
 
   const activities = (over: ExternalActionGateway = connectorGateway) =>
-    createExternalActionActivities(app.db, over);
+    createExternalActionActivities(connector.db, over);
 
   /** The workflow's own steps over real Activities, as the fault tests run them. */
   const runWorkflow = (input: { organizationId: string; externalActionId: string }) => {
@@ -407,8 +408,14 @@ describe('the whole path', () => {
       )
     ).map(({ kind }) => kind);
   const lastDelivery = async (from: Tenant) => {
-    const rows = await withTenantTx(app.db, createServiceContext(from.owner.organizationId), (tx) =>
-      tx.select().from(webhookDeliveries).where(eq(webhookDeliveries.endpointId, from.endpointId)),
+    const rows = await withTenantTx(
+      connector.db,
+      createServiceContext(from.owner.organizationId),
+      (tx) =>
+        tx
+          .select()
+          .from(webhookDeliveries)
+          .where(eq(webhookDeliveries.endpointId, from.endpointId)),
     );
     return rows.sort((a, b) => a.receivedAt.getTime() - b.receivedAt.getTime()).at(-1);
   };
@@ -434,6 +441,7 @@ describe('the whole path', () => {
 
   beforeAll(async () => {
     app = openAppDatabase(urls.app());
+    connector = openAppDatabase(urls.connector());
     secretsDb = openSecretsDatabase(urls.secrets());
     dispatcher = openDispatcherDatabase(urls.dispatcher());
     broker = new SecretBroker(
@@ -462,6 +470,7 @@ describe('the whole path', () => {
     await gateway?.close();
     await sink?.close();
     await app?.close();
+    await connector?.close();
     await secretsDb?.close();
     await dispatcher?.close();
     await auth?.end();

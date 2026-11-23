@@ -1158,3 +1158,19 @@ connection to that port cannot satisfy the check. The applied Compose probe acce
 fixture and rejected an established outbound socket. The recreated local service passed the health
 check and answered its namespace RPC. Eleven focused Compose tests passed. The live local
 workspace also returned indexed passages through Knowledge search.
+
+
+### Connector delivery and receipt qualification (2026-11-23)
+
+The signed-callback and email suite now connects its delivery activities through the connector
+login. Web ingress, approval and human reads still use the application login, and the outbox uses
+its dispatcher login. All 11 cases passed, including exact recipient binding, a single delivery
+after approval, duplicate callbacks, failed transport with no automatic resend, tenant isolation
+and revocation before send. The relay was a local TLS mail sink, and the tests ran the workflow's
+steps over the real activities.
+
+The receipt suite now verifies the restricted action's unchanged state as the Work owner. Its
+administrator and outsider denials retain their assertions. All 34 cases passed in the qualification
+database. Affected lint and the test type check passed. These checks do not certify live provider
+delivery. CI at 0d67d05 still reported 57 planned methods and 30 missing portability inventory rows
+as its two unit release failures, plus failures in separate integration and acceptance jobs.

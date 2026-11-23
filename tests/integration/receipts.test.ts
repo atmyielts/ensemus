@@ -139,7 +139,9 @@ describe('external action receipts', () => {
     });
 
   const rowOf = async (id: string) => {
-    const [row] = await withTenantTx(database.db, orgOwner, (tx) =>
+    // Every action in this suite belongs to Work owned by this member. Organization
+    // administrators cannot inspect restricted Work merely because of their role.
+    const [row] = await withTenantTx(database.db, workOwner, (tx) =>
       tx.select().from(externalActions).where(eq(externalActions.id, id)),
     );
     if (!row) throw new Error('No such action');
