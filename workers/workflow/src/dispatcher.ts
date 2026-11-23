@@ -188,6 +188,7 @@ import { classifyDeliveryError, needsOnlyTheStore } from './dispatch-errors';
 import { recordPurgeStartFor, startRecordPurge } from './record-purge-route';
 import { openDispatcherConnection } from './temporal-connection';
 import { createLedgerWriter } from './tombstone-ledger';
+import { createBackgroundReconciliation } from './background-reconciliation';
 
 const log = createLogger('dispatcher');
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -911,8 +912,13 @@ async function main() {
   };
 
   log.info('dispatcher.started');
-  let reconciled = false;
-  let nextReconcileAt = 0;
+  const scheduleReconciliation = createBackgroundReconciliation({
+    run: reconcileReminderSchedules,
+    retryMs: RECONCILE_RETRY_MS,
+    onError: (error) => {
+      log.warn('dispatcher.reconcile_failed', { errorCode: errorCode(error) });
+    },
+  });
   let nextBacklogCheckAt = Date.now() + LEDGER_BACKLOG_CHECK_MS;
   while (running) {
     beat();
@@ -929,17 +935,7 @@ async function main() {
         },
       );
     }
-    if (!reconciled && Date.now() >= nextReconcileAt) {
-      nextReconcileAt = Date.now() + RECONCILE_RETRY_MS;
-      await reconcileReminderSchedules().then(
-        (done) => {
-          reconciled = done;
-        },
-        (error: unknown) => {
-          log.warn('dispatcher.reconcile_failed', { errorCode: errorCode(error) });
-        },
-      );
-    }
+    scheduleReconciliation.poll();
     try {
       writeLedgerEntry.startBatch();
       const result = await dispatchDueEvents(db, handle, {
@@ -963,6 +959,7 @@ async function main() {
       await new Promise((done) => setTimeout(done, IDLE_MS * 4));
     }
   }
+  await scheduleReconciliation.stop();
   await close();
   await connection.close();
   // Last, and losing the last spans is not a failed stop, so it says so and stops anyway.

@@ -1,0 +1,118 @@
+{
+  "schema": "ensemus.local-qualification/1",
+  "slice": "local platform runtime and nonblocking dispatcher startup repair",
+  "recordedAt": "2026-11-23T11:30:03.279349+00:00",
+  "baseCommit": "40a68518810364174252c746206ec5f43654312b",
+  "releaseReady": false,
+  "localUrl": "http://localhost:30451",
+  "validation": {
+    "targetedUnitCasesPassed": 23,
+    "workerTypecheck": "passed",
+    "affectedLint": "passed",
+    "healthyRcContainers": 8,
+    "anonymousEntry": {
+      "http": 200,
+      "finalPath": "/sign-in"
+    },
+    "durableChecklist": {
+      "qualifiedAt": "2026-11-23T11:29:09.346Z",
+      "queuedAt": "2026-11-23T11:29:07.469Z",
+      "elapsedMs": 1878,
+      "status": "verifying",
+      "checklistVisible": true,
+      "actualTemporalQueue": true,
+      "usedNativeWebForms": true
+    },
+    "dispatcherRepair": {
+      "singleAttemptInFlight": true,
+      "failureRetryAfterCompletionMs": 60000,
+      "drainsBeforeClosingConnections": true,
+      "fullTenantRepairStillPendingAtChecklistCompletion": true
+    },
+    "image": {
+      "base": "ensemus/worker:rc-40a6851",
+      "updated": "ensemus/worker:rc-local-queue-20261123",
+      "manifestListSha256": "10469c7236148195d7820f8aa7e65d63aa4a22c8afc564e366984c939f5bcadb",
+      "method": "Host production bundle; copy only dispatcher.js into existing Linux image. No dependency changes.",
+      "fullImageRebuild": "failed at npm registry DNS resolution (EAI_AGAIN); not counted as a pass"
+    }
+  },
+  "limits": [
+    "First checklist poll timed out after 120 seconds; later actual queue completion and stored checklist verified. Original startup repair took approximately 216 seconds across 3434 generated organizations before delivering events.",
+    "Anonymous root briefly returned 500/APIError during local checks and later correctly returned 307 to sign-in and final 200. Cause not established; no broad authentication catch or authority relaxation added.",
+    "Only the task-owned RC dispatcher was recreated for the fix. Other RC services retained their qualified image and the user web preview was kept running.",
+    "No provider delivery, complete-platform acceptance, deployment, restore acceptance, security approval or resolution of previously reported CI/release gates is claimed."
+  ],
+  "source": [
+    {
+      "path": "workers/workflow/src/dispatcher.ts",
+      "sha256": "d0348adcfb6030e6847bbfc997a47e653b5d5b82f2c0db685a3a338695e31cdd"
+    },
+    {
+      "path": "workers/workflow/src/background-reconciliation.ts",
+      "sha256": "7a07195669c308a58e9220c9634b1609271e7cc257e70fb1578e8ff464382290"
+    },
+    {
+      "path": "workers/workflow/src/background-reconciliation.test.ts",
+      "sha256": "7b96ca3628133a5d14528aca0316176577091cfe1cfdcb8cdbdd7c99189a3bd6"
+    }
+  ],
+  "localEvidence": [
+    {
+      "path": ".local/local-dispatcher-reconciliation-unit-20261123.log",
+      "sha256": "40cad308110ea6115804e1b6b1d9b208033679d78364c04cda24c32f893993b3"
+    },
+    {
+      "path": ".local/local-dispatcher-reconciliation-types-20261123.log",
+      "sha256": "22c09e313b2b66720499df8aa40fb8dc2f844c5d51b6520bad2d34a5ab342f45"
+    },
+    {
+      "path": ".local/local-dispatcher-reconciliation-lint-20261123.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": ".local/local-platform-worker-build-20261123.log",
+      "sha256": "2ff504391083fd961a3c2401a6a2dea4fab7d023071c3fbc3da5f8a066044cc7"
+    },
+    {
+      "path": ".local/local-platform-workers-start-20261123.log",
+      "sha256": "83d07ba42958ea27b748d45dae9cc8402ec6f716b2644f5e36fdb0e6a8547b02"
+    },
+    {
+      "path": ".local/local-dispatcher-reconciliation-image-20261123.log",
+      "sha256": "79b9993f17b2a53fa9f7c9c9cda00324ce42af2a9ff98cd9ba4bb0055f8e1b6c"
+    },
+    {
+      "path": ".local/local-dispatcher-reconciliation-host-build-20261123.log",
+      "sha256": "55ebe8a26759e69a197f6b20f645c4b7547266c5211141099f87513fecc715a6"
+    },
+    {
+      "path": ".local/local-dispatcher-reconciliation-derived-image-20261123.log",
+      "sha256": "63472c5db21b3963afa3827e62aff8b0e9d14d48e99a30d361c1209ff6ff0a01"
+    },
+    {
+      "path": ".local/local-dispatcher-reconciliation-start-20261123.log",
+      "sha256": "dc28c4d79e649199b79827d0b0d9b00da3c0c1bca9c57eb9cb689728a983ef0a"
+    },
+    {
+      "path": ".local/local-platform-live-queue-check-20261123.log",
+      "sha256": "679c54d97e02c208745c4246e47db8f400abaa5325078a937d988a32a472d172"
+    },
+    {
+      "path": ".local/local-platform-preview-recheck-20261123.log",
+      "sha256": "92098699bee47629f105f54df5b321c2ec36f0c7457179f1ce84e3973f157b06"
+    },
+    {
+      "path": ".local/local-platform-services-20261123.log",
+      "sha256": "ea8156daa859697637150fa9874e02ae7b79997a112802164563c8cc32bfa328"
+    },
+    {
+      "path": ".local/local-dispatcher-reconciliation-runtime-20261123.log",
+      "sha256": "12e6def01f0f07a3fa8690c2e770136b7f7a4f0d063bd481be2f8fa4fd36b2d8"
+    },
+    {
+      "path": ".local/local-platform-entry-check-20261123.log",
+      "sha256": "9488991171767f1e9b192c50c004dc7f71570f6a6c23d318d3bb7155a675b203"
+    }
+  ]
+}

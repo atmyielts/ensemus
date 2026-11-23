@@ -956,6 +956,11 @@
       "sha256": "b872e45b9922132d706e1b8d5523fe10112cc9dc2c8aa7d84daa5c877b15551d"
     },
     {
+      "path": "06-delivery/evidence/rc-local-runtime-20261123.json",
+      "size_bytes": 5155,
+      "sha256": "192b9f2f2c830c1f1067c8dddae365f9c2e7353877103d223b7999b924f84d16"
+    },
+    {
       "path": "06-delivery/evidence/rc-meeting-manual-20261123.json",
       "size_bytes": 8509,
       "sha256": "042175913cb637940e2dbbcedf09bab10d34a3cd60196518d178825bfb57d4cc"
@@ -1047,8 +1052,8 @@
     },
     {
       "path": "06-delivery/release-candidate-2026-11-21.md",
-      "size_bytes": 84935,
-      "sha256": "618d5102e4d05423c7e364fed1dba6481001325d52018a0a502c0fee5d25f137"
+      "size_bytes": 87575,
+      "sha256": "f306a46327484063b4bd3753147b0a8a5633cb5fa1ef383f7ba577a3029aa392"
     },
     {
       "path": "06-delivery/release-candidate-source-ledger.json",

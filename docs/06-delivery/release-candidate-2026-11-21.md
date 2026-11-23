@@ -1051,3 +1051,38 @@ PostgreSQL and object storage. Background workers are being started and need the
 this record does not claim that startup has passed. No live provider, production deployment, outside
 security approval, portability completion or complete-platform acceptance is claimed. The 24-table
 joined erasure-reach gap, other CI failures and previously stated release gates remain open.
+
+
+### Local platform runtime and dispatcher startup repair (2026-11-23)
+
+The owner preview remains at http://localhost:30451. Native PostgreSQL, object storage, Temporal,
+platform worker, dispatcher, agent worker and knowledge worker are running in the task-owned
+`ensemus-rc-20261121` project. All eight containers, including the local model fixture, were healthy.
+Anonymous entry followed its sign-in redirect and returned HTTP 200. No external provider is enabled
+for the generated preview workspace.
+
+A real checklist was submitted through native web forms and delivered through the committed outbox,
+Temporal and platform worker. The first 120-second check timed out because startup schedule repair
+blocked delivery while scanning 3,434 generated qualification organizations for approximately 216
+seconds. That queued checklist later reached Checking with its actual completion-checklist.md visible.
+No fixture tenants or queued events were deleted and no direct workflow start bypassed the outbox.
+
+Schedule repair now runs as a single background attempt while normal outbox polling continues. Its
+per-call Temporal deadlines and idempotent schedule IDs are preserved. An incomplete or failed attempt
+waits 60 seconds from completion before retrying; successful repair runs once. Shutdown waits for its
+active attempt before closing the database and Temporal connection. Twenty-three focused cases across
+three files, affected lint and the worker typecheck passed. After restarting only the RC dispatcher,
+a new checklist reached Checking with its stored file in 1.878 seconds while schedule repair was
+still pending. The running web server and other projects were not restarted.
+
+The full worker image had built and all core services started successfully at the previous checkpoint.
+The follow-up full image rebuild failed on npm registry DNS resolution (EAI_AGAIN). The unchanged
+installed dependencies then built the production bundle successfully on the host; only dispatcher.js
+was copied into a derived Linux image based on ensemus/worker:rc-40a6851. Its actual image and receipt
+hashes are recorded in evidence/rc-local-runtime-20261123.json. This is a local runtime qualification,
+not a passing fresh full-image build or CI claim.
+
+Anonymous root briefly returned 500/APIError during these checks, then correctly redirected to
+sign-in. Its cause is not established; authentication failures were not broadly swallowed. Previously
+reported planned API, portability, erasure, CI and human review gates remain open. No production or
+live provider acceptance is claimed, and local credentials/cookies remain in ignored files only.
