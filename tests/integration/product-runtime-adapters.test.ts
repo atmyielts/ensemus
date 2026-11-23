@@ -46,13 +46,17 @@ const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 const refused = (code: string) => expect.objectContaining({ code });
 
 describe('real product runtime adapters', () => {
-  let app: ReturnType<typeof openAppDatabase>, agent: ReturnType<typeof openAgentTestDatabase>;
+  let app: ReturnType<typeof openAppDatabase>,
+    worker: ReturnType<typeof openAppDatabase>,
+    agent: ReturnType<typeof openAgentTestDatabase>;
   beforeAll(() => {
     app = openAppDatabase(urls.app(), { max: 4 });
+    worker = openAppDatabase(urls.worker(), { max: 2 });
     agent = openAgentTestDatabase();
   });
   afterAll(async () => {
     await agent?.close();
+    await worker?.close();
     await app?.close();
   });
   const ports = () => createRuntimeProductPorts(app.db);
@@ -264,7 +268,16 @@ describe('real product runtime adapters', () => {
       }),
       service = createServiceContext(f.organizationId),
       temporalRunId = randomUUID();
-    await advanceProcessRun(app.db, service, ports(), { runId: process.id, temporalRunId });
+    const advanced = await advanceProcessRun(
+      worker.db,
+      service,
+      createRuntimeProductPorts(worker.db),
+      {
+        runId: process.id,
+        temporalRunId,
+      },
+    );
+    expect(advanced).toEqual({ next: 'wait' });
     const [step] = await withTenantTx(app.db, service, (tx) =>
       tx.select().from(processRunSteps).where(eq(processRunSteps.runId, process.id)),
     );
@@ -276,7 +289,21 @@ describe('real product runtime adapters', () => {
     expect((await getWorkUnit(app.db, f.owner, step!.workUnitId!)).parentId).toBe(
       process.rootWorkUnitId,
     );
-    const delegated = await createDelegatedContext(app.db, f.organizationId, f.owner.membershipId);
+    const delegated = await createDelegatedContext(
+      worker.db,
+      f.organizationId,
+      f.owner.membershipId,
+    );
+    const stepRequest = {
+      processRunId: process.id,
+      stepKey: 'assistant',
+      workUnitId: step!.workUnitId!,
+      agentVersionId: published.id,
+      initiatorMembershipId: f.owner.membershipId,
+    };
+    await expect(requestProcessAgentRun(app.db, delegated, stepRequest)).rejects.toMatchObject(
+      refused('NOT_FOUND'),
+    );
     await withTenantTx(app.db, f.owner, (tx) =>
       tx
         .update(agentPublications)
@@ -288,15 +315,9 @@ describe('real product runtime adapters', () => {
           ),
         ),
     );
-    expect(
-      await requestProcessAgentRun(app.db, delegated, {
-        processRunId: process.id,
-        stepKey: 'assistant',
-        workUnitId: step!.workUnitId!,
-        agentVersionId: published.id,
-        initiatorMembershipId: f.owner.membershipId,
-      }),
-    ).toEqual({ runId: step!.agentRunId });
+    expect(await requestProcessAgentRun(worker.db, delegated, stepRequest)).toEqual({
+      runId: step!.agentRunId,
+    });
     const actual = await withTenantTx(app.db, service, (tx) =>
       tx.select().from(agentRuns).where(eq(agentRuns.workUnitId, step!.workUnitId!)),
     );
