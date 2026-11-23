@@ -10,6 +10,7 @@ import {
   SidebarGroupLabel,
 } from '@/components/ui/sidebar';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { Button } from '@/components/ui/button';
 import { usePathname } from 'next/navigation';
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import {
@@ -48,7 +49,7 @@ export function NavigationPendingRegion({ children }: { children: ReactNode }) {
 }
 
 /** Shows the page is on its way, for the routes that cannot have a loading page. See error notes. */
-function Pending({ label }: { label: string }) {
+function Pending({ label, showLabel = true }: { label: string; showLabel?: boolean }) {
   const { pending } = useLinkStatus();
   const announce = useContext(NavigationPending);
   useEffect(() => {
@@ -58,7 +59,7 @@ function Pending({ label }: { label: string }) {
   }, [announce, label, pending]);
   // Seen beside the link only. The region above says it, so the link's own name never changes.
   return (
-    <span className="pending" aria-hidden="true">
+    <span className={showLabel ? 'pending' : 'visually-hidden'} aria-hidden="true">
       {pending ? 'Loading' : ''}
     </span>
   );
@@ -152,23 +153,66 @@ export function MainNav({ groups, label = 'Main' }: { groups: NavGroup[]; label?
   );
 }
 
+/** Shortcuts use the same destinations and active state as the full navigation. */
+export function MobileWorkspaceNavigation({
+  groups,
+  children,
+}: {
+  groups: NavGroup[];
+  children: ReactNode;
+}) {
+  const pathname = usePathname();
+  const items = groups.flatMap((group) => group.items);
+  const shortcuts = ['home', 'work', 'approvals', 'inbox'] as const;
+
+  return (
+    <div className="mobile-tabbar">
+      <nav className="mobile-shortcuts" aria-label="Workspace shortcuts">
+        {shortcuts.map((icon) => {
+          const item = items.find((entry) => entry.icon === icon);
+          if (!item) return null;
+          const current = isNavigationCurrent(item, pathname);
+          return (
+            <Button asChild variant="ghost" className="mobile-destination" key={item.href}>
+              <Link
+                href={item.href}
+                aria-current={current ? (pathname === item.href ? 'page' : 'location') : undefined}
+              >
+                <span className="mobile-destination-icon">
+                  <NavigationIcon name={item.icon} />
+                  {item.count ? (
+                    <span className="mobile-destination-count" aria-hidden="true">
+                      {item.count > 99 ? '99+' : item.count}
+                    </span>
+                  ) : null}
+                </span>
+                <span>{item.label}</span>
+                {item.count ? <span className="visually-hidden">{item.count} waiting</span> : null}
+                <Pending label={item.label} showLabel={false} />
+              </Link>
+            </Button>
+          );
+        })}
+      </nav>
+      {children}
+    </div>
+  );
+}
+
 /** Position and workspace tools share the same header across desktop and mobile. */
 export function WorkspaceContext({
   groups,
   organizationName,
   base,
-  mobileMenu,
 }: {
   groups: NavGroup[];
   organizationName: string;
   base: string;
-  mobileMenu: ReactNode;
 }) {
   const pathname = usePathname();
   const current = currentNavigation(groups, pathname);
   return (
     <header className="workspace-context" aria-label="Workspace header">
-      {mobileMenu}
       <Link className="mobile-workspace-home" href={base}>
         <BrandMark />
         <span className="workspace-name" title={organizationName}>

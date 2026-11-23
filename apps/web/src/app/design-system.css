@@ -323,6 +323,9 @@
   .mobile-workspace-home {
     display: none;
   }
+  .mobile-tabbar {
+    display: none;
+  }
   .workspace-tools {
     display: flex;
     align-items: center;
@@ -675,7 +678,17 @@
     min-width: 0;
     overflow-wrap: anywhere;
   }
+  @media (768px <= width <= 1023px) {
+    .shell {
+      --shell-sidebar-width: 12.5rem;
+    }
+  }
   @media (max-width: 767px) {
+    :root:has(.mobile-tabbar) {
+      --mobile-header-height: 3.25rem;
+      --mobile-tabbar-height: calc(3.5rem + env(safe-area-inset-bottom, 0px));
+      scroll-padding-block: var(--mobile-header-height) var(--mobile-tabbar-height);
+    }
     .shell {
       display: block;
       background: var(--card);
@@ -690,17 +703,18 @@
       margin: 0;
       border: 0;
       border-radius: 0;
-      padding: 0 16px 24px;
+      padding: 0 16px calc(var(--mobile-tabbar-height) + 16px);
     }
     .workspace-context {
-      position: relative;
+      position: sticky;
+      top: 0;
       z-index: 10;
       display: grid;
-      grid-template-columns: auto minmax(0, 1fr) auto;
-      min-height: 56px;
+      grid-template-columns: minmax(0, 1fr) auto;
+      min-height: var(--mobile-header-height);
       margin: 0 -16px;
-      padding-inline: 8px;
-      gap: 4px;
+      padding-inline: 16px 8px;
+      gap: 8px;
       background: var(--card);
     }
     .workspace-context .mobile-workspace-home {
@@ -716,8 +730,7 @@
       gap: 0;
     }
     .workspace-tools .workspace-search-trigger,
-    .workspace-tools .theme-control,
-    .mobile-navigation > summary {
+    .workspace-tools .theme-control {
       display: grid;
       place-items: center;
       width: 44px;
@@ -728,6 +741,72 @@
     }
     .mobile-navigation {
       display: block;
+    }
+    .mobile-tabbar {
+      position: fixed;
+      z-index: 20;
+      inset-inline: 0;
+      inset-block-end: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 4fr) minmax(0, 1fr);
+      align-items: start;
+      height: var(--mobile-tabbar-height);
+      padding: 3px max(4px, env(safe-area-inset-right, 0px)) 0
+        max(4px, env(safe-area-inset-left, 0px));
+      border-top: 1px solid var(--border);
+      background: var(--card);
+    }
+    .mobile-shortcuts {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+    .mobile-tabbar .mobile-destination {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      width: 100%;
+      min-width: 0;
+      min-height: 48px;
+      padding: 4px 2px;
+      border-radius: var(--radius-md);
+      color: var(--muted-foreground);
+      font-size: 0.6875rem;
+      font-weight: 500;
+      line-height: 1.2;
+      text-decoration: none;
+    }
+    .mobile-tabbar .mobile-destination:hover,
+    .mobile-tabbar .mobile-destination:focus-visible {
+      background: var(--secondary);
+      color: var(--foreground);
+    }
+    .mobile-tabbar .mobile-destination[aria-current],
+    .mobile-navigation[open] > summary.mobile-destination {
+      background: var(--accent);
+      color: var(--sidebar-accent-foreground);
+    }
+    .mobile-destination-icon {
+      position: relative;
+      display: flex;
+    }
+    .mobile-tabbar .mobile-destination svg {
+      width: 18px;
+      height: 18px;
+    }
+    .mobile-destination-count {
+      position: absolute;
+      inset-block-start: -5px;
+      inset-inline-start: calc(100% - 3px);
+      min-width: 14px;
+      padding: 1px 3px;
+      border-radius: var(--radius-sm);
+      background: var(--sidebar-accent);
+      color: var(--sidebar-accent-foreground);
+      font: 600 0.5625rem/1.15 var(--font-tech-mono);
+      text-align: center;
     }
     .mobile-navigation > summary::after,
     .mobile-navigation:not([open]) > summary > svg:nth-child(2),
@@ -743,26 +822,17 @@
       clip-path: inset(50%);
       white-space: nowrap;
     }
-    .mobile-navigation > summary:hover,
-    .mobile-navigation[open] > summary {
-      background: var(--accent);
-      color: var(--foreground);
-    }
-    .mobile-navigation > summary > svg {
-      width: 18px;
-      height: 18px;
-    }
     .mobile-navigation-panel {
       position: absolute;
-      inset-block-start: 100%;
-      inset-inline-start: 0;
-      width: min(100%, 21rem);
-      max-height: calc(100dvh - 56px);
+      inset-block-end: 100%;
+      inset-inline-end: 0;
+      width: min(100%, 24rem);
+      max-height: calc(100dvh - var(--mobile-tabbar-height) - var(--mobile-header-height));
       overflow: auto;
       overscroll-behavior: contain;
       padding: 12px;
       border: 1px solid var(--border);
-      border-radius: 0 0 var(--radius-md) var(--radius-md);
+      border-radius: var(--radius-lg) var(--radius-lg) 0 0;
       background: var(--card);
       box-shadow: var(--shadow-lg);
     }

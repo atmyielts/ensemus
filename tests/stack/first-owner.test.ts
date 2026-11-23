@@ -268,19 +268,20 @@ describe('a first owner on a default install (ID-01)', () => {
   const STATEMENTS: Record<string, { present: string[]; absent: string[] }> = {
     cloud: {
       present: ['Ensemus Cloud', 'Ensemus hosts this service and stores', 'approved AI model'],
-      absent: ['on infrastructure it controls', 'This is not zero-knowledge'],
+      absent: ['on infrastructure it controls', 'with your own keys'],
     },
     byom: {
-      present: ['Ensemus with your own models', 'with your own keys', 'This is not zero-knowledge'],
+      present: ['Ensemus with your own models', 'with your own keys', 'still processes your data'],
       absent: ['on infrastructure it controls', 'Ensemus supplies the approved'],
     },
     sovereign: {
       present: [
         'Ensemus Sovereign',
         'on infrastructure it controls',
+        'can run independently of Ensemus-hosted services',
         'responsible for operating, securing and backing up',
       ],
-      absent: ['Ensemus hosts this service', 'This is not zero-knowledge'],
+      absent: ['Ensemus hosts this service', 'with your own keys'],
     },
   };
 
@@ -295,7 +296,8 @@ describe('a first owner on a default install (ID-01)', () => {
       expect(status).toBe(200);
       const main = /<main[\s\S]*<\/main>/.exec(html)?.[0] ?? '';
       expect(main).toContain('Who is responsible for your data');
-      expect(main).toContain('AI features are not active yet');
+      expect(main).toContain('AI features use models approved for your organization.');
+      expect(main).toContain('controls what data those models can receive.');
       for (const words of STATEMENTS[mode]?.present ?? []) expect(main).toContain(words);
       for (const words of STATEMENTS[mode]?.absent ?? []) expect(main).not.toContain(words);
       expect(main).not.toMatch(/SOC ?2|ISO ?27001|HIPAA|certified/i);

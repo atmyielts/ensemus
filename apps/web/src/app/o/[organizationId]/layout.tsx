@@ -8,7 +8,12 @@ import type { ReactNode } from 'react';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { DraftScope } from '@/components/kept-field';
-import { MainNav, NavigationPendingRegion, WorkspaceContext } from '@/components/main-nav';
+import {
+  MainNav,
+  MobileWorkspaceNavigation,
+  NavigationPendingRegion,
+  WorkspaceContext,
+} from '@/components/main-nav';
 import { MobileWorkspaceMenu } from '@/components/mobile-workspace-menu';
 import { workspaceNavigation } from '@/components/navigation-model';
 import { SubmitButton } from '@/components/submit-button';
@@ -98,22 +103,22 @@ export default async function OrganizationLayout({
               groups={navigation}
               organizationName={organization.name}
               base={base}
-              mobileMenu={
-                <MobileWorkspaceMenu>
-                  <div className="mobile-navigation-brand">
-                    <Link className="brand" href={base}>
-                      <BrandIdentity />
-                    </Link>
-                    {workspaceSwitcher}
-                  </div>
-                  <MainNav groups={navigation} label="Mobile main" />
-                  {account}
-                </MobileWorkspaceMenu>
-              }
             />
             <main id="main" tabIndex={-1}>
               <DraftScope account={actor.userId}>{children}</DraftScope>
             </main>
+            <MobileWorkspaceNavigation groups={navigation}>
+              <MobileWorkspaceMenu>
+                <div className="mobile-navigation-brand">
+                  <Link className="brand" href={base}>
+                    <BrandIdentity />
+                  </Link>
+                  {workspaceSwitcher}
+                </div>
+                <MainNav groups={navigation} label="Mobile main" />
+                {account}
+              </MobileWorkspaceMenu>
+            </MobileWorkspaceNavigation>
           </div>
         </div>
       </NavigationPendingRegion>

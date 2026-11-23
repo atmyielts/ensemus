@@ -14,30 +14,29 @@ import { getRuntime } from '@/server/runtime';
 
 export const metadata = { title: 'Your organizations | Ensemus' };
 
-// The honest version of each commercial mode (docs/01-product/05-commercial-modes.md). No claims
-// about certifications here, and none about AI features that do not run yet.
+// What each commercial mode controls before a workspace is created.
 const RESPONSIBILITY: Record<CommercialMode, { name: string; points: string[] }> = {
   cloud: {
     name: 'Ensemus Cloud',
     points: [
       'Ensemus hosts this service and stores your organization’s data. The data stays yours.',
-      'When AI features are available, Ensemus supplies the approved AI model providers. Your content may then be sent to them, under disclosed terms and your organization’s policy.',
+      'Ensemus supplies the approved AI model providers. Content may be sent to those providers under the applicable terms and your organization’s policy.',
     ],
   },
   byom: {
     name: 'Ensemus with your own models',
     points: [
       'Ensemus hosts this service and stores your organization’s data. The data stays yours.',
-      'When AI features are available, they use the AI model providers you choose, with your own keys, and you pay those providers directly.',
-      'This is not zero-knowledge. Using your own models does not keep your data from Ensemus, because Ensemus still processes it in the hosted service.',
+      'For third-party providers, you connect models with your own keys and pay those providers directly.',
+      'Ensemus still processes your data in the hosted service.',
     ],
   },
   sovereign: {
     name: 'Ensemus Sovereign',
     points: [
       'Your organization runs Ensemus on infrastructure it controls, including the database, the file storage and the AI models.',
-      'It keeps running without any service hosted by Ensemus. Diagnostic reports leave only if you choose to send them.',
-      'Your organization is responsible for operating, securing and backing up this installation, and for what its AI models cost.',
+      'This installation can run independently of Ensemus-hosted services. Diagnostics leave only if you choose to send them.',
+      'Your organization is responsible for operating, securing and backing up this installation, and for what its models cost.',
     ],
   },
 };
@@ -160,8 +159,8 @@ export default async function HomePage({
             ))}
           </ul>
           <p>
-            AI features are not active yet, so nothing in your organization is sent to an AI model
-            today.
+            AI features use models approved for your organization. Your organization’s policy
+            controls what data those models can receive.
           </p>
         </section>
         <div>

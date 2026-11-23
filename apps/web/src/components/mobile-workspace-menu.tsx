@@ -46,10 +46,10 @@ export function MobileWorkspaceMenu({ children }: { children: ReactNode }) {
         trigger.current?.focus();
       }}
     >
-      <summary ref={trigger}>
+      <summary ref={trigger} className="mobile-destination" aria-label="More workspace options">
         <MenuIcon aria-hidden="true" />
         <XIcon aria-hidden="true" />
-        <span className="sr-only">Workspace menu</span>
+        <span>More</span>
       </summary>
       <div className="mobile-navigation-panel">{children}</div>
     </details>

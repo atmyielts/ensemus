@@ -42,25 +42,25 @@ The page shows the statement for your deployment, in these words.
 ### Ensemus Cloud
 
 - "Ensemus hosts this service and stores your organization’s data. The data stays yours."
-- "When AI features are available, Ensemus supplies the approved AI model providers. Your content may then be sent to them, under disclosed terms and your organization’s policy."
+- "Ensemus supplies the approved AI model providers. Content may be sent to those providers under the applicable terms and your organization’s policy."
 
 ### Ensemus with your own models
 
 - "Ensemus hosts this service and stores your organization’s data. The data stays yours."
-- "When AI features are available, they use the AI model providers you choose, with your own keys, and you pay those providers directly."
-- "This is not zero-knowledge. Using your own models does not keep your data from Ensemus, because Ensemus still processes it in the hosted service." <!-- not-a-claim -->
+- "For third-party providers, you connect models with your own keys and pay those providers directly."
+- "Ensemus still processes your data in the hosted service."
 
 ### Ensemus Sovereign
 
-- "Your organization runs this deployment on infrastructure it controls, including the database, the file storage and the AI models."
-- "It does not rely on services hosted by Ensemus to keep running. Diagnostics leave only if you choose to send them."
-- "Your organization is responsible for operating, securing and backing up this deployment, and for what its models cost."
+- "Your organization runs Ensemus on infrastructure it controls, including the database, the file storage and the AI models."
+- "This installation can run independently of Ensemus-hosted services. Diagnostics leave only if you choose to send them."
+- "Your organization is responsible for operating, securing and backing up this installation, and for what its models cost."
 
-All three also say: "AI features are not active yet, so nothing in your organization is sent to an AI model today."
+AI features use models approved for your organization. Your organization’s policy controls what data those models can receive.
 
 ## Find your way around
 
-The menu on the left has **Home**, **Work**, **Approvals**, **People and teams**, **Clients and projects** and **Inbox**. **Approvals** and **Inbox** show a number when something is waiting for you. Your name, your email and **Sign out** are at the bottom.
+On wider screens, use the menu on the left to move between workspace pages. On phones, **Home**, **Work**, **Approvals** and **Inbox** stay in the bottom bar. Open **More** for the full menu and your account. **Approvals** and **Inbox** show a number when something is waiting for you.
 
 Next steps:
 

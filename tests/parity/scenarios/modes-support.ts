@@ -44,7 +44,7 @@ const HOLDER_WORDS = {
   ],
   customer_controlled: [
     'on infrastructure it controls',
-    'It does not rely on services hosted by Ensemus',
+    'can run independently of Ensemus-hosted services',
     'responsible for operating, securing and backing up',
   ],
 } as const;
@@ -79,22 +79,21 @@ export const MODE_WORDS: Readonly<
   cloud: {
     deployment: 'Ensemus Cloud',
     says: ['Ensemus supplies the approved AI model providers'],
-    neverSays: ['with your own keys', 'This is not zero-knowledge'],
+    neverSays: ['with your own keys', 'pay those providers directly'],
   },
   byom: {
     deployment: 'Ensemus with your own models',
     says: [
       'with your own keys',
-      'you pay those providers directly',
-      'This is not zero-knowledge',
-      'does not keep your data from Ensemus',
+      'pay those providers directly',
+      'Ensemus still processes your data in the hosted service',
     ],
     neverSays: ['Ensemus supplies the approved'],
   },
   sovereign: {
     deployment: 'Ensemus Sovereign',
     says: ['Diagnostics leave only if you choose to send them', 'what its models cost'],
-    neverSays: ['Ensemus supplies the approved', 'This is not zero-knowledge'],
+    neverSays: ['Ensemus supplies the approved', 'Ensemus hosts this service'],
   },
 };
 

@@ -134,11 +134,11 @@ describe('the product through its forms', () => {
       const { status, html } = await read('/', person.jar);
       expect(status).toBe(200);
       expect(html).toContain('Who is responsible for your data');
-      expect(html).toContain('AI features are not active yet');
+      expect(html).toContain('AI features use models approved for your organization.');
       const mode = process.env.ENSEMUS_MODE ?? 'sovereign';
       const expected: Record<string, string> = {
         cloud: 'Ensemus supplies the approved AI model providers',
-        byom: 'This is not zero-knowledge',
+        byom: 'Ensemus still processes your data in the hosted service',
         sovereign: 'on infrastructure it controls',
       };
       expect(html).toContain(expected[mode]);

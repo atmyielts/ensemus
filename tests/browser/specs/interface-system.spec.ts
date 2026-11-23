@@ -29,6 +29,12 @@ for (const theme of ['light', 'dark'] as const)
         await saveLook(page, `interface-${theme}-${width}`, label);
       }
       if (width < 768) {
+        const shortcuts = page.getByRole('navigation', { name: 'Workspace shortcuts' });
+        await expect(shortcuts.getByRole('link')).toHaveCount(4);
+        const approvals = shortcuts.getByRole('link', { name: /Approvals/ });
+        expect((await approvals.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+        await approvals.click();
+        await expect(approvals).toHaveAttribute('aria-current', 'page');
         const menu = page.locator('details.mobile-navigation');
         await menu.locator('summary').focus();
         await page.keyboard.press('Enter');
@@ -40,6 +46,8 @@ for (const theme of ['light', 'dark'] as const)
         ).toBeVisible();
         await expect(menu).not.toHaveAttribute('open', '');
         expect(await axeFindings(page)).toEqual([]);
+      } else {
+        await expect(page.getByRole('navigation', { name: 'Workspace shortcuts' })).toBeHidden();
       }
     });
   }
@@ -51,6 +59,13 @@ test('the grouped workspace navigation works without JavaScript on a narrow scre
   const page = await open(world.alice, { javaScriptEnabled: false, width: 320, height: 900 });
   const base = `/o/${world.organization}`;
   await page.goto(base);
+  const shortcuts = page.getByRole('navigation', { name: 'Workspace shortcuts' });
+  await expect(shortcuts.getByRole('link', { name: 'Home', exact: true })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await shortcuts.getByRole('link', { name: 'Work', exact: true }).click();
+  await expect(page).toHaveURL(`${base}/work`);
   const menu = page.locator('details.mobile-navigation');
   await menu.locator('summary').focus();
   await page.keyboard.press('Enter');

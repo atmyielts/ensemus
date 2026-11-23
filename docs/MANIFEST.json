@@ -1392,8 +1392,8 @@
     },
     {
       "path": "guides/user/getting-started.md",
-      "size_bytes": 6597,
-      "sha256": "016024e39716b051b4abc4be98111785789e363f2758e560ba7eb4d9ceb8c5e9"
+      "size_bytes": 6465,
+      "sha256": "ba0f4ecbb3a7c73bdf0c308ca5fe9ec5f1d35fc71a1bdd47fadae0214e12dea0"
     },
     {
       "path": "guides/user/google-workspace.md",

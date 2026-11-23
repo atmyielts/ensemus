@@ -387,7 +387,7 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
           [
             {
               "t": "text",
-              "v": "\"When AI features are available, Ensemus supplies the approved AI model providers. Your content may then be sent to them, under disclosed terms and your organization’s policy.\""
+              "v": "\"Ensemus supplies the approved AI model providers. Content may be sent to those providers under the applicable terms and your organization’s policy.\""
             }
           ]
         ]
@@ -414,13 +414,13 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
           [
             {
               "t": "text",
-              "v": "\"When AI features are available, they use the AI model providers you choose, with your own keys, and you pay those providers directly.\""
+              "v": "\"For third-party providers, you connect models with your own keys and pay those providers directly.\""
             }
           ],
           [
             {
               "t": "text",
-              "v": "\"This is not zero-knowledge. Using your own models does not keep your data from Ensemus, because Ensemus still processes it in the hosted service.\""
+              "v": "\"Ensemus still processes your data in the hosted service.\""
             }
           ]
         ]
@@ -441,19 +441,19 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
           [
             {
               "t": "text",
-              "v": "\"Your organization runs this deployment on infrastructure it controls, including the database, the file storage and the AI models.\""
+              "v": "\"Your organization runs Ensemus on infrastructure it controls, including the database, the file storage and the AI models.\""
             }
           ],
           [
             {
               "t": "text",
-              "v": "\"It does not rely on services hosted by Ensemus to keep running. Diagnostics leave only if you choose to send them.\""
+              "v": "\"This installation can run independently of Ensemus-hosted services. Diagnostics leave only if you choose to send them.\""
             }
           ],
           [
             {
               "t": "text",
-              "v": "\"Your organization is responsible for operating, securing and backing up this deployment, and for what its models cost.\""
+              "v": "\"Your organization is responsible for operating, securing and backing up this installation, and for what its models cost.\""
             }
           ]
         ]
@@ -463,7 +463,7 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
         "inline": [
           {
             "t": "text",
-            "v": "All three also say: \"AI features are not active yet, so nothing in your organization is sent to an AI model today.\""
+            "v": "AI features use models approved for your organization. Your organization’s policy controls what data those models can receive."
           }
         ]
       },
@@ -482,7 +482,7 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
         "inline": [
           {
             "t": "text",
-            "v": "The menu on the left has "
+            "v": "On wider screens, use the menu on the left to move between workspace pages. On phones, "
           },
           {
             "t": "strong",
@@ -506,22 +506,6 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
           },
           {
             "t": "text",
-            "v": ", "
-          },
-          {
-            "t": "strong",
-            "v": "People and teams"
-          },
-          {
-            "t": "text",
-            "v": ", "
-          },
-          {
-            "t": "strong",
-            "v": "Clients and projects"
-          },
-          {
-            "t": "text",
             "v": " and "
           },
           {
@@ -530,7 +514,15 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
           },
           {
             "t": "text",
-            "v": ". "
+            "v": " stay in the bottom bar. Open "
+          },
+          {
+            "t": "strong",
+            "v": "More"
+          },
+          {
+            "t": "text",
+            "v": " for the full menu and your account. "
           },
           {
             "t": "strong",
@@ -546,15 +538,7 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
           },
           {
             "t": "text",
-            "v": " show a number when something is waiting for you. Your name, your email and "
-          },
-          {
-            "t": "strong",
-            "v": "Sign out"
-          },
-          {
-            "t": "text",
-            "v": " are at the bottom."
+            "v": " show a number when something is waiting for you."
           }
         ]
       },

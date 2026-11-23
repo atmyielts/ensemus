@@ -116,8 +116,7 @@ for (const javaScriptEnabled of [true, false])
       if (javaScriptEnabled) expect(await axeFindings(page)).toEqual([]);
       await page.setViewportSize({ width: 390, height: 720 });
       await page.goto(base);
-      const header = page.getByRole('banner', { name: 'Workspace header' }),
-        menu = header.locator('.mobile-navigation'),
+      const menu = page.locator('details.mobile-navigation'),
         summary = menu.locator(':scope > summary'),
         signOut = menu.getByRole('button', { name: 'Sign out', exact: true });
       await expect(page.locator('.sidebar')).toBeHidden();

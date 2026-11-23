@@ -281,6 +281,8 @@ describeParity('modes', {
     expect(status).toBe(200);
     const statement = sectionOf(html, 'responsibility-heading');
     expect(statement).toContain('Who is responsible for your data');
+    expect(statement).toContain('AI features use models approved for your organization.');
+    expect(statement).toContain('controls what data those models can receive.');
 
     const holder = holderStatedIn(statement);
     expect(holder).toBe(expected('responsibility_statement'));
