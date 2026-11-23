@@ -227,13 +227,11 @@ describe('genuine Knowledge model gateway controls', () => {
   it.each([false, true])(
     'fences an unknown embedding location before provider dispatch (after preparation: %s)',
     async (afterPreparation) => {
-      const check = vi
-        .fn<ResidencyGate['check']>()
-        .mockResolvedValue({
-          allowed: false,
-          requiredRegion: 'test-region-a',
-          code: 'TARGET_REGION_UNKNOWN',
-        });
+      const check = vi.fn<ResidencyGate['check']>().mockResolvedValue({
+        allowed: false,
+        requiredRegion: 'test-region-a',
+        code: 'TARGET_REGION_UNKNOWN',
+      });
       if (afterPreparation) check.mockResolvedValueOnce({ allowed: true, requiredRegion: null });
       const f = fixture({ checkResidency: check });
       const route = await f.model.route({
