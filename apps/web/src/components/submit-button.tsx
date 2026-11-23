@@ -14,6 +14,7 @@ export function SubmitButton({
   children,
   className,
   label,
+  title,
   working = 'Working on it',
   name,
   value,
@@ -22,6 +23,7 @@ export function SubmitButton({
   children: ReactNode;
   className?: string | undefined;
   label?: string | undefined;
+  title?: string | undefined;
   working?: string | undefined;
   name?: string | undefined;
   value?: string | undefined;
@@ -49,6 +51,7 @@ export function SubmitButton({
         disabled={pending || held}
         aria-busy={submitting}
         aria-label={label}
+        title={title}
         name={name}
         value={value}
         formNoValidate={formNoValidate}

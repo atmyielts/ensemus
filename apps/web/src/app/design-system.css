@@ -276,11 +276,28 @@
     height: 15px;
   }
   .sidebar-end {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 8px;
     border-top: 1px solid var(--border);
-    padding: 12px 8px 0;
+    padding: 8px 4px 0;
     background: transparent;
     border-radius: 0;
     box-shadow: none;
+  }
+  .sidebar-end form {
+    grid-column: auto;
+  }
+  .sidebar-end .pending {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .sidebar-end .account-sign-out {
+    width: 32px;
+    padding: 0;
+    color: var(--muted-foreground);
   }
   .account-avatar {
     width: 28px;
@@ -298,12 +315,17 @@
     font-size: 10px;
   }
   .workspace-context {
+    position: sticky;
+    z-index: 10;
+    inset-block-start: 0;
     min-height: 48px;
     margin: 0 -24px;
     padding: 0 20px;
     border-bottom: 1px solid var(--border);
     gap: 8px;
-    font-size: 12px;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    background: var(--card);
+    font-size: 13px;
   }
   .workspace-location,
   .mobile-workspace-home {
@@ -314,6 +336,10 @@
   }
   .workspace-location > :not(:first-child) {
     flex: none;
+  }
+  .workspace-location > :last-child {
+    color: var(--foreground);
+    font-weight: 500;
   }
   .workspace-name {
     overflow: hidden;
@@ -328,6 +354,7 @@
   }
   .workspace-tools {
     display: flex;
+    flex: none;
     align-items: center;
     gap: 4px;
     margin-left: auto;
@@ -341,14 +368,14 @@
   }
   .page-head h1 {
     font-family: var(--font-tech-display);
-    font-size: 20px;
-    font-weight: 550;
+    font-size: 21px;
+    font-weight: 600;
     letter-spacing: -0.035em;
     line-height: 1.3;
   }
   .page-head p {
-    font-size: 12px;
-    max-width: 52rem;
+    font-size: 13px;
+    max-width: 68ch;
     margin-top: 5px;
     line-height: 1.5;
   }
@@ -367,9 +394,6 @@
     font-family: var(--font-tech-display);
     font-size: 14px;
     font-weight: 550;
-  }
-  .approval-queue {
-    gap: 8px;
   }
   .approval-rows {
     border-block: 1px solid var(--border);
@@ -678,6 +702,11 @@
     min-width: 0;
     overflow-wrap: anywhere;
   }
+  @media (min-width: 768px) {
+    html:has(.shell) {
+      scroll-padding-block-start: 56px;
+    }
+  }
   @media (768px <= width <= 1023px) {
     .shell {
       --shell-sidebar-width: 12.5rem;
@@ -685,7 +714,9 @@
   }
   @media (max-width: 767px) {
     .shell {
-      --mobile-header-height: 3.25rem;
+      --mobile-header-height: calc(3.25rem + env(safe-area-inset-top, 0px));
+      --mobile-gutter-start: max(16px, env(safe-area-inset-left, 0px));
+      --mobile-gutter-end: max(16px, env(safe-area-inset-right, 0px));
       --mobile-tabbar-height: calc(3.5rem + env(safe-area-inset-bottom, 0px));
       display: block;
       background: var(--card);
@@ -710,7 +741,7 @@
       min-width: 0;
       overflow: auto;
       overscroll-behavior: contain;
-      padding: 0 16px 16px;
+      padding: 0 var(--mobile-gutter-end) 16px var(--mobile-gutter-start);
     }
     .workspace-context {
       position: relative;
@@ -719,9 +750,10 @@
       grid-template-columns: minmax(0, 1fr) auto;
       min-height: var(--mobile-header-height);
       margin: 0;
-      padding-inline: 16px 8px;
+      padding-block-start: env(safe-area-inset-top, 0px);
+      padding-inline: var(--mobile-gutter-start) max(8px, env(safe-area-inset-right, 0px));
       gap: 8px;
-      background: var(--card);
+      border-radius: 0;
     }
     .workspace-context .mobile-workspace-home {
       display: flex;
@@ -829,12 +861,16 @@
     .mobile-navigation-panel {
       position: absolute;
       inset-block-end: 100%;
-      inset-inline-end: 0;
-      width: min(100%, 24rem);
+      inset-inline-end: env(safe-area-inset-right, 0px);
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      width: min(
+        24rem,
+        calc(100% - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px))
+      );
       max-height: calc(100dvh - var(--mobile-tabbar-height) - var(--mobile-header-height));
       overflow: auto;
-      overscroll-behavior: contain;
-      padding: 12px;
+      padding: 8px 12px;
       border: 1px solid var(--border);
       border-radius: var(--radius-lg) var(--radius-lg) 0 0;
       background: var(--card);
@@ -850,6 +886,13 @@
       margin-bottom: 8px;
       border-bottom: 1px solid var(--border);
     }
+    .mobile-navigation-scroll {
+      min-height: 0;
+      overflow: auto;
+      overscroll-behavior: contain;
+      scroll-padding-block: 4px;
+      padding: 4px;
+    }
     .mobile-navigation-brand .workspace-switch {
       min-height: 44px;
       margin: 0;
@@ -858,9 +901,11 @@
       min-height: 44px;
     }
     .mobile-navigation-panel .sidebar-end {
-      margin-top: 12px;
+      margin-top: 8px;
+      padding-top: 4px;
     }
-    .mobile-navigation-panel .sidebar-end button.link {
+    .mobile-navigation-panel .account-sign-out {
+      width: 44px;
       min-height: 44px;
     }
     .page-head {

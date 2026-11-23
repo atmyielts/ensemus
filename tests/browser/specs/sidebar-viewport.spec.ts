@@ -128,7 +128,12 @@ for (const javaScriptEnabled of [true, false])
       await expect(
         page.getByRole('navigation', { name: 'Mobile main', exact: true }),
       ).toBeVisible();
-      await signOut.scrollIntoViewIfNeeded();
+      await insideViewport(page, signOut);
+      const menuScroll = menu.locator('.mobile-navigation-scroll');
+      const footerBeforeScroll = await signOut.boundingBox();
+      await menu.getByRole('link', { name: 'Help', exact: true }).focus();
+      expect(await menuScroll.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+      expect(await signOut.boundingBox()).toEqual(footerBeforeScroll);
       await insideViewport(page, signOut);
       expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1);
       if (javaScriptEnabled) {

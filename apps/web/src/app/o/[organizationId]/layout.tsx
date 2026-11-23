@@ -2,7 +2,9 @@ import { BrandIdentity } from '@/components/brand-identity';
 import { OrganizationSwitcher } from '@/components/organization-switcher';
 import { countUnread, listMyPendingApprovals } from '@ensemus/application';
 import { getOrganization, hasOtherAccessibleOrganization } from '@ensemus/database';
+import { LogOutIcon } from 'lucide-react';
 import Link from 'next/link';
+import type { Viewport } from 'next';
 import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { SidebarProvider } from '@/components/ui/sidebar';
@@ -19,6 +21,8 @@ import { workspaceNavigation } from '@/components/navigation-model';
 import { SubmitButton } from '@/components/submit-button';
 import { signOutAction } from '@/server/actions';
 import { requireAccountTenant } from '@/server/tenant';
+
+export const viewport: Viewport = { viewportFit: 'cover' };
 
 export default async function OrganizationLayout({
   children,
@@ -47,7 +51,7 @@ export default async function OrganizationLayout({
   const workspaceSwitcher = hasOtherWorkspace && <OrganizationSwitcher current={organizationId} />;
   const account = (
     <div className="sidebar-end">
-      <Avatar className="account-avatar size-9 rounded-md">
+      <Avatar className="account-avatar rounded-md" aria-hidden="true">
         <AvatarFallback className="rounded-md font-mono text-xs">
           {Array.from(actor.name)[0]?.toUpperCase() ?? 'E'}
         </AvatarFallback>
@@ -61,8 +65,13 @@ export default async function OrganizationLayout({
         </span>
       </div>
       <form action={signOutAction}>
-        <SubmitButton className="link" working="Signing out">
-          Sign out
+        <SubmitButton
+          className="quiet account-sign-out"
+          label="Sign out"
+          title="Sign out"
+          working="Signing out"
+        >
+          <LogOutIcon aria-hidden="true" />
         </SubmitButton>
       </form>
     </div>
@@ -109,7 +118,9 @@ export default async function OrganizationLayout({
                   </Link>
                   {workspaceSwitcher}
                 </div>
-                <MainNav groups={navigation} label="Mobile main" />
+                <div className="mobile-navigation-scroll">
+                  <MainNav groups={navigation} label="Mobile main" />
+                </div>
                 {account}
               </MobileWorkspaceMenu>
             </MobileWorkspaceNavigation>

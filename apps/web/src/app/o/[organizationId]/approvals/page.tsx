@@ -72,7 +72,7 @@ export default async function ApprovalsPage({
           would change.
         </Empty>
       ) : (
-        <Card asChild className="approval-queue">
+        <Card asChild className="gap-2">
           <section className="card" aria-labelledby="waiting-heading">
             <h2 id="waiting-heading">Waiting for you</h2>
             <ul className="approval-rows" role="list">
