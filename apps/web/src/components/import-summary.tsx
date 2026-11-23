@@ -1,3 +1,12 @@
+import {
+  Table,
+  TableCaption,
+  TableHeader,
+  TableRow,
+  TableHead,
+  TableBody,
+  TableCell,
+} from '@/components/ui/table';
 import type { OrganizationImportView } from '@ensemus/application';
 import type {
   ImportFailureCode,
@@ -125,23 +134,23 @@ export function ImportSummary({
       )}
       {applied.length > 0 && (
         <div className="table-wrap gap-above">
-          <table>
-            <caption className="visually-hidden">What arrived, by kind of record</caption>
-            <thead>
-              <tr>
-                <th scope="col">Kind of record</th>
-                <th scope="col">Imported</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table>
+            <TableCaption className="visually-hidden">What arrived, by kind of record</TableCaption>
+            <TableHeader>
+              <TableRow>
+                <TableHead scope="col">Kind of record</TableHead>
+                <TableHead scope="col">Imported</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {applied.map(([kind, count]) => (
-                <tr key={kind}>
-                  <td>{kindLabel(kind)}</td>
-                  <td>{count}</td>
-                </tr>
+                <TableRow key={kind}>
+                  <TableCell>{kindLabel(kind)}</TableCell>
+                  <TableCell>{count}</TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
       {warnings.length > 0 && (

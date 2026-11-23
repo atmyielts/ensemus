@@ -1,4 +1,6 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 
 import { useActionState } from 'react';
 import { SubmitButton } from '@/components/submit-button';
@@ -29,14 +31,14 @@ export function WebhookForm({
       <ErrorNotice code={state.code} />
       {state.created && (
         <div className="notice good" role="status">
-          <label>
+          <Label>
             Callback address
-            <input readOnly value={state.created.url} />
-          </label>
-          <label className="gap-above">
+            <Input readOnly value={state.created.url} />
+          </Label>
+          <Label className="gap-above">
             Signing secret
-            <input readOnly value={state.created.signingSecret} />
-          </label>
+            <Input readOnly value={state.created.signingSecret} />
+          </Label>
           <p className="gap-above">
             These are shown once, so copy them now and keep them private. Only a hash of the address
             and a sealed copy of the secret are kept, so nobody can show you them again. If they are

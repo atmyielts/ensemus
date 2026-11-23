@@ -1,3 +1,4 @@
+import { Label } from '@/components/ui/label';
 import { randomUUID } from 'node:crypto';
 import type { CommercialMode } from '@ensemus/config';
 import Link from 'next/link';
@@ -140,7 +141,7 @@ export default async function HomePage({
       <form className="fields" action={createOrganizationAction}>
         {/* One rendered form makes one organization, however many times it is sent. */}
         <input type="hidden" name="requestKey" value={randomUUID()} />
-        <label>
+        <Label>
           Organization name
           <KeptInput
             keep="organization-name"
@@ -149,7 +150,7 @@ export default async function HomePage({
             required
             maxLength={120}
           />
-        </label>
+        </Label>
         <section className="panel" aria-labelledby="responsibility-heading">
           <h2 id="responsibility-heading">Who is responsible for your data</h2>
           <p>You are using {responsibility.name}.</p>

@@ -1,4 +1,6 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 
 import { useActionState } from 'react';
 import type { BillingAccountInput } from '@ensemus/application/saas/subscriptions';
@@ -50,19 +52,19 @@ export function BillingAccountForm({
           Billing details saved.
         </p>
       )}
-      <label>
+      <Label>
         Billing name
-        <input
+        <Input
           name="billingName"
           autoComplete="organization"
           required
           maxLength={200}
           defaultValue={v.billingName}
         />
-      </label>
-      <label>
+      </Label>
+      <Label>
         Billing email
-        <input
+        <Input
           name="billingEmail"
           type="email"
           autoComplete="email"
@@ -70,13 +72,13 @@ export function BillingAccountForm({
           maxLength={254}
           defaultValue={v.billingEmail}
         />
-      </label>
+      </Label>
       <div className="field-group">
-        <label htmlFor="billing-country">Country</label>
+        <Label htmlFor="billing-country">Country</Label>
         <small id="billing-country-help" className="muted">
           Its two-letter code in capitals, such as GB, US or DE.
         </small>
-        <input
+        <Input
           id="billing-country"
           name="countryCode"
           autoComplete="country"
@@ -87,23 +89,23 @@ export function BillingAccountForm({
           aria-describedby="billing-country-help"
         />
       </div>
-      <label>
+      <Label>
         Region code <small>Optional. A state or province, as a short code such as CA.</small>
-        <input name="regionCode" maxLength={16} pattern="[A-Z0-9-]*" defaultValue={v.regionCode} />
-      </label>
-      <label>
+        <Input name="regionCode" maxLength={16} pattern="[A-Z0-9-]*" defaultValue={v.regionCode} />
+      </Label>
+      <Label>
         Postal code <small>Optional</small>
-        <input
+        <Input
           name="postalCode"
           autoComplete="postal-code"
           maxLength={32}
           defaultValue={v.postalCode ?? ''}
         />
-      </label>
-      <label>
+      </Label>
+      <Label>
         Tax identification <small>Optional. For example, your VAT number.</small>
-        <input name="taxId" autoComplete="off" maxLength={64} defaultValue={v.taxId ?? ''} />
-      </label>
+        <Input name="taxId" autoComplete="off" maxLength={64} defaultValue={v.taxId ?? ''} />
+      </Label>
       <div>
         <SubmitButton working="Saving billing details">Save billing details</SubmitButton>
       </div>

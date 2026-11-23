@@ -518,14 +518,16 @@ describeParity('boundary', {
         await formOn(
           peoplePage(org),
           owner.jar,
-          (form: Form) => form.hidden.get('membershipId') === memberId && />Disable</.test(form.html),
+          (form: Form) =>
+            form.hidden.get('membershipId') === memberId && />Disable</.test(form.html),
         ),
         { organizationId: rivalOrg, membershipId: victim },
       ),
     );
-    const { rows: victimRows } = await su.query('select status from org.memberships where id = $1', [
-      victim,
-    ]);
+    const { rows: victimRows } = await su.query(
+      'select status from org.memberships where id = $1',
+      [victim],
+    );
     expect(victimRows[0].status).toBe('active');
 
     // A reference to their row, on a form for this tenant.
@@ -607,7 +609,9 @@ describeParity('boundary', {
     const rival = await tenant('Rival');
     const person = await signUp(fresh('Newcomer'));
     const stranger = await signUp(fresh('Stranger'));
-    const secretWork = await createWork(rival.owner, rival.organization, { title: fresh('Theirs') });
+    const secretWork = await createWork(rival.owner, rival.organization, {
+      title: fresh('Theirs'),
+    });
     const rivalName = await organizationName(su, rival.organization);
 
     // Invited to both, by two organizations that know nothing of each other.
@@ -750,10 +754,15 @@ describeParity('boundary', {
 
     // A form an owner holds does not work for a member. The page says so, and the record shows it.
     const emailForged = `forged-${randomUUID()}@example.invalid`;
-    const invited = await post(people, member.jar, await formOn(people, owner.jar, /name="email"/), {
-      email: emailForged,
-      role: 'admin',
-    });
+    const invited = await post(
+      people,
+      member.jar,
+      await formOn(people, owner.jar, /name="email"/),
+      {
+        email: emailForged,
+        role: 'admin',
+      },
+    );
     expect(tokenIn(await invited.text())).toBeUndefined();
     const invitationsMade = await countRows(su, 'org.invitations', 'email', emailForged);
     expect(invitationsMade).toBe(0);
@@ -894,7 +903,11 @@ describeParity('boundary', {
       ownerOfTheOrganization: (await read(downloadPath, owner.jar)).status,
       otherTenant: (await read(downloadPath, rival.owner.jar)).status,
     };
-    expect(refusedDownloads).toEqual({ member: 404, ownerOfTheOrganization: 404, otherTenant: 404 });
+    expect(refusedDownloads).toEqual({
+      member: 404,
+      ownerOfTheOrganization: 404,
+      otherTenant: 404,
+    });
 
     // A request that fails badly, carrying the value where an ID belongs, has every reason to log it.
     const inbox = `/o/${org}/inbox`;
@@ -996,9 +1009,7 @@ describeParity('boundary', {
     await models.arrange(rival, 'answers');
 
     const before = await models.callsReceived();
-    const chat = refusalOf(
-      await models.invoke(a, { dataClass: 'restricted', purpose: 'chat' }),
-    );
+    const chat = refusalOf(await models.invoke(a, { dataClass: 'restricted', purpose: 'chat' }));
     const embedding = refusalOf(
       await models.invoke(a, { dataClass: 'restricted', purpose: 'embedding' }),
     );

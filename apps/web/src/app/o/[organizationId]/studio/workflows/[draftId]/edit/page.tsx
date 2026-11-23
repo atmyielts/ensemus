@@ -1,3 +1,5 @@
+import { Card } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
 import { randomUUID } from 'node:crypto';
 import { getProcessDraft, loadProcessCatalog } from '@ensemus/application/process-specs';
 import { listAgentRegistry } from '@ensemus/application/ai-agents';
@@ -151,14 +153,14 @@ export default async function EditWorkflowPage({
                               <input type="hidden" name="version" value={draft.version} />
                               <input type="hidden" name="nodeId" value={node.id} />
                               <input type="hidden" name="requestKey" value={randomUUID()} />
-                              <label className="check">
+                              <Label className="check">
                                 <input type="checkbox" name="confirmed" value="yes" required />
                                 Remove{' '}
                                 {count === 1
                                   ? 'this point'
                                   : 'all duplicated points with this identity'}{' '}
                                 and their connections.
-                              </label>
+                              </Label>
                               <div>
                                 <SubmitButton
                                   className="danger"
@@ -185,40 +187,44 @@ export default async function EditWorkflowPage({
                 )}
               </section>
 
-              <section className="card fields" aria-labelledby="add-workflow-point">
-                <h2 id="add-workflow-point">Add a point</h2>
-                <p className="muted">
-                  Give it a clear name for what should happen. Save any open changes above first:
-                  this adds to the saved workflow, in the place the ticked links describe.
-                </p>
-                {draft.graph.nodes.length < 64 ? (
-                  <WorkflowPointForm
-                    organizationId={organizationId}
-                    draftId={draft.id}
-                    version={draft.version}
-                    graph={draft.graph}
-                    newNodeId={workflowPointId(key)}
-                    requestKey={key}
-                    choices={choices}
-                  />
-                ) : (
-                  <p className="notice">
-                    A workflow can have up to 64 points. Remove one before adding another.
+              <Card asChild>
+                <section className="card fields" aria-labelledby="add-workflow-point">
+                  <h2 id="add-workflow-point">Add a point</h2>
+                  <p className="muted">
+                    Give it a clear name for what should happen. Save any open changes above first:
+                    this adds to the saved workflow, in the place the ticked links describe.
                   </p>
-                )}
-              </section>
+                  {draft.graph.nodes.length < 64 ? (
+                    <WorkflowPointForm
+                      organizationId={organizationId}
+                      draftId={draft.id}
+                      version={draft.version}
+                      graph={draft.graph}
+                      newNodeId={workflowPointId(key)}
+                      requestKey={key}
+                      choices={choices}
+                    />
+                  ) : (
+                    <p className="notice">
+                      A workflow can have up to 64 points. Remove one before adding another.
+                    </p>
+                  )}
+                </section>
+              </Card>
 
-              <div className="card">
-                <WorkflowMap
-                  draft={draft}
-                  layout={picture}
-                  id="edit-workflow-map"
-                  editHref={`${base}/edit`}
-                  editing
-                  organizationId={organizationId}
-                  repairKey={randomUUID()}
-                />
-              </div>
+              <Card asChild>
+                <div className="card">
+                  <WorkflowMap
+                    draft={draft}
+                    layout={picture}
+                    id="edit-workflow-map"
+                    editHref={`${base}/edit`}
+                    editing
+                    organizationId={organizationId}
+                    repairKey={randomUUID()}
+                  />
+                </div>
+              </Card>
             </div>
           )}
         </OneActionAtATime>

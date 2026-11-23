@@ -1,3 +1,6 @@
+import { Card } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import { SubmitButton } from '@/components/submit-button';
 import { BackLink, PageHead } from '@/components/ui';
 import { changeEmailAction, resendVerificationAction } from '@/server/account-mail-actions';
@@ -51,60 +54,64 @@ export default async function EmailAddressPage({
         </p>
       )}
       <div className="stack">
-        <section className="card" aria-labelledby="current-address">
-          <div className="spread">
-            <h2 id="current-address">{actor.email}</h2>
-            <span className={`badge ${actor.emailVerified ? 'done' : 'attention'}`}>
-              {actor.emailVerified ? 'Confirmed' : 'Not confirmed yet'}
-            </span>
-          </div>
-          {!actor.emailVerified && (
-            <>
-              <p className="gap-above-small">
-                Confirm it, and we can tell you by email when something needs you.
+        <Card asChild>
+          <section className="card" aria-labelledby="current-address">
+            <div className="spread">
+              <h2 id="current-address">{actor.email}</h2>
+              <span className={`badge ${actor.emailVerified ? 'done' : 'attention'}`}>
+                {actor.emailVerified ? 'Confirmed' : 'Not confirmed yet'}
+              </span>
+            </div>
+            {!actor.emailVerified && (
+              <>
+                <p className="gap-above-small">
+                  Confirm it, and we can tell you by email when something needs you.
+                </p>
+                {mailEnabled && (
+                  <form
+                    className="gap-above"
+                    action={resendVerificationAction.bind(null, organizationId)}
+                  >
+                    <SubmitButton working="Sending">Send me a link</SubmitButton>
+                  </form>
+                )}
+              </>
+            )}
+          </section>
+        </Card>
+        <Card asChild>
+          <section className="card" aria-labelledby="change-address">
+            <h2 id="change-address">Change your email address</h2>
+            {mailEnabled ? (
+              <form
+                className="fields gap-above"
+                action={changeEmailAction.bind(null, organizationId)}
+              >
+                <p className="muted">
+                  Nothing changes until you follow the links we email you
+                  {actor.emailVerified ? ', first at this address, then at the new one' : ''}.
+                </p>
+                <Label>
+                  New email address
+                  <Input name="email" type="email" autoComplete="email" maxLength={254} required />
+                </Label>
+                <Label>
+                  Your password
+                  <Input name="password" type="password" autoComplete="current-password" required />
+                  <small>We ask again to make sure it’s really you.</small>
+                </Label>
+                <div>
+                  <SubmitButton working="Sending">Email me a link</SubmitButton>
+                </div>
+              </form>
+            ) : (
+              <p className="muted gap-above-small">
+                Changing your address needs email, which isn’t set up here. Ask whoever looks after
+                Ensemus at your company.
               </p>
-              {mailEnabled && (
-                <form
-                  className="gap-above"
-                  action={resendVerificationAction.bind(null, organizationId)}
-                >
-                  <SubmitButton working="Sending">Send me a link</SubmitButton>
-                </form>
-              )}
-            </>
-          )}
-        </section>
-        <section className="card" aria-labelledby="change-address">
-          <h2 id="change-address">Change your email address</h2>
-          {mailEnabled ? (
-            <form
-              className="fields gap-above"
-              action={changeEmailAction.bind(null, organizationId)}
-            >
-              <p className="muted">
-                Nothing changes until you follow the links we email you
-                {actor.emailVerified ? ', first at this address, then at the new one' : ''}.
-              </p>
-              <label>
-                New email address
-                <input name="email" type="email" autoComplete="email" maxLength={254} required />
-              </label>
-              <label>
-                Your password
-                <input name="password" type="password" autoComplete="current-password" required />
-                <small>We ask again to make sure it’s really you.</small>
-              </label>
-              <div>
-                <SubmitButton working="Sending">Email me a link</SubmitButton>
-              </div>
-            </form>
-          ) : (
-            <p className="muted gap-above-small">
-              Changing your address needs email, which isn’t set up here. Ask whoever looks after
-              Ensemus at your company.
-            </p>
-          )}
-        </section>
+            )}
+          </section>
+        </Card>
       </div>
     </>
   );

@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import { ResourceRefresh } from '@/components/resource-refresh';
 import { getClientOnboarding } from '@ensemus/application/knowledge/onboarding';
 import Link from 'next/link';
@@ -101,79 +102,83 @@ export default async function OnboardingPage({
       />
       <div className="detail-layout">
         <div className="stack">
-          <section className="card" aria-labelledby="onboarding-progress-heading">
-            <h2 id="onboarding-progress-heading">Where it has got to</h2>
-            <p className={`notice${tone}`}>
-              {row.stateCode ? onboardingOutcomeMessage(row.stateCode) : stateSentence(row.state)}
-            </p>
-            <ResourceRefresh active={!['completed', 'failed', 'unknown'].includes(row.state)} />
-            <ol className="step-timeline gap-above">
-              {steps.map((step, index) => {
-                const mark =
-                  current === undefined
-                    ? null
-                    : index < current
-                      ? 'done'
-                      : index === current
-                        ? 'current'
-                        : 'later';
-                return (
-                  <li key={step.title} className={mark ? `is-${mark}` : undefined}>
-                    <span className="step-what">
-                      {step.title}
-                      {step.links && <span className="row">{step.links}</span>}
-                    </span>
-                    {mark && <small>{STEP_WORDS[mark]}</small>}
-                  </li>
-                );
-              })}
-            </ol>
-          </section>
+          <Card asChild>
+            <section className="card" aria-labelledby="onboarding-progress-heading">
+              <h2 id="onboarding-progress-heading">Where it has got to</h2>
+              <p className={`notice${tone}`}>
+                {row.stateCode ? onboardingOutcomeMessage(row.stateCode) : stateSentence(row.state)}
+              </p>
+              <ResourceRefresh active={!['completed', 'failed', 'unknown'].includes(row.state)} />
+              <ol className="step-timeline gap-above">
+                {steps.map((step, index) => {
+                  const mark =
+                    current === undefined
+                      ? null
+                      : index < current
+                        ? 'done'
+                        : index === current
+                          ? 'current'
+                          : 'later';
+                  return (
+                    <li key={step.title} className={mark ? `is-${mark}` : undefined}>
+                      <span className="step-what">
+                        {step.title}
+                        {step.links && <span className="row">{step.links}</span>}
+                      </span>
+                      {mark && <small>{STEP_WORDS[mark]}</small>}
+                    </li>
+                  );
+                })}
+              </ol>
+            </section>
+          </Card>
         </div>
         <aside className="stack">
-          <section className="card" aria-labelledby="onboarding-summary-heading">
-            <h2 id="onboarding-summary-heading">Summary</h2>
-            <dl className="details">
-              <div>
-                <dt>Status</dt>
-                <dd>
-                  <StatusBadge status={row.state} />
-                </dd>
-              </div>
-              <div>
-                <dt>Started</dt>
-                <dd>{formatDateTime(row.createdAt)}</dd>
-              </div>
-              {row.finishedAt && (
+          <Card asChild>
+            <section className="card" aria-labelledby="onboarding-summary-heading">
+              <h2 id="onboarding-summary-heading">Summary</h2>
+              <dl className="details">
                 <div>
-                  <dt>Finished</dt>
-                  <dd>{formatDateTime(row.finishedAt)}</dd>
+                  <dt>Status</dt>
+                  <dd>
+                    <StatusBadge status={row.state} />
+                  </dd>
                 </div>
-              )}
-              <div>
-                <dt>Welcome email</dt>
-                <dd>
-                  {row.receipt
-                    ? row.receipt.status === 'sent' &&
-                      ['provider', 'reconciliation'].includes(row.receipt.basis)
-                      ? 'Sent, and confirmed by the email service'
-                      : row.receipt.status === 'unknown'
-                        ? 'Delivery not confirmed'
-                        : 'No confirmed sending receipt'
-                    : 'Not sent yet'}
-                </dd>
-              </div>
-              <div>
-                <dt>AI model cost</dt>
-                <dd>{costLabel(row.costMicros)}</dd>
-              </div>
-            </dl>
-            <p className="gap-above">
-              <ActionLink href={`${base}/work/${row.workUnitId}`} variant="secondary">
-                Open onboarding work
-              </ActionLink>
-            </p>
-          </section>
+                <div>
+                  <dt>Started</dt>
+                  <dd>{formatDateTime(row.createdAt)}</dd>
+                </div>
+                {row.finishedAt && (
+                  <div>
+                    <dt>Finished</dt>
+                    <dd>{formatDateTime(row.finishedAt)}</dd>
+                  </div>
+                )}
+                <div>
+                  <dt>Welcome email</dt>
+                  <dd>
+                    {row.receipt
+                      ? row.receipt.status === 'sent' &&
+                        ['provider', 'reconciliation'].includes(row.receipt.basis)
+                        ? 'Sent, and confirmed by the email service'
+                        : row.receipt.status === 'unknown'
+                          ? 'Delivery not confirmed'
+                          : 'No confirmed sending receipt'
+                      : 'Not sent yet'}
+                  </dd>
+                </div>
+                <div>
+                  <dt>AI model cost</dt>
+                  <dd>{costLabel(row.costMicros)}</dd>
+                </div>
+              </dl>
+              <p className="gap-above">
+                <ActionLink href={`${base}/work/${row.workUnitId}`} variant="secondary">
+                  Open onboarding work
+                </ActionLink>
+              </p>
+            </section>
+          </Card>
           {(row.stateCode || row.receipt) && (
             <details>
               <summary>Technical details</summary>

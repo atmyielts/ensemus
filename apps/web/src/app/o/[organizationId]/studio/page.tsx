@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import { listAgentRegistry } from '@ensemus/application/ai-agents';
 import { can } from '@ensemus/domain/policy';
 import { canProduct } from '@ensemus/domain/product-policy';
@@ -48,17 +49,19 @@ export default async function StudioPage({
           ) : undefined
         }
       />
-      <section className="card" aria-labelledby="studio-path">
-        <h2 id="studio-path">From idea to everyday use</h2>
-        <ol className="studio-path">
-          {PATH.map(([step, text]) => (
-            <li key={step}>
-              <strong>{step}</strong>
-              <span>{text}</span>
-            </li>
-          ))}
-        </ol>
-      </section>
+      <Card asChild>
+        <section className="card" aria-labelledby="studio-path">
+          <h2 id="studio-path">From idea to everyday use</h2>
+          <ol className="studio-path">
+            {PATH.map(([step, text]) => (
+              <li key={step}>
+                <strong>{step}</strong>
+                <span>{text}</span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      </Card>
       {author && (
         <section className="settings-section" aria-labelledby="studio-build">
           <div className="section-intro">
@@ -96,55 +99,57 @@ export default async function StudioPage({
           />
         </section>
       )}
-      <section className="card settings-section" aria-labelledby="studio-assistants">
-        <div className="section-heading">
-          <div>
-            <h2 id="studio-assistants">Published assistants</h2>
-            <p>
-              A published version never changes. Work already under way keeps the version it started
-              with.
-            </p>
+      <Card asChild>
+        <section className="card settings-section" aria-labelledby="studio-assistants">
+          <div className="section-heading">
+            <div>
+              <h2 id="studio-assistants">Published assistants</h2>
+              <p>
+                A published version never changes. Work already under way keeps the version it
+                started with.
+              </p>
+            </div>
+            <Link href={`${base}/settings/agents`}>
+              Version history <span aria-hidden="true">→</span>
+            </Link>
           </div>
-          <Link href={`${base}/settings/agents`}>
-            Version history <span aria-hidden="true">→</span>
-          </Link>
-        </div>
-        {active.length === 0 ? (
-          <Empty
-            title="No assistants published yet"
-            action={
-              can(context.role, 'agent.publish') ? (
-                <ActionLink href={`${base}/studio/agents/new`} variant="secondary">
-                  Create your first assistant
-                </ActionLink>
-              ) : undefined
-            }
-          >
-            Start with a draft. Once it has been rehearsed and approved, it appears here for your
-            team.
-          </Empty>
-        ) : (
-          <ul className="list">
-            {active.map((version) => (
-              <li key={version.versionId}>
-                <span>
-                  <strong>{version.name}</strong>
-                  <br />
-                  <small>
-                    Version {version.versionNumber} · Published{' '}
-                    {formatDateTime(version.publishedAt)}
-                  </small>
-                </span>
-                <span className="badge done">Published</span>
-              </li>
-            ))}
-          </ul>
-        )}
-        <p className="studio-next-step">
-          To use an assistant, open a piece of <Link href={`${base}/work`}>work</Link> and start one
-          from there.
-        </p>
-      </section>
+          {active.length === 0 ? (
+            <Empty
+              title="No assistants published yet"
+              action={
+                can(context.role, 'agent.publish') ? (
+                  <ActionLink href={`${base}/studio/agents/new`} variant="secondary">
+                    Create your first assistant
+                  </ActionLink>
+                ) : undefined
+              }
+            >
+              Start with a draft. Once it has been rehearsed and approved, it appears here for your
+              team.
+            </Empty>
+          ) : (
+            <ul className="list">
+              {active.map((version) => (
+                <li key={version.versionId}>
+                  <span>
+                    <strong>{version.name}</strong>
+                    <br />
+                    <small>
+                      Version {version.versionNumber} · Published{' '}
+                      {formatDateTime(version.publishedAt)}
+                    </small>
+                  </span>
+                  <span className="badge done">Published</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="studio-next-step">
+            To use an assistant, open a piece of <Link href={`${base}/work`}>work</Link> and start
+            one from there.
+          </p>
+        </section>
+      </Card>
       <section className="settings-section" aria-labelledby="studio-controls">
         <div className="section-intro">
           <h2 id="studio-controls">Before assistants run</h2>

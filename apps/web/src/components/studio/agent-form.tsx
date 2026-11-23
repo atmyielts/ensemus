@@ -1,4 +1,9 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { NativeSelect } from '@/components/ui/native-select';
+
 import { useActionState, useEffect, useId, useRef } from 'react';
 import type { AgentDraftView } from '@ensemus/application/agent-drafts';
 import type { ToolFacts } from '@ensemus/domain/agent-draft';
@@ -59,10 +64,10 @@ export function AgentForm({
   ) {
     const id = `${prefix}-${name}`;
     return (
-      <label htmlFor={id}>
+      <Label htmlFor={id}>
         <span id={`${id}-label`}>{label}</span>
         {help && <small id={`${id}-help`}>{help}</small>}
-        <input
+        <Input
           id={id}
           name={name}
           type="number"
@@ -74,7 +79,7 @@ export function AgentForm({
           aria-labelledby={`${id}-label`}
           aria-describedby={help ? `${id}-help` : undefined}
         />
-      </label>
+      </Label>
     );
   }
   return (
@@ -91,10 +96,10 @@ export function AgentForm({
         <ErrorNotice code={state.code} />
       </div>
       <h2>What it is for</h2>
-      <label htmlFor={`${prefix}-name`}>
+      <Label htmlFor={`${prefix}-name`}>
         <span id={`${prefix}-name-label`}>Assistant name</span>
         <small id={`${prefix}-name-help`}>A short name your team will recognise.</small>
-        <input
+        <Input
           id={`${prefix}-name`}
           name="name"
           required
@@ -103,10 +108,10 @@ export function AgentForm({
           aria-describedby={`${prefix}-name-help`}
           defaultValue={value('name', draft?.name)}
         />
-      </label>
-      <label htmlFor={`${prefix}-role`}>
+      </Label>
+      <Label htmlFor={`${prefix}-role`}>
         What should it help with?
-        <textarea
+        <Textarea
           id={`${prefix}-role`}
           name="role"
           required
@@ -114,10 +119,10 @@ export function AgentForm({
           maxLength={2000}
           defaultValue={value('role', a?.role)}
         />
-      </label>
-      <label htmlFor={`${prefix}-outcome`}>
+      </Label>
+      <Label htmlFor={`${prefix}-outcome`}>
         What should a good result contain?
-        <textarea
+        <Textarea
           id={`${prefix}-outcome`}
           name="intendedOutcome"
           required
@@ -126,13 +131,13 @@ export function AgentForm({
           maxLength={1000}
           defaultValue={value('intendedOutcome', a?.intendedOutcome)}
         />
-      </label>
-      <label htmlFor={`${prefix}-owner`}>
+      </Label>
+      <Label htmlFor={`${prefix}-owner`}>
         <span id={`${prefix}-owner-label`}>Responsible person</span>
         <small id={`${prefix}-owner-help`}>
           The person who answers for what this assistant does.
         </small>
-        <select
+        <NativeSelect
           id={`${prefix}-owner`}
           name="ownerMembershipId"
           aria-labelledby={`${prefix}-owner-label`}
@@ -145,8 +150,8 @@ export function AgentForm({
               {p.name}
             </option>
           ))}
-        </select>
-      </label>
+        </NativeSelect>
+      </Label>
       {draft?.agentDefinitionId && (
         <>
           <input type="hidden" name="ownerMembershipId" value={a?.ownerMembershipId} />
@@ -156,12 +161,12 @@ export function AgentForm({
           </p>
         </>
       )}
-      <label htmlFor={`${prefix}-boundaries`}>
+      <Label htmlFor={`${prefix}-boundaries`}>
         <span id={`${prefix}-boundaries-label`}>What must it avoid?</span>
         <small id={`${prefix}-boundaries-help`}>
           One rule per line, such as “Never promise a delivery date”. Optional.
         </small>
-        <textarea
+        <Textarea
           id={`${prefix}-boundaries`}
           name="boundaries"
           rows={3}
@@ -170,14 +175,14 @@ export function AgentForm({
           aria-describedby={`${prefix}-boundaries-help`}
           defaultValue={value('boundaries', a?.boundaries.join('\n'))}
         />
-      </label>
+      </Label>
 
       <div className="form-section">
         <h2>What it may see</h2>
         <fieldset className="group">
           <legend>Company information it may read</legend>
           <div className="choice-list">
-            <label className="choice">
+            <Label className="choice">
               <input
                 type="radio"
                 name="dataCeiling"
@@ -186,8 +191,8 @@ export function AgentForm({
               />
               <strong>Public only</strong>
               <small>Material anyone outside the company could see.</small>
-            </label>
-            <label className="choice">
+            </Label>
+            <Label className="choice">
               <input
                 type="radio"
                 name="dataCeiling"
@@ -196,8 +201,8 @@ export function AgentForm({
               />
               <strong>Up to internal</strong>
               <small>Everyday company material your team shares among itself.</small>
-            </label>
-            <label className="choice">
+            </Label>
+            <Label className="choice">
               <input
                 type="radio"
                 name="dataCeiling"
@@ -208,7 +213,7 @@ export function AgentForm({
               <small>
                 Sensitive material. Someone other than you has to review this assistant.
               </small>
-            </label>
+            </Label>
           </div>
           <small>
             Each person’s own access still applies when it runs. Restricted material is not offered
@@ -220,18 +225,18 @@ export function AgentForm({
           <fieldset className="group gap-above-small">
             <legend>Only the sources you tick may be searched</legend>
             {missingSources.map((id, index) => (
-              <label className="check" key={id}>
+              <Label className="check" key={id}>
                 <input type="checkbox" name="knowledgeSourceIds" value={id} defaultChecked />
                 <span>
                   A saved source you can no longer see ({index + 1}). Untick it to remove it.
                 </span>
-              </label>
+              </Label>
             ))}
             {sources.length === 0 ? (
               <p className="muted">There are no searchable sources you can read yet.</p>
             ) : (
               sources.map((source) => (
-                <label className="check" key={source.id}>
+                <Label className="check" key={source.id}>
                   <input
                     type="checkbox"
                     name="knowledgeSourceIds"
@@ -245,7 +250,7 @@ export function AgentForm({
                   <span>
                     {source.title} <small>· {source.classification}</small>
                   </span>
-                </label>
+                </Label>
               ))
             )}
             <small>Up to 200 sources you can read are listed.</small>
@@ -261,11 +266,11 @@ export function AgentForm({
           {missingTools.length > 0 && (
             <div className="choice-list">
               {missingTools.map((id) => (
-                <label className="choice" key={id}>
+                <Label className="choice" key={id}>
                   <input type="checkbox" name="toolIds" value={id} defaultChecked />
                   <strong>An ability that is no longer offered</strong>
                   <small>Untick it to remove it before saving.</small>
-                </label>
+                </Label>
               ))}
             </div>
           )}
@@ -275,7 +280,7 @@ export function AgentForm({
                 {group.tools.map((tool) => {
                   const [name, help] = toolWords(tool);
                   return (
-                    <label className="choice" key={tool.id}>
+                    <Label className="choice" key={tool.id}>
                       <input
                         type="checkbox"
                         name="toolIds"
@@ -287,7 +292,7 @@ export function AgentForm({
                         {help}
                         {tool.requiresApproval ? ' A person approves each use.' : ''}
                       </small>
-                    </label>
+                    </Label>
                   );
                 })}
               </div>
@@ -328,7 +333,7 @@ export function AgentForm({
         <fieldset className="group">
           <legend>How should it work?</legend>
           <div className="choice-list">
-            <label className="choice">
+            <Label className="choice">
               <input
                 type="radio"
                 name="autonomy"
@@ -337,8 +342,8 @@ export function AgentForm({
               />
               <strong>Make suggestions</strong>
               <small>It answers and suggests; a person does the rest.</small>
-            </label>
-            <label className="choice">
+            </Label>
+            <Label className="choice">
               <input
                 type="radio"
                 name="autonomy"
@@ -347,8 +352,8 @@ export function AgentForm({
               />
               <strong>Prepare drafts for review</strong>
               <small>It writes a first version for a person to check.</small>
-            </label>
-            <label className="choice">
+            </Label>
+            <Label className="choice">
               <input
                 type="radio"
                 name="autonomy"
@@ -357,32 +362,32 @@ export function AgentForm({
               />
               <strong>Propose actions for approval</strong>
               <small>It lines up an action; nothing happens until a person approves it.</small>
-            </label>
+            </Label>
           </div>
         </fieldset>
         <div className="studio-field-grid">
-          <label htmlFor={`${prefix}-output`}>
+          <Label htmlFor={`${prefix}-output`}>
             Result format
-            <select
+            <NativeSelect
               id={`${prefix}-output`}
               name="outputFormat"
               defaultValue={value('outputFormat', a?.outputFormat ?? 'markdown_brief')}
             >
               <option value="markdown_brief">A brief with sources</option>
               <option value="structured_report">A structured report with sources</option>
-            </select>
-          </label>
-          <label htmlFor={`${prefix}-memory`}>
+            </NativeSelect>
+          </Label>
+          <Label htmlFor={`${prefix}-memory`}>
             Company memory
-            <select
+            <NativeSelect
               id={`${prefix}-memory`}
               name="memoryWrite"
               defaultValue={value('memoryWrite', a?.memoryWrite ?? 'none')}
             >
               <option value="none">Do not suggest new facts</option>
               <option value="propose_only">Suggest facts for a person to check</option>
-            </select>
-          </label>
+            </NativeSelect>
+          </Label>
         </div>
       </div>
 
@@ -392,9 +397,9 @@ export function AgentForm({
           Each run stops when it reaches any of these. Saving or rehearsing a draft costs nothing.
         </p>
         <div className="studio-field-grid">
-          <label htmlFor={`${prefix}-cost`}>
+          <Label htmlFor={`${prefix}-cost`}>
             Most it may spend per run (USD)
-            <input
+            <Input
               id={`${prefix}-cost`}
               name="maxCostUsd"
               inputMode="decimal"
@@ -405,10 +410,10 @@ export function AgentForm({
                 a?.maxCostMicros ? usdTextFromMicros(a.maxCostMicros) : '',
               )}
             />
-          </label>
-          <label htmlFor={`${prefix}-quality`}>
+          </Label>
+          <Label htmlFor={`${prefix}-quality`}>
             Model quality
-            <select
+            <NativeSelect
               id={`${prefix}-quality`}
               name="qualityTier"
               defaultValue={value('qualityTier', a?.qualityTier ?? 'balanced')}
@@ -416,8 +421,8 @@ export function AgentForm({
               <option value="economy">Economy</option>
               <option value="balanced">Balanced</option>
               <option value="high">High</option>
-            </select>
-          </label>
+            </NativeSelect>
+          </Label>
           {number(
             'maxTurns',
             'Most model replies',

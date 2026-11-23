@@ -1,3 +1,5 @@
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import Link from 'next/link';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
@@ -41,10 +43,10 @@ export default async function SsoSignInPage({
         )}
         <form className="fields" action={startSsoSignInAction}>
           {next && <input type="hidden" name="next" value={next} />}
-          <label>
+          <Label>
             Work email
-            <input type="email" name="email" autoComplete="username" maxLength={320} required />
-          </label>
+            <Input type="email" name="email" autoComplete="username" maxLength={320} required />
+          </Label>
           <div>
             <SubmitButton working="Continuing">Continue with company sign-in</SubmitButton>
           </div>
@@ -59,24 +61,24 @@ export default async function SsoSignInPage({
             </p>
             <form className="fields" action={startSsoSelfLinkAction}>
               {next && <input type="hidden" name="next" value={next} />}
-              <label>
+              <Label>
                 Password for this Ensemus account
-                <input
+                <Input
                   type="password"
                   name="password"
                   autoComplete="current-password"
                   maxLength={128}
                   aria-describedby="connect-password-help"
                 />
-              </label>
+              </Label>
               <p className="muted" id="connect-password-help">
                 Enter your password if this account has one. If you sign in another way, sign in
                 that way again first. It counts for five minutes.
               </p>
-              <label className="check">
+              <Label className="check">
                 <input type="checkbox" name="consent" value="yes" required />I want to connect
                 company sign-in to this Ensemus account.
-              </label>
+              </Label>
               <div>
                 <SubmitButton working="Connecting">Connect company sign-in</SubmitButton>
               </div>

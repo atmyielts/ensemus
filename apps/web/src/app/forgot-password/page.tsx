@@ -1,3 +1,4 @@
+import { Label } from '@/components/ui/label';
 import Link from 'next/link';
 import { KeptInput } from '@/components/kept-field';
 import { SubmitButton } from '@/components/submit-button';
@@ -47,7 +48,7 @@ export default async function ForgotPasswordPage({
               </p>
             )}
             <form className="fields" action={forgotPasswordAction}>
-              <label>
+              <Label>
                 Email
                 <KeptInput
                   keep="email"
@@ -56,7 +57,7 @@ export default async function ForgotPasswordPage({
                   autoComplete="username"
                   required
                 />
-              </label>
+              </Label>
               <div>
                 <SubmitButton working="Sending">Send me a link</SubmitButton>
               </div>

@@ -1,3 +1,7 @@
+import { Card } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
 import { randomUUID } from 'node:crypto';
 import { listClients, listProjects } from '@ensemus/application';
 import { can } from '@ensemus/domain/policy';
@@ -43,119 +47,125 @@ export default async function ClientsPage({
       />
       <ErrorNotice code={error} />
       <div className="stack">
-        <section className="card" aria-labelledby="clients-heading">
-          <header className="section-heading">
-            <div>
-              <h2 id="clients-heading">Clients</h2>
-              <p>
-                A client keeps its projects and work together. Each client has an owner, who decides
-                who else can see it.
-              </p>
-            </div>
-          </header>
-          {clients.length === 0 ? (
-            <Empty title="No clients yet">
-              {canAddClient
-                ? 'Add the first company you do work for below. You can then group its work into projects and choose who can see it.'
-                : 'An owner or admin adds clients. Once they do, the ones you can see appear here.'}
-            </Empty>
-          ) : (
-            <ul className="list client-list">
-              {clients.map((client) => (
-                <li key={client.id}>
-                  <div className="client-who">
-                    <span className="client-name">
-                      <span>{client.displayName}</span>{' '}
-                      <ClassificationBadge value={client.classification} />
-                    </span>
-                    <small>{SEEN_BY[client.classification] ?? 'Who can see it is not known'}</small>
-                  </div>
-                  {client.ownerMembershipId === context.membershipId && (
-                    <Link
-                      className="button secondary compact-action"
-                      href={`/o/${organizationId}/clients/${client.id}/access`}
-                    >
-                      Manage access
-                    </Link>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-          {canAddClient && (
-            <form className="inline-form divided" action={createClientAction}>
-              {org}
-              <input type="hidden" name="requestKey" value={randomUUID()} />
-              <label>
-                Client name
-                <input name="displayName" required maxLength={200} autoComplete="off" />
-              </label>
-              <label>
-                Who can see this client
-                <select name="classification" defaultValue="internal">
-                  <option value="internal">Everyone in this workspace</option>
-                  <option value="confidential">You, named people and administrators</option>
-                  <option value="restricted">Only you and named people</option>
-                </select>
-              </label>
-              <SubmitButton className="secondary">Add client</SubmitButton>
-            </form>
-          )}
-        </section>
+        <Card asChild>
+          <section className="card" aria-labelledby="clients-heading">
+            <header className="section-heading">
+              <div>
+                <h2 id="clients-heading">Clients</h2>
+                <p>
+                  A client keeps its projects and work together. Each client has an owner, who
+                  decides who else can see it.
+                </p>
+              </div>
+            </header>
+            {clients.length === 0 ? (
+              <Empty title="No clients yet">
+                {canAddClient
+                  ? 'Add the first company you do work for below. You can then group its work into projects and choose who can see it.'
+                  : 'An owner or admin adds clients. Once they do, the ones you can see appear here.'}
+              </Empty>
+            ) : (
+              <ul className="list client-list">
+                {clients.map((client) => (
+                  <li key={client.id}>
+                    <div className="client-who">
+                      <span className="client-name">
+                        <span>{client.displayName}</span>{' '}
+                        <ClassificationBadge value={client.classification} />
+                      </span>
+                      <small>
+                        {SEEN_BY[client.classification] ?? 'Who can see it is not known'}
+                      </small>
+                    </div>
+                    {client.ownerMembershipId === context.membershipId && (
+                      <Link
+                        className="button secondary compact-action"
+                        href={`/o/${organizationId}/clients/${client.id}/access`}
+                      >
+                        Manage access
+                      </Link>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {canAddClient && (
+              <form className="inline-form divided" action={createClientAction}>
+                {org}
+                <input type="hidden" name="requestKey" value={randomUUID()} />
+                <Label>
+                  Client name
+                  <Input name="displayName" required maxLength={200} autoComplete="off" />
+                </Label>
+                <Label>
+                  Who can see this client
+                  <NativeSelect name="classification" defaultValue="internal">
+                    <option value="internal">Everyone in this workspace</option>
+                    <option value="confidential">You, named people and administrators</option>
+                    <option value="restricted">Only you and named people</option>
+                  </NativeSelect>
+                </Label>
+                <SubmitButton className="secondary">Add client</SubmitButton>
+              </form>
+            )}
+          </section>
+        </Card>
 
-        <section className="card" aria-labelledby="projects-heading">
-          <header className="section-heading">
-            <div>
-              <h2 id="projects-heading">Projects</h2>
-              <p>
-                A project groups the work for one job, such as a website refresh. Open one to see
-                its work.
-              </p>
-            </div>
-          </header>
-          {projects.length === 0 ? (
-            <Empty title="No projects yet">
-              {canAddProject
-                ? 'Add one below, with its client if it has one, and its work will appear together.'
-                : 'An owner or admin adds projects. Once they do, they appear here.'}
-            </Empty>
-          ) : (
-            <ul className="list">
-              {projects.map((project) => (
-                <li key={project.id}>
-                  <Link href={`/o/${organizationId}/work?project=${project.id}`}>
-                    {project.name}
-                  </Link>
-                  <small>{project.clientName ? `For ${project.clientName}` : 'No client'}</small>
-                </li>
-              ))}
-            </ul>
-          )}
-          {canAddProject && (
-            <form className="inline-form divided" action={createProjectAction}>
-              {org}
-              <input type="hidden" name="requestKey" value={randomUUID()} />
-              <label>
-                Project name
-                <input name="name" required maxLength={200} autoComplete="off" />
-              </label>
-              {clients.length > 0 && (
-                <label>
-                  Client (optional)
-                  <select name="clientId" defaultValue="">
-                    <option value="">No client</option>
-                    {clients.map((client) => (
-                      <option key={client.id} value={client.id}>
-                        {client.displayName}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              <SubmitButton className="secondary">Add project</SubmitButton>
-            </form>
-          )}
-        </section>
+        <Card asChild>
+          <section className="card" aria-labelledby="projects-heading">
+            <header className="section-heading">
+              <div>
+                <h2 id="projects-heading">Projects</h2>
+                <p>
+                  A project groups the work for one job, such as a website refresh. Open one to see
+                  its work.
+                </p>
+              </div>
+            </header>
+            {projects.length === 0 ? (
+              <Empty title="No projects yet">
+                {canAddProject
+                  ? 'Add one below, with its client if it has one, and its work will appear together.'
+                  : 'An owner or admin adds projects. Once they do, they appear here.'}
+              </Empty>
+            ) : (
+              <ul className="list">
+                {projects.map((project) => (
+                  <li key={project.id}>
+                    <Link href={`/o/${organizationId}/work?project=${project.id}`}>
+                      {project.name}
+                    </Link>
+                    <small>{project.clientName ? `For ${project.clientName}` : 'No client'}</small>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {canAddProject && (
+              <form className="inline-form divided" action={createProjectAction}>
+                {org}
+                <input type="hidden" name="requestKey" value={randomUUID()} />
+                <Label>
+                  Project name
+                  <Input name="name" required maxLength={200} autoComplete="off" />
+                </Label>
+                {clients.length > 0 && (
+                  <Label>
+                    Client (optional)
+                    <NativeSelect name="clientId" defaultValue="">
+                      <option value="">No client</option>
+                      {clients.map((client) => (
+                        <option key={client.id} value={client.id}>
+                          {client.displayName}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  </Label>
+                )}
+                <SubmitButton className="secondary">Add project</SubmitButton>
+              </form>
+            )}
+          </section>
+        </Card>
       </div>
     </>
   );

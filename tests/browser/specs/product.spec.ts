@@ -31,7 +31,7 @@ test.describe('Home', () => {
   }) => {
     const page = await open(world.quiet);
     await page.goto(`/o/${world.quietOrganization}`);
-    await expect(page.getByRole('heading', { name: 'Hello, Quinn' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'My work' })).toBeVisible();
     await expect(page.getByText('You are not on any open work.')).toBeVisible();
     await expect(page.getByRole('link', { name: 'Describe an outcome' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Needs you' })).toHaveCount(0);
@@ -49,17 +49,18 @@ test.describe('Home', () => {
     const approval = await world.latestApproval(id);
 
     const page = await open(bob);
-    await page.goto(`/o/${organization}`);
+    await page.goto(`/o/${organization}?view=attention`);
     const headings = await page.getByRole('heading', { level: 2 }).allTextContents();
-    expect(headings[0]).toBe('Needs you');
-    const link = section(page, 'Needs you').getByRole('link', { name: title });
+    expect(headings[0]).toMatch(/^Your decisions/);
+    const link = page.getByRole('link', { name: new RegExp(title) });
     await expect(link).toHaveAttribute('href', `/o/${organization}/approvals/${approval}`);
-    // Approvals share "Needs you" with late, blocked and failed work, and every one of them comes first.
-    const hrefs = await section(page, 'Needs you')
+    // Decisions appear before work that needs attention.
+    const hrefs = await page
+      .locator('.workbench-queue')
       .getByRole('link')
       .evaluateAll((links) => links.map((a) => a.getAttribute('href') ?? ''));
     const lastApproval = hrefs.findLastIndex((href) => href.includes('/approvals/'));
-    const firstWork = hrefs.findIndex((href) => href.includes('/work/'));
+    const firstWork = hrefs.findIndex((href) => href.includes('selected='));
     expect(lastApproval).toBeGreaterThanOrEqual(0);
     if (firstWork >= 0) expect(lastApproval).toBeLessThan(firstWork);
   });
@@ -69,21 +70,20 @@ test.describe('Home', () => {
     world,
   }) => {
     const page = await open(world.alice);
-    await page.goto(`/o/${world.organization}`);
-    const queue = section(page, 'Needs you');
+    await page.goto(`/o/${world.organization}?view=attention`);
+    const queue = page.locator('.workbench-queue');
     await expect(
-      queue.getByRole('link', { name: 'Renew the design software licences' }),
+      queue.getByRole('link', { name: /Renew the design software licences/ }),
     ).toBeVisible();
     await expect(
-      queue.getByRole('link', { name: 'Migrate the client newsletter list' }),
+      queue.getByRole('link', { name: /Migrate the client newsletter list/ }),
     ).toBeVisible();
-    await expect(queue.getByRole('link', { name: 'Import last year’s time sheets' })).toBeVisible();
-    await expect(queue.getByText(/Was due /)).toBeVisible();
-    // Moving along normally, so it belongs under Your work, not here.
-    await expect(queue.getByRole('link', { name: 'Redesign the pricing page' })).toHaveCount(0);
-    await expect(
-      section(page, 'Your work').getByRole('link', { name: 'Redesign the pricing page' }),
-    ).toBeVisible();
+    await expect(queue.getByRole('link', { name: /Import last year’s time sheets/ })).toBeVisible();
+    await expect(queue.getByLabel(/^Was due /).first()).toBeVisible();
+    // Moving along normally, so it belongs in the assigned view.
+    await expect(queue.getByRole('link', { name: /Redesign the pricing page/ })).toHaveCount(0);
+    await page.getByRole('link', { name: /^Assigned to you/ }).click();
+    await expect(page.getByRole('link', { name: /Redesign the pricing page/ })).toBeVisible();
     // Finished and stopped work needs nothing from anyone.
     await expect(page.getByRole('link', { name: 'Publish the autumn newsletter' })).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'Plan the summer offsite' })).toHaveCount(0);
@@ -96,14 +96,14 @@ test.describe('Home', () => {
     const page = await open(world.carol);
     await page.goto(`/o/${world.organization}`);
     await expect(
-      page.getByRole('link', { name: 'Renew the design software licences' }),
+      page.getByRole('link', { name: /Renew the design software licences/ }),
     ).toHaveCount(0);
-    await expect(page.getByRole('link', { name: 'Redesign the pricing page' })).toBeVisible();
+    await expect(page.getByRole('link', { name: /Redesign the pricing page/ })).toBeVisible();
   });
 });
 
 test.describe('what the pages say', () => {
-  test('Home lists work once, and says so when all of it needs attention', async ({ open }) => {
+  test('Home lists each work item once in each matching view', async ({ open }) => {
     const person = await signUp('Una Single');
     const organization = await createOrganization(person, 'Single Item Ltd');
     const title = `Only trouble ${randomUUID()}`;
@@ -112,9 +112,17 @@ test.describe('what the pages say', () => {
 
     const page = await open(person);
     await page.goto(`/o/${organization}`);
-    await expect(section(page, 'Needs you').getByRole('link', { name: title })).toBeVisible();
-    await expect(section(page, 'Your work').getByRole('link', { name: title })).toHaveCount(0);
-    await expect(section(page, 'Your work')).toContainText('Everything you are on is listed above');
+    await expect(page.locator('.queue-row').filter({ hasText: title })).toHaveCount(1);
+    await page.getByRole('link', { name: /^Needs attention/ }).click();
+    await expect(page.locator('.queue-row').filter({ hasText: title })).toHaveCount(1);
+    await page.locator('.queue-row').filter({ hasText: title }).click();
+    await expect(page.getByRole('complementary', { name: 'Selected work' })).toContainText(title);
+    await expect(page.getByRole('link', { name: 'Open work details' })).toHaveAttribute(
+      'href',
+      workPath(organization, id),
+    );
+    await page.getByRole('link', { name: 'Close work preview' }).click();
+    await expect(page.getByRole('complementary', { name: 'Selected work' })).toHaveCount(0);
   });
 
   test('a filter that matches nothing offers the way back, not new work', async ({
@@ -601,9 +609,9 @@ test.describe('submitting', () => {
     await slowPosts(page, 500);
     await page.getByLabel('Organization name').fill('Only One Ltd');
     await page.getByRole('button', { name: 'Create organization' }).dblclick();
-    await expect(page.getByRole('heading', { name: 'Hello, Dee' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'My work' })).toBeVisible();
     await page.goto('/');
-    await expect(page.getByRole('heading', { name: 'Hello, Dee' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'My work' })).toBeVisible();
   });
 
   test('stale work gives a plain message, not a crash', async ({ open, world }) => {

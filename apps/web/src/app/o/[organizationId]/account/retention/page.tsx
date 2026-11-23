@@ -1,3 +1,13 @@
+import { Card } from '@/components/ui/card';
+import {
+  Table,
+  TableCaption,
+  TableHeader,
+  TableRow,
+  TableHead,
+  TableBody,
+  TableCell,
+} from '@/components/ui/table';
 import { listRetentionRules, listRetentionRuns } from '@ensemus/application/saas/retention';
 import { BackLink, Empty, formatDateTime, PageHead } from '@/components/ui';
 import { orNotFound, requireAccountTenant } from '@/server/tenant';
@@ -38,36 +48,40 @@ export default async function RetentionPage({
           </Empty>
         ) : (
           <div className="table-wrap">
-            <table>
-              <caption>Approved retention rules</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Data category</th>
-                  <th scope="col">Classification</th>
-                  <th scope="col">Keep for</th>
-                  <th scope="col">Sign-off</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table>
+              <TableCaption>Approved retention rules</TableCaption>
+              <TableHeader>
+                <TableRow>
+                  <TableHead scope="col">Data category</TableHead>
+                  <TableHead scope="col">Classification</TableHead>
+                  <TableHead scope="col">Keep for</TableHead>
+                  <TableHead scope="col">Sign-off</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {rules.map((rule) => (
-                  <tr key={rule.id}>
-                    <th scope="row">{rule.dataCategory.replaceAll('_', ' ')}</th>
-                    <td>
+                  <TableRow key={rule.id}>
+                    <TableHead scope="row">{rule.dataCategory.replaceAll('_', ' ')}</TableHead>
+                    <TableCell>
                       {rule.classification === '*' ? 'Other classifications' : rule.classification}
-                    </td>
-                    <td>{rule.retainDays === null ? 'Indefinitely' : `${rule.retainDays} days`}</td>
-                    <td>{rule.basisRef}</td>
-                  </tr>
+                    </TableCell>
+                    <TableCell>
+                      {rule.retainDays === null ? 'Indefinitely' : `${rule.retainDays} days`}
+                    </TableCell>
+                    <TableCell>{rule.basisRef}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
       </section>
-      <section className="card stack" aria-labelledby="set-retention">
-        <h2 id="set-retention">Set a rule</h2>
-        <RetentionRuleForm organizationId={organizationId} />
-      </section>
+      <Card asChild>
+        <section className="card stack" aria-labelledby="set-retention">
+          <h2 id="set-retention">Set a rule</h2>
+          <RetentionRuleForm organizationId={organizationId} />
+        </section>
+      </Card>
       <section className="stack" aria-labelledby="retention-history">
         <h2 id="retention-history">Recent sweeps</h2>
         {runs.length === 0 ? (

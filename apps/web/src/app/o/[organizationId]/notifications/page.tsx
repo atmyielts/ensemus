@@ -1,3 +1,4 @@
+import { Label } from '@/components/ui/label';
 import { getMyNotificationPreferences } from '@ensemus/application/platform-mail';
 import type { NotificationDelivery, NotificationTopic } from '@ensemus/domain/mail';
 import { SubmitButton } from '@/components/submit-button';
@@ -99,7 +100,7 @@ export default async function NotificationSettingsPage({
               </legend>
               <div className="choice-list">
                 {DELIVERIES.map((delivery) => (
-                  <label key={delivery.value} className="choice">
+                  <Label key={delivery.value} className="choice">
                     <input
                       type="radio"
                       name={preference.topic}
@@ -108,7 +109,7 @@ export default async function NotificationSettingsPage({
                     />
                     <strong>{delivery.title}</strong>
                     <small>{delivery.help}</small>
-                  </label>
+                  </Label>
                 ))}
               </div>
             </fieldset>

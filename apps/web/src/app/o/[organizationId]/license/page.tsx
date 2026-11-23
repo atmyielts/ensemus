@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import { getLicenseStatus, listAdvisories } from '@ensemus/application';
 import { can } from '@ensemus/domain/policy';
 import { notFound } from 'next/navigation';
@@ -48,22 +49,24 @@ export default async function LicensePage({
       <div className="stack">
         <LicenseSummary status={status} />
         <LicenseAdvisories advisories={advisories} />
-        <section className="card" aria-labelledby="license-install">
-          <h2 id="license-install">Install a signed document</h2>
-          {can(context.role, 'license.manage') ? (
-            <>
-              <p>
-                A license, a maintenance statement, an advisory or a support policy. A file that
-                does not verify changes nothing.
+        <Card asChild>
+          <section className="card" aria-labelledby="license-install">
+            <h2 id="license-install">Install a signed document</h2>
+            {can(context.role, 'license.manage') ? (
+              <>
+                <p>
+                  A license, a maintenance statement, an advisory or a support policy. A file that
+                  does not verify changes nothing.
+                </p>
+                <LicenseInstallForm organizationId={organizationId} />
+              </>
+            ) : (
+              <p className="muted" data-denied="license-install">
+                You can read this page. Only an owner can install a signed document.
               </p>
-              <LicenseInstallForm organizationId={organizationId} />
-            </>
-          ) : (
-            <p className="muted" data-denied="license-install">
-              You can read this page. Only an owner can install a signed document.
-            </p>
-          )}
-        </section>
+            )}
+          </section>
+        </Card>
       </div>
     </>
   );

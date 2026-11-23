@@ -1,7 +1,10 @@
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { ThemeToggle } from '@/components/theme-toggle';
 // Shared display pieces (UX-11). Copy follows the spec's employee-facing terms: "work", "approval"
 // and plain status words, never internal names.
 import Link from 'next/link';
-import { BrandWordmark } from './brand-wordmark';
 import { messageFor } from '@/lib/messages';
 import type { ReactNode } from 'react';
 import { LocalTime } from './local-time';
@@ -76,7 +79,21 @@ export function personLabel(person: { name: string; email: string | null }) {
 
 export function StatusBadge({ status }: { status: string }) {
   const known = STATUS[status] ?? { label: status, tone: '' };
-  return <span className={`badge ${known.tone}`}>{known.label}</span>;
+  const tone: Record<string, string> = {
+    active: 'bg-[var(--active-soft)] text-[var(--active)]',
+    attention: 'bg-[var(--warn-soft)] text-[var(--warn)]',
+    done: 'bg-[var(--good-soft)] text-[var(--good)]',
+    bad: 'bg-[var(--danger-soft)] text-[var(--danger)]',
+    unknown: 'bg-[var(--unknown-soft)] text-[var(--unknown)]',
+  };
+  return (
+    <Badge
+      variant="outline"
+      className={`badge ${known.tone} border-transparent max-w-full whitespace-normal ${tone[known.tone] ?? 'bg-secondary text-muted-foreground'}`}
+    >
+      {known.label}
+    </Badge>
+  );
 }
 
 const CLASSIFICATION: Record<string, string> = {
@@ -89,15 +106,28 @@ const CLASSIFICATION: Record<string, string> = {
 /** Who can see something. A label, not a status, so it is drawn as an outline without a dot. */
 export function ClassificationBadge({ value }: { value: string }) {
   const tone = value === 'restricted' || value === 'confidential' ? ' attention' : '';
-  return <span className={`badge tag${tone}`}>{CLASSIFICATION[value] ?? value}</span>;
+  return (
+    <Badge
+      variant="outline"
+      className={`badge tag${tone} max-w-full whitespace-normal ${tone ? 'text-[var(--warn)]' : 'text-muted-foreground'}`}
+    >
+      {CLASSIFICATION[value] ?? value}
+    </Badge>
+  );
 }
 
 /** The product's name, above the pages shown outside an organization. */
 export function Wordmark() {
   return (
-    <Link className="wordmark" href="/">
-      <BrandWordmark />
-    </Link>
+    <div className="wordmark">
+      <Link className="inline-flex items-center gap-2.5 text-foreground no-underline" href="/">
+        <span className="brand-mark" aria-hidden="true">
+          en
+        </span>
+        ensemus
+      </Link>
+      <ThemeToggle />
+    </div>
   );
 }
 
@@ -125,9 +155,9 @@ export function PageHead({
 export function ErrorNotice({ code }: { code?: string | undefined }) {
   if (!code) return null;
   return (
-    <p className="notice error" role="alert">
-      {messageFor(code)}
-    </p>
+    <Alert variant="destructive" className="border-destructive/35 bg-destructive/5">
+      <AlertDescription className="text-destructive">{messageFor(code)}</AlertDescription>
+    </Alert>
   );
 }
 
@@ -208,14 +238,15 @@ export function ActionLink({
   target?: '_blank' | undefined;
 }) {
   return (
-    <Link
-      className={`button${variant === 'primary' ? '' : ` ${variant === 'quiet' ? 'ghost' : variant}`}`}
-      href={href}
-      target={target}
-      rel={target === '_blank' ? 'noopener' : undefined}
+    <Button
+      asChild
+      variant={variant === 'primary' ? 'default' : variant === 'quiet' ? 'ghost' : 'outline'}
+      className="h-10 whitespace-normal text-center px-4"
     >
-      {children}
-    </Link>
+      <Link href={href} target={target} rel={target === '_blank' ? 'noopener' : undefined}>
+        {children}
+      </Link>
+    </Button>
   );
 }
 

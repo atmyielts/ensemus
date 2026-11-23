@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import { listDirectory } from '@ensemus/application';
 import { getFact } from '@ensemus/application/knowledge/facts';
 import { can } from '@ensemus/domain/policy';
@@ -42,12 +43,14 @@ export default async function FactPage({
       </div>
       <div className="detail-layout">
         <div className="stack">
-          <section className="card" aria-labelledby="claim-heading">
-            <h2 id="claim-heading">The fact</h2>
-            <p className="pre-wrap fact-claim">
-              {typeof fact.claim === 'string' ? fact.claim : JSON.stringify(fact.claim, null, 2)}
-            </p>
-          </section>
+          <Card asChild>
+            <section className="card" aria-labelledby="claim-heading">
+              <h2 id="claim-heading">The fact</h2>
+              <p className="pre-wrap fact-claim">
+                {typeof fact.claim === 'string' ? fact.claim : JSON.stringify(fact.claim, null, 2)}
+              </p>
+            </section>
+          </Card>
           {fact.conflictRef && (
             <p className="notice warn">
               This fact disagrees with a record or document that takes priority, so it is not

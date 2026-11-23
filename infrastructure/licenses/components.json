@@ -63,7 +63,7 @@
   },
   "other": {
     "state": "declared_by_hand",
-    "reason": "The web image and Sovereign bundle include Instrument Serif. License read from its tracked OFL.txt; this is a declaration, not counsel approval.",
+    "reason": "Self-hosted fonts and generated shadcn/ui source are declared with their bundled notices. This inventory is not counsel approval.",
     "components": [
       {
         "name": "Instrument Serif Latin 400 normal",
@@ -71,6 +71,34 @@
         "license": "OFL-1.1",
         "distributed_in": ["web_image", "sovereign_bundle"],
         "note": "Tracked apps/web/src/app/fonts/instrument-serif-latin-400-normal.woff2 with OFL.txt, copyright 2022 The Instrument Serif Project Authors. Preserve the SIL Open Font License 1.1 notice when redistributing. The upstream font version was not verified."
+      },
+      {
+        "name": "Space Grotesk variable Latin",
+        "version": "sha256:0640890476fc1198ab4de571fb658de443c4d85b66466ec09534a8737ab1ce9d",
+        "license": "OFL-1.1",
+        "distributed_in": ["web_image", "sovereign_bundle"],
+        "note": "Local font bytes from Fontsource package 5.3.0, stored at apps/web/src/app/fonts/space-grotesk/space-grotesk-latin-wght-normal.woff2, with the unmodified SIL Open Font License in its adjacent OFL.txt. Upstream authorship and terms are preserved in that notice; this is not legal approval."
+      },
+      {
+        "name": "IBM Plex Sans variable Latin",
+        "version": "sha256:e2291e842cf5af167122a22881a740c7f2dda7716f1e8cd76680264f4a859470",
+        "license": "OFL-1.1",
+        "distributed_in": ["web_image", "sovereign_bundle"],
+        "note": "Local font bytes from Fontsource package 5.3.0, stored at apps/web/src/app/fonts/ibm-plex-sans/ibm-plex-sans-latin-wght-normal.woff2, with the unmodified SIL Open Font License in its adjacent OFL.txt. Upstream authorship and terms are preserved in that notice; this is not legal approval."
+      },
+      {
+        "name": "IBM Plex Mono Latin regular",
+        "version": "sha256:08949f728dc52d528e69b1667d15c89a5686a4ee9a296ff90983985f99c380f7",
+        "license": "OFL-1.1",
+        "distributed_in": ["web_image", "sovereign_bundle"],
+        "note": "Local font bytes from Fontsource package 5.3.0, stored at apps/web/src/app/fonts/ibm-plex-mono/ibm-plex-mono-latin-400-normal.woff2, with the unmodified SIL Open Font License in its adjacent OFL.txt. Upstream authorship and terms are preserved in that notice; this is not legal approval."
+      },
+      {
+        "name": "shadcn/ui radix-nova source components",
+        "version": "4.23.0",
+        "license": "MIT",
+        "distributed_in": ["web_image", "sovereign_bundle"],
+        "note": "Generated from the official shadcn registry using CLI 4.23.0. Source is adapted locally for semantic forms, native multi-select size, status meaning and progressive enhancement. Upstream MIT notice is retained at apps/web/src/components/ui/LICENSE.txt."
       }
     ]
   }

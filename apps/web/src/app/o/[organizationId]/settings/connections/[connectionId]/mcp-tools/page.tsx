@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import { listMcpTools } from '@ensemus/application/knowledge/mcp';
 import { OneActionAtATime } from '@/components/one-action-at-a-time';
 import { KnowledgeForm } from '@/components/knowledge-form';
@@ -29,62 +30,64 @@ export default async function ToolsPage({
           </Empty>
         ) : (
           tools.map((tool) => (
-            <section className="card stack" key={tool.id}>
-              <div className="spread">
-                <h2>{tool.toolName}</h2>
-                <StatusBadge status={tool.status} />
-              </div>
-              {tool.status !== 'removed' && (
-                <KnowledgeForm
-                  action={reviewKnowledgeMcpAction}
-                  hidden={{ ...p, toolId: tool.id, version: String(tool.version) }}
-                  submit="Save tool review"
-                  fields={[
-                    {
-                      name: 'decision',
-                      kind: 'select',
-                      label: 'Decision',
-                      required: true,
-                      options: [
-                        { value: '', label: 'Choose a decision' },
-                        { value: 'approve', label: 'Approve with my limits' },
-                        { value: 'reject', label: 'Reject this tool' },
-                      ],
-                    },
-                    {
-                      name: 'sideEffectLevel',
-                      kind: 'select',
-                      label: 'What may this tool do?',
-                      options: [
-                        { value: '', label: 'Choose when approving' },
-                        { value: 'read_only', label: 'Read information only' },
-                        {
-                          value: 'external_write',
-                          label: 'Change an external system (separate action approval required)',
-                        },
-                      ],
-                    },
-                    {
-                      name: 'allowedClasses',
-                      kind: 'select',
-                      label: 'Allowed data sensitivity',
-                      options: [
-                        { value: '', label: 'Choose when approving' },
-                        { value: 'public', label: 'Public only' },
-                        { value: 'internal', label: 'Internal only' },
-                        { value: 'confidential', label: 'Confidential only' },
-                      ],
-                      help: 'Restricted information never goes through this connection.',
-                    },
-                  ]}
-                />
-              )}
-              <details>
-                <summary>Technical details</summary>
-                <pre>{JSON.stringify(tool.definition, null, 2)}</pre>
-                <p className="technical-reference gap-above-small">{tool.definitionSha256}</p>
-              </details>
-            </section>
+            <Card asChild>
+              <section className="card stack" key={tool.id}>
+                <div className="spread">
+                  <h2>{tool.toolName}</h2>
+                  <StatusBadge status={tool.status} />
+                </div>
+                {tool.status !== 'removed' && (
+                  <KnowledgeForm
+                    action={reviewKnowledgeMcpAction}
+                    hidden={{ ...p, toolId: tool.id, version: String(tool.version) }}
+                    submit="Save tool review"
+                    fields={[
+                      {
+                        name: 'decision',
+                        kind: 'select',
+                        label: 'Decision',
+                        required: true,
+                        options: [
+                          { value: '', label: 'Choose a decision' },
+                          { value: 'approve', label: 'Approve with my limits' },
+                          { value: 'reject', label: 'Reject this tool' },
+                        ],
+                      },
+                      {
+                        name: 'sideEffectLevel',
+                        kind: 'select',
+                        label: 'What may this tool do?',
+                        options: [
+                          { value: '', label: 'Choose when approving' },
+                          { value: 'read_only', label: 'Read information only' },
+                          {
+                            value: 'external_write',
+                            label: 'Change an external system (separate action approval required)',
+                          },
+                        ],
+                      },
+                      {
+                        name: 'allowedClasses',
+                        kind: 'select',
+                        label: 'Allowed data sensitivity',
+                        options: [
+                          { value: '', label: 'Choose when approving' },
+                          { value: 'public', label: 'Public only' },
+                          { value: 'internal', label: 'Internal only' },
+                          { value: 'confidential', label: 'Confidential only' },
+                        ],
+                        help: 'Restricted information never goes through this connection.',
+                      },
+                    ]}
+                  />
+                )}
+                <details>
+                  <summary>Technical details</summary>
+                  <pre>{JSON.stringify(tool.definition, null, 2)}</pre>
+                  <p className="technical-reference gap-above-small">{tool.definitionSha256}</p>
+                </details>
+              </section>
+            </Card>
           ))
         )}
       </div>

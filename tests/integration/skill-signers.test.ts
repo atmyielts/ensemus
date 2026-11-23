@@ -181,18 +181,16 @@ describe('trusted publisher administration', () => {
     const verifying = withTenantTx(app.db, ownerA, async (tx) => {
       const pid = await tx.execute<{ pid: number }>(sql`select pg_backend_pid() as pid`);
       verifierPid = pid.rows[0]!.pid;
-      await tx
-        .insert(skillTestRuns)
-        .values({
-          organizationId: ownerA.organizationId,
-          skillVersionId: version.id,
-          digest: version.digest,
-          mode: 'contract',
-          outcome: 'passed',
-          fixturesTotal: 1,
-          fixturesPassed: 1,
-          startedAt: new Date(),
-        });
+      await tx.insert(skillTestRuns).values({
+        organizationId: ownerA.organizationId,
+        skillVersionId: version.id,
+        digest: version.digest,
+        mode: 'contract',
+        outcome: 'passed',
+        fixturesTotal: 1,
+        fixturesPassed: 1,
+        startedAt: new Date(),
+      });
       await tx
         .update(skillVersions)
         .set({

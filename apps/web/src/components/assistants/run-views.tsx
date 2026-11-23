@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 // The pieces of the Assistants pages. Each takes a PresentedRun and never a DelegatedRun, so nothing a run
 // carries can reach the page except through the words in present.ts.
 import Link from 'next/link';
@@ -28,18 +29,20 @@ export function AssistantsUnavailable({
   workHref: string;
 }) {
   return (
-    <section className="card" aria-labelledby="unavailable-heading">
-      <h2 id="unavailable-heading">Assistants are not available here yet</h2>
-      <p>
-        {subject === 'list'
-          ? 'Ensemus cannot read what assistants are doing here, so this page cannot say whether anything has been handed to one. That is different from nothing running.'
-          : 'Ensemus cannot read this from here, or ask it to stop. That is different from it having stopped.'}
-      </p>
-      <p>
-        Your work, approvals and everything else carry on as usual.{' '}
-        <Link href={workHref}>Go to your work</Link>
-      </p>
-    </section>
+    <Card asChild>
+      <section className="card" aria-labelledby="unavailable-heading">
+        <h2 id="unavailable-heading">Assistants are not available here yet</h2>
+        <p>
+          {subject === 'list'
+            ? 'Ensemus cannot read what assistants are doing here, so this page cannot say whether anything has been handed to one. That is different from nothing running.'
+            : 'Ensemus cannot read this from here, or ask it to stop. That is different from it having stopped.'}
+        </p>
+        <p>
+          Your work, approvals and everything else carry on as usual.{' '}
+          <Link href={workHref}>Go to your work</Link>
+        </p>
+      </section>
+    </Card>
   );
 }
 
@@ -55,41 +58,43 @@ export function RunList({
   runs: readonly PresentedRun[];
 }) {
   return (
-    <section className="card" aria-labelledby={id}>
-      <h2 id={id}>{label}</h2>
-      <ul className="list run-list">
-        {runs.map((run) => (
-          <li key={run.id}>
-            <span className="run-summary">
-              <Link href={`${base}/assistants/${run.id}`}>{run.workTitle}</Link>
-              <span className="run-sentence">
-                {run.agentName}. {run.sentence}
+    <Card asChild>
+      <section className="card" aria-labelledby={id}>
+        <h2 id={id}>{label}</h2>
+        <ul className="list run-list">
+          {runs.map((run) => (
+            <li key={run.id}>
+              <span className="run-summary">
+                <Link href={`${base}/assistants/${run.id}`}>{run.workTitle}</Link>
+                <span className="run-sentence">
+                  {run.agentName}. {run.sentence}
+                </span>
+                <small>
+                  {run.finishedAt ? (
+                    <>Ended {formatDateTime(run.finishedAt)}</>
+                  ) : (
+                    <>Started {formatDateTime(run.startedAt)}</>
+                  )}
+                  {run.cost && `. Cost ${run.cost}`}
+                </small>
               </span>
-              <small>
-                {run.finishedAt ? (
-                  <>Ended {formatDateTime(run.finishedAt)}</>
-                ) : (
-                  <>Started {formatDateTime(run.startedAt)}</>
+              <span className="row run-side">
+                <RunBadge run={run} />
+                {run.canStop && (
+                  <Link
+                    className="button ghost compact-action"
+                    href={`${base}/assistants/${run.id}#stop-heading`}
+                    aria-label={`Review and stop the assistant on ${run.workTitle}`}
+                  >
+                    Review and stop
+                  </Link>
                 )}
-                {run.cost && `. Cost ${run.cost}`}
-              </small>
-            </span>
-            <span className="row run-side">
-              <RunBadge run={run} />
-              {run.canStop && (
-                <Link
-                  className="button ghost compact-action"
-                  href={`${base}/assistants/${run.id}#stop-heading`}
-                  aria-label={`Review and stop the assistant on ${run.workTitle}`}
-                >
-                  Review and stop
-                </Link>
-              )}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </section>
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </Card>
   );
 }
 
@@ -109,40 +114,42 @@ export function StopNoticeLine({ notice }: { notice: StopNotice | null }) {
 /** The summary beside the timeline: where it is, when, what it cost, and the work it belongs to. */
 export function RunFacts({ run, workHref }: { run: PresentedRun; workHref: string }) {
   return (
-    <section className="card" aria-labelledby="state-heading">
-      <h2 id="state-heading">Where it has got to</h2>
-      <p>
-        <RunBadge run={run} />
-      </p>
-      <p className="run-state">{run.sentence}</p>
-      <dl className="details gap-above">
-        <div>
-          <dt>Started</dt>
-          <dd>{formatDateTime(run.startedAt)}</dd>
-        </div>
-        {run.finishedAt && (
+    <Card asChild>
+      <section className="card" aria-labelledby="state-heading">
+        <h2 id="state-heading">Where it has got to</h2>
+        <p>
+          <RunBadge run={run} />
+        </p>
+        <p className="run-state">{run.sentence}</p>
+        <dl className="details gap-above">
           <div>
-            <dt>Ended</dt>
-            <dd>{formatDateTime(run.finishedAt)}</dd>
+            <dt>Started</dt>
+            <dd>{formatDateTime(run.startedAt)}</dd>
           </div>
-        )}
-        {run.cost && (
+          {run.finishedAt && (
+            <div>
+              <dt>Ended</dt>
+              <dd>{formatDateTime(run.finishedAt)}</dd>
+            </div>
+          )}
+          {run.cost && (
+            <div>
+              <dt>Cost</dt>
+              <dd>{run.cost}</dd>
+            </div>
+          )}
           <div>
-            <dt>Cost</dt>
-            <dd>{run.cost}</dd>
+            <dt>Work it has done</dt>
+            <dd>{usageWords(run)}</dd>
           </div>
-        )}
-        <div>
-          <dt>Work it has done</dt>
-          <dd>{usageWords(run)}</dd>
-        </div>
-      </dl>
-      <p className="gap-above">
-        <ActionLink href={workHref} variant="secondary">
-          Open the work
-        </ActionLink>
-      </p>
-    </section>
+        </dl>
+        <p className="gap-above">
+          <ActionLink href={workHref} variant="secondary">
+            Open the work
+          </ActionLink>
+        </p>
+      </section>
+    </Card>
   );
 }
 
@@ -150,60 +157,64 @@ export function RunFacts({ run, workHref }: { run: PresentedRun; workHref: strin
 export function StopRun({ run, organizationId }: { run: PresentedRun; organizationId: string }) {
   if (run.finished && !run.canStop) return null;
   return (
-    <section className="card" aria-labelledby="stop-heading">
-      <h2 id="stop-heading">Stop it</h2>
-      {run.canStop ? (
-        <>
-          <p className="muted">
-            It finishes the step it is on, then does nothing more. Whatever it has already done
-            stays done.
-          </p>
-          <ConfirmForm
-            action={stopDelegatedRunAction}
-            fields={
-              <>
-                <input type="hidden" name="organizationId" value={organizationId} />
-                <input type="hidden" name="runId" value={run.id} />
-              </>
-            }
-            summary="Stop this assistant"
-            summaryLabel={`Stop the assistant on ${run.workTitle}`}
-            consequence="Yes, ask it to stop. Whatever it has already done stays done."
-            confirmLabel="Ask it to stop"
-            confirmFullLabel={`Ask the assistant on ${run.workTitle} to stop`}
-          />
-        </>
-      ) : (
-        <p>This one cannot be stopped by you from here.</p>
-      )}
-    </section>
+    <Card asChild>
+      <section className="card" aria-labelledby="stop-heading">
+        <h2 id="stop-heading">Stop it</h2>
+        {run.canStop ? (
+          <>
+            <p className="muted">
+              It finishes the step it is on, then does nothing more. Whatever it has already done
+              stays done.
+            </p>
+            <ConfirmForm
+              action={stopDelegatedRunAction}
+              fields={
+                <>
+                  <input type="hidden" name="organizationId" value={organizationId} />
+                  <input type="hidden" name="runId" value={run.id} />
+                </>
+              }
+              summary="Stop this assistant"
+              summaryLabel={`Stop the assistant on ${run.workTitle}`}
+              consequence="Yes, ask it to stop. Whatever it has already done stays done."
+              confirmLabel="Ask it to stop"
+              confirmFullLabel={`Ask the assistant on ${run.workTitle} to stop`}
+            />
+          </>
+        ) : (
+          <p>This one cannot be stopped by you from here.</p>
+        )}
+      </section>
+    </Card>
   );
 }
 
 /** What it did, step by step, as a timeline. The kind of thing it did, never what it wrote. */
 export function RunSteps({ run }: { run: PresentedRun }) {
   return (
-    <section className="card" aria-labelledby="steps-heading">
-      <h2 id="steps-heading">What it has done</h2>
-      <p className="muted">
-        Each step says the kind of thing it did, and never what it wrote. The newest is last.
-      </p>
-      {run.steps.length === 0 ? (
-        <p className="gap-above">No steps are recorded yet.</p>
-      ) : (
-        <ol className="step-timeline gap-above">
-          {run.steps.map((step, index) => (
-            <li key={index} className={step.tone ? `is-${step.tone}` : undefined}>
-              <span className="step-what">
-                {step.what}
-                <small>{formatDateTime(step.at)}</small>
-              </span>
-              <span className={`badge ${step.tone}`}>{step.how}</span>
-            </li>
-          ))}
-        </ol>
-      )}
-    </section>
+    <Card asChild>
+      <section className="card" aria-labelledby="steps-heading">
+        <h2 id="steps-heading">What it has done</h2>
+        <p className="muted">
+          Each step says the kind of thing it did, and never what it wrote. The newest is last.
+        </p>
+        {run.steps.length === 0 ? (
+          <p className="gap-above">No steps are recorded yet.</p>
+        ) : (
+          <ol className="step-timeline gap-above">
+            {run.steps.map((step, index) => (
+              <li key={index} className={step.tone ? `is-${step.tone}` : undefined}>
+                <span className="step-what">
+                  {step.what}
+                  <small>{formatDateTime(step.at)}</small>
+                </span>
+                <span className={`badge ${step.tone}`}>{step.how}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+    </Card>
   );
 }
 

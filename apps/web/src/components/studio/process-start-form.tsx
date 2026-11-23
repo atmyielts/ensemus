@@ -1,4 +1,8 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
+import { Input } from '@/components/ui/input';
+
 import { useActionState, useEffect, useId, useRef } from 'react';
 import { startWorkflowRunAction } from '@/server/process-run-actions';
 import type { ProcessRunFormState } from '@/lib/process-run-input';
@@ -36,8 +40,8 @@ export function ProcessStartForm({
       </div>
       <input type="hidden" name="organizationId" value={organizationId} />
       <input type="hidden" name="requestKey" value={values?.requestKey ?? requestKey} />
-      <label htmlFor={`${prefix}-spec`}>Workflow</label>
-      <select
+      <Label htmlFor={`${prefix}-spec`}>Workflow</Label>
+      <NativeSelect
         id={`${prefix}-spec`}
         name="specId"
         defaultValue={selected}
@@ -60,13 +64,13 @@ export function ProcessStartForm({
                   : 'Internal'}
           </option>
         ))}
-      </select>
+      </NativeSelect>
       <small id={`${prefix}-definition-help`}>
         The work keeps this version even if the workflow changes later. Access, connections and
         budget are checked again at each step.
       </small>
-      <label htmlFor={`${prefix}-title`}>Name this work</label>
-      <input
+      <Label htmlFor={`${prefix}-title`}>Name this work</Label>
+      <Input
         id={`${prefix}-title`}
         name="title"
         maxLength={200}
@@ -74,8 +78,8 @@ export function ProcessStartForm({
         defaultValue={values?.title ?? ''}
         autoComplete="off"
       />
-      <label htmlFor={`${prefix}-due`}>Due date (optional)</label>
-      <input id={`${prefix}-due`} name="dueAt" type="date" defaultValue={values?.dueAt ?? ''} />
+      <Label htmlFor={`${prefix}-due`}>Due date (optional)</Label>
+      <Input id={`${prefix}-due`} name="dueAt" type="date" defaultValue={values?.dueAt ?? ''} />
       <p className="notice">
         Starting creates real work for the people in this workflow. They still confirm their own
         steps, and any email waits for someone to approve the exact message before it is sent.

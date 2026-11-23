@@ -1,3 +1,5 @@
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import Link from 'next/link';
 import { KeptInput } from '@/components/kept-field';
 import { SubmitButton } from '@/components/submit-button';
@@ -42,22 +44,22 @@ export default async function SetupPage({
         )}
         <form className="fields" action={completeSetupAction}>
           {next && <input type="hidden" name="next" value={next} />}
-          <label>
+          <Label>
             Setup code
-            <input name="code" required autoComplete="off" spellCheck={false} />
+            <Input name="code" required autoComplete="off" spellCheck={false} />
             <small>From the person who runs Ensemus for your company.</small>
-          </label>
-          <label>
+          </Label>
+          <Label>
             Name
             <KeptInput keep="name" name="name" autoComplete="name" required />
-          </label>
-          <label>
+          </Label>
+          <Label>
             Email
             <KeptInput keep="email" name="email" type="email" autoComplete="username" required />
-          </label>
-          <label>
+          </Label>
+          <Label>
             Password
-            <input
+            <Input
               name="password"
               type="password"
               autoComplete="new-password"
@@ -65,7 +67,7 @@ export default async function SetupPage({
               required
             />
             <small>At least 12 characters. A short sentence is easy to remember.</small>
-          </label>
+          </Label>
           <div>
             <SubmitButton working="Creating your account">Create account</SubmitButton>
           </div>

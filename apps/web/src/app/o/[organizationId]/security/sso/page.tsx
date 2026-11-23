@@ -1,3 +1,8 @@
+import { Card } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { listSsoConnections, listScimTokens } from '@ensemus/application/sso';
 import { getSecurityPolicy } from '@ensemus/application/security-policy';
 import { canProduct } from '@ensemus/domain/product-policy';
@@ -78,276 +83,284 @@ export default async function SsoSettings({
         </p>
       )}
       <div className="stack">
-        <section className="card" aria-labelledby="sso-requirement">
-          <h2 id="sso-requirement">Who must use company sign-in</h2>
-          <p>
-            Owners always keep a password or authenticator app as a way back in. If no sign-in
-            service is turned on, people can still sign in as before.
-          </p>
-          {canProduct(context.role, 'security_policy.manage') ? (
-            <form
-              className="fields gap-above"
-              action={updateSecurityPolicyAction.bind(null, organizationId)}
-            >
-              <input type="hidden" name="version" value={policy.version} />
-              <input
-                type="hidden"
-                name="mfaForAdministration"
-                value={policy.mfaForAdministration ? 'on' : ''}
-              />
-              <input type="hidden" name="mfaMaxAgeSeconds" value={policy.mfaMaxAgeSeconds} />
-              <label>
-                Company sign-in requirement
-                <select name="ssoEnforcement" defaultValue={policy.ssoEnforcement}>
-                  <option value="optional">Optional</option>
-                  <option value="required">Required for members and administrators</option>
-                </select>
-              </label>
-              <div>
-                <SubmitButton working="Saving">Save sign-in requirement</SubmitButton>
-              </div>
-            </form>
-          ) : (
-            <p className="muted gap-above-small">
-              A company owner can change this requirement. It is currently{' '}
-              {policy.ssoEnforcement === 'required' ? 'required' : 'optional'}.
+        <Card asChild>
+          <section className="card" aria-labelledby="sso-requirement">
+            <h2 id="sso-requirement">Who must use company sign-in</h2>
+            <p>
+              Owners always keep a password or authenticator app as a way back in. If no sign-in
+              service is turned on, people can still sign in as before.
             </p>
-          )}
-        </section>
-        {rows.map((connection) => (
-          <section
-            key={connection.id}
-            className="card stack"
-            aria-labelledby={`connection-${connection.id}`}
-          >
-            <div className="spread">
-              <div>
-                <h2 id={`connection-${connection.id}`}>{connection.displayName}</h2>
-                <p className="muted">{connection.domain}</p>
-              </div>
-              <span
-                className={`badge ${connection.ready && connection.state === 'active' ? 'done' : 'attention'}`}
-              >
-                {!connection.ready
-                  ? 'Waiting for a domain check'
-                  : connection.state === 'active'
-                    ? 'Active'
-                    : 'Ready to activate'}
-              </span>
-            </div>
-            {!connection.ready && (
-              <p>
-                Whoever set up Ensemus for your company checks this domain and the current sign-in
-                service. Until then, the connection can’t be turned on. Domains can’t be claimed or
-                verified on this page.
-              </p>
-            )}
-            <details>
-              <summary>Provider setup details</summary>
-              <p className="muted gap-above-small">
-                What your sign-in service asks for when you add Ensemus to it.
-              </p>
-              <div className="field-group gap-above">
-                <label>
-                  Service provider entity ID
-                  <input
-                    readOnly
-                    value={
-                      new URL(
-                        `/api/auth/sso/saml2/sp/metadata?providerId=${connection.providerId}`,
-                        origin,
-                      ).href
-                    }
-                  />
-                </label>
-                <label>
-                  Assertion consumer address
-                  <input
-                    readOnly
-                    value={
-                      new URL(`/api/auth/sso/saml2/sp/acs/${connection.providerId}`, origin).href
-                    }
-                  />
-                </label>
-                <label>
-                  Connection reference
-                  <input readOnly value={connection.providerId} />
-                </label>
-                {connection.configurationSha256 && (
-                  <label>
-                    Configuration fingerprint, for the domain check
-                    <input readOnly value={connection.configurationSha256} />
-                  </label>
-                )}
-                <p className="link-line">
-                  <a href={`/api/auth/sso/saml2/sp/metadata?providerId=${connection.providerId}`}>
-                    Open service provider metadata
-                  </a>
-                </p>
-              </div>
-            </details>
-            <form
-              className="fields"
-              action={updateSsoConnectionAction.bind(null, organizationId, connection.id)}
-            >
-              <input type="hidden" name="version" value={connection.version} />
-              <label>
-                Connection name
-                <input
-                  name="displayName"
-                  required
-                  maxLength={120}
-                  defaultValue={connection.displayName}
-                />
-              </label>
-              <label>
-                Connection status
-                <select
-                  name="state"
-                  defaultValue={
-                    connection.state === 'active' && connection.ready ? 'active' : 'disabled'
-                  }
-                >
-                  <option value="disabled">Disabled</option>
-                  <option value="active" disabled={!connection.ready}>
-                    Active
-                  </option>
-                </select>
-              </label>
-              <label className="choice">
-                <input type="checkbox" name="autoJoin" defaultChecked={connection.autoJoin} />
-                <strong>Let people in this verified domain join as members</strong>
-                <small>
-                  New people join as members. The sign-in service can’t make anyone an administrator
-                  or owner, and people who were removed can’t rejoin by signing in.
-                </small>
-              </label>
-              <div>
-                <SubmitButton working="Saving">Save connection</SubmitButton>
-              </div>
-            </form>
-            <details>
-              <summary>Replace provider metadata</summary>
-              <p className="gap-above-small">
-                This turns the connection off before changing its settings. Changed settings need
-                checking again by whoever set up Ensemus for your company.
-              </p>
+            {canProduct(context.role, 'security_policy.manage') ? (
               <form
                 className="fields gap-above"
-                action={replaceSsoMetadataAction.bind(null, organizationId, connection.id)}
+                action={updateSecurityPolicyAction.bind(null, organizationId)}
               >
-                <input type="hidden" name="version" value={connection.version} />
-                <label>
-                  New identity provider metadata (XML)
-                  <textarea
-                    name="metadata"
-                    rows={7}
-                    maxLength={200000}
-                    required
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
-                </label>
+                <input type="hidden" name="version" value={policy.version} />
+                <input
+                  type="hidden"
+                  name="mfaForAdministration"
+                  value={policy.mfaForAdministration ? 'on' : ''}
+                />
+                <input type="hidden" name="mfaMaxAgeSeconds" value={policy.mfaMaxAgeSeconds} />
+                <Label>
+                  Company sign-in requirement
+                  <NativeSelect name="ssoEnforcement" defaultValue={policy.ssoEnforcement}>
+                    <option value="optional">Optional</option>
+                    <option value="required">Required for members and administrators</option>
+                  </NativeSelect>
+                </Label>
                 <div>
-                  <SubmitButton className="secondary" working="Saving metadata">
-                    Disable and replace metadata
-                  </SubmitButton>
+                  <SubmitButton working="Saving">Save sign-in requirement</SubmitButton>
                 </div>
               </form>
-            </details>
-            <div className="divided stack">
-              <h3>Remove access through your sign-in service</h3>
-              <p>
-                Provisioning (SCIM) lets your sign-in service list people and turn their access off
-                or back on. It can’t create people or change roles or groups.
+            ) : (
+              <p className="muted gap-above-small">
+                A company owner can change this requirement. It is currently{' '}
+                {policy.ssoEnforcement === 'required' ? 'required' : 'optional'}.
               </p>
-              <label>
-                Provisioning base address
-                <input readOnly value={new URL('/api/scim/v2', origin).href} />
-              </label>
-              {connection.ready && connection.state === 'active' ? (
-                <TokenForm
-                  issueAction={issueScimTokenAction.bind(null, organizationId, connection.id)}
-                />
-              ) : (
-                <p className="muted">
-                  Activate the reviewed connection before creating a provisioning token.
+            )}
+          </section>
+        </Card>
+        {rows.map((connection) => (
+          <Card asChild>
+            <section
+              key={connection.id}
+              className="card stack"
+              aria-labelledby={`connection-${connection.id}`}
+            >
+              <div className="spread">
+                <div>
+                  <h2 id={`connection-${connection.id}`}>{connection.displayName}</h2>
+                  <p className="muted">{connection.domain}</p>
+                </div>
+                <span
+                  className={`badge ${connection.ready && connection.state === 'active' ? 'done' : 'attention'}`}
+                >
+                  {!connection.ready
+                    ? 'Waiting for a domain check'
+                    : connection.state === 'active'
+                      ? 'Active'
+                      : 'Ready to activate'}
+                </span>
+              </div>
+              {!connection.ready && (
+                <p>
+                  Whoever set up Ensemus for your company checks this domain and the current sign-in
+                  service. Until then, the connection can’t be turned on. Domains can’t be claimed
+                  or verified on this page.
                 </p>
               )}
-              <ul className="list">
-                {tokens
-                  .filter((token) => token.connectionId === connection.id)
-                  .map((token) => (
-                    <li key={token.id}>
-                      <div className="spread">
-                        <div>
-                          Token created {formatDateTime(token.createdAt)} ·{' '}
-                          {token.state === 'active' ? 'Active' : 'Revoked'}
-                          {token.lastUsedAt && (
-                            <span className="muted">
-                              {' '}
-                              · Last used {formatDateTime(token.lastUsedAt)}
-                            </span>
+              <details>
+                <summary>Provider setup details</summary>
+                <p className="muted gap-above-small">
+                  What your sign-in service asks for when you add Ensemus to it.
+                </p>
+                <div className="field-group gap-above">
+                  <Label>
+                    Service provider entity ID
+                    <Input
+                      readOnly
+                      value={
+                        new URL(
+                          `/api/auth/sso/saml2/sp/metadata?providerId=${connection.providerId}`,
+                          origin,
+                        ).href
+                      }
+                    />
+                  </Label>
+                  <Label>
+                    Assertion consumer address
+                    <Input
+                      readOnly
+                      value={
+                        new URL(`/api/auth/sso/saml2/sp/acs/${connection.providerId}`, origin).href
+                      }
+                    />
+                  </Label>
+                  <Label>
+                    Connection reference
+                    <Input readOnly value={connection.providerId} />
+                  </Label>
+                  {connection.configurationSha256 && (
+                    <Label>
+                      Configuration fingerprint, for the domain check
+                      <Input readOnly value={connection.configurationSha256} />
+                    </Label>
+                  )}
+                  <p className="link-line">
+                    <a href={`/api/auth/sso/saml2/sp/metadata?providerId=${connection.providerId}`}>
+                      Open service provider metadata
+                    </a>
+                  </p>
+                </div>
+              </details>
+              <form
+                className="fields"
+                action={updateSsoConnectionAction.bind(null, organizationId, connection.id)}
+              >
+                <input type="hidden" name="version" value={connection.version} />
+                <Label>
+                  Connection name
+                  <Input
+                    name="displayName"
+                    required
+                    maxLength={120}
+                    defaultValue={connection.displayName}
+                  />
+                </Label>
+                <Label>
+                  Connection status
+                  <NativeSelect
+                    name="state"
+                    defaultValue={
+                      connection.state === 'active' && connection.ready ? 'active' : 'disabled'
+                    }
+                  >
+                    <option value="disabled">Disabled</option>
+                    <option value="active" disabled={!connection.ready}>
+                      Active
+                    </option>
+                  </NativeSelect>
+                </Label>
+                <Label className="choice">
+                  <input type="checkbox" name="autoJoin" defaultChecked={connection.autoJoin} />
+                  <strong>Let people in this verified domain join as members</strong>
+                  <small>
+                    New people join as members. The sign-in service can’t make anyone an
+                    administrator or owner, and people who were removed can’t rejoin by signing in.
+                  </small>
+                </Label>
+                <div>
+                  <SubmitButton working="Saving">Save connection</SubmitButton>
+                </div>
+              </form>
+              <details>
+                <summary>Replace provider metadata</summary>
+                <p className="gap-above-small">
+                  This turns the connection off before changing its settings. Changed settings need
+                  checking again by whoever set up Ensemus for your company.
+                </p>
+                <form
+                  className="fields gap-above"
+                  action={replaceSsoMetadataAction.bind(null, organizationId, connection.id)}
+                >
+                  <input type="hidden" name="version" value={connection.version} />
+                  <Label>
+                    New identity provider metadata (XML)
+                    <Textarea
+                      name="metadata"
+                      rows={7}
+                      maxLength={200000}
+                      required
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </Label>
+                  <div>
+                    <SubmitButton className="secondary" working="Saving metadata">
+                      Disable and replace metadata
+                    </SubmitButton>
+                  </div>
+                </form>
+              </details>
+              <div className="divided stack">
+                <h3>Remove access through your sign-in service</h3>
+                <p>
+                  Provisioning (SCIM) lets your sign-in service list people and turn their access
+                  off or back on. It can’t create people or change roles or groups.
+                </p>
+                <Label>
+                  Provisioning base address
+                  <Input readOnly value={new URL('/api/scim/v2', origin).href} />
+                </Label>
+                {connection.ready && connection.state === 'active' ? (
+                  <TokenForm
+                    issueAction={issueScimTokenAction.bind(null, organizationId, connection.id)}
+                  />
+                ) : (
+                  <p className="muted">
+                    Activate the reviewed connection before creating a provisioning token.
+                  </p>
+                )}
+                <ul className="list">
+                  {tokens
+                    .filter((token) => token.connectionId === connection.id)
+                    .map((token) => (
+                      <li key={token.id}>
+                        <div className="spread">
+                          <div>
+                            Token created {formatDateTime(token.createdAt)} ·{' '}
+                            {token.state === 'active' ? 'Active' : 'Revoked'}
+                            {token.lastUsedAt && (
+                              <span className="muted">
+                                {' '}
+                                · Last used {formatDateTime(token.lastUsedAt)}
+                              </span>
+                            )}
+                          </div>
+                          {token.state === 'active' && (
+                            <form
+                              action={revokeScimTokenAction.bind(null, organizationId, token.id)}
+                            >
+                              <SubmitButton className="danger" working="Revoking">
+                                Revoke token
+                              </SubmitButton>
+                            </form>
                           )}
                         </div>
-                        {token.state === 'active' && (
-                          <form action={revokeScimTokenAction.bind(null, organizationId, token.id)}>
-                            <SubmitButton className="danger" working="Revoking">
-                              Revoke token
-                            </SubmitButton>
-                          </form>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-              </ul>
-            </div>
-          </section>
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            </section>
+          </Card>
         ))}
-        <section className="card" aria-labelledby="sso-add">
-          <h2 id="sso-add">Add an identity provider</h2>
-          <p>
-            Paste the SAML metadata file your sign-in service gives you. Ensemus doesn’t download it
-            or contact any server you name.
-          </p>
-          <form
-            className="fields gap-above"
-            action={createSsoConnectionAction.bind(null, organizationId)}
-          >
-            <label>
-              Connection name
-              <input name="displayName" maxLength={120} required placeholder="Company sign-in" />
-            </label>
-            <label>
-              Company email domain
-              <input
-                name="domain"
-                required
-                maxLength={253}
-                autoCapitalize="none"
-                placeholder="example.com"
-              />
-            </label>
-            <label>
-              Identity provider metadata (XML)
-              <textarea
-                name="metadata"
-                rows={7}
-                maxLength={200000}
-                required
-                autoComplete="off"
-                spellCheck={false}
-              />
-            </label>
-            <p className="muted">
-              Before it can be turned on, whoever set up Ensemus for your company checks that you
-              own the domain and that the sign-in service is current.
+        <Card asChild>
+          <section className="card" aria-labelledby="sso-add">
+            <h2 id="sso-add">Add an identity provider</h2>
+            <p>
+              Paste the SAML metadata file your sign-in service gives you. Ensemus doesn’t download
+              it or contact any server you name.
             </p>
-            <div>
-              <SubmitButton working="Saving connection">Save connection for review</SubmitButton>
-            </div>
-          </form>
-        </section>
+            <form
+              className="fields gap-above"
+              action={createSsoConnectionAction.bind(null, organizationId)}
+            >
+              <Label>
+                Connection name
+                <Input name="displayName" maxLength={120} required placeholder="Company sign-in" />
+              </Label>
+              <Label>
+                Company email domain
+                <Input
+                  name="domain"
+                  required
+                  maxLength={253}
+                  autoCapitalize="none"
+                  placeholder="example.com"
+                />
+              </Label>
+              <Label>
+                Identity provider metadata (XML)
+                <Textarea
+                  name="metadata"
+                  rows={7}
+                  maxLength={200000}
+                  required
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </Label>
+              <p className="muted">
+                Before it can be turned on, whoever set up Ensemus for your company checks that you
+                own the domain and that the sign-in service is current.
+              </p>
+              <div>
+                <SubmitButton working="Saving connection">Save connection for review</SubmitButton>
+              </div>
+            </form>
+          </section>
+        </Card>
       </div>
     </>
   );

@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import { listDirectory, listTeams } from '@ensemus/application';
 import { getSource } from '@ensemus/application/knowledge/sources';
 import { canRaiseClass, grantAllowedFor } from '@ensemus/domain/knowledge';
@@ -85,224 +86,230 @@ export default async function SourcePage({
                   This file was not checked for malware. That is separate from who can see it.
                 </p>
               )}
-              <section className="card" aria-labelledby="about-heading">
-                <h2 id="about-heading">About this document</h2>
-                <dl className="details">
-                  <div>
-                    <dt>Reading</dt>
-                    <dd>
-                      <StatusBadge status={source.documentState ?? 'unavailable'} />
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Search by meaning</dt>
-                    <dd>
-                      <StatusBadge status={source.embeddingState ?? 'unavailable'} />
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Malware check</dt>
-                    <dd>
-                      {source.scanState === 'clean'
-                        ? 'Checked: no malware detected'
-                        : source.scanState === 'flagged'
-                          ? 'Flagged by the configured scanner'
-                          : 'Not scanned'}
-                    </dd>
-                  </div>
-                  {source.sizeBytes !== null && (
+              <Card asChild>
+                <section className="card" aria-labelledby="about-heading">
+                  <h2 id="about-heading">About this document</h2>
+                  <dl className="details">
                     <div>
-                      <dt>Size</dt>
-                      <dd>{formatBytes(source.sizeBytes)}</dd>
+                      <dt>Reading</dt>
+                      <dd>
+                        <StatusBadge status={source.documentState ?? 'unavailable'} />
+                      </dd>
                     </div>
-                  )}
-                  {source.searchableAt && (
                     <div>
-                      <dt>Searchable since</dt>
-                      <dd>{formatDateTime(source.searchableAt)}</dd>
+                      <dt>Search by meaning</dt>
+                      <dd>
+                        <StatusBadge status={source.embeddingState ?? 'unavailable'} />
+                      </dd>
                     </div>
-                  )}
-                  {source.sourceModifiedAt && (
                     <div>
-                      <dt>Last changed</dt>
-                      <dd>{formatDateTime(source.sourceModifiedAt)}</dd>
+                      <dt>Malware check</dt>
+                      <dd>
+                        {source.scanState === 'clean'
+                          ? 'Checked: no malware detected'
+                          : source.scanState === 'flagged'
+                            ? 'Flagged by the configured scanner'
+                            : 'Not scanned'}
+                      </dd>
                     </div>
+                    {source.sizeBytes !== null && (
+                      <div>
+                        <dt>Size</dt>
+                        <dd>{formatBytes(source.sizeBytes)}</dd>
+                      </div>
+                    )}
+                    {source.searchableAt && (
+                      <div>
+                        <dt>Searchable since</dt>
+                        <dd>{formatDateTime(source.searchableAt)}</dd>
+                      </div>
+                    )}
+                    {source.sourceModifiedAt && (
+                      <div>
+                        <dt>Last changed</dt>
+                        <dd>{formatDateTime(source.sourceModifiedAt)}</dd>
+                      </div>
+                    )}
+                  </dl>
+                  <div className="row gap-above-large">
+                    {source.documentId && source.state === 'active' && (
+                      <a
+                        className="button secondary"
+                        href={`/api/v1/organizations/${organizationId}/knowledge/documents/${source.documentId}/content`}
+                      >
+                        Download source file
+                      </a>
+                    )}
+                    <SourceLink url={source.sourceUrl} />
+                  </div>
+                  {source.rejectCode && (
+                    <details className="gap-above">
+                      <summary>Technical details</summary>
+                      <p className="technical-reference">{source.rejectCode}</p>
+                    </details>
                   )}
-                </dl>
-                <div className="row gap-above-large">
-                  {source.documentId && source.state === 'active' && (
-                    <a
-                      className="button secondary"
-                      href={`/api/v1/organizations/${organizationId}/knowledge/documents/${source.documentId}/content`}
-                    >
-                      Download source file
-                    </a>
-                  )}
-                  <SourceLink url={source.sourceUrl} />
-                </div>
-                {source.rejectCode && (
-                  <details className="gap-above">
-                    <summary>Technical details</summary>
-                    <p className="technical-reference">{source.rejectCode}</p>
-                  </details>
-                )}
-              </section>
+                </section>
+              </Card>
             </>
           )}
           {managing && source.kind === 'upload' && source.canRead && (
-            <section
-              className="card stack"
-              id="source-versions"
-              aria-labelledby="source-versions-heading"
-            >
-              <div className="section-intro">
-                <h2 id="source-versions-heading">Source versions</h2>
-                <p>Upload a newer copy of this document when it changes.</p>
-              </div>
-              {versionResult === 'saved' && (
-                <p className="notice good" role="status">
-                  The replacement file was saved. Its current processing state is shown below.
-                </p>
-              )}
-              {versionResult === 'unchanged' && (
-                <p className="notice" role="status">
-                  That file and name are the same as the latest version, so nothing changed.
-                </p>
-              )}
-              {source.latestVersion ? (
-                <>
-                  <p className="row">
-                    <span>Latest version: {source.latestVersion.number}</span>
-                    <StatusBadge status={source.latestVersion.state} />
+            <Card asChild>
+              <section
+                className="card stack"
+                id="source-versions"
+                aria-labelledby="source-versions-heading"
+              >
+                <div className="section-intro">
+                  <h2 id="source-versions-heading">Source versions</h2>
+                  <p>Upload a newer copy of this document when it changes.</p>
+                </div>
+                {versionResult === 'saved' && (
+                  <p className="notice good" role="status">
+                    The replacement file was saved. Its current processing state is shown below.
                   </p>
-                  {source.latestVersion.id !== source.documentId &&
-                    source.documentState === 'searchable' && (
-                      <p className="notice">
-                        {['failed', 'rejected'].includes(source.latestVersion.state)
-                          ? 'The new version could not be made searchable. The earlier version is still the one people search.'
-                          : 'People keep searching the earlier version while the new one is read.'}
-                      </p>
-                    )}
-                  {source.latestVersion.rejectCode && (
-                    <details>
-                      <summary>Technical details about the latest version</summary>
-                      <p className="technical-reference">{source.latestVersion.rejectCode}</p>
-                    </details>
-                  )}
-                  {['received', 'parsing'].includes(source.latestVersion.state) ? (
-                    <p>
-                      The latest version is still being read. Check its progress before uploading
-                      another one.
+                )}
+                {versionResult === 'unchanged' && (
+                  <p className="notice" role="status">
+                    That file and name are the same as the latest version, so nothing changed.
+                  </p>
+                )}
+                {source.latestVersion ? (
+                  <>
+                    <p className="row">
+                      <span>Latest version: {source.latestVersion.number}</span>
+                      <StatusBadge status={source.latestVersion.state} />
                     </p>
-                  ) : (
+                    {source.latestVersion.id !== source.documentId &&
+                      source.documentState === 'searchable' && (
+                        <p className="notice">
+                          {['failed', 'rejected'].includes(source.latestVersion.state)
+                            ? 'The new version could not be made searchable. The earlier version is still the one people search.'
+                            : 'People keep searching the earlier version while the new one is read.'}
+                        </p>
+                      )}
+                    {source.latestVersion.rejectCode && (
+                      <details>
+                        <summary>Technical details about the latest version</summary>
+                        <p className="technical-reference">{source.latestVersion.rejectCode}</p>
+                      </details>
+                    )}
+                    {['received', 'parsing'].includes(source.latestVersion.state) ? (
+                      <p>
+                        The latest version is still being read. Check its progress before uploading
+                        another one.
+                      </p>
+                    ) : (
+                      <KnowledgeForm
+                        action={uploadKnowledgeVersionAction}
+                        hidden={hidden}
+                        submit="Upload replacement version"
+                        className="fields"
+                        description="The new file keeps this document's privacy level and who can read it. The current version stays searchable until the new one is ready."
+                        fields={[
+                          {
+                            name: 'file',
+                            kind: 'file',
+                            label: 'Replacement document',
+                            required: true,
+                            help: 'Text, Markdown, CSV, HTML or JSON, up to 25 MB. If the upload fails, choose the file again.',
+                          },
+                          {
+                            name: 'title',
+                            label: 'Source name',
+                            required: true,
+                            maxLength: 512,
+                            value: source.title ?? '',
+                          },
+                        ]}
+                      />
+                    )}
+                  </>
+                ) : (
+                  <p>Version details are not available right now. Check again before uploading.</p>
+                )}
+                <p>
+                  <Link
+                    className="button secondary"
+                    href={`${base}/sources/${sourceId}#source-versions`}
+                  >
+                    Check version progress
+                  </Link>
+                </p>
+              </section>
+            </Card>
+          )}
+          {managing && (
+            <Card asChild>
+              <section className="card stack" aria-labelledby="source-access-heading">
+                <div className="section-intro">
+                  <h2 id="source-access-heading">Source access</h2>
+                  <p>The people and teams who can read this document.</p>
+                </div>
+                {source.grantsManagedByProvider ? (
+                  <p>
+                    Who can read this follows the connected service. Change it there, then sync the
+                    connection.
+                  </p>
+                ) : (
+                  <>
+                    <ul className="list">
+                      {source.grants.map((grant) => (
+                        <li key={grant.id}>
+                          <div>
+                            {principalName(grant)}
+                            {!grantAllowedFor(grant.kind, source.classification) && (
+                              <>
+                                <br />
+                                <small>Not in effect at this privacy level</small>
+                              </>
+                            )}
+                          </div>
+                          <div>
+                            <KnowledgeForm
+                              action={changeSourceGrantsAction}
+                              hidden={{ ...hidden, removeGrantId: grant.id }}
+                              submit={`Remove access for ${principalName(grant)}`}
+                              className="grant-remove"
+                              submitClassName="ghost"
+                              fields={[]}
+                            />
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
                     <KnowledgeForm
-                      action={uploadKnowledgeVersionAction}
+                      action={changeSourceGrantsAction}
                       hidden={hidden}
-                      submit="Upload replacement version"
-                      className="fields"
-                      description="The new file keeps this document's privacy level and who can read it. The current version stays searchable until the new one is ready."
+                      submit="Add access"
+                      className="inline-form"
+                      submitClassName="secondary"
                       fields={[
                         {
-                          name: 'file',
-                          kind: 'file',
-                          label: 'Replacement document',
+                          name: 'principal',
+                          kind: 'select',
+                          label: 'Share with',
                           required: true,
-                          help: 'Text, Markdown, CSV, HTML or JSON, up to 25 MB. If the upload fails, choose the file again.',
-                        },
-                        {
-                          name: 'title',
-                          label: 'Source name',
-                          required: true,
-                          maxLength: 512,
-                          value: source.title ?? '',
+                          options: [
+                            {
+                              value: '',
+                              label:
+                                source.classification === 'restricted'
+                                  ? 'Choose a named person'
+                                  : 'Choose a person, team or eligible organization access',
+                            },
+                            ...sourceSharingChoices(
+                              source.classification,
+                              people.filter((person) => person.status === 'active'),
+                              teams,
+                            ).filter((choice) => choice.value !== 'private'),
+                          ],
                         },
                       ]}
                     />
-                  )}
-                </>
-              ) : (
-                <p>Version details are not available right now. Check again before uploading.</p>
-              )}
-              <p>
-                <Link
-                  className="button secondary"
-                  href={`${base}/sources/${sourceId}#source-versions`}
-                >
-                  Check version progress
-                </Link>
-              </p>
-            </section>
-          )}
-          {managing && (
-            <section className="card stack" aria-labelledby="source-access-heading">
-              <div className="section-intro">
-                <h2 id="source-access-heading">Source access</h2>
-                <p>The people and teams who can read this document.</p>
-              </div>
-              {source.grantsManagedByProvider ? (
-                <p>
-                  Who can read this follows the connected service. Change it there, then sync the
-                  connection.
-                </p>
-              ) : (
-                <>
-                  <ul className="list">
-                    {source.grants.map((grant) => (
-                      <li key={grant.id}>
-                        <div>
-                          {principalName(grant)}
-                          {!grantAllowedFor(grant.kind, source.classification) && (
-                            <>
-                              <br />
-                              <small>Not in effect at this privacy level</small>
-                            </>
-                          )}
-                        </div>
-                        <div>
-                          <KnowledgeForm
-                            action={changeSourceGrantsAction}
-                            hidden={{ ...hidden, removeGrantId: grant.id }}
-                            submit={`Remove access for ${principalName(grant)}`}
-                            className="grant-remove"
-                            submitClassName="ghost"
-                            fields={[]}
-                          />
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                  <KnowledgeForm
-                    action={changeSourceGrantsAction}
-                    hidden={hidden}
-                    submit="Add access"
-                    className="inline-form"
-                    submitClassName="secondary"
-                    fields={[
-                      {
-                        name: 'principal',
-                        kind: 'select',
-                        label: 'Share with',
-                        required: true,
-                        options: [
-                          {
-                            value: '',
-                            label:
-                              source.classification === 'restricted'
-                                ? 'Choose a named person'
-                                : 'Choose a person, team or eligible organization access',
-                          },
-                          ...sourceSharingChoices(
-                            source.classification,
-                            people.filter((person) => person.status === 'active'),
-                            teams,
-                          ).filter((choice) => choice.value !== 'private'),
-                        ],
-                      },
-                    ]}
-                  />
-                </>
-              )}
-            </section>
+                  </>
+                )}
+              </section>
+            </Card>
           )}
         </div>
         <aside className="card">

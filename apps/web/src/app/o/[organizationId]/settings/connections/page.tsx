@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import { AppError, getAuthorization, type OAuthAuthorizationView } from '@ensemus/application';
 import { getMemberCapabilities, listMyConnections } from '@ensemus/application/suite-settings';
 import {
@@ -124,78 +125,86 @@ export default async function MyConnectionsPage({
       <ErrorNotice code={error} />
       <div className="stack">
         {attempt && attemptWords && (
-          <section className="card" aria-labelledby="attempt-heading">
-            <h2 id="attempt-heading">Connecting</h2>
-            <div role="status">
-              <span className="row">
-                <strong>{attempt.displayName}</strong>
-                <span className={`badge ${attemptWords.tone}`}>{attemptWords.label}</span>
-              </span>
-              <p className="muted">
-                {SUITE_NAMES[attempt.connectorType]}, started {formatDateTime(attempt.createdAt)}.{' '}
-                {(isOAuthErrorCode(attempt.errorCode) && messageFor(attempt.errorCode)) ||
-                  attemptWords.detail ||
-                  'Nothing was connected. Start again.'}
-              </p>
-            </div>
-            <ResourceRefresh active={IN_PROGRESS.has(attempt.status)} />
-          </section>
+          <Card asChild>
+            <section className="card" aria-labelledby="attempt-heading">
+              <h2 id="attempt-heading">Connecting</h2>
+              <div role="status">
+                <span className="row">
+                  <strong>{attempt.displayName}</strong>
+                  <span className={`badge ${attemptWords.tone}`}>{attemptWords.label}</span>
+                </span>
+                <p className="muted">
+                  {SUITE_NAMES[attempt.connectorType]}, started {formatDateTime(attempt.createdAt)}.{' '}
+                  {(isOAuthErrorCode(attempt.errorCode) && messageFor(attempt.errorCode)) ||
+                    attemptWords.detail ||
+                    'Nothing was connected. Start again.'}
+                </p>
+              </div>
+              <ResourceRefresh active={IN_PROGRESS.has(attempt.status)} />
+            </section>
+          </Card>
         )}
-        <section className="card" aria-labelledby="mine-heading">
-          <h2 id="mine-heading">Connected accounts</h2>
-          {mine.length === 0 ? (
-            <Empty title="No accounts connected yet">
-              Connect Google Workspace or Microsoft 365 below, and assistants you start can work
-              with it.
-            </Empty>
-          ) : (
-            <>
-              <p className="muted">
-                Nobody else at your company can use these or see what they reach. An administrator
-                can see that you have one, and can disconnect it.
-              </p>
-              <ul className="list gap-above">
-                {mine.map((connection) => {
-                  const state = CONNECTION_STATE_WORDS[connection.state] ?? {
-                    label: connection.state,
-                    tone: '',
-                  };
-                  return (
-                    <li key={connection.id} className="block">
-                      <span className="row">
-                        <strong>{connection.displayName}</strong>
-                        <span className={`badge ${state.tone}`}>{state.label}</span>
-                      </span>
-                      <p className="muted">
-                        {SUITE_NAMES[connection.connectorType]}, connected{' '}
-                        {formatDateTime(connection.createdAt)}. Assistants you start may use it for{' '}
-                        {listed(connection.capabilities)}.
-                      </p>
-                      {connection.state !== 'revoked' && (
-                        <div className="gap-above">
-                          <ConfirmForm
-                            action={revokeMyConnectionAction}
-                            fields={
-                              <>
-                                <input type="hidden" name="organizationId" value={organizationId} />
-                                <input type="hidden" name="connectionId" value={connection.id} />
-                              </>
-                            }
-                            summary="Disconnect"
-                            summaryLabel={`Disconnect ${connection.displayName}`}
-                            consequence={`Disconnect ${connection.displayName} for good. Assistants stop using it at once, and anything not yet sent through it will not go out. To use it again, connect it again.`}
-                            confirmLabel="Disconnect for good"
-                            confirmFullLabel={`Disconnect for good: ${connection.displayName}`}
-                          />
-                        </div>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            </>
-          )}
-        </section>
+        <Card asChild>
+          <section className="card" aria-labelledby="mine-heading">
+            <h2 id="mine-heading">Connected accounts</h2>
+            {mine.length === 0 ? (
+              <Empty title="No accounts connected yet">
+                Connect Google Workspace or Microsoft 365 below, and assistants you start can work
+                with it.
+              </Empty>
+            ) : (
+              <>
+                <p className="muted">
+                  Nobody else at your company can use these or see what they reach. An administrator
+                  can see that you have one, and can disconnect it.
+                </p>
+                <ul className="list gap-above">
+                  {mine.map((connection) => {
+                    const state = CONNECTION_STATE_WORDS[connection.state] ?? {
+                      label: connection.state,
+                      tone: '',
+                    };
+                    return (
+                      <li key={connection.id} className="block">
+                        <span className="row">
+                          <strong>{connection.displayName}</strong>
+                          <span className={`badge ${state.tone}`}>{state.label}</span>
+                        </span>
+                        <p className="muted">
+                          {SUITE_NAMES[connection.connectorType]}, connected{' '}
+                          {formatDateTime(connection.createdAt)}. Assistants you start may use it
+                          for {listed(connection.capabilities)}.
+                        </p>
+                        {connection.state !== 'revoked' && (
+                          <div className="gap-above">
+                            <ConfirmForm
+                              action={revokeMyConnectionAction}
+                              fields={
+                                <>
+                                  <input
+                                    type="hidden"
+                                    name="organizationId"
+                                    value={organizationId}
+                                  />
+                                  <input type="hidden" name="connectionId" value={connection.id} />
+                                </>
+                              }
+                              summary="Disconnect"
+                              summaryLabel={`Disconnect ${connection.displayName}`}
+                              consequence={`Disconnect ${connection.displayName} for good. Assistants stop using it at once, and anything not yet sent through it will not go out. To use it again, connect it again.`}
+                              confirmLabel="Disconnect for good"
+                              confirmFullLabel={`Disconnect for good: ${connection.displayName}`}
+                            />
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
+            )}
+          </section>
+        </Card>
         <section aria-labelledby="connect-heading">
           <div className="section-intro">
             <h2 id="connect-heading">Connect an account</h2>
@@ -222,52 +231,54 @@ export default async function MyConnectionsPage({
                 const choices = choicesFor(connectorType, allowed);
                 const ready = platformClientId(SUITE_PROVIDER[connectorType]) !== null;
                 return (
-                  <section
-                    key={connectorType}
-                    className="card"
-                    aria-labelledby={`provider-${connectorType}`}
-                  >
-                    <h3 id={`provider-${connectorType}`}>{providerName}</h3>
-                    <p className="muted">{PROVIDER_BLURB[connectorType]}</p>
-                    <dl className="details gap-above">
-                      <div>
-                        <dt>What it allows</dt>
-                        <dd>
-                          {choices.length === 0
-                            ? 'Nothing yet'
-                            : choices.map((choice) => choice.label).join(', ')}
-                        </dd>
+                  <Card asChild>
+                    <section
+                      key={connectorType}
+                      className="card"
+                      aria-labelledby={`provider-${connectorType}`}
+                    >
+                      <h3 id={`provider-${connectorType}`}>{providerName}</h3>
+                      <p className="muted">{PROVIDER_BLURB[connectorType]}</p>
+                      <dl className="details gap-above">
+                        <div>
+                          <dt>What it allows</dt>
+                          <dd>
+                            {choices.length === 0
+                              ? 'Nothing yet'
+                              : choices.map((choice) => choice.label).join(', ')}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Who can use it</dt>
+                          <dd>Only you, and assistants you start</dd>
+                        </div>
+                        <div>
+                          <dt>To stop</dt>
+                          <dd>Disconnect it on this page, at any time</dd>
+                        </div>
+                      </dl>
+                      <div className="divided">
+                        {!ready ? (
+                          <p className="muted">
+                            Connecting {providerName} isn’t set up for your company yet. Ask whoever
+                            set up Ensemus for your company to set it up.
+                          </p>
+                        ) : choices.length === 0 ? (
+                          <p className="muted">
+                            Nothing your company lets people connect is available for {providerName}{' '}
+                            yet.
+                          </p>
+                        ) : (
+                          <MyConnectForm
+                            organizationId={organizationId}
+                            connectorType={connectorType}
+                            providerName={providerName}
+                            capabilities={choices}
+                          />
+                        )}
                       </div>
-                      <div>
-                        <dt>Who can use it</dt>
-                        <dd>Only you, and assistants you start</dd>
-                      </div>
-                      <div>
-                        <dt>To stop</dt>
-                        <dd>Disconnect it on this page, at any time</dd>
-                      </div>
-                    </dl>
-                    <div className="divided">
-                      {!ready ? (
-                        <p className="muted">
-                          Connecting {providerName} isn’t set up for your company yet. Ask whoever
-                          set up Ensemus for your company to set it up.
-                        </p>
-                      ) : choices.length === 0 ? (
-                        <p className="muted">
-                          Nothing your company lets people connect is available for {providerName}{' '}
-                          yet.
-                        </p>
-                      ) : (
-                        <MyConnectForm
-                          organizationId={organizationId}
-                          connectorType={connectorType}
-                          providerName={providerName}
-                          capabilities={choices}
-                        />
-                      )}
-                    </div>
-                  </section>
+                    </section>
+                  </Card>
                 );
               })}
             </div>

@@ -137,8 +137,8 @@
     },
     {
       "path": "01-product/07-interface-system.md",
-      "size_bytes": 5383,
-      "sha256": "309004069602506755324c0e44a81e06028bf7d75944177b2460b43548c2747a"
+      "size_bytes": 7248,
+      "sha256": "4a4ffe702591bd547e7267e1440b9c1a2ebb08eea96fbca61b684f1f159a86f2"
     },
     {
       "path": "02-architecture/01-system-architecture.md",
@@ -971,6 +971,11 @@
       "sha256": "b7d889e636cb135d083fcbae116a505004461e826c2a8bd5c2615ac506e5d8b7"
     },
     {
+      "path": "06-delivery/evidence/rc-workspace-copper-20261123.json",
+      "size_bytes": 32062,
+      "sha256": "28dbc1135ffa04dc98c69c5486afe0286e992ea85729d062ddac4707350a4420"
+    },
+    {
       "path": "06-delivery/hx-slices.md",
       "size_bytes": 34346,
       "sha256": "602a6120f9760700bdc06c510ce706a9ef9f46292a0f7a06b422dbc8035b3273"
@@ -1032,8 +1037,8 @@
     },
     {
       "path": "06-delivery/release-candidate-2026-11-21.md",
-      "size_bytes": 61047,
-      "sha256": "d950ed69565688507990477b15cb5cb136ee3b60d3c3af806ff55b1624baad25"
+      "size_bytes": 66335,
+      "sha256": "09cce5ab3f89a9f43d48606d05e118096fcc9d9e6c503c90951ae1bd37742231"
     },
     {
       "path": "06-delivery/release-candidate-source-ledger.json",

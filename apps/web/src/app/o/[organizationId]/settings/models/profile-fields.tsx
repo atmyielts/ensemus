@@ -1,3 +1,5 @@
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
 import type { ModelProfileView } from '@ensemus/contracts/ai';
 import type { ReactNode } from 'react';
 import { CAPABILITY_LABEL, CLASS_LABEL, PURPOSE_LABEL, RETENTION_LABEL } from './model-form';
@@ -21,7 +23,7 @@ function Choices({
       {help && <small className="muted">{help}</small>}
       <div className="option-grid">
         {Object.entries(labels).map(([value, label]) => (
-          <label className="check" key={value}>
+          <Label className="check" key={value}>
             <input
               type="checkbox"
               name={name}
@@ -29,7 +31,7 @@ function Choices({
               defaultChecked={chosen.includes(value)}
             />
             {label}
-          </label>
+          </Label>
         ))}
       </div>
     </fieldset>
@@ -59,7 +61,7 @@ export function ProfileFields({
 }) {
   return (
     <>
-      <label>
+      <Label>
         Name people will see
         {text({
           name: 'alias',
@@ -67,8 +69,8 @@ export function ProfileFields({
           required: true,
           maxLength: 80,
         })}
-      </label>
-      <label>
+      </Label>
+      <Label>
         Model name at the provider
         {text({
           name: 'modelId',
@@ -76,8 +78,8 @@ export function ProfileFields({
           required: true,
           maxLength: 200,
         })}
-      </label>
-      <label>
+      </Label>
+      <Label>
         Address
         {text({
           name: 'endpointUrl',
@@ -90,18 +92,18 @@ export function ProfileFields({
           Changing this removes the key and sends the model back to be tested, because a key is only
           ever good for the address it was given for.
         </small>
-      </label>
-      <label>
+      </Label>
+      <Label>
         Region (optional)
         {text({ name: 'region', defaultValue: profile?.region ?? '', maxLength: 64 })}
-      </label>
+      </Label>
       <section className="form-section" aria-labelledby="model-limits">
         <h3 id="model-limits">Limits</h3>
         <p className="muted">
           Measured in tokens, the pieces of text a model reads and writes. A token is roughly
           three-quarters of a word. The model’s own documentation gives these numbers.
         </p>
-        <label>
+        <Label>
           Longest input, in tokens
           {text({
             name: 'maxInputTokens',
@@ -110,8 +112,8 @@ export function ProfileFields({
             maxLength: 10,
             inputMode: 'numeric',
           })}
-        </label>
-        <label>
+        </Label>
+        <Label>
           Longest answer, in tokens
           {text({
             name: 'maxOutputTokens',
@@ -120,7 +122,7 @@ export function ProfileFields({
             maxLength: 10,
             inputMode: 'numeric',
           })}
-        </label>
+        </Label>
       </section>
       <section className="form-section" aria-labelledby="model-uses">
         <h3 id="model-uses">Uses and access</h3>
@@ -146,21 +148,24 @@ export function ProfileFields({
       </section>
       <section className="form-section" aria-labelledby="model-terms">
         <h3 id="model-terms">How they keep your data</h3>
-        <label>
+        <Label>
           What is known about how they keep data
-          <select name="retentionBasis" defaultValue={profile?.retention_basis ?? 'unreviewed'}>
+          <NativeSelect
+            name="retentionBasis"
+            defaultValue={profile?.retention_basis ?? 'unreviewed'}
+          >
             {Object.entries(RETENTION_LABEL).map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
               </option>
             ))}
-          </select>
-        </label>
-        <label>
+          </NativeSelect>
+        </Label>
+        <Label>
           Where their terms are recorded (optional)
           {text({ name: 'contractRef', defaultValue: profile?.contract_ref ?? '', maxLength: 200 })}
           <small>Without this, confidential work is never sent to this model.</small>
-        </label>
+        </Label>
       </section>
       {others.length > 0 && (
         <section className="form-section" aria-labelledby="model-fallback">
@@ -169,7 +174,7 @@ export function ProfileFields({
             <legend>If this model is unavailable, try these (off unless you choose one)</legend>
             <div className="option-grid">
               {others.map((other) => (
-                <label className="check" key={other.id}>
+                <Label className="check" key={other.id}>
                   <input
                     type="checkbox"
                     name="fallback"
@@ -177,7 +182,7 @@ export function ProfileFields({
                     defaultChecked={profile?.fallback_profile_ids.includes(other.id) ?? false}
                   />
                   {other.alias}
-                </label>
+                </Label>
               ))}
             </div>
           </fieldset>

@@ -1,4 +1,7 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
 
 import { useActionState } from 'react';
 import { SubmitButton } from '@/components/submit-button';
@@ -47,22 +50,22 @@ export function SuiteConnectForm({
       <form className="fields" action={action}>
         <input type="hidden" name="organizationId" value={organizationId} />
         <input type="hidden" name="connectorType" value={connectorType} />
-        <label>
+        <Label>
           Name
           <small>What people see in lists. For example, the company or the purpose.</small>
-          <input
+          <Input
             name="displayName"
             required
             maxLength={120}
             autoComplete="off"
             defaultValue={values?.displayName ?? providerName}
           />
-        </label>
+        </Label>
         <fieldset className="group">
           <legend>What Ensemus may do</legend>
           <div className="choice-list">
             {capabilities.map((capability) => (
-              <label key={capability.id} className="choice">
+              <Label key={capability.id} className="choice">
                 <input
                   type="checkbox"
                   name="capability"
@@ -71,7 +74,7 @@ export function SuiteConnectForm({
                 />
                 <strong>{capability.label}</strong>
                 <small>{capability.description}</small>
-              </label>
+              </Label>
             ))}
           </div>
         </fieldset>
@@ -86,25 +89,25 @@ export function SuiteConnectForm({
             ))}
           </ul>
         </details>
-        <label>
+        <Label>
           Drives to read
           <small>
             Optional. Drive IDs, separated by commas. Leave it empty to read every drive the account
             you connect can see.
           </small>
-          <input
+          <Input
             name="driveIds"
             maxLength={13_000}
             autoComplete="off"
             defaultValue={values?.driveIds ?? ''}
           />
-        </label>
-        <label>
+        </Label>
+        <Label>
           Whose app to connect through
           <small>
             Ensemus’s own app is the simple choice. Your own app needs the details below.
           </small>
-          <select
+          <NativeSelect
             key={values?.clientKind ?? ''}
             name="clientKind"
             defaultValue={values?.clientKind ?? (platformAvailable ? 'platform' : 'customer')}
@@ -113,26 +116,26 @@ export function SuiteConnectForm({
               {platformAvailable ? 'Ensemus' : 'Ensemus (not set up for your company yet)'}
             </option>
             <option value="customer">Your own app</option>
-          </select>
-        </label>
+          </NativeSelect>
+        </Label>
         <fieldset className="group">
           <legend>Only for your own app</legend>
           <p className="muted">
             Register this address as the redirect address in your app: <code>{redirectUri}</code>
           </p>
-          <label htmlFor={`${prefix}-client-id`}>Client ID</label>
-          <input
+          <Label htmlFor={`${prefix}-client-id`}>Client ID</Label>
+          <Input
             id={`${prefix}-client-id`}
             name="oauthClient"
             maxLength={512}
             autoComplete="off"
             defaultValue={values?.clientId ?? ''}
           />
-          <label htmlFor={`${prefix}-client-secret`}>
+          <Label htmlFor={`${prefix}-client-secret`}>
             Client secret
             <small>Sealed as soon as it arrives. Nobody can read it back, including you.</small>
-          </label>
-          <input
+          </Label>
+          <Input
             id={`${prefix}-client-secret`}
             name="clientSecret"
             type="password"
@@ -141,11 +144,11 @@ export function SuiteConnectForm({
           />
           {microsoft && (
             <>
-              <label htmlFor={`${prefix}-tenant`}>
+              <Label htmlFor={`${prefix}-tenant`}>
                 Directory (tenant) ID or domain
                 <small>Your Microsoft Entra directory, where your app is registered.</small>
-              </label>
-              <input
+              </Label>
+              <Input
                 id={`${prefix}-tenant`}
                 name="tenant"
                 maxLength={253}

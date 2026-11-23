@@ -767,3 +767,63 @@ The temporary production server and the two task-owned generated browser session
 validation; their fixture data, source, screenshots and logs remain. The candidate is local and not
 launch-ready. No source was pushed, production deployed or real provider contacted. About 27.8 GiB
 remained free, so no disk cleanup was required and no original worktree, branch or volume was removed.
+
+## Compact copper workspace checkpoint (UX-11 to UX-14, EXP-02, QA-007; 2026-11-23)
+
+The owner explicitly authorized continuous GitHub pushes, required shadcn/ui and technical fonts,
+rejected the summary-card visual direction, selected Linear as the compact workspace reference and
+requested a distinctive comfortable accent. The current implementation uses muted copper on cool
+neutral surfaces: light primary #94624c with white (5.11:1), dark primary #c79b84 with #271c17 (6.68:1).
+The actual Linear list references were inspected through Mobbin; no brand assets or example content
+were copied. The interface contract now records the owner's latest direction; owner visual acceptance
+and independent human accessibility review remain pending.
+
+Official shadcn/ui Radix Nova source components replace shared controls and semantic form/table/panel
+primitives across public, workspace and administration pages. Sidebar menus, search dialog, organization
+switcher, buttons, badges and feedback use those components. Native links/forms, safe draft preservation,
+pending/confirmation behavior, semantic tables, native multi-select size and server authorization remain.
+The three locally bundled font roles are Space Grotesk headings, IBM Plex Sans text and IBM Plex Mono
+technical metadata, with their original OFL notices and system fallbacks for other scripts. The MIT
+shadcn notice and exact font hashes are inventoried. No remote font service is required in any mode.
+
+My work replaces the greeting and summary tiles with Assigned to you, Needs attention and Reviews URL
+views, status-grouped rows and a contextual selection pane. The selected UUID must belong to the
+current authorized queue, and the native detail service rechecks Work ACLs. Invalid, foreign, private,
+unlisted and wrong-view selections return 404 without the title or pane. Reviews retain actual immutable
+approval links. Search adds Ctrl/Cmd+K, Escape and focus restoration to the existing authorized GET page.
+The optional light/dark preference is browser-only and carries no authorization meaning; pages without
+scripts use the documented initial light theme. No migration, secret, provider permission, event or
+public API contract changed. No provider was contacted and no production deployment occurred.
+
+Verification for this checkpoint (HTTP cases preceded the final presentation-only hover correction;
+the production build and six browser cases were rerun after it):
+
+- Complete workspace TypeScript and repository lint passed; the production build passed. The solid
+  primary-button hover pairs measured 6.64:1 in light mode and 8.57:1 in dark mode. Sixteen baseline
+  formatting issues were corrected; parsed syntax/data structures were unchanged. Final changed
+  browser/test-source checks are recorded with the source hashes in evidence/rc-workspace-copper-20261123.json.
+- The complete default-worker unit run passed 9,672 cases and failed four: the two existing release
+  gates plus guide-check and web import-walk timeouts under parallel load. The final complete run with
+  --maxWorkers=4 passed 9,674 and failed only the same two release gates, with four expected failures,
+  43 skips and 380 files in 86.21 seconds. No assertion or deadline was widened. The gates remain 66
+  planned API operations and the 30-table portability inventory.
+- Five real production HTTP Home/preview cases passed in 34.96 seconds; eleven unrelated cases in that
+  file were filtered out. Five complete production business-proposal API cases passed in 19.02 seconds.
+- Six browser cases passed in the final hover-corrected build: long-name sidebar visibility, scrolling and keyboard order
+  in actual light/dark themes and the light native fallback, no-script preview/details/search, keyboard
+  search submission/focus restoration, and explicit preference persistence. Initial fixture failures
+  were corrected: second-company setup, the final Help link and theme setup on audit-created frames.
+- Eight representative pages had zero automated WCAG A/AA findings in each actual theme. Axe ran in a
+  separate audit context with CSP bypass solely for local audit injection; application CSP was unchanged.
+  The native/browser journeys ran with the default production CSP. Queue widths 320/768/1024/1440 and
+  the 320-pixel creation form showed no horizontal overflow. Captured light/dark queue and mobile form
+  screenshots were visually inspected; this is engineering evidence, not owner design approval.
+- Dependency license checks passed for 549 production packages, the draft inventory accounted for 527
+  components, and 511 version pins passed. Legal review and image OS-package SBOM collection remain
+  separate pending gates. No disk cleanup was needed; original source worktrees and volumes remain.
+
+This checkpoint preserves the earlier platform changes and their release gates. It is not a completed
+platform or launch qualification. Current joined CI/integration, module APIs, complete portability and
+erasure reach, customer connector setup, durable/provider acceptance and human review remain open.
+Commit d930fbf and its history were pushed to origin/codex/release-candidate before this UI checkpoint;
+subsequent Git history records the UI push. Earlier statements of local-only status above are historical.

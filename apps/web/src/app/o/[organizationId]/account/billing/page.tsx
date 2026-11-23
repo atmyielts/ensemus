@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import { randomUUID } from 'node:crypto';
 import { listAvailablePlans } from '@ensemus/application/saas/catalog';
 import { getBillingOverview } from '@ensemus/application/saas/subscriptions';
@@ -196,17 +197,19 @@ export default async function BillingPage({
           the new plan’s limits becomes read-only, and your data stays.
         </p>
       </section>
-      <section aria-labelledby="details-title" className="card stack">
-        <div>
-          <h2 id="details-title">Billing details</h2>
-          <p className="muted">The name and address your billing is under.</p>
-        </div>
-        {canManage ? (
-          <BillingAccountForm organizationId={organizationId} account={overview.account} />
-        ) : (
-          <p>Ask an account administrator to update billing details.</p>
-        )}
-      </section>
+      <Card asChild>
+        <section aria-labelledby="details-title" className="card stack">
+          <div>
+            <h2 id="details-title">Billing details</h2>
+            <p className="muted">The name and address your billing is under.</p>
+          </div>
+          {canManage ? (
+            <BillingAccountForm organizationId={organizationId} account={overview.account} />
+          ) : (
+            <p>Ask an account administrator to update billing details.</p>
+          )}
+        </section>
+      </Card>
     </div>
   );
 }

@@ -1,3 +1,7 @@
+import { Card } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
+import { Input } from '@/components/ui/input';
 import { randomUUID } from 'node:crypto';
 import {
   listDirectory,
@@ -128,9 +132,9 @@ function TeamTree({
                 {canAdd && (
                   <form className="inline-form" action={addTeamMemberAction}>
                     {fields}
-                    <label>
+                    <Label>
                       Add to {team.name}
-                      <select name="membershipId" required defaultValue="">
+                      <NativeSelect name="membershipId" required defaultValue="">
                         <option value="" disabled>
                           Choose a person
                         </option>
@@ -139,8 +143,8 @@ function TeamTree({
                             {member.name}
                           </option>
                         ))}
-                      </select>
-                    </label>
+                      </NativeSelect>
+                    </Label>
                     <SubmitButton className="secondary" label={`Add to ${team.name}`}>
                       Add
                     </SubmitButton>
@@ -149,17 +153,17 @@ function TeamTree({
                 {canMove && (
                   <form className="inline-form" action={setTeamParentAction}>
                     {fields}
-                    <label>
+                    <Label>
                       Move {team.name} under
-                      <select name="parentId" defaultValue={team.parentId ?? ''}>
+                      <NativeSelect name="parentId" defaultValue={team.parentId ?? ''}>
                         <option value="">No parent team</option>
                         {parents.map((other) => (
                           <option key={other.id} value={other.id}>
                             {other.name}
                           </option>
                         ))}
-                      </select>
-                    </label>
+                      </NativeSelect>
+                    </Label>
                     <SubmitButton className="secondary" label={`Move ${team.name}`}>
                       Move
                     </SubmitButton>
@@ -308,237 +312,245 @@ export default async function PeoplePage({
       />
       <ErrorNotice code={error} />
       <div className="stack">
-        <section className="card" aria-labelledby="members-heading">
-          <header className="section-heading">
-            <div>
-              <h2 id="members-heading">Members</h2>
-              <p>
-                Owners look after the whole organization, including billing and who else is an
-                owner. Admins invite people and set up teams, clients and connections. Members do
-                their own work and see what is shared with them.
-              </p>
-              {!seesEmail && <p>Email addresses are only shown to owners and admins.</p>}
-            </div>
-          </header>
-          <ul className="list people-list">
-            {members.map((member) => (
-              <li key={member.membershipId} className="block">
-                <div className="person">
-                  <span className="person-avatar" aria-hidden="true">
-                    {initialOf(member.name)}
-                  </span>
-                  <span className="person-who">
-                    <span className="person-name">
-                      {member.name}
-                      {member.membershipId === context.membershipId && (
-                        <>
-                          {' '}
-                          <small>(you)</small>
-                        </>
-                      )}
+        <Card asChild>
+          <section className="card" aria-labelledby="members-heading">
+            <header className="section-heading">
+              <div>
+                <h2 id="members-heading">Members</h2>
+                <p>
+                  Owners look after the whole organization, including billing and who else is an
+                  owner. Admins invite people and set up teams, clients and connections. Members do
+                  their own work and see what is shared with them.
+                </p>
+                {!seesEmail && <p>Email addresses are only shown to owners and admins.</p>}
+              </div>
+            </header>
+            <ul className="list people-list">
+              {members.map((member) => (
+                <li key={member.membershipId} className="block">
+                  <div className="person">
+                    <span className="person-avatar" aria-hidden="true">
+                      {initialOf(member.name)}
                     </span>
-                    {seesEmail && <small className="email">{member.email}</small>}
-                  </span>
-                  <span className="person-access">
-                    {member.status !== 'active' && <span className="badge">Disabled</span>}
-                    {canManage && canChange(member) ? (
-                      <>
-                        <form className="access-form" action={setRoleAction}>
-                          {org}
-                          <input type="hidden" name="membershipId" value={member.membershipId} />
-                          <select
-                            name="role"
-                            defaultValue={member.role}
-                            aria-label={`Access for ${member.name}`}
-                          >
-                            {roleChoices.map((role) => (
-                              <option key={role} value={role}>
-                                {ROLE_LABEL[role]}
-                              </option>
-                            ))}
-                          </select>
-                          <SubmitButton
-                            className="secondary"
-                            label={`Save access for ${member.name}`}
-                          >
-                            Save
-                          </SubmitButton>
-                        </form>
-                        {/* Disabling yourself would lock you out at once. */}
-                        {member.membershipId !== context.membershipId && (
-                          <ConfirmForm
-                            action={disableMemberAction}
-                            fields={
-                              <>
-                                {org}
-                                <input
-                                  type="hidden"
-                                  name="membershipId"
-                                  value={member.membershipId}
-                                />
-                              </>
-                            }
-                            summary="Disable"
-                            summaryLabel={`Disable ${member.name}`}
-                            consequence={`Disable ${member.name} now. They lose access on their next click, the invitations they made stop working, and open reviews they were asked for close.`}
-                            confirmLabel="Disable"
-                          />
-                        )}
-                      </>
-                    ) : (
-                      <span className="person-role">
-                        <span>{ROLE_LABEL[member.role] ?? member.role}</span>
-                        {canManage && member.status === 'active' && (
-                          <small>
-                            {member.role === 'owner' && activeOwners.length === 1
-                              ? 'The only owner, so this stays as it is'
-                              : 'Only an owner can change this'}
-                          </small>
+                    <span className="person-who">
+                      <span className="person-name">
+                        {member.name}
+                        {member.membershipId === context.membershipId && (
+                          <>
+                            {' '}
+                            <small>(you)</small>
+                          </>
                         )}
                       </span>
-                    )}
-                  </span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        {canInvite && (
-          <section className="card" aria-labelledby="invite-heading">
-            <header className="section-heading">
-              <div>
-                <h2 id="invite-heading">Invite someone</h2>
-                <p>
-                  Enter their email address and choose what they can do. Ensemus makes a private
-                  link for you to send them, and they join when they open it.
-                </p>
-              </div>
-            </header>
-            <InviteForm organizationId={organizationId} />
-            {open.length > 0 && (
-              <div className="divided">
-                <h3>Waiting for an answer</h3>
-                <InvitationList invitations={open} org={org} />
-              </div>
-            )}
-            {past.length > 0 && (
-              <details className={open.length > 0 ? 'gap-above' : 'divided'}>
-                <summary>Past invitations ({past.length})</summary>
-                <InvitationList invitations={past} org={org} />
-              </details>
-            )}
-          </section>
-        )}
-
-        {ownerless.visible.length + ownerless.hidden.length > 0 && (
-          <section className="card" aria-labelledby="ownerless-heading">
-            <header className="section-heading">
-              <div>
-                <h2 id="ownerless-heading">Work whose owner was disabled</h2>
-                <p>Each of these needs someone new to answer for it.</p>
-              </div>
-            </header>
-            <ul className="list">
-              {ownerless.visible.map((work) => (
-                <li key={work.id}>
-                  <Link href={`/o/${organizationId}/work/${work.id}`}>{work.title}</Link>
-                  <StatusBadge status={work.status} />
-                </li>
-              ))}
-              {ownerless.hidden.map((work) => (
-                <li key={work.id} className="block">
-                  <div className="spread">
-                    <span>
-                      Restricted work nobody active can open
-                      <br />
-                      <small className="technical-reference">Reference {work.id}</small>
+                      {seesEmail && <small className="email">{member.email}</small>}
                     </span>
-                    <StatusBadge status={work.status} />
-                  </div>
-                  <div className="gap-above-small">
-                    <ConfirmForm
-                      action={recoverWorkOwnerAction}
-                      fields={
+                    <span className="person-access">
+                      {member.status !== 'active' && <span className="badge">Disabled</span>}
+                      {canManage && canChange(member) ? (
                         <>
-                          {org}
-                          <input type="hidden" name="id" value={work.id} />
-                          <input type="hidden" name="version" value={work.version} />
+                          <form className="access-form" action={setRoleAction}>
+                            {org}
+                            <input type="hidden" name="membershipId" value={member.membershipId} />
+                            <NativeSelect
+                              name="role"
+                              defaultValue={member.role}
+                              aria-label={`Access for ${member.name}`}
+                            >
+                              {roleChoices.map((role) => (
+                                <option key={role} value={role}>
+                                  {ROLE_LABEL[role]}
+                                </option>
+                              ))}
+                            </NativeSelect>
+                            <SubmitButton
+                              className="secondary"
+                              label={`Save access for ${member.name}`}
+                            >
+                              Save
+                            </SubmitButton>
+                          </form>
+                          {/* Disabling yourself would lock you out at once. */}
+                          {member.membershipId !== context.membershipId && (
+                            <ConfirmForm
+                              action={disableMemberAction}
+                              fields={
+                                <>
+                                  {org}
+                                  <input
+                                    type="hidden"
+                                    name="membershipId"
+                                    value={member.membershipId}
+                                  />
+                                </>
+                              }
+                              summary="Disable"
+                              summaryLabel={`Disable ${member.name}`}
+                              consequence={`Disable ${member.name} now. They lose access on their next click, the invitations they made stop working, and open reviews they were asked for close.`}
+                              confirmLabel="Disable"
+                            />
+                          )}
                         </>
-                      }
-                      summary="Choose a new owner"
-                      summaryLabel={`Choose a new owner for restricted work ${work.id}`}
-                      consequence="Make this person its accountable owner. Nobody active can open this work now. They will be able to read everything in it, and you will not, unless you choose yourself. This goes in the audit log, and any other owners are told."
-                      confirmLabel="Make them the owner"
-                    >
-                      <label>
-                        New owner
-                        <select name="membershipId" required defaultValue="">
-                          <option value="" disabled>
-                            Choose a person
-                          </option>
-                          {teamCandidates.map((member) => (
-                            <option key={member.membershipId} value={member.membershipId}>
-                              {member.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    </ConfirmForm>
+                      ) : (
+                        <span className="person-role">
+                          <span>{ROLE_LABEL[member.role] ?? member.role}</span>
+                          {canManage && member.status === 'active' && (
+                            <small>
+                              {member.role === 'owner' && activeOwners.length === 1
+                                ? 'The only owner, so this stays as it is'
+                                : 'Only an owner can change this'}
+                            </small>
+                          )}
+                        </span>
+                      )}
+                    </span>
                   </div>
                 </li>
               ))}
             </ul>
           </section>
+        </Card>
+
+        {canInvite && (
+          <Card asChild>
+            <section className="card" aria-labelledby="invite-heading">
+              <header className="section-heading">
+                <div>
+                  <h2 id="invite-heading">Invite someone</h2>
+                  <p>
+                    Enter their email address and choose what they can do. Ensemus makes a private
+                    link for you to send them, and they join when they open it.
+                  </p>
+                </div>
+              </header>
+              <InviteForm organizationId={organizationId} />
+              {open.length > 0 && (
+                <div className="divided">
+                  <h3>Waiting for an answer</h3>
+                  <InvitationList invitations={open} org={org} />
+                </div>
+              )}
+              {past.length > 0 && (
+                <details className={open.length > 0 ? 'gap-above' : 'divided'}>
+                  <summary>Past invitations ({past.length})</summary>
+                  <InvitationList invitations={past} org={org} />
+                </details>
+              )}
+            </section>
+          </Card>
         )}
 
-        <section className="card" aria-labelledby="teams-heading">
-          <header className="section-heading">
-            <div>
-              <h2 id="teams-heading">Teams</h2>
-              <p>Teams show who works together. A team can sit inside a larger one.</p>
-            </div>
-          </header>
-          {teams.length === 0 ? (
-            <Empty title="No teams yet">
-              {canManageTeams
-                ? 'Create the first one below, then add the people who work in it.'
-                : 'An owner or admin can create them.'}
-            </Empty>
-          ) : (
-            <TeamTree
-              teams={teams}
-              parentId={null}
-              organizationId={organizationId}
-              candidates={teamCandidates}
-              canManage={canManageTeams}
-            />
-          )}
-          {canManageTeams && (
-            <form className="inline-form divided" action={createTeamAction}>
-              {org}
-              <input type="hidden" name="requestKey" value={randomUUID()} />
-              <label>
-                Team name
-                <input name="name" required maxLength={200} autoComplete="off" />
-              </label>
-              {teams.length > 0 && (
-                <label>
-                  Inside another team (optional)
-                  <select name="parentId" defaultValue="">
-                    <option value="">No parent team</option>
-                    {teams.map((team) => (
-                      <option key={team.id} value={team.id}>
-                        {team.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              <SubmitButton className="secondary">Create team</SubmitButton>
-            </form>
-          )}
-        </section>
+        {ownerless.visible.length + ownerless.hidden.length > 0 && (
+          <Card asChild>
+            <section className="card" aria-labelledby="ownerless-heading">
+              <header className="section-heading">
+                <div>
+                  <h2 id="ownerless-heading">Work whose owner was disabled</h2>
+                  <p>Each of these needs someone new to answer for it.</p>
+                </div>
+              </header>
+              <ul className="list">
+                {ownerless.visible.map((work) => (
+                  <li key={work.id}>
+                    <Link href={`/o/${organizationId}/work/${work.id}`}>{work.title}</Link>
+                    <StatusBadge status={work.status} />
+                  </li>
+                ))}
+                {ownerless.hidden.map((work) => (
+                  <li key={work.id} className="block">
+                    <div className="spread">
+                      <span>
+                        Restricted work nobody active can open
+                        <br />
+                        <small className="technical-reference">Reference {work.id}</small>
+                      </span>
+                      <StatusBadge status={work.status} />
+                    </div>
+                    <div className="gap-above-small">
+                      <ConfirmForm
+                        action={recoverWorkOwnerAction}
+                        fields={
+                          <>
+                            {org}
+                            <input type="hidden" name="id" value={work.id} />
+                            <input type="hidden" name="version" value={work.version} />
+                          </>
+                        }
+                        summary="Choose a new owner"
+                        summaryLabel={`Choose a new owner for restricted work ${work.id}`}
+                        consequence="Make this person its accountable owner. Nobody active can open this work now. They will be able to read everything in it, and you will not, unless you choose yourself. This goes in the audit log, and any other owners are told."
+                        confirmLabel="Make them the owner"
+                      >
+                        <Label>
+                          New owner
+                          <NativeSelect name="membershipId" required defaultValue="">
+                            <option value="" disabled>
+                              Choose a person
+                            </option>
+                            {teamCandidates.map((member) => (
+                              <option key={member.membershipId} value={member.membershipId}>
+                                {member.name}
+                              </option>
+                            ))}
+                          </NativeSelect>
+                        </Label>
+                      </ConfirmForm>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          </Card>
+        )}
+
+        <Card asChild>
+          <section className="card" aria-labelledby="teams-heading">
+            <header className="section-heading">
+              <div>
+                <h2 id="teams-heading">Teams</h2>
+                <p>Teams show who works together. A team can sit inside a larger one.</p>
+              </div>
+            </header>
+            {teams.length === 0 ? (
+              <Empty title="No teams yet">
+                {canManageTeams
+                  ? 'Create the first one below, then add the people who work in it.'
+                  : 'An owner or admin can create them.'}
+              </Empty>
+            ) : (
+              <TeamTree
+                teams={teams}
+                parentId={null}
+                organizationId={organizationId}
+                candidates={teamCandidates}
+                canManage={canManageTeams}
+              />
+            )}
+            {canManageTeams && (
+              <form className="inline-form divided" action={createTeamAction}>
+                {org}
+                <input type="hidden" name="requestKey" value={randomUUID()} />
+                <Label>
+                  Team name
+                  <Input name="name" required maxLength={200} autoComplete="off" />
+                </Label>
+                {teams.length > 0 && (
+                  <Label>
+                    Inside another team (optional)
+                    <NativeSelect name="parentId" defaultValue="">
+                      <option value="">No parent team</option>
+                      {teams.map((team) => (
+                        <option key={team.id} value={team.id}>
+                          {team.name}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  </Label>
+                )}
+                <SubmitButton className="secondary">Create team</SubmitButton>
+              </form>
+            )}
+          </section>
+        </Card>
       </div>
     </>
   );

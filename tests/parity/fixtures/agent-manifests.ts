@@ -31,7 +31,10 @@ const EXECUTION = {
   timeout_seconds: 60,
   max_delegation_depth: 0,
 } as const;
-const OUTPUT = { schema_ref: 'schemas/parity.schema.json', verification: ['schema_check'] } as const;
+const OUTPUT = {
+  schema_ref: 'schemas/parity.schema.json',
+  verification: ['schema_check'],
+} as const;
 const EVALUATION = { suite_ref: 'evaluations/agents/parity', min_pass_rate: 0.9 } as const;
 
 /** Each case has its own agent ID, so what one case does cannot change the answer to another. */

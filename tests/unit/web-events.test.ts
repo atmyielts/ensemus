@@ -55,7 +55,9 @@ describe('a stream of live status', () => {
   });
 
   it('leaves the first read as it was, because the wrapper has just checked the membership', () => {
-    expect(route).toMatch(/await getWorkFollowState\(database, context, params\.workUnitId, asked\)/);
+    expect(route).toMatch(
+      /await getWorkFollowState\(database, context, params\.workUnitId, asked\)/,
+    );
   });
 });
 
@@ -297,7 +299,9 @@ describe('one poll of a live stream', () => {
     });
     expect(log).toEqual(['read']);
     expect(text).toBe(OPENING);
-    expect(warnings).toEqual([['api.stream_failed', { requestId: 'request-1', errorCode: '57P01' }]]);
+    expect(warnings).toEqual([
+      ['api.stream_failed', { requestId: 'request-1', errorCode: '57P01' }],
+    ]);
   });
 
   it('never tells the log what the database said', async () => {

@@ -1,3 +1,5 @@
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { SubmitButton } from '@/components/submit-button';
@@ -40,9 +42,9 @@ export default async function ResetPasswordPage({
         )}
         <form className="fields" action={resetPasswordAction}>
           <input type="hidden" name="token" value={token} />
-          <label>
+          <Label>
             New password
-            <input
+            <Input
               name="password"
               type="password"
               autoComplete="new-password"
@@ -51,10 +53,10 @@ export default async function ResetPasswordPage({
               required
             />
             <small>At least 12 characters. A short sentence is easy to remember.</small>
-          </label>
-          <label>
+          </Label>
+          <Label>
             Type it again
-            <input
+            <Input
               name="confirm"
               type="password"
               autoComplete="new-password"
@@ -62,7 +64,7 @@ export default async function ResetPasswordPage({
               maxLength={128}
               required
             />
-          </label>
+          </Label>
           <div>
             <SubmitButton working="Saving">Save new password</SubmitButton>
           </div>

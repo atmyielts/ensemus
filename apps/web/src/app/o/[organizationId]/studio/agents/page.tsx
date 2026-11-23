@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import Link from 'next/link';
 import { listAgentDrafts } from '@ensemus/application/agent-drafts';
 import {
@@ -28,25 +29,27 @@ export default async function AgentDraftsPage({
         actions={<ActionLink href={`${base}/agents/new`}>Create assistant</ActionLink>}
       />
       {drafts.length ? (
-        <div className="card">
-          <ul className="list" aria-label="Assistant drafts">
-            {drafts.map((d) => (
-              <li key={d.id}>
-                <span>
-                  <Link href={`${base}/agents/${d.id}`}>{d.name}</Link>
-                  <br />
-                  <small>
-                    Version {d.version} · Updated {formatDateTime(d.updatedAt)}
-                  </small>
-                </span>
-                <StatusBadge status={d.status} />
-              </li>
-            ))}
-          </ul>
-          <p className="studio-next-step">
-            The 200 most recent drafts are shown. Saving a draft never starts it.
-          </p>
-        </div>
+        <Card asChild>
+          <div className="card">
+            <ul className="list" aria-label="Assistant drafts">
+              {drafts.map((d) => (
+                <li key={d.id}>
+                  <span>
+                    <Link href={`${base}/agents/${d.id}`}>{d.name}</Link>
+                    <br />
+                    <small>
+                      Version {d.version} · Updated {formatDateTime(d.updatedAt)}
+                    </small>
+                  </span>
+                  <StatusBadge status={d.status} />
+                </li>
+              ))}
+            </ul>
+            <p className="studio-next-step">
+              The 200 most recent drafts are shown. Saving a draft never starts it.
+            </p>
+          </div>
+        </Card>
       ) : (
         <Empty
           title="No assistant drafts yet"

@@ -1,20 +1,23 @@
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
+import { Input } from '@/components/ui/input';
 export function CodeFields({ backup = true }: { backup?: boolean }) {
   return (
     <>
       {backup ? (
-        <label>
+        <Label>
           Code type
-          <select name="kind" defaultValue="totp">
+          <NativeSelect name="kind" defaultValue="totp">
             <option value="totp">Authenticator app</option>
             <option value="backup_code">Recovery code</option>
-          </select>
-        </label>
+          </NativeSelect>
+        </Label>
       ) : (
         <input type="hidden" name="kind" value="totp" />
       )}
-      <label>
+      <Label>
         Verification code
-        <input
+        <Input
           name="code"
           type="text"
           autoComplete="one-time-code"
@@ -26,7 +29,7 @@ export function CodeFields({ backup = true }: { backup?: boolean }) {
           spellCheck={false}
           autoCapitalize="none"
         />
-      </label>
+      </Label>
     </>
   );
 }

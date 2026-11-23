@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import { listProcessDrafts } from '@ensemus/application/process-specs';
 import Link from 'next/link';
 import {
@@ -29,29 +30,31 @@ export default async function WorkflowsPage({
         actions={<ActionLink href={`${base}/new`}>Create workflow</ActionLink>}
       />
       {drafts.length ? (
-        <div className="card">
-          <ul className="list" aria-label="Readable workflow drafts">
-            {drafts.map((draft) => (
-              <li key={draft.id}>
-                <span>
-                  <Link href={`${base}/${draft.id}`}>{draft.name}</Link>
-                  <br />
-                  <small>
-                    Version {draft.version} · Updated {formatDateTime(draft.updatedAt)}
-                  </small>
-                </span>
-                <span className="row">
-                  <ClassificationBadge value={draft.classification} />
-                  <StatusBadge status={draft.status} />
-                </span>
-              </li>
-            ))}
-          </ul>
-          <p className="studio-next-step">
-            The 200 most recent drafts you can read are shown. Open one to see whether it is ready
-            to rehearse.
-          </p>
-        </div>
+        <Card asChild>
+          <div className="card">
+            <ul className="list" aria-label="Readable workflow drafts">
+              {drafts.map((draft) => (
+                <li key={draft.id}>
+                  <span>
+                    <Link href={`${base}/${draft.id}`}>{draft.name}</Link>
+                    <br />
+                    <small>
+                      Version {draft.version} · Updated {formatDateTime(draft.updatedAt)}
+                    </small>
+                  </span>
+                  <span className="row">
+                    <ClassificationBadge value={draft.classification} />
+                    <StatusBadge status={draft.status} />
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="studio-next-step">
+              The 200 most recent drafts you can read are shown. Open one to see whether it is ready
+              to rehearse.
+            </p>
+          </div>
+        </Card>
       ) : (
         <Empty
           title="No workflow drafts yet"

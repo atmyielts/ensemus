@@ -1,4 +1,8 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
+
 import { useActionState, useEffect, useId, useRef } from 'react';
 import { composeOutcomeAction } from '@/server/experience-actions';
 import { SubmitButton } from '../submit-button';
@@ -27,8 +31,8 @@ export function ComposeForm({
       </div>
       <input type="hidden" name="organizationId" value={organizationId} />
       <input type="hidden" name="requestKey" value={text('requestKey', requestKey)} />
-      <label htmlFor={`${prefix}-objective`}>What outcome do you want?</label>
-      <textarea
+      <Label htmlFor={`${prefix}-objective`}>What outcome do you want?</Label>
+      <Textarea
         id={`${prefix}-objective`}
         name="objective"
         minLength={3}
@@ -42,8 +46,8 @@ export function ComposeForm({
         Write it in your own words. This saves a private preview. Nothing runs and no message is
         sent.
       </p>
-      <label htmlFor={`${prefix}-today`}>Today where you are</label>
-      <input
+      <Label htmlFor={`${prefix}-today`}>Today where you are</Label>
+      <Input
         id={`${prefix}-today`}
         type="date"
         name="today"

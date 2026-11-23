@@ -1,3 +1,6 @@
+import { Card } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { randomUUID } from 'node:crypto';
 import { AppError, listDirectory } from '@ensemus/application';
 import { getPublishReview, getPublishReviewSnapshot } from '@ensemus/application/publish-reviews';
@@ -140,166 +143,174 @@ export default async function PublishReviewPage({
             </div>
           )}
 
-          <section className="card" aria-labelledby="frozen-definition">
-            <h2 id="frozen-definition">Frozen definition</h2>
-            <p className="muted">
-              This is the exact version that was rehearsed and sent for review. Later edits to the
-              draft do not change it.
-            </p>
-            <div className="gap-above">
-              <SpecSummary snapshot={snapshot} sourceNames={sourceNames} />
-            </div>
-            {review.riskSummary.length > 0 && (
-              <>
-                <h3 className="gap-above-large">Worth knowing</h3>
-                <ul>
-                  {review.riskSummary.map((risk, index) => (
-                    <li key={index}>{studioRiskText(risk)}</li>
-                  ))}
-                </ul>
-              </>
-            )}
-            <p className="muted divided">
-              <small>
-                The rehearsal used made-up examples. It does not show how well a real AI model will
-                do, that anything was delivered, or that the work got done.
-              </small>
-            </p>
-          </section>
+          <Card asChild>
+            <section className="card" aria-labelledby="frozen-definition">
+              <h2 id="frozen-definition">Frozen definition</h2>
+              <p className="muted">
+                This is the exact version that was rehearsed and sent for review. Later edits to the
+                draft do not change it.
+              </p>
+              <div className="gap-above">
+                <SpecSummary snapshot={snapshot} sourceNames={sourceNames} />
+              </div>
+              {review.riskSummary.length > 0 && (
+                <>
+                  <h3 className="gap-above-large">Worth knowing</h3>
+                  <ul>
+                    {review.riskSummary.map((risk, index) => (
+                      <li key={index}>{studioRiskText(risk)}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              <p className="muted divided">
+                <small>
+                  The rehearsal used made-up examples. It does not show how well a real AI model
+                  will do, that anything was delivered, or that the work got done.
+                </small>
+              </p>
+            </section>
+          </Card>
 
           {review.decisionReason && (
-            <section className="card" aria-labelledby="decision-reason">
-              <h2 id="decision-reason">Reason given</h2>
-              <p>{review.decisionReason}</p>
-            </section>
+            <Card asChild>
+              <section className="card" aria-labelledby="decision-reason">
+                <h2 id="decision-reason">Reason given</h2>
+                <p>{review.decisionReason}</p>
+              </section>
+            </Card>
           )}
 
           {review.status === 'pending' && (
-            <section className="card" aria-labelledby="decide-review">
-              <h2 id="decide-review">Your decision</h2>
-              {canDecide ? (
-                <>
+            <Card asChild>
+              <section className="card" aria-labelledby="decide-review">
+                <h2 id="decide-review">Your decision</h2>
+                {canDecide ? (
+                  <>
+                    <p className="muted">
+                      Approving does not publish it. Your access is checked again when you submit.
+                    </p>
+                    <form action={decideStudioReviewAction} className="fields gap-above">
+                      <input type="hidden" name="organizationId" value={organizationId} />
+                      <input type="hidden" name="reviewId" value={review.id} />
+                      <input type="hidden" name="version" value={review.version} />
+                      <input type="hidden" name="decision" value="approved" />
+                      <input type="hidden" name="requestKey" value={randomUUID()} />
+                      <Label htmlFor="review-approval-reason">
+                        <span id="review-approval-reason-label">Note for the requester</span>
+                        <small id="review-approval-reason-help">Optional.</small>
+                        <Textarea
+                          id="review-approval-reason"
+                          aria-labelledby="review-approval-reason-label"
+                          aria-describedby="review-approval-reason-help"
+                          name="reason"
+                          maxLength={2000}
+                          rows={3}
+                        />
+                      </Label>
+                      <Label className="check">
+                        <input type="checkbox" required />I read what it is for, what it may do, who
+                        is responsible and its limits.
+                      </Label>
+                      <div>
+                        <SubmitButton working="Recording approval">
+                          Approve this snapshot
+                        </SubmitButton>
+                      </div>
+                    </form>
+                    <form action={decideStudioReviewAction} className="fields divided">
+                      <input type="hidden" name="organizationId" value={organizationId} />
+                      <input type="hidden" name="reviewId" value={review.id} />
+                      <input type="hidden" name="version" value={review.version} />
+                      <input type="hidden" name="decision" value="rejected" />
+                      <input type="hidden" name="requestKey" value={randomUUID()} />
+                      <Label htmlFor="review-rejection-reason">
+                        <span id="review-rejection-reason-label">What needs to change?</span>
+                        <small id="review-rejection-reason-help">Needed if you send it back.</small>
+                        <Textarea
+                          id="review-rejection-reason"
+                          aria-labelledby="review-rejection-reason-label"
+                          aria-describedby="review-rejection-reason-help"
+                          name="reason"
+                          required
+                          minLength={1}
+                          maxLength={2000}
+                          rows={3}
+                        />
+                      </Label>
+                      <div>
+                        <SubmitButton className="secondary" working="Recording rejection">
+                          Reject and return for changes
+                        </SubmitButton>
+                      </div>
+                    </form>
+                  </>
+                ) : (
                   <p className="muted">
-                    Approving does not publish it. Your access is checked again when you submit.
+                    {!independent
+                      ? 'You asked for this review, so someone else has to decide it.'
+                      : !namedEligible
+                        ? 'Only the named reviewer can decide this review.'
+                        : !currentMatches
+                          ? 'The draft has changed. Rehearse the current draft and ask for a new review.'
+                          : 'It needs a reviewer who can decide it and an active responsible person.'}
                   </p>
-                  <form action={decideStudioReviewAction} className="fields gap-above">
-                    <input type="hidden" name="organizationId" value={organizationId} />
-                    <input type="hidden" name="reviewId" value={review.id} />
-                    <input type="hidden" name="version" value={review.version} />
-                    <input type="hidden" name="decision" value="approved" />
-                    <input type="hidden" name="requestKey" value={randomUUID()} />
-                    <label htmlFor="review-approval-reason">
-                      <span id="review-approval-reason-label">Note for the requester</span>
-                      <small id="review-approval-reason-help">Optional.</small>
-                      <textarea
-                        id="review-approval-reason"
-                        aria-labelledby="review-approval-reason-label"
-                        aria-describedby="review-approval-reason-help"
-                        name="reason"
-                        maxLength={2000}
-                        rows={3}
-                      />
-                    </label>
-                    <label className="check">
-                      <input type="checkbox" required />I read what it is for, what it may do, who
-                      is responsible and its limits.
-                    </label>
-                    <div>
-                      <SubmitButton working="Recording approval">
-                        Approve this snapshot
-                      </SubmitButton>
-                    </div>
-                  </form>
-                  <form action={decideStudioReviewAction} className="fields divided">
-                    <input type="hidden" name="organizationId" value={organizationId} />
-                    <input type="hidden" name="reviewId" value={review.id} />
-                    <input type="hidden" name="version" value={review.version} />
-                    <input type="hidden" name="decision" value="rejected" />
-                    <input type="hidden" name="requestKey" value={randomUUID()} />
-                    <label htmlFor="review-rejection-reason">
-                      <span id="review-rejection-reason-label">What needs to change?</span>
-                      <small id="review-rejection-reason-help">Needed if you send it back.</small>
-                      <textarea
-                        id="review-rejection-reason"
-                        aria-labelledby="review-rejection-reason-label"
-                        aria-describedby="review-rejection-reason-help"
-                        name="reason"
-                        required
-                        minLength={1}
-                        maxLength={2000}
-                        rows={3}
-                      />
-                    </label>
-                    <div>
-                      <SubmitButton className="secondary" working="Recording rejection">
-                        Reject and return for changes
-                      </SubmitButton>
-                    </div>
-                  </form>
-                </>
-              ) : (
-                <p className="muted">
-                  {!independent
-                    ? 'You asked for this review, so someone else has to decide it.'
-                    : !namedEligible
-                      ? 'Only the named reviewer can decide this review.'
-                      : !currentMatches
-                        ? 'The draft has changed. Rehearse the current draft and ask for a new review.'
-                        : 'It needs a reviewer who can decide it and an active responsible person.'}
-                </p>
-              )}
-            </section>
+                )}
+              </section>
+            </Card>
           )}
 
           {review.status === 'approved' && (
-            <section className="card" aria-labelledby="publish-review">
-              <h2 id="publish-review">Publish it</h2>
-              <p className="muted">
-                Publishing makes this approved version available to your team. It does not start
-                anything or act outside Ensemus.
-              </p>
-              {canPublish ? (
-                <form action={publishStudioReviewAction} className="fields gap-above">
-                  <input type="hidden" name="organizationId" value={organizationId} />
-                  <input type="hidden" name="reviewId" value={review.id} />
-                  <input type="hidden" name="version" value={review.version} />
-                  <input type="hidden" name="requestKey" value={randomUUID()} />
-                  {review.subjectKind === 'agent_draft' && (
-                    <label>
-                      Signed evaluation report
-                      <small>
-                        Paste the signed report from your configured evaluator for this exact
-                        revision and current policy. The rehearsal above does not replace a model
-                        evaluation. Maximum 256 KiB.
-                      </small>
-                      <textarea
-                        name="evaluationReport"
-                        required
-                        rows={8}
-                        maxLength={256 * 1024}
-                        spellCheck={false}
-                        autoComplete="off"
-                      />
-                    </label>
-                  )}
-                  <label className="check">
-                    <input type="checkbox" required />
-                    Publish only this reviewed version, with its responsible person and what it may
-                    do.
-                  </label>
-                  <div>
-                    <SubmitButton working="Publishing the approved snapshot">
-                      Publish approved snapshot
-                    </SubmitButton>
-                  </div>
-                </form>
-              ) : (
-                <p className="muted gap-above">
-                  To publish, the draft has to match this review, its responsible person has to be
-                  active and you need permission to publish. Refresh once that is sorted out.
+            <Card asChild>
+              <section className="card" aria-labelledby="publish-review">
+                <h2 id="publish-review">Publish it</h2>
+                <p className="muted">
+                  Publishing makes this approved version available to your team. It does not start
+                  anything or act outside Ensemus.
                 </p>
-              )}
-            </section>
+                {canPublish ? (
+                  <form action={publishStudioReviewAction} className="fields gap-above">
+                    <input type="hidden" name="organizationId" value={organizationId} />
+                    <input type="hidden" name="reviewId" value={review.id} />
+                    <input type="hidden" name="version" value={review.version} />
+                    <input type="hidden" name="requestKey" value={randomUUID()} />
+                    {review.subjectKind === 'agent_draft' && (
+                      <Label>
+                        Signed evaluation report
+                        <small>
+                          Paste the signed report from your configured evaluator for this exact
+                          revision and current policy. The rehearsal above does not replace a model
+                          evaluation. Maximum 256 KiB.
+                        </small>
+                        <Textarea
+                          name="evaluationReport"
+                          required
+                          rows={8}
+                          maxLength={256 * 1024}
+                          spellCheck={false}
+                          autoComplete="off"
+                        />
+                      </Label>
+                    )}
+                    <Label className="check">
+                      <input type="checkbox" required />
+                      Publish only this reviewed version, with its responsible person and what it
+                      may do.
+                    </Label>
+                    <div>
+                      <SubmitButton working="Publishing the approved snapshot">
+                        Publish approved snapshot
+                      </SubmitButton>
+                    </div>
+                  </form>
+                ) : (
+                  <p className="muted gap-above">
+                    To publish, the draft has to match this review, its responsible person has to be
+                    active and you need permission to publish. Refresh once that is sorted out.
+                  </p>
+                )}
+              </section>
+            </Card>
           )}
 
           {review.status === 'published' && (

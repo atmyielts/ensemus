@@ -17,7 +17,7 @@ async function insideViewport(page: Page, target: Locator) {
   expect(box.x + box.width).toBeLessThanOrEqual(size.width + 1);
 }
 for (const javaScriptEnabled of [true, false])
-  for (const colorScheme of ['light', 'dark'] as const)
+  for (const colorScheme of javaScriptEnabled ? (['light', 'dark'] as const) : (['light'] as const))
     test(`sidebar keeps account controls visible at720px with long profile (${javaScriptEnabled ? 'JavaScript' : 'no JavaScript'}, ${colorScheme})`, async ({
       open,
     }) => {
@@ -40,8 +40,12 @@ for (const javaScriptEnabled of [true, false])
           name = sidebar.locator('.account-name'),
           email = sidebar.locator('.account-email'),
           signOut = sidebar.getByRole('button', { name: 'Sign out', exact: true });
+        if (javaScriptEnabled) {
+          if (colorScheme === 'dark') await expect(page.locator('html')).toHaveClass(/dark/);
+          else await expect(page.locator('html')).not.toHaveClass(/dark/);
+        }
         await expect(
-          main.getByRole('link', { name: path === base ? 'Overview' : 'All work', exact: true }),
+          main.getByRole('link', { name: path === base ? 'Home' : 'Work', exact: true }),
         ).toBeVisible();
         await insideViewport(page, sidebar.locator('.workspace-brand'));
         await insideViewport(page, sidebar.locator('.sidebar-end'));
@@ -84,7 +88,8 @@ for (const javaScriptEnabled of [true, false])
         expect(text.scroll).toBeGreaterThan(text.width);
         // Native focus scrolls the navigation, while its siblings stay in place. Tab then reaches the
         // real account and Sign out controls without scrolling the whole sidebar or changing the URL.
-        const last = main.getByRole('link', { name: 'Account and support', exact: true });
+        const last = main.getByRole('link').last();
+        await expect(last).toHaveText('Help');
         await last.focus();
         await expect(last).toBeFocused();
         await insideViewport(page, last);

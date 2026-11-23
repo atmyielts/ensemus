@@ -1,3 +1,14 @@
+import { Card } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
+import {
+  Table,
+  TableHeader,
+  TableRow,
+  TableHead,
+  TableBody,
+  TableCell,
+} from '@/components/ui/table';
 import { AppError, listProjects, listWorkOverview } from '@ensemus/application';
 import { WORK_STATES, type CompletionCriterion, type WorkState } from '@ensemus/domain/work-unit';
 import Link from 'next/link';
@@ -81,17 +92,17 @@ export default async function WorkPage({
       {(items.length > 0 || filter || projectId) && (
         <form className="inline-form filter" method="get">
           {projectId && <input type="hidden" name="project" value={projectId} />}
-          <label>
+          <Label>
             Status
-            <select name="status" defaultValue={filter ?? ''}>
+            <NativeSelect name="status" defaultValue={filter ?? ''}>
               <option value="">All</option>
               {WORK_STATES.map((state) => (
                 <option key={state} value={state}>
                   {LABELS[state]}
                 </option>
               ))}
-            </select>
-          </label>
+            </NativeSelect>
+          </Label>
           <button className="secondary" type="submit">
             Filter
           </button>
@@ -122,77 +133,79 @@ export default async function WorkPage({
           </Empty>
         )
       ) : (
-        <div className="card table-wrap">
-          {/* The roles keep this a table for a screen reader when a small screen stacks its rows. */}
-          <table className="work-table" role="table">
-            <thead role="rowgroup">
-              <tr role="row">
-                <th role="columnheader" scope="col">
-                  Work
-                </th>
-                <th role="columnheader" scope="col">
-                  Status
-                </th>
-                <th role="columnheader" scope="col">
-                  Done when
-                </th>
-                <th role="columnheader" scope="col">
-                  Due
-                </th>
-              </tr>
-            </thead>
-            <tbody role="rowgroup">
-              {items.map((work) => {
-                const evidence = evidenceSummary(
-                  work.status as WorkState,
-                  work.completionCriteria as CompletionCriterion[],
-                  work.evidence,
-                );
-                return (
-                  <tr key={work.id} role="row">
-                    <td role="cell">
-                      <Link href={`${base}/work/${work.id}`}>{work.title}</Link>
-                      <small className="work-meta">
-                        <span>
-                          <span className="due-word">Owner: </span>
-                          {work.ownerName ?? 'Owner unknown'}
-                        </span>
-                        {/* Most work is for everyone inside, so only a narrower audience is named. */}
-                        {work.classification !== 'internal' && (
+        <Card asChild>
+          <div className="card table-wrap">
+            {/* The roles keep this a table for a screen reader when a small screen stacks its rows. */}
+            <Table className="work-table" role="table">
+              <TableHeader role="rowgroup">
+                <TableRow role="row">
+                  <TableHead role="columnheader" scope="col">
+                    Work
+                  </TableHead>
+                  <TableHead role="columnheader" scope="col">
+                    Status
+                  </TableHead>
+                  <TableHead role="columnheader" scope="col">
+                    Done when
+                  </TableHead>
+                  <TableHead role="columnheader" scope="col">
+                    Due
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody role="rowgroup">
+                {items.map((work) => {
+                  const evidence = evidenceSummary(
+                    work.status as WorkState,
+                    work.completionCriteria as CompletionCriterion[],
+                    work.evidence,
+                  );
+                  return (
+                    <TableRow key={work.id} role="row">
+                      <TableCell role="cell">
+                        <Link href={`${base}/work/${work.id}`}>{work.title}</Link>
+                        <small className="work-meta">
                           <span>
-                            <span className="visually-hidden">Who can see this: </span>
-                            <ClassificationBadge value={work.classification} />
+                            <span className="due-word">Owner: </span>
+                            {work.ownerName ?? 'Owner unknown'}
                           </span>
+                          {/* Most work is for everyone inside, so only a narrower audience is named. */}
+                          {work.classification !== 'internal' && (
+                            <span>
+                              <span className="visually-hidden">Who can see this: </span>
+                              <ClassificationBadge value={work.classification} />
+                            </span>
+                          )}
+                        </small>
+                      </TableCell>
+                      <TableCell role="cell">
+                        <StatusBadge status={work.status} />
+                      </TableCell>
+                      <TableCell role="cell">
+                        <span className="due-word">Done when: </span>
+                        {evidence.tone ? (
+                          <span className={`badge ${evidence.tone}`}>{evidence.text}</span>
+                        ) : (
+                          <small>{evidence.text}</small>
                         )}
-                      </small>
-                    </td>
-                    <td role="cell">
-                      <StatusBadge status={work.status} />
-                    </td>
-                    <td role="cell">
-                      <span className="due-word">Done when: </span>
-                      {evidence.tone ? (
-                        <span className={`badge ${evidence.tone}`}>{evidence.text}</span>
+                      </TableCell>
+                      {work.dueAt ? (
+                        <TableCell role="cell" className="nowrap">
+                          <span className="due-word">Due </span>
+                          {formatDate(work.dueAt)}
+                        </TableCell>
                       ) : (
-                        <small>{evidence.text}</small>
+                        <TableCell role="cell" className="no-date">
+                          <small>None</small>
+                        </TableCell>
                       )}
-                    </td>
-                    {work.dueAt ? (
-                      <td role="cell" className="nowrap">
-                        <span className="due-word">Due </span>
-                        {formatDate(work.dueAt)}
-                      </td>
-                    ) : (
-                      <td role="cell" className="no-date">
-                        <small>None</small>
-                      </td>
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        </Card>
       )}
       {nextCursor && (
         <p className="gap-above-large">

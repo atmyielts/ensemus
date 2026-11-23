@@ -1,3 +1,5 @@
+import { Card } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
 import {
   businessActionWords,
   businessPayload,
@@ -233,99 +235,105 @@ export default async function ApprovalPage({
           {stateNotice}
 
           {decisions.length > 0 && (
-            <section className="card" aria-labelledby="decision-heading">
-              <h2 id="decision-heading">Decision</h2>
-              <ul className="list">
-                {decisions.map((decision) => (
-                  <li key={decision.decidedAt.toISOString()} className="block">
-                    <strong>
-                      {decision.decision === 'approve' ? 'Approved' : 'Denied'} by{' '}
-                      {decision.actorName}
-                    </strong>{' '}
-                    <small>{formatDateTime(decision.decidedAt)}</small>
-                    {decision.reason && (
-                      <p className="pre-wrap gap-above-small">{decision.reason}</p>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-
-          <section className="card" aria-labelledby="summary-heading">
-            <h2 id="summary-heading">{pending ? 'What would change' : 'What was asked'}</h2>
-            <dl className="approval-pairs">
-              <div className="wide">
-                <dt>Asked for</dt>
-                <dd>
-                  {businessWords ??
-                    agentWords ??
-                    TOOL_WORDS[approval.toolName] ??
-                    'An action Ensemus has no description for'}
-                </dd>
-              </div>
-              <div className="wide">
-                <dt>Applies to</dt>
-                <dd>
-                  <span className="row">
-                    <Link href={`${base}/work/${work.id}`}>{work.title}</Link>
-                    <StatusBadge status={work.status} />
-                    <ClassificationBadge value={work.classification} />
-                  </span>
-                </dd>
-              </div>
-              {/* What is at stake only matters while it can still be decided. */}
-              {pending && (
-                <div className="wide">
-                  <dt>What could happen</dt>
-                  <dd>
-                    {agent
-                      ? agentRisk(agent, suite)
-                      : riskOf(approval.toolName, work.classification, holdingWork)}
-                  </dd>
-                </div>
-              )}
-              <div>
-                <dt>What this affects</dt>
-                <dd>{affects}</dd>
-              </div>
-              {/* Once decided or closed, when it would have run out no longer matters. */}
-              {(pending || status === 'expired') && (
-                <div>
-                  <dt>{status === 'expired' ? 'Expired' : 'Decide by'}</dt>
-                  <dd>{formatDateTime(approval.expiresAt)}</dd>
-                </div>
-              )}
-            </dl>
-          </section>
-
-          {isReview && (
-            <section className="card" aria-labelledby="covers-heading">
-              <h2 id="covers-heading">What this review covers</h2>
-              <p>
-                The title and objective of{' '}
-                <Link href={`${base}/work/${work.id}`}>{work.title}</Link>, as they stood when this
-                was asked for. The work last changed on {formatDateTime(work.updatedAt)}.
-              </p>
-              {files.length === 0 && missingFileCount === 0 ? (
-                <p className="muted">No files were attached.</p>
-              ) : (
+            <Card asChild>
+              <section className="card" aria-labelledby="decision-heading">
+                <h2 id="decision-heading">Decision</h2>
                 <ul className="list">
-                  {files.map((file) => (
-                    <li key={file.id}>
-                      <a href={`${base}/work/${work.id}/files/${file.id}`}>{file.name}</a>
-                      <small>{formatBytes(file.sizeBytes)}</small>
+                  {decisions.map((decision) => (
+                    <li key={decision.decidedAt.toISOString()} className="block">
+                      <strong>
+                        {decision.decision === 'approve' ? 'Approved' : 'Denied'} by{' '}
+                        {decision.actorName}
+                      </strong>{' '}
+                      <small>{formatDateTime(decision.decidedAt)}</small>
+                      {decision.reason && (
+                        <p className="pre-wrap gap-above-small">{decision.reason}</p>
+                      )}
                     </li>
                   ))}
                 </ul>
-              )}
-              {missingFileCount > 0 && (
-                <p className="notice warn">
-                  {missingFileCount === 1 ? 'One file' : `${missingFileCount} files`} this covered
-                  has since been deleted.
-                </p>
-              )}
+              </section>
+            </Card>
+          )}
+
+          <Card asChild>
+            <section className="card" aria-labelledby="summary-heading">
+              <h2 id="summary-heading">{pending ? 'What would change' : 'What was asked'}</h2>
+              <dl className="approval-pairs">
+                <div className="wide">
+                  <dt>Asked for</dt>
+                  <dd>
+                    {businessWords ??
+                      agentWords ??
+                      TOOL_WORDS[approval.toolName] ??
+                      'An action Ensemus has no description for'}
+                  </dd>
+                </div>
+                <div className="wide">
+                  <dt>Applies to</dt>
+                  <dd>
+                    <span className="row">
+                      <Link href={`${base}/work/${work.id}`}>{work.title}</Link>
+                      <StatusBadge status={work.status} />
+                      <ClassificationBadge value={work.classification} />
+                    </span>
+                  </dd>
+                </div>
+                {/* What is at stake only matters while it can still be decided. */}
+                {pending && (
+                  <div className="wide">
+                    <dt>What could happen</dt>
+                    <dd>
+                      {agent
+                        ? agentRisk(agent, suite)
+                        : riskOf(approval.toolName, work.classification, holdingWork)}
+                    </dd>
+                  </div>
+                )}
+                <div>
+                  <dt>What this affects</dt>
+                  <dd>{affects}</dd>
+                </div>
+                {/* Once decided or closed, when it would have run out no longer matters. */}
+                {(pending || status === 'expired') && (
+                  <div>
+                    <dt>{status === 'expired' ? 'Expired' : 'Decide by'}</dt>
+                    <dd>{formatDateTime(approval.expiresAt)}</dd>
+                  </div>
+                )}
+              </dl>
             </section>
+          </Card>
+
+          {isReview && (
+            <Card asChild>
+              <section className="card" aria-labelledby="covers-heading">
+                <h2 id="covers-heading">What this review covers</h2>
+                <p>
+                  The title and objective of{' '}
+                  <Link href={`${base}/work/${work.id}`}>{work.title}</Link>, as they stood when
+                  this was asked for. The work last changed on {formatDateTime(work.updatedAt)}.
+                </p>
+                {files.length === 0 && missingFileCount === 0 ? (
+                  <p className="muted">No files were attached.</p>
+                ) : (
+                  <ul className="list">
+                    {files.map((file) => (
+                      <li key={file.id}>
+                        <a href={`${base}/work/${work.id}/files/${file.id}`}>{file.name}</a>
+                        <small>{formatBytes(file.sizeBytes)}</small>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {missingFileCount > 0 && (
+                  <p className="notice warn">
+                    {missingFileCount === 1 ? 'One file' : `${missingFileCount} files`} this covered
+                    has since been deleted.
+                  </p>
+                )}
+              </section>
+            </Card>
           )}
 
           {agent && <AgentPayload view={agent} suite={suite} />}
@@ -336,107 +344,113 @@ export default async function ApprovalPage({
             />
           )}
           {isEmail && (
-            <section className="card" aria-labelledby="email-heading">
-              <h2 id="email-heading">The exact email</h2>
-              <ExactEmail payload={(approval.action as { payload?: unknown }).payload} />
-            </section>
+            <Card asChild>
+              <section className="card" aria-labelledby="email-heading">
+                <h2 id="email-heading">The exact email</h2>
+                <ExactEmail payload={(approval.action as { payload?: unknown }).payload} />
+              </section>
+            </Card>
           )}
 
           {canDecide && (
-            <section className="card approval-decision" aria-labelledby="decide-heading">
-              <h2 id="decide-heading">Your decision is needed</h2>
-              <form className="fields" action={decideApprovalAction}>
-                {bound('approve')}
-                <p>
-                  {ifApproved}{' '}
-                  <span className="muted">
-                    Your approval covers exactly what is shown here. If anything changes, it needs a
-                    new approval.
-                  </span>
-                </p>
-                <label>
-                  Note for approving
-                  <small>Optional. People on this work can read it.</small>
-                  <KeptTextarea keep="approve" name="reason" maxLength={2000} rows={3} />
-                </label>
-                <div>
-                  <SubmitButton>Approve</SubmitButton>
+            <Card asChild>
+              <section className="card approval-decision" aria-labelledby="decide-heading">
+                <h2 id="decide-heading">Your decision is needed</h2>
+                <form className="fields" action={decideApprovalAction}>
+                  {bound('approve')}
+                  <p>
+                    {ifApproved}{' '}
+                    <span className="muted">
+                      Your approval covers exactly what is shown here. If anything changes, it needs
+                      a new approval.
+                    </span>
+                  </p>
+                  <Label>
+                    Note for approving
+                    <small>Optional. People on this work can read it.</small>
+                    <KeptTextarea keep="approve" name="reason" maxLength={2000} rows={3} />
+                  </Label>
+                  <div>
+                    <SubmitButton>Approve</SubmitButton>
+                  </div>
+                </form>
+                <div className="divided">
+                  {holdingWork ? (
+                    <ConfirmForm
+                      action={decideApprovalAction}
+                      fields={bound('deny')}
+                      summary="Deny instead"
+                      reasonLabel="Why are you denying this? People on this work can read it."
+                      consequence="Deny this and stop the work for good. It cannot be restarted."
+                      confirmLabel="Deny and stop the work"
+                    />
+                  ) : (
+                    <details className="confirm">
+                      <summary>Deny instead</summary>
+                      <form className="fields" action={decideApprovalAction}>
+                        {bound('deny')}
+                        <p>
+                          {isEmail || businessWords
+                            ? 'If you deny it, it is not sent, and it will not be without a new approval.'
+                            : agent
+                              ? 'If you deny it, the assistant does not make this change.'
+                              : 'If you deny it, the work stays as it is, without your approval.'}
+                        </p>
+                        <Label>
+                          Reason for denying
+                          <small>Optional. People on this work can read it.</small>
+                          <KeptTextarea keep="deny" name="reason" maxLength={2000} rows={3} />
+                        </Label>
+                        <div>
+                          <SubmitButton className="danger">Deny</SubmitButton>
+                        </div>
+                      </form>
+                    </details>
+                  )}
                 </div>
-              </form>
-              <div className="divided">
-                {holdingWork ? (
-                  <ConfirmForm
-                    action={decideApprovalAction}
-                    fields={bound('deny')}
-                    summary="Deny instead"
-                    reasonLabel="Why are you denying this? People on this work can read it."
-                    consequence="Deny this and stop the work for good. It cannot be restarted."
-                    confirmLabel="Deny and stop the work"
-                  />
-                ) : (
-                  <details className="confirm">
-                    <summary>Deny instead</summary>
-                    <form className="fields" action={decideApprovalAction}>
-                      {bound('deny')}
-                      <p>
-                        {isEmail || businessWords
-                          ? 'If you deny it, it is not sent, and it will not be without a new approval.'
-                          : agent
-                            ? 'If you deny it, the assistant does not make this change.'
-                            : 'If you deny it, the work stays as it is, without your approval.'}
-                      </p>
-                      <label>
-                        Reason for denying
-                        <small>Optional. People on this work can read it.</small>
-                        <KeptTextarea keep="deny" name="reason" maxLength={2000} rows={3} />
-                      </label>
-                      <div>
-                        <SubmitButton className="danger">Deny</SubmitButton>
-                      </div>
-                    </form>
-                  </details>
-                )}
-              </div>
-            </section>
+              </section>
+            </Card>
           )}
         </div>
 
         <aside className="stack">
-          <section className="card" aria-labelledby="about-heading">
-            <h2 id="about-heading">About this approval</h2>
-            <dl className="approval-pairs">
-              <div>
-                <dt>Status</dt>
-                <dd>
-                  <StatusBadge status={status === 'cancelled' ? 'closed' : status} />
-                </dd>
-              </div>
-              {agent ? (
-                <AgentFacts view={agent} />
-              ) : (
+          <Card asChild>
+            <section className="card" aria-labelledby="about-heading">
+              <h2 id="about-heading">About this approval</h2>
+              <dl className="approval-pairs">
                 <div>
-                  <dt>Asked by</dt>
-                  <dd>{requester}</dd>
+                  <dt>Status</dt>
+                  <dd>
+                    <StatusBadge status={status === 'cancelled' ? 'closed' : status} />
+                  </dd>
                 </div>
-              )}
-              <div>
-                <dt>Who decides</dt>
-                <dd>
-                  {isMine
-                    ? approverName
-                      ? `You (${approverName})`
-                      : 'You'
-                    : (approverName ?? 'Someone no longer here')}
-                </dd>
-              </div>
-              {approval.decidedAt && (
+                {agent ? (
+                  <AgentFacts view={agent} />
+                ) : (
+                  <div>
+                    <dt>Asked by</dt>
+                    <dd>{requester}</dd>
+                  </div>
+                )}
                 <div>
-                  <dt>{status === 'approved' || status === 'denied' ? 'Decided' : 'Closed'}</dt>
-                  <dd>{formatDateTime(approval.decidedAt)}</dd>
+                  <dt>Who decides</dt>
+                  <dd>
+                    {isMine
+                      ? approverName
+                        ? `You (${approverName})`
+                        : 'You'
+                      : (approverName ?? 'Someone no longer here')}
+                  </dd>
                 </div>
-              )}
-            </dl>
-          </section>
+                {approval.decidedAt && (
+                  <div>
+                    <dt>{status === 'approved' || status === 'denied' ? 'Decided' : 'Closed'}</dt>
+                    <dd>{formatDateTime(approval.decidedAt)}</dd>
+                  </div>
+                )}
+              </dl>
+            </section>
+          </Card>
           <details className="card">
             <summary>Technical details</summary>
             <pre tabIndex={0} aria-label="The exact action, as stored">

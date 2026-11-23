@@ -1,3 +1,4 @@
+import { Label } from '@/components/ui/label';
 import { randomUUID } from 'node:crypto';
 import { AppError } from '@ensemus/application';
 import { getProcessRun } from '@ensemus/application/process-runs';
@@ -128,10 +129,10 @@ export default async function ProcessRunPage({
                 <input type="hidden" name="runId" value={run.id} />
                 <input type="hidden" name="version" value={run.version} />
                 <input type="hidden" name="requestKey" value={randomUUID()} />
-                <label className="check">
+                <Label className="check">
                   <input type="checkbox" name="confirmed" value="yes" required />I want to stop
                   further steps and review any action already in progress.
-                </label>
+                </Label>
                 <div>
                   <SubmitButton className="danger" working="Recording the stop request">
                     Request stop

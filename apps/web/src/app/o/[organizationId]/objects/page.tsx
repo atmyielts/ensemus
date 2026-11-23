@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import { listObjectTypes } from '@ensemus/application/custom-objects';
 import { canProduct } from '@ensemus/domain/product-policy';
 import Link from 'next/link';
@@ -29,27 +30,29 @@ export default async function ObjectsPage({
       />
       <ErrorNotice code={(await searchParams).error} />
       {types.length ? (
-        <section className="card" aria-labelledby="types-heading">
-          <div className="section-heading">
-            <h2 id="types-heading">Record types</h2>
-            <p>Open a type to see its records or add one.</p>
-          </div>
-          <ul className="list">
-            {types.map((t) => (
-              <li key={t.id}>
-                <div>
-                  <Link href={`${base}/types/${t.id}`}>{t.displayName}</Link>
-                  <br />
-                  <small>
-                    {t.fields.length} {t.fields.length === 1 ? 'field' : 'fields'} · field layout
-                    version {t.currentVersionNumber}
-                  </small>
-                </div>
-                <ClassificationBadge value={t.classification} />
-              </li>
-            ))}
-          </ul>
-        </section>
+        <Card asChild>
+          <section className="card" aria-labelledby="types-heading">
+            <div className="section-heading">
+              <h2 id="types-heading">Record types</h2>
+              <p>Open a type to see its records or add one.</p>
+            </div>
+            <ul className="list">
+              {types.map((t) => (
+                <li key={t.id}>
+                  <div>
+                    <Link href={`${base}/types/${t.id}`}>{t.displayName}</Link>
+                    <br />
+                    <small>
+                      {t.fields.length} {t.fields.length === 1 ? 'field' : 'fields'} · field layout
+                      version {t.currentVersionNumber}
+                    </small>
+                  </div>
+                  <ClassificationBadge value={t.classification} />
+                </li>
+              ))}
+            </ul>
+          </section>
+        </Card>
       ) : (
         <Empty
           title="No record types yet"

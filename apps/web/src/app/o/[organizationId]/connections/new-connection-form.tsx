@@ -1,4 +1,7 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
+import { Input } from '@/components/ui/input';
 
 import { useActionState } from 'react';
 import { SubmitButton } from '@/components/submit-button';
@@ -36,9 +39,9 @@ export function NewConnectionForm({
       <form className="fields" action={action}>
         <input type="hidden" name="organizationId" value={organizationId} />
         <input type="hidden" name="requestKey" value={requestKey} />
-        <label>
+        <Label>
           Kind
-          <select
+          <NativeSelect
             key={values?.connectorType ?? ''}
             name="connectorType"
             required
@@ -52,56 +55,56 @@ export function NewConnectionForm({
                 {connector.label}
               </option>
             ))}
-          </select>
-        </label>
-        <label>
+          </NativeSelect>
+        </Label>
+        <Label>
           Name
           <small>What people choose from. For example, the team or the purpose.</small>
-          <input
+          <Input
             name="displayName"
             required
             maxLength={120}
             autoComplete="off"
             defaultValue={values?.displayName ?? ''}
           />
-        </label>
+        </Label>
         <fieldset className="group">
           <legend>For email</legend>
-          <label>
+          <Label>
             Sends as
             <small>The one address this connection may send from.</small>
-            <input
+            <Input
               name="fromAddress"
               type="email"
               autoComplete="off"
               defaultValue={values?.fromAddress ?? ''}
             />
-          </label>
-          <label>
+          </Label>
+          <Label>
             Sender name
             <small>Optional.</small>
-            <input
+            <Input
               name="fromName"
               maxLength={120}
               autoComplete="off"
               defaultValue={values?.fromName ?? ''}
             />
-          </label>
-          <label>
+          </Label>
+          <Label>
             Name on your mail server&apos;s certificate
             <small>Optional. Ensemus checks the certificate against this name.</small>
-            <input
+            <Input
               name="tlsServerName"
               maxLength={253}
               autoComplete="off"
               defaultValue={values?.tlsServerName ?? ''}
             />
-          </label>
-          <label>
+          </Label>
+          <Label>
             Credential
             <small>Sealed as soon as it arrives. Nobody can read it back, including you.</small>
-            <input name="credential" type="password" maxLength={4096} autoComplete="off" />
-          </label>
+            <Input name="credential" type="password" maxLength={4096} autoComplete="off" />
+          </Label>
         </fieldset>
         <div>
           <SubmitButton>Add connection</SubmitButton>

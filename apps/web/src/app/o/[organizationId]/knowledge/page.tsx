@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import { AppError } from '@ensemus/application';
 import { listSources } from '@ensemus/application/knowledge/sources';
 import { can } from '@ensemus/domain/policy';
@@ -54,40 +55,42 @@ export default async function KnowledgePage({
             : 'When someone shares documents with you, you can search them and ask questions about them here.'}
         </Empty>
       ) : (
-        <section className="card" aria-labelledby="sources-heading">
-          <h2 id="sources-heading" className="visually-hidden">
-            Knowledge sources
-          </h2>
-          <ul className="list">
-            {page.items.map((source) => (
-              <li key={source.id}>
-                <div>
-                  <Link href={`${base}/sources/${source.id}`}>
-                    {source.title ?? 'Source with limited access'}
-                  </Link>
-                  <br />
-                  <small>
-                    {source.kind === 'connector' ? 'Connected source' : 'Uploaded file'}
-                    {source.searchableAt && (
-                      <> · searchable since {formatDateTime(source.searchableAt)}</>
-                    )}
-                    {!source.canRead && <> · Its contents are not shared with you.</>}
-                  </small>
-                </div>
-                <div className="row">
-                  <ClassificationBadge value={source.classification} />
-                  <StatusBadge
-                    status={
-                      source.state === 'active'
-                        ? (source.documentState ?? 'unavailable')
-                        : source.state
-                    }
-                  />
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
+        <Card asChild>
+          <section className="card" aria-labelledby="sources-heading">
+            <h2 id="sources-heading" className="visually-hidden">
+              Knowledge sources
+            </h2>
+            <ul className="list">
+              {page.items.map((source) => (
+                <li key={source.id}>
+                  <div>
+                    <Link href={`${base}/sources/${source.id}`}>
+                      {source.title ?? 'Source with limited access'}
+                    </Link>
+                    <br />
+                    <small>
+                      {source.kind === 'connector' ? 'Connected source' : 'Uploaded file'}
+                      {source.searchableAt && (
+                        <> · searchable since {formatDateTime(source.searchableAt)}</>
+                      )}
+                      {!source.canRead && <> · Its contents are not shared with you.</>}
+                    </small>
+                  </div>
+                  <div className="row">
+                    <ClassificationBadge value={source.classification} />
+                    <StatusBadge
+                      status={
+                        source.state === 'active'
+                          ? (source.documentState ?? 'unavailable')
+                          : source.state
+                      }
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        </Card>
       )}
       {page.next && (
         <p>

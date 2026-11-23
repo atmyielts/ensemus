@@ -1,3 +1,12 @@
+import {
+  Table,
+  TableCaption,
+  TableHeader,
+  TableRow,
+  TableHead,
+  TableBody,
+  TableCell,
+} from '@/components/ui/table';
 import { randomUUID } from 'node:crypto';
 import { getCreditSummary } from '@ensemus/application/saas/credits';
 import { listTopUpOffers } from '@ensemus/application/saas/catalog';
@@ -125,25 +134,25 @@ export default async function CreditsPage({
           </Empty>
         ) : (
           <div className="table-wrap">
-            <table>
-              <caption>Credit ledger entries, most recent first</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Activity</th>
-                  <th scope="col">Microcredits</th>
-                  <th scope="col">When</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table>
+              <TableCaption>Credit ledger entries, most recent first</TableCaption>
+              <TableHeader>
+                <TableRow>
+                  <TableHead scope="col">Activity</TableHead>
+                  <TableHead scope="col">Microcredits</TableHead>
+                  <TableHead scope="col">When</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {summary.recent.map((entry, index) => (
-                  <tr key={index}>
-                    <td>{entry.kind}</td>
-                    <td>{entry.amountMicrocredits.toString()}</td>
-                    <td>{formatDateTime(entry.occurredAt)}</td>
-                  </tr>
+                  <TableRow key={index}>
+                    <TableCell>{entry.kind}</TableCell>
+                    <TableCell>{entry.amountMicrocredits.toString()}</TableCell>
+                    <TableCell>{formatDateTime(entry.occurredAt)}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
       </section>

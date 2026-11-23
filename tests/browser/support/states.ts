@@ -169,22 +169,24 @@ export const STATES: PageState[] = [
     name: 'home-empty',
     who: (w) => w.quiet,
     path: quiet,
-    shows: headed('Hello, Quinn', 'You are not on any open work.'),
+    shows: headed('My work', 'You are not on any open work.'),
   },
   {
     name: 'home-owner-busy',
     who: alice,
     path: org,
-    shows: (page) => [...heading('Hello, Alice')(page), ...heading('Needs you')(page)],
+    shows: (page) => [
+      ...heading('My work')(page),
+      page.getByRole('navigation', { name: 'My work views' }),
+    ],
   },
   {
     name: 'home-reviewer',
     who: bob,
-    path: org,
+    path: (w) => `${org(w)}?view=reviews`,
     shows: (page) => [
-      ...heading('Hello, Bob')(page),
-      ...heading('Needs you')(page),
-      page.getByText('Your decision').first(),
+      ...heading('My work')(page),
+      page.getByRole('heading', { name: /^Your decisions/ }),
     ],
   },
 

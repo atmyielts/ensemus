@@ -1,3 +1,6 @@
+import { Card } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
 import Link from 'next/link';
 import { AppError, listBusinessRecords, type BusinessRecordList } from '@ensemus/application';
 import { PageHead, Empty, ClassificationBadge, ErrorNotice } from '@/components/ui';
@@ -49,15 +52,15 @@ export default async function SourceRecordsPage({
         description="Selected fields last read from your connected systems. Your source's permissions decide what you can see here."
       />
       <form method="get" className="card stack" action={base}>
-        <label htmlFor="record-stream">Record kind</label>
-        <select id="record-stream" name="stream" defaultValue={q.stream ?? ''}>
+        <Label htmlFor="record-stream">Record kind</Label>
+        <NativeSelect id="record-stream" name="stream" defaultValue={q.stream ?? ''}>
           <option value="">All record kinds</option>
           {Object.entries(sourceStreamLabels).map(([value, label]) => (
             <option key={value} value={value}>
               {label}
             </option>
           ))}
-        </select>
+        </NativeSelect>
         {q.connection_id ? (
           <input type="hidden" name="connection_id" value={q.connection_id} />
         ) : null}
@@ -68,27 +71,29 @@ export default async function SourceRecordsPage({
       </form>
       <ErrorNotice code={error} />
       {result?.items.length ? (
-        <section className="card" aria-labelledby="source-records-heading">
-          <h2 id="source-records-heading">Records you can read</h2>
-          <ul className="list">
-            {result.items.map((row) => (
-              <li key={row.id}>
-                <div>
-                  <Link href={`${base}/${row.id}`}>
-                    {row.displayName ?? 'Untitled source record'}
-                  </Link>
-                  <p>
-                    {row.connectionDisplayName} · {sourceStreamLabels[row.stream] ?? row.stream}
-                  </p>
-                  <small>
-                    Last read <LocalTime iso={row.updatedAt.toISOString()} />
-                  </small>
-                </div>
-                <ClassificationBadge value={row.classification} />
-              </li>
-            ))}
-          </ul>
-        </section>
+        <Card asChild>
+          <section className="card" aria-labelledby="source-records-heading">
+            <h2 id="source-records-heading">Records you can read</h2>
+            <ul className="list">
+              {result.items.map((row) => (
+                <li key={row.id}>
+                  <div>
+                    <Link href={`${base}/${row.id}`}>
+                      {row.displayName ?? 'Untitled source record'}
+                    </Link>
+                    <p>
+                      {row.connectionDisplayName} · {sourceStreamLabels[row.stream] ?? row.stream}
+                    </p>
+                    <small>
+                      Last read <LocalTime iso={row.updatedAt.toISOString()} />
+                    </small>
+                  </div>
+                  <ClassificationBadge value={row.classification} />
+                </li>
+              ))}
+            </ul>
+          </section>
+        </Card>
       ) : result ? (
         <Empty title="No source records to show">
           This view includes only selected records with a current source grant for you or your team.

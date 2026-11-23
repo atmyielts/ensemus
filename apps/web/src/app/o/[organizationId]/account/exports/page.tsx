@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import { listAccountExports } from '@ensemus/application/saas/exports';
 import { can } from '@ensemus/domain/policy';
 import { notFound } from 'next/navigation';
@@ -22,18 +23,20 @@ export default async function AccountExportsPage({
         title="Export your data"
         description="Prepare an encrypted copy of this organization, including while service is paused."
       />
-      <section className="card stack" aria-labelledby="account-export-request">
-        <h2 id="account-export-request">Prepare an export</h2>
-        <p>
-          Only an organization owner can request or download an export. It is encrypted to a public
-          key you supply; the matching private key stays with you.
-        </p>
-        <p>
-          Restricted records are left out. The archive records what was included and omitted.
-          Preparing an export does not restore service, import data or begin deletion.
-        </p>
-        <ExportRequestForm organizationId={organizationId} account />
-      </section>
+      <Card asChild>
+        <section className="card stack" aria-labelledby="account-export-request">
+          <h2 id="account-export-request">Prepare an export</h2>
+          <p>
+            Only an organization owner can request or download an export. It is encrypted to a
+            public key you supply; the matching private key stays with you.
+          </p>
+          <p>
+            Restricted records are left out. The archive records what was included and omitted.
+            Preparing an export does not restore service, import data or begin deletion.
+          </p>
+          <ExportRequestForm organizationId={organizationId} account />
+        </section>
+      </Card>
       <section className="stack gap-above-large" aria-labelledby="account-export-list">
         <h2 id="account-export-list">Your exports</h2>
         <p>

@@ -1,3 +1,5 @@
+import { Card } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
 import { AppError, getWorkUnit, listDirectory, listWorkUnits } from '@ensemus/application';
 import { getOutcomeDraft } from '@ensemus/application/outcomes';
 import { BUNDLED_WORKFLOWS } from '@ensemus/packs/bundled';
@@ -67,81 +69,83 @@ export default async function OutcomePage({
           Changes saved. Review this version before creating Work.
         </p>
       )}
-      <section className="card fields" aria-labelledby="saved-preview">
-        <h2 id="saved-preview">Saved preview</h2>
-        <h3>{p.title}</h3>
-        <p className="preserve">{p.objective}</p>
-        <dl className="details">
-          <div>
-            <dt>Accountable owner</dt>
-            <dd>{owner}</dd>
-          </div>
-          <div>
-            <dt>Due date</dt>
-            <dd>{p.dueAt ?? 'No date chosen'}</dd>
-          </div>
-          <div>
-            <dt>Who can see this</dt>
-            <dd>
-              <ClassificationBadge value={p.classification} />
-            </dd>
-          </div>
-          <div>
-            <dt>Success requirements</dt>
-            <dd>
-              {p.successCriteria.length ? (
-                <ul>
-                  {p.successCriteria.map((c, i) => (
-                    <li key={i}>
-                      {c.label}
-                      {c.kind === 'artifact_named' && (
-                        <p className="muted">
-                          File attached; a person checks the requested name and content.
-                        </p>
-                      )}
-                      {c.kind === 'none' && (
-                        <p className="muted">
-                          Manual check; this adds no automatic completion test.
-                        </p>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                'No additional automatic completion tests.'
-              )}
-            </dd>
-          </div>
-        </dl>
-        <p className="notice">
-          Creating this work starts nothing by itself: no assistant, workflow or AI model, and
-          nothing is sent outside Ensemus. Its owner chooses how to do it later.
-        </p>
-        {(p.dataAccess.usesAgent || p.dataAccess.reachesExternalService) && (
-          <p className="muted">
-            Your words or the related workflow suggest{' '}
-            {p.dataAccess.usesAgent ? 'possible assistant use' : ''}
-            {p.dataAccess.usesAgent && p.dataAccess.reachesExternalService ? ' and ' : ''}
-            {p.dataAccess.reachesExternalService ? 'an external action' : ''}. Those would need
-            their own later authorization.
+      <Card asChild>
+        <section className="card fields" aria-labelledby="saved-preview">
+          <h2 id="saved-preview">Saved preview</h2>
+          <h3>{p.title}</h3>
+          <p className="preserve">{p.objective}</p>
+          <dl className="details">
+            <div>
+              <dt>Accountable owner</dt>
+              <dd>{owner}</dd>
+            </div>
+            <div>
+              <dt>Due date</dt>
+              <dd>{p.dueAt ?? 'No date chosen'}</dd>
+            </div>
+            <div>
+              <dt>Who can see this</dt>
+              <dd>
+                <ClassificationBadge value={p.classification} />
+              </dd>
+            </div>
+            <div>
+              <dt>Success requirements</dt>
+              <dd>
+                {p.successCriteria.length ? (
+                  <ul>
+                    {p.successCriteria.map((c, i) => (
+                      <li key={i}>
+                        {c.label}
+                        {c.kind === 'artifact_named' && (
+                          <p className="muted">
+                            File attached; a person checks the requested name and content.
+                          </p>
+                        )}
+                        {c.kind === 'none' && (
+                          <p className="muted">
+                            Manual check; this adds no automatic completion test.
+                          </p>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  'No additional automatic completion tests.'
+                )}
+              </dd>
+            </div>
+          </dl>
+          <p className="notice">
+            Creating this work starts nothing by itself: no assistant, workflow or AI model, and
+            nothing is sent outside Ensemus. Its owner chooses how to do it later.
           </p>
-        )}
-        {p.uncertainties.length > 0 && (
-          <p className="muted">
-            Check{' '}
-            {p.uncertainties
-              .map((u) =>
-                u === 'due_date_unclear'
-                  ? 'the missing or unclear date'
-                  : u === 'owner_assumed'
-                    ? 'the suggested owner'
-                    : 'how success will be checked',
-              )
-              .join(', ')}
-            .
-          </p>
-        )}
-      </section>
+          {(p.dataAccess.usesAgent || p.dataAccess.reachesExternalService) && (
+            <p className="muted">
+              Your words or the related workflow suggest{' '}
+              {p.dataAccess.usesAgent ? 'possible assistant use' : ''}
+              {p.dataAccess.usesAgent && p.dataAccess.reachesExternalService ? ' and ' : ''}
+              {p.dataAccess.reachesExternalService ? 'an external action' : ''}. Those would need
+              their own later authorization.
+            </p>
+          )}
+          {p.uncertainties.length > 0 && (
+            <p className="muted">
+              Check{' '}
+              {p.uncertainties
+                .map((u) =>
+                  u === 'due_date_unclear'
+                    ? 'the missing or unclear date'
+                    : u === 'owner_assumed'
+                      ? 'the suggested owner'
+                      : 'how success will be checked',
+                )
+                .join(', ')}
+              .
+            </p>
+          )}
+        </section>
+      </Card>
       {draft.status === 'draft' ? (
         <>
           <PreviewForm
@@ -156,34 +160,36 @@ export default async function OutcomePage({
                 : null
             }
           />
-          <section className="card fields" aria-labelledby="confirm-outcome">
-            <h2 id="confirm-outcome">Create this Work</h2>
-            <p>
-              This creates the work exactly as the saved preview above shows it. Save any edits
-              first: changes you have not saved are not included.
-            </p>
-            <ExperienceActionForm
-              action={confirmOutcomeAction}
-              hidden={{
-                organizationId,
-                draftId: draft.id,
-                version: draft.version,
-                previewSha256: draft.previewSha256,
-              }}
-              label="Confirm and create Work"
-            >
-              <label className="check">
-                <input type="checkbox" name="confirmed" value="yes" required />I have reviewed the
-                saved owner, who can see it, date and success requirements.
-              </label>
-            </ExperienceActionForm>
-            <ExperienceActionForm
-              action={discardOutcomeAction}
-              hidden={{ organizationId, draftId: draft.id, version: draft.version }}
-              label="Discard this draft"
-              buttonClass="secondary"
-            />
-          </section>
+          <Card asChild>
+            <section className="card fields" aria-labelledby="confirm-outcome">
+              <h2 id="confirm-outcome">Create this Work</h2>
+              <p>
+                This creates the work exactly as the saved preview above shows it. Save any edits
+                first: changes you have not saved are not included.
+              </p>
+              <ExperienceActionForm
+                action={confirmOutcomeAction}
+                hidden={{
+                  organizationId,
+                  draftId: draft.id,
+                  version: draft.version,
+                  previewSha256: draft.previewSha256,
+                }}
+                label="Confirm and create Work"
+              >
+                <Label className="check">
+                  <input type="checkbox" name="confirmed" value="yes" required />I have reviewed the
+                  saved owner, who can see it, date and success requirements.
+                </Label>
+              </ExperienceActionForm>
+              <ExperienceActionForm
+                action={discardOutcomeAction}
+                hidden={{ organizationId, draftId: draft.id, version: draft.version }}
+                label="Discard this draft"
+                buttonClass="secondary"
+              />
+            </section>
+          </Card>
         </>
       ) : draft.status === 'authorized' && draft.workUnitId ? (
         <p className="notice">

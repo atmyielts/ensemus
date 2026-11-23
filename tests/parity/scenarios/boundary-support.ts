@@ -250,7 +250,13 @@ export async function attach(person: Person, page: string, file: File) {
   return id;
 }
 
-export async function askForReview(su: pg.Client, by: Person, reviewer: Person, org: string, id: string) {
+export async function askForReview(
+  su: pg.Client,
+  by: Person,
+  reviewer: Person,
+  org: string,
+  id: string,
+) {
   const page = workPage(org, id);
   const asked = await submit(page, by.jar, /Request review/, {
     approverMembershipId: await membershipOf(su, reviewer, org),
@@ -602,7 +608,8 @@ export async function demotedWhileWarm(
       submit(
         people,
         owner.jar,
-        (f) => f.hidden.get('membershipId') === target && f.html.includes(`Save access for ${name}`),
+        (f) =>
+          f.hidden.get('membershipId') === target && f.html.includes(`Save access for ${name}`),
         { role },
       ),
     );
@@ -649,9 +656,7 @@ export const networksOf = (service: string) =>
 
 /** Read from Docker, not looked up in a container: a lookup would itself be outbound DNS. */
 export const addressesOf = (service: string) =>
-  inspect(service, '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}')
-    .trim()
-    .split(/\s+/);
+  inspect(service, '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}').trim().split(/\s+/);
 
 /** Tries a real connection from inside a container. It says connected, or blocked. */
 export const connectFrom = (service: string, host: string, port: number) =>
@@ -675,7 +680,14 @@ export const lookUpFrom = (service: string, name: string) =>
   );
 
 export const temporalPackagesIn = (service: string) =>
-  Number(inContainer(service, 'sh', '-c', 'ls /app/node_modules/.pnpm | grep -c temporalio || true').trim());
+  Number(
+    inContainer(
+      service,
+      'sh',
+      '-c',
+      'ls /app/node_modules/.pnpm | grep -c temporalio || true',
+    ).trim(),
+  );
 
 export const resolvedConfig = () =>
   JSON.parse(compose('config', '--format', 'json')) as ResolvedConfig;

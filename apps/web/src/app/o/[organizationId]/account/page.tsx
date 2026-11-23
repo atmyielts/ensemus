@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import { getTenantStanding } from '@ensemus/application/saas/standing';
 import { DestinationList, PageHead, formatDateTime } from '@/components/ui';
 import { accountDestinations } from '@/lib/account-destinations';
@@ -41,21 +42,23 @@ export default async function AccountPage({
         title="Account"
         description="Your organization’s plan and standing, help from support, and your data."
       />
-      <section className="card" aria-labelledby="account-standing">
-        <div className="spread">
-          <h2 id="account-standing">{words.title}</h2>
-          <span className={`badge ${status.lifecycle === 'active' ? 'done' : 'attention'}`}>
-            {status.lifecycle === 'active' ? 'Active' : 'Needs attention'}
-          </span>
-        </div>
-        <p className="gap-above-small">{words.detail}</p>
-        {status.reasonCode && (
-          <p className="muted">
-            Reason: {status.reasonCode.toLowerCase().replaceAll('_', ' ')}.
-            {status.changedAt && <> Changed {formatDateTime(status.changedAt)}.</>}
-          </p>
-        )}
-      </section>
+      <Card asChild>
+        <section className="card" aria-labelledby="account-standing">
+          <div className="spread">
+            <h2 id="account-standing">{words.title}</h2>
+            <span className={`badge ${status.lifecycle === 'active' ? 'done' : 'attention'}`}>
+              {status.lifecycle === 'active' ? 'Active' : 'Needs attention'}
+            </span>
+          </div>
+          <p className="gap-above-small">{words.detail}</p>
+          {status.reasonCode && (
+            <p className="muted">
+              Reason: {status.reasonCode.toLowerCase().replaceAll('_', ' ')}.
+              {status.changedAt && <> Changed {formatDateTime(status.changedAt)}.</>}
+            </p>
+          )}
+        </section>
+      </Card>
       <nav aria-label="Account settings">
         <DestinationList items={destinations} label="Account destinations" />
       </nav>

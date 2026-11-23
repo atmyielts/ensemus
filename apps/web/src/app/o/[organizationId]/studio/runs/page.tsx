@@ -1,3 +1,6 @@
+import { Card } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
 import { AppError } from '@ensemus/application';
 import { listProcessRuns } from '@ensemus/application/process-runs';
 import { processRunsQuerySchema } from '@ensemus/contracts/studio';
@@ -64,17 +67,17 @@ export default async function ProcessRunsPage({
         actions={builder ? <ActionLink href={`${base}/new`}>Start workflow</ActionLink> : undefined}
       />
       <form method="get" className="inline-form filter">
-        <label htmlFor="workflow-status">
+        <Label htmlFor="workflow-status">
           Status
-          <select id="workflow-status" name="status" defaultValue={parsed.data.status ?? ''}>
+          <NativeSelect id="workflow-status" name="status" defaultValue={parsed.data.status ?? ''}>
             <option value="">All runs</option>
             {Object.entries(runStatusNames).map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
               </option>
             ))}
-          </select>
-        </label>
+          </NativeSelect>
+        </Label>
         <button type="submit" className="secondary">
           Apply filter
         </button>
@@ -92,38 +95,40 @@ export default async function ProcessRunsPage({
           before you carry on.
         </Empty>
       ) : page.items.length ? (
-        <div className="card">
-          <ul className="list" aria-label="Readable workflow runs">
-            {page.items.map((run) => (
-              <li key={run.id}>
-                <span>
-                  <Link href={`${base}/${run.id}`}>{run.title}</Link>
-                  <br />
-                  <small>
-                    {run.processName} · Started {formatDateTime(run.createdAt)}
-                  </small>
-                  {run.stopCode && (
-                    <>
-                      <br />
-                      <small>{runCodeText(run.stopCode)}</small>
-                    </>
-                  )}
-                </span>
-                <span className={`badge ${tone(run.status)}`}>{runStatusNames[run.status]}</span>
-              </li>
-            ))}
-          </ul>
-          {page.next && (
-            <p className="studio-next-step">
-              <ActionLink
-                href={`${base}?${new URLSearchParams({ ...(query.status ? { status: query.status } : {}), after: page.next })}`}
-                variant="secondary"
-              >
-                Next page
-              </ActionLink>
-            </p>
-          )}
-        </div>
+        <Card asChild>
+          <div className="card">
+            <ul className="list" aria-label="Readable workflow runs">
+              {page.items.map((run) => (
+                <li key={run.id}>
+                  <span>
+                    <Link href={`${base}/${run.id}`}>{run.title}</Link>
+                    <br />
+                    <small>
+                      {run.processName} · Started {formatDateTime(run.createdAt)}
+                    </small>
+                    {run.stopCode && (
+                      <>
+                        <br />
+                        <small>{runCodeText(run.stopCode)}</small>
+                      </>
+                    )}
+                  </span>
+                  <span className={`badge ${tone(run.status)}`}>{runStatusNames[run.status]}</span>
+                </li>
+              ))}
+            </ul>
+            {page.next && (
+              <p className="studio-next-step">
+                <ActionLink
+                  href={`${base}?${new URLSearchParams({ ...(query.status ? { status: query.status } : {}), after: page.next })}`}
+                  variant="secondary"
+                >
+                  Next page
+                </ActionLink>
+              </p>
+            )}
+          </div>
+        </Card>
       ) : (
         <Empty
           title={query.status ? 'No runs with this status' : 'No workflow runs yet'}

@@ -1,3 +1,6 @@
+import { Card } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
 import { AppError, listDirectory, listTeams, listWorkUnits } from '@ensemus/application';
 import { listSources } from '@ensemus/application/knowledge/sources';
 import { traverseGraph, type GraphTraversal } from '@ensemus/application/knowledge/graph';
@@ -64,17 +67,17 @@ export default async function GraphPage({
       />
       <ErrorNotice code={error} />
       <form method="get" className="card inline-form graph-form">
-        <label>
+        <Label>
           Start from
-          <select name="from" required defaultValue={query.from ?? ''}>
+          <NativeSelect name="from" required defaultValue={query.from ?? ''}>
             <option value="">Choose a record</option>
             {choices.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.label}
               </option>
             ))}
-          </select>
-        </label>
+          </NativeSelect>
+        </Label>
         <SubmitButton>Show related records</SubmitButton>
       </form>
       {result && (
@@ -90,39 +93,41 @@ export default async function GraphPage({
               No other records you can see are connected to this one.
             </Empty>
           ) : (
-            <section className="card" aria-labelledby="related-heading">
-              <div className="section-heading">
-                <h2 id="related-heading">Connected records</h2>
-                <p>Up to three steps away. Choose one to start from it instead.</p>
-              </div>
-              <ul className="list">
-                {result.nodes.map((n) => (
-                  <li key={`${n.type}:${n.id}`}>
-                    <div>
-                      <Link href={`?from=${n.type}:${n.id}`}>{n.label}</Link>
-                      <br />
-                      <small>
-                        {n.depth === 0
-                          ? 'Where you started'
-                          : `${n.depth} ${n.depth === 1 ? 'step' : 'steps'} away`}
-                      </small>
-                    </div>
-                    <span className="badge tag">{KIND[n.type] ?? 'Record'}</span>
-                  </li>
-                ))}
-              </ul>
-              <details className="gap-above">
-                <summary>How they are connected</summary>
-                <ul>
-                  {result.edges.map((e, i) => (
-                    <li key={i}>
-                      {label(e.from.type, e.from.id)} · {e.relation.replaceAll('_', ' ')} ·{' '}
-                      {label(e.to.type, e.to.id)}
+            <Card asChild>
+              <section className="card" aria-labelledby="related-heading">
+                <div className="section-heading">
+                  <h2 id="related-heading">Connected records</h2>
+                  <p>Up to three steps away. Choose one to start from it instead.</p>
+                </div>
+                <ul className="list">
+                  {result.nodes.map((n) => (
+                    <li key={`${n.type}:${n.id}`}>
+                      <div>
+                        <Link href={`?from=${n.type}:${n.id}`}>{n.label}</Link>
+                        <br />
+                        <small>
+                          {n.depth === 0
+                            ? 'Where you started'
+                            : `${n.depth} ${n.depth === 1 ? 'step' : 'steps'} away`}
+                        </small>
+                      </div>
+                      <span className="badge tag">{KIND[n.type] ?? 'Record'}</span>
                     </li>
                   ))}
                 </ul>
-              </details>
-            </section>
+                <details className="gap-above">
+                  <summary>How they are connected</summary>
+                  <ul>
+                    {result.edges.map((e, i) => (
+                      <li key={i}>
+                        {label(e.from.type, e.from.id)} · {e.relation.replaceAll('_', ' ')} ·{' '}
+                        {label(e.to.type, e.to.id)}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              </section>
+            </Card>
           )}
         </>
       )}

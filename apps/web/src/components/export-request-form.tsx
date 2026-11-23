@@ -1,4 +1,6 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 
 import { useActionState } from 'react';
 import {
@@ -43,9 +45,9 @@ export function ExportRequestForm({
       )}
       <form className="fields" action={action}>
         <input type="hidden" name="organizationId" value={organizationId} />
-        <label>
+        <Label>
           Public key
-          <input
+          <Input
             name="recipientPublicKey"
             className="mono"
             required
@@ -54,7 +56,7 @@ export function ExportRequestForm({
             spellCheck={false}
             aria-describedby="export-key-hint"
           />
-        </label>
+        </Label>
         <small id="export-key-hint">
           Make a key pair on your own machine with the recipient-key tool, and paste its public key
           here. The matching private key stays with you, and only that key can open the archive.

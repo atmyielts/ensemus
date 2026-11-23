@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import { listLegalHolds, listLegalHoldTargets } from '@ensemus/application/saas/legal-holds';
 import { ConfirmForm } from '@/components/confirm-form';
 import { AccountReasonSelect } from '@/components/account-reason-select';
@@ -79,10 +80,12 @@ export default async function LegalHoldsPage({
           ))}
         </ul>
       )}
-      <section className="card stack" aria-labelledby="new-hold">
-        <h2 id="new-hold">Place a hold</h2>
-        <LegalHoldForm organizationId={organizationId} targets={targets} />
-      </section>
+      <Card asChild>
+        <section className="card stack" aria-labelledby="new-hold">
+          <h2 id="new-hold">Place a hold</h2>
+          <LegalHoldForm organizationId={organizationId} targets={targets} />
+        </section>
+      </Card>
     </div>
   );
 }

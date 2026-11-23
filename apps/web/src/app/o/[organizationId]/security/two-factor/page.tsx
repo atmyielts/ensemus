@@ -1,3 +1,6 @@
+import { Card } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import { headers } from 'next/headers';
 import { BackLink, PageHead } from '@/components/ui';
 import { SubmitButton } from '@/components/submit-button';
@@ -37,69 +40,76 @@ export default async function SecondFactorPage({
       <FactorError code={query.error} />
       {enrolled ? (
         <div className="stack">
-          <section className="card" aria-labelledby="recovery-heading">
-            <h2 id="recovery-heading">Recovery codes</h2>
-            <p>
-              Recovery codes let you sign in when your phone is not with you. If you can’t find
-              yours, replace them with a new set.
-            </p>
-            <div className="gap-above">
-              <RecoveryCodeForm
-                organizationId={organizationId}
-                regenerateAction={regenerateRecoveryCodesAction.bind(null, organizationId)}
-              />
-            </div>
-          </section>
-          <section className="card" aria-labelledby="turn-off-heading">
-            <h2 id="turn-off-heading">Turn off two-step sign-in</h2>
-            <p>
-              This removes the app and every recovery code. It also clears recent confirmations from
-              all your sessions.
-            </p>
-            <form
-              className="fields gap-above"
-              action={disableSecondFactorAction.bind(null, organizationId)}
-            >
-              <label>
-                Password, if you use one
-                <input
-                  name="password"
-                  type="password"
-                  autoComplete="current-password"
-                  maxLength={128}
+          <Card asChild>
+            <section className="card" aria-labelledby="recovery-heading">
+              <h2 id="recovery-heading">Recovery codes</h2>
+              <p>
+                Recovery codes let you sign in when your phone is not with you. If you can’t find
+                yours, replace them with a new set.
+              </p>
+              <div className="gap-above">
+                <RecoveryCodeForm
+                  organizationId={organizationId}
+                  regenerateAction={regenerateRecoveryCodesAction.bind(null, organizationId)}
                 />
-              </label>
-              <CodeFields />
-              <div>
-                <SubmitButton className="danger" working="Turning off">
-                  Turn off two-step sign-in
-                </SubmitButton>
               </div>
-            </form>
-          </section>
+            </section>
+          </Card>
+          <Card asChild>
+            <section className="card" aria-labelledby="turn-off-heading">
+              <h2 id="turn-off-heading">Turn off two-step sign-in</h2>
+              <p>
+                This removes the app and every recovery code. It also clears recent confirmations
+                from all your sessions.
+              </p>
+              <form
+                className="fields gap-above"
+                action={disableSecondFactorAction.bind(null, organizationId)}
+              >
+                <Label>
+                  Password, if you use one
+                  <Input
+                    name="password"
+                    type="password"
+                    autoComplete="current-password"
+                    maxLength={128}
+                  />
+                </Label>
+                <CodeFields />
+                <div>
+                  <SubmitButton className="danger" working="Turning off">
+                    Turn off two-step sign-in
+                  </SubmitButton>
+                </div>
+              </form>
+            </section>
+          </Card>
         </div>
       ) : (
         <div className="stack">
-          <section className="card" aria-labelledby="setup-heading">
-            <h2 id="setup-heading">Set up your app</h2>
-            <ol className="setup-steps">
-              <li>
-                Have an authenticator app on your phone. Any app that makes time-based codes works.
-              </li>
-              <li>Confirm your password below, and Ensemus shows you a setup key.</li>
-              <li>
-                Add the key to your app, save your recovery codes, then enter the code your app
-                shows.
-              </li>
-            </ol>
-            <div className="divided">
-              <EnrollmentForm
-                organizationId={organizationId}
-                enableAction={enableSecondFactorAction.bind(null, organizationId)}
-                finishAction={finishEnrollmentAction.bind(null, organizationId)}
-              />
-            </div>
-          </section>
+          <Card asChild>
+            <section className="card" aria-labelledby="setup-heading">
+              <h2 id="setup-heading">Set up your app</h2>
+              <ol className="setup-steps">
+                <li>
+                  Have an authenticator app on your phone. Any app that makes time-based codes
+                  works.
+                </li>
+                <li>Confirm your password below, and Ensemus shows you a setup key.</li>
+                <li>
+                  Add the key to your app, save your recovery codes, then enter the code your app
+                  shows.
+                </li>
+              </ol>
+              <div className="divided">
+                <EnrollmentForm
+                  organizationId={organizationId}
+                  enableAction={enableSecondFactorAction.bind(null, organizationId)}
+                  finishAction={finishEnrollmentAction.bind(null, organizationId)}
+                />
+              </div>
+            </section>
+          </Card>
           <details>
             <summary>Already saved a setup key?</summary>
             <div className="gap-above-small">

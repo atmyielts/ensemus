@@ -1,3 +1,4 @@
+import { Label } from '@/components/ui/label';
 import Link from 'next/link';
 import { formatDateTime } from './ui';
 import type { ReactNode } from 'react';
@@ -74,7 +75,7 @@ export function DescribedChoices({
       {help && <small id={`${id}-help`}>{help}</small>}
       <div className="choice-list">
         {options.map((option) => (
-          <label className="choice" key={option.value}>
+          <Label className="choice" key={option.value}>
             <input
               type="radio"
               name={name}
@@ -89,7 +90,7 @@ export function DescribedChoices({
             />
             <strong>{option.label}</strong>
             <small>{option.description}</small>
-          </label>
+          </Label>
         ))}
       </div>
     </fieldset>

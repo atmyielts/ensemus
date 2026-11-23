@@ -108,7 +108,9 @@ describe('the same page for everyone', () => {
   });
 
   it.each(paths)('%s takes no notice of a session that is not real', async (path) => {
-    const forged = await bytes(path, { cookie: `__Secure-better-auth.session_token=${randomUUID()}` });
+    const forged = await bytes(path, {
+      cookie: `__Secure-better-auth.session_token=${randomUUID()}`,
+    });
     expect(forged).toBe(await bytes(path));
   });
 

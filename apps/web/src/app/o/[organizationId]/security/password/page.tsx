@@ -1,3 +1,5 @@
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import { SubmitButton } from '@/components/submit-button';
 import { BackLink, PageHead } from '@/components/ui';
 import { changePasswordAction } from '@/server/account-mail-actions';
@@ -45,13 +47,13 @@ export default async function ChangePasswordPage({
         className="card fields form-width"
         action={changePasswordAction.bind(null, organizationId)}
       >
-        <label>
+        <Label>
           Current password
-          <input name="current" type="password" autoComplete="current-password" required />
-        </label>
-        <label>
+          <Input name="current" type="password" autoComplete="current-password" required />
+        </Label>
+        <Label>
           New password
-          <input
+          <Input
             name="password"
             type="password"
             autoComplete="new-password"
@@ -60,10 +62,10 @@ export default async function ChangePasswordPage({
             required
           />
           <small>At least 12 characters. A short sentence is easy to remember.</small>
-        </label>
-        <label>
+        </Label>
+        <Label>
           Type the new password again
-          <input
+          <Input
             name="confirm"
             type="password"
             autoComplete="new-password"
@@ -71,7 +73,7 @@ export default async function ChangePasswordPage({
             maxLength={128}
             required
           />
-        </label>
+        </Label>
         <div>
           <SubmitButton working="Changing your password">Change password</SubmitButton>
         </div>

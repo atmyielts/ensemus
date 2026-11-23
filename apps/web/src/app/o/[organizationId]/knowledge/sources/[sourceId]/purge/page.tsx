@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import { ResourceRefresh } from '@/components/resource-refresh';
 import { getPurgeStatus } from '@ensemus/application/knowledge/purge';
 import Link from 'next/link';
@@ -39,61 +40,63 @@ export default async function PurgePage({
                   ? 'Automatic repair has reached its limit. An administrator needs to investigate; the source remains closed.'
                   : 'Removal is still being checked. Unknown writes, storage failures or unavailable workers prevent a completed result.'}
       </p>
-      <section className="card" aria-labelledby="removal-heading">
-        <h2 id="removal-heading">What has been removed</h2>
-        <dl className="details">
-          {Object.entries(job.counts).map(([name, count]) => (
-            <div key={name}>
-              <dt>
-                {(
-                  {
-                    documents: 'Documents',
-                    chunks: 'Source passages',
-                    embeddings: 'Search vectors',
-                    facts: 'Facts removed or invalidated',
-                    answers: 'Answers',
-                    blobs: 'Source files',
-                    blobsAbsent: 'Source files already gone before removal',
-                    transcripts: 'Run transcripts',
-                    artifacts: 'Generated files',
-                    workUnits: 'Copied work redacted',
-                    workUnitsRemaining: 'Copied work awaiting removal',
-                    workControlProofsRemaining: 'Run closures awaiting confirmation',
-                    unprovenWorkUnits: 'Older delegated work awaiting verification',
-                  } as Record<string, string>
-                )[name] ?? name}
-              </dt>
-              <dd>{count === null ? 'Not yet confirmed' : count}</dd>
-            </div>
-          ))}
-          <div>
-            <dt>Files on hold</dt>
-            <dd>{job.heldArtifacts}</dd>
-          </div>
-          <div>
-            <dt>Requested</dt>
-            <dd>{formatDateTime(job.requestedAt)}</dd>
-          </div>
-          {job.priorCompletedAt && (
+      <Card asChild>
+        <section className="card" aria-labelledby="removal-heading">
+          <h2 id="removal-heading">What has been removed</h2>
+          <dl className="details">
+            {Object.entries(job.counts).map(([name, count]) => (
+              <div key={name}>
+                <dt>
+                  {(
+                    {
+                      documents: 'Documents',
+                      chunks: 'Source passages',
+                      embeddings: 'Search vectors',
+                      facts: 'Facts removed or invalidated',
+                      answers: 'Answers',
+                      blobs: 'Source files',
+                      blobsAbsent: 'Source files already gone before removal',
+                      transcripts: 'Run transcripts',
+                      artifacts: 'Generated files',
+                      workUnits: 'Copied work redacted',
+                      workUnitsRemaining: 'Copied work awaiting removal',
+                      workControlProofsRemaining: 'Run closures awaiting confirmation',
+                      unprovenWorkUnits: 'Older delegated work awaiting verification',
+                    } as Record<string, string>
+                  )[name] ?? name}
+                </dt>
+                <dd>{count === null ? 'Not yet confirmed' : count}</dd>
+              </div>
+            ))}
             <div>
-              <dt>Earlier source verification</dt>
-              <dd>{formatDateTime(job.priorCompletedAt)}</dd>
+              <dt>Files on hold</dt>
+              <dd>{job.heldArtifacts}</dd>
             </div>
-          )}
-          {job.completedAt && (
             <div>
-              <dt>Confirmed</dt>
-              <dd>{formatDateTime(job.completedAt)}</dd>
+              <dt>Requested</dt>
+              <dd>{formatDateTime(job.requestedAt)}</dd>
             </div>
-          )}
-          {job.nextRetryAt && (
-            <div>
-              <dt>Next scheduled check</dt>
-              <dd>{formatDateTime(job.nextRetryAt)}</dd>
-            </div>
-          )}
-        </dl>
-      </section>
+            {job.priorCompletedAt && (
+              <div>
+                <dt>Earlier source verification</dt>
+                <dd>{formatDateTime(job.priorCompletedAt)}</dd>
+              </div>
+            )}
+            {job.completedAt && (
+              <div>
+                <dt>Confirmed</dt>
+                <dd>{formatDateTime(job.completedAt)}</dd>
+              </div>
+            )}
+            {job.nextRetryAt && (
+              <div>
+                <dt>Next scheduled check</dt>
+                <dd>{formatDateTime(job.nextRetryAt)}</dd>
+              </div>
+            )}
+          </dl>
+        </section>
+      </Card>
       {job.lastErrorCode && (
         <details>
           <summary>Technical details</summary>

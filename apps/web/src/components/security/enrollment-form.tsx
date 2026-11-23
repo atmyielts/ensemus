@@ -1,4 +1,7 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+
 import { useActionState } from 'react';
 import { SubmitButton } from '@/components/submit-button';
 import { CodeFields, FactorError } from './code-fields';
@@ -77,10 +80,10 @@ export function EnrollmentForm({
   ) : (
     <form className="fields" action={action}>
       <FactorError code={state.error} />
-      <label>
+      <Label>
         Password, if you use one
-        <input name="password" type="password" autoComplete="current-password" maxLength={128} />
-      </label>
+        <Input name="password" type="password" autoComplete="current-password" maxLength={128} />
+      </Label>
       <p className="muted">
         Any authenticator app that makes time-based codes works. No text messages, and nothing else
         to sign up for.
@@ -108,10 +111,10 @@ export function RecoveryCodeForm({
   ) : (
     <form className="fields" action={action}>
       <FactorError code={state.error} />
-      <label>
+      <Label>
         Password, if you use one
-        <input name="password" type="password" autoComplete="current-password" maxLength={128} />
-      </label>
+        <Input name="password" type="password" autoComplete="current-password" maxLength={128} />
+      </Label>
       <CodeFields />
       <p className="muted">The new codes replace every unused recovery code you saved before.</p>
       <div>

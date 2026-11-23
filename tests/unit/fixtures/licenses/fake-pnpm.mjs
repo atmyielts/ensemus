@@ -12,5 +12,7 @@ if (mode === 'fail') {
 if (mode === 'garbage') console.log('No licenses in packages found');
 if (mode === 'empty') console.log('{}');
 if (mode === 'listing') {
-  console.log(JSON.stringify(JSON.parse(readFileSync(process.env.FAKE_PNPM_LISTING, 'utf8'))[filter]));
+  console.log(
+    JSON.stringify(JSON.parse(readFileSync(process.env.FAKE_PNPM_LISTING, 'utf8'))[filter]),
+  );
 }

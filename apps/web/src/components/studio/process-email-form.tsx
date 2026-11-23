@@ -1,4 +1,8 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
+
 import { useActionState, useEffect, useId, useRef } from 'react';
 import { proposeWorkflowEmailAction } from '@/server/process-run-actions';
 import type { ProcessRunFormState } from '@/lib/process-run-input';
@@ -39,8 +43,8 @@ export function ProcessEmailForm({
       <input type="hidden" name="runId" value={runId} />
       <input type="hidden" name="stepKey" value={stepKey} />
       <input type="hidden" name="requestKey" value={values?.requestKey ?? requestKey} />
-      <label htmlFor={`${prefix}-to`}>Recipients</label>
-      <textarea
+      <Label htmlFor={`${prefix}-to`}>Recipients</Label>
+      <Textarea
         id={`${prefix}-to`}
         name="to"
         rows={2}
@@ -53,16 +57,16 @@ export function ProcessEmailForm({
         Enter up to 50 email addresses, separated by commas or new lines. These exact recipients are
         shown to the approver.
       </p>
-      <label htmlFor={`${prefix}-subject`}>Email subject</label>
-      <input
+      <Label htmlFor={`${prefix}-subject`}>Email subject</Label>
+      <Input
         id={`${prefix}-subject`}
         name="subject"
         maxLength={200}
         required
         defaultValue={values?.subject ?? ''}
       />
-      <label htmlFor={`${prefix}-body`}>Email message</label>
-      <textarea
+      <Label htmlFor={`${prefix}-body`}>Email message</Label>
+      <Textarea
         id={`${prefix}-body`}
         name="textBody"
         rows={8}

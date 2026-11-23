@@ -1,3 +1,7 @@
+import { Card } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
 import { loadSaasConfig } from '@ensemus/config';
 import {
   getStopDiagnostics,
@@ -69,158 +73,168 @@ export default async function BudgetsPage({
       />
       <ErrorNotice code={error} />
       <form className="inline-form filter" method="get">
-        <label>
+        <Label>
           Month
-          <input
+          <Input
             type="month"
             name="period"
             defaultValue={period}
             pattern="[0-9]{4}-[0-9]{2}"
             required
           />
-        </label>
+        </Label>
         <SubmitButton className="secondary">Show month</SubmitButton>
       </form>
       <div className="stack">
-        <section className="card" aria-labelledby="usage-heading">
-          <h2 id="usage-heading">Usage in {period}</h2>
-          <dl>
-            <dt>{spentLabel}</dt>
-            <dd>{formatMicrosUsd(summary.spent_micros)}</dd>
-            <dt>Held for work in progress</dt>
-            <dd>{formatMicrosUsd(summary.reserved_micros)}</dd>
-            <dt>Company limit</dt>
-            <dd>
-              {summary.limit_micros === null ? 'Not set' : formatMicrosUsd(summary.limit_micros)}
-            </dd>
-            <dt>Tokens sent and received</dt>
-            <dd>
-              {summary.input_tokens.toLocaleString('en-US')} and{' '}
-              {summary.output_tokens.toLocaleString('en-US')}
-            </dd>
-          </dl>
-          {summary.is_estimate && (
-            <p className="gap-above">
-              <small className="muted">
-                These are estimates from your rate cards, and a lost answer counts at the most it
-                could have cost, so they can run higher than the real bill.
-                {summary.billable
-                  ? ''
-                  : ' Ensemus does not bill for this usage: the company behind your AI model does.'}
-              </small>
+        <Card asChild>
+          <section className="card" aria-labelledby="usage-heading">
+            <h2 id="usage-heading">Usage in {period}</h2>
+            <dl>
+              <dt>{spentLabel}</dt>
+              <dd>{formatMicrosUsd(summary.spent_micros)}</dd>
+              <dt>Held for work in progress</dt>
+              <dd>{formatMicrosUsd(summary.reserved_micros)}</dd>
+              <dt>Company limit</dt>
+              <dd>
+                {summary.limit_micros === null ? 'Not set' : formatMicrosUsd(summary.limit_micros)}
+              </dd>
+              <dt>Tokens sent and received</dt>
+              <dd>
+                {summary.input_tokens.toLocaleString('en-US')} and{' '}
+                {summary.output_tokens.toLocaleString('en-US')}
+              </dd>
+            </dl>
+            {summary.is_estimate && (
+              <p className="gap-above">
+                <small className="muted">
+                  These are estimates from your rate cards, and a lost answer counts at the most it
+                  could have cost, so they can run higher than the real bill.
+                  {summary.billable
+                    ? ''
+                    : ' Ensemus does not bill for this usage: the company behind your AI model does.'}
+                </small>
+              </p>
+            )}
+          </section>
+        </Card>
+
+        <Card asChild>
+          <section className="card" aria-labelledby="budgets-heading">
+            <h2 id="budgets-heading">Budgets for {period}</h2>
+            {rows.length === 0 ? (
+              <Empty title="No budget for this month">
+                {canManage
+                  ? 'Assistants cannot run this month until it has one. Set a limit below.'
+                  : 'Assistants cannot run this month until an administrator sets a limit.'}
+              </Empty>
+            ) : (
+              <ul className="list">
+                {rows.map((row) => (
+                  <li key={row.id}>
+                    {row.scope === 'organization'
+                      ? 'The whole company'
+                      : `${row.agentName ?? 'Agent'}, version ${row.agentVersionNumber ?? '?'}`}
+                    <small>
+                      {formatMicrosUsd(row.spentMicros)} spent and{' '}
+                      {formatMicrosUsd(row.reservedMicros)} held, of{' '}
+                      {formatMicrosUsd(row.limitMicros)}
+                    </small>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {canManage && (
+              <form className="inline-form divided" action={setBudgetAction}>
+                <small className="muted">
+                  Set a limit for the whole company, or for one version of an assistant. Setting it
+                  again replaces the limit for this month.
+                </small>
+                <input type="hidden" name="organizationId" value={organizationId} />
+                <input type="hidden" name="period" value={period} />
+                <Label>
+                  Applies to
+                  <NativeSelect name="target" defaultValue="organization">
+                    <option value="organization">The whole company</option>
+                    {versions.map((version) => (
+                      <option key={version.id} value={version.id}>
+                        {version.name}, version {version.versionNumber}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </Label>
+                <Label>
+                  Limit in US dollars
+                  <Input
+                    name="limitUsd"
+                    required
+                    inputMode="decimal"
+                    pattern="[0-9]{1,9}(\.[0-9]{1,6})?"
+                    autoComplete="off"
+                  />
+                </Label>
+                <SubmitButton>Set budget</SubmitButton>
+              </form>
+            )}
+          </section>
+        </Card>
+
+        <Card asChild>
+          <section className="card" aria-labelledby="stops-heading">
+            <h2 id="stops-heading">Why assistants were stopped</h2>
+            {stops.length === 0 ? (
+              <Empty title="Nothing stopped">
+                No assistant was stopped by a limit or a rule this month.
+              </Empty>
+            ) : (
+              <ul className="list">
+                {stops.map((stop) => (
+                  <li key={stop.code}>
+                    {DENIAL_WORDS[stop.kind]}
+                    <small className="muted">
+                      {stop.count} {stop.count === 1 ? 'run' : 'runs'}, code {stop.code}
+                    </small>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </Card>
+
+        <Card asChild>
+          <section className="card" aria-labelledby="entitlements-heading">
+            <h2 id="entitlements-heading">What your plan includes</h2>
+            <p>{MODE_WORDS[entitlements.mode]}</p>
+            <dl className="gap-above">
+              <dt>Credit balance, in microcredits</dt>
+              <dd>
+                {entitlements.capacity.balanceMicrocredits?.toLocaleString('en-US') ??
+                  'Unavailable'}
+              </dd>
+              <dt>Included microcredits</dt>
+              <dd>
+                {entitlements.capacity.includedMicrocredits?.toLocaleString('en-US') ??
+                  'Unavailable'}
+              </dd>
+              <dt>Active member limit</dt>
+              <dd>
+                {entitlements.capacity.maxActiveMembers?.toLocaleString('en-US') ?? 'Unavailable'}
+              </dd>
+            </dl>
+            <p className="muted gap-above">
+              A microcredit is a millionth of a credit. An amount that is unavailable is never shown
+              as zero, and Billing shows exact balances.
             </p>
-          )}
-        </section>
-
-        <section className="card" aria-labelledby="budgets-heading">
-          <h2 id="budgets-heading">Budgets for {period}</h2>
-          {rows.length === 0 ? (
-            <Empty title="No budget for this month">
-              {canManage
-                ? 'Assistants cannot run this month until it has one. Set a limit below.'
-                : 'Assistants cannot run this month until an administrator sets a limit.'}
-            </Empty>
-          ) : (
-            <ul className="list">
-              {rows.map((row) => (
-                <li key={row.id}>
-                  {row.scope === 'organization'
-                    ? 'The whole company'
-                    : `${row.agentName ?? 'Agent'}, version ${row.agentVersionNumber ?? '?'}`}
-                  <small>
-                    {formatMicrosUsd(row.spentMicros)} spent and{' '}
-                    {formatMicrosUsd(row.reservedMicros)} held, of{' '}
-                    {formatMicrosUsd(row.limitMicros)}
-                  </small>
-                </li>
-              ))}
-            </ul>
-          )}
-          {canManage && (
-            <form className="inline-form divided" action={setBudgetAction}>
-              <small className="muted">
-                Set a limit for the whole company, or for one version of an assistant. Setting it
-                again replaces the limit for this month.
-              </small>
-              <input type="hidden" name="organizationId" value={organizationId} />
-              <input type="hidden" name="period" value={period} />
-              <label>
-                Applies to
-                <select name="target" defaultValue="organization">
-                  <option value="organization">The whole company</option>
-                  {versions.map((version) => (
-                    <option key={version.id} value={version.id}>
-                      {version.name}, version {version.versionNumber}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Limit in US dollars
-                <input
-                  name="limitUsd"
-                  required
-                  inputMode="decimal"
-                  pattern="[0-9]{1,9}(\.[0-9]{1,6})?"
-                  autoComplete="off"
-                />
-              </label>
-              <SubmitButton>Set budget</SubmitButton>
-            </form>
-          )}
-        </section>
-
-        <section className="card" aria-labelledby="stops-heading">
-          <h2 id="stops-heading">Why assistants were stopped</h2>
-          {stops.length === 0 ? (
-            <Empty title="Nothing stopped">
-              No assistant was stopped by a limit or a rule this month.
-            </Empty>
-          ) : (
-            <ul className="list">
-              {stops.map((stop) => (
-                <li key={stop.code}>
-                  {DENIAL_WORDS[stop.kind]}
-                  <small className="muted">
-                    {stop.count} {stop.count === 1 ? 'run' : 'runs'}, code {stop.code}
-                  </small>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section className="card" aria-labelledby="entitlements-heading">
-          <h2 id="entitlements-heading">What your plan includes</h2>
-          <p>{MODE_WORDS[entitlements.mode]}</p>
-          <dl className="gap-above">
-            <dt>Credit balance, in microcredits</dt>
-            <dd>
-              {entitlements.capacity.balanceMicrocredits?.toLocaleString('en-US') ?? 'Unavailable'}
-            </dd>
-            <dt>Included microcredits</dt>
-            <dd>
-              {entitlements.capacity.includedMicrocredits?.toLocaleString('en-US') ?? 'Unavailable'}
-            </dd>
-            <dt>Active member limit</dt>
-            <dd>
-              {entitlements.capacity.maxActiveMembers?.toLocaleString('en-US') ?? 'Unavailable'}
-            </dd>
-          </dl>
-          <p className="muted gap-above">
-            A microcredit is a millionth of a credit. An amount that is unavailable is never shown
-            as zero, and Billing shows exact balances.
-          </p>
-          {entitlements.features.length === 0 ? (
-            <Empty title="Nothing included yet">Until something is, assistants cannot run.</Empty>
-          ) : (
-            <ul className="list">
-              {entitlements.features.map((feature) => (
-                <li key={feature}>{FEATURE_WORDS[feature] ?? feature}</li>
-              ))}
-            </ul>
-          )}
-        </section>
+            {entitlements.features.length === 0 ? (
+              <Empty title="Nothing included yet">Until something is, assistants cannot run.</Empty>
+            ) : (
+              <ul className="list">
+                {entitlements.features.map((feature) => (
+                  <li key={feature}>{FEATURE_WORDS[feature] ?? feature}</li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </Card>
       </div>
     </>
   );

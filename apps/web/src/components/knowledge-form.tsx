@@ -1,4 +1,19 @@
 'use client';
+import { Card } from '@/components/ui/card';
+
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Table,
+  TableCaption,
+  TableHeader,
+  TableRow,
+  TableHead,
+  TableBody,
+  TableCell,
+} from '@/components/ui/table';
+
 import Link from 'next/link';
 import { useActionState, useEffect, useId, useRef } from 'react';
 import type { KnowledgeField, KnowledgeFormState } from '@/lib/knowledge-form-state';
@@ -72,14 +87,14 @@ export function KnowledgeForm({
               />
             );
           return (
-            <label key={field.name} htmlFor={id}>
+            <Label key={field.name} htmlFor={id}>
               <span id={id + '-label'}>
                 {field.label}
                 {field.required ? '' : ' (optional)'}
               </span>
               {field.help && <small id={help}>{field.help}</small>}
               {field.kind === 'select' ? (
-                <select
+                <NativeSelect
                   id={id}
                   aria-labelledby={id + '-label'}
                   name={field.name}
@@ -92,9 +107,9 @@ export function KnowledgeForm({
                       {option.label}
                     </option>
                   ))}
-                </select>
+                </NativeSelect>
               ) : field.kind === 'textarea' ? (
-                <textarea
+                <Textarea
                   id={id}
                   aria-labelledby={id + '-label'}
                   name={field.name}
@@ -130,7 +145,7 @@ export function KnowledgeForm({
                   aria-describedby={help}
                 />
               )}
-            </label>
+            </Label>
           );
         })}
         <div className="row">
@@ -154,30 +169,34 @@ export function KnowledgeForm({
               Nothing in the documents you can read uses those words. Try fewer or different words.
             </Empty>
           ) : (
-            <div className="card">
-              <ol className="list result-list">
-                {state.passages!.map((p) => (
-                  <li key={p.chunkId}>
-                    <p className="pre-wrap result-snippet">{p.text}</p>
-                    <div className="row result-meta">
-                      <span>
-                        From{' '}
-                        <Link href={`/o/${hidden.organizationId}/knowledge/sources/${p.sourceId}`}>
-                          {p.title}
+            <Card asChild>
+              <div className="card">
+                <ol className="list result-list">
+                  {state.passages!.map((p) => (
+                    <li key={p.chunkId}>
+                      <p className="pre-wrap result-snippet">{p.text}</p>
+                      <div className="row result-meta">
+                        <span>
+                          From{' '}
+                          <Link
+                            href={`/o/${hidden.organizationId}/knowledge/sources/${p.sourceId}`}
+                          >
+                            {p.title}
+                          </Link>
+                        </span>
+                        <ClassificationBadge value={p.classification} />
+                        <Link
+                          className="result-action"
+                          href={`/o/${hidden.organizationId}/knowledge/facts/new?chunk=${p.chunkId}`}
+                        >
+                          Propose a fact from this passage
                         </Link>
-                      </span>
-                      <ClassificationBadge value={p.classification} />
-                      <Link
-                        className="result-action"
-                        href={`/o/${hidden.organizationId}/knowledge/facts/new?chunk=${p.chunkId}`}
-                      >
-                        Propose a fact from this passage
-                      </Link>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            </div>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            </Card>
           )}
         </section>
       )}
@@ -196,35 +215,35 @@ export function KnowledgeForm({
             <Empty>No current workloads were available to compare.</Empty>
           ) : (
             <div className="table-wrap">
-              <table>
-                <caption>
+              <Table>
+                <TableCaption>
                   Data-sharing policy for this proposal. This comparison sends nothing.
-                </caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Workload</th>
-                    <th scope="col">Sensitivity</th>
-                    <th scope="col">Policy permits sharing?</th>
-                    <th scope="col">Reason</th>
-                  </tr>
-                </thead>
-                <tbody>
+                </TableCaption>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead scope="col">Workload</TableHead>
+                    <TableHead scope="col">Sensitivity</TableHead>
+                    <TableHead scope="col">Policy permits sharing?</TableHead>
+                    <TableHead scope="col">Reason</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {state.simulation.map((row, i) => (
-                    <tr key={i}>
-                      <td>
+                    <TableRow key={i}>
+                      <TableCell>
                         {row.key} · {row.purpose}
-                      </td>
-                      <td>
+                      </TableCell>
+                      <TableCell>
                         <ClassificationBadge value={row.classification} />
-                      </td>
-                      <td>
+                      </TableCell>
+                      <TableCell>
                         {row.wouldTransmit ? 'Compatible with this proposal' : 'Not permitted'}
-                      </td>
-                      <td>{row.reasonCode}</td>
-                    </tr>
+                      </TableCell>
+                      <TableCell>{row.reasonCode}</TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           )}
         </section>

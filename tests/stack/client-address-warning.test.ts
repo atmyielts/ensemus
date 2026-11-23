@@ -122,12 +122,16 @@ describe('many people arriving from one private address', () => {
     expect((await fromTheSharedAddress(() => read(`/o/${theirs}`, person.jar))).status).toBe(404);
   });
 
-  it('stays quiet in a fresh window of ordinary people, each from their own address', async () => {
-    restartWeb();
-    for (const someone of people) {
-      const answer = await fromAddress(aClientAddress(), () => onAPage(someone));
-      expect(answer.status).toBe(200);
-    }
-    expect(warnings()).toEqual([]);
-  }, RESTART_TIMEOUT);
+  it(
+    'stays quiet in a fresh window of ordinary people, each from their own address',
+    async () => {
+      restartWeb();
+      for (const someone of people) {
+        const answer = await fromAddress(aClientAddress(), () => onAPage(someone));
+        expect(answer.status).toBe(200);
+      }
+      expect(warnings()).toEqual([]);
+    },
+    RESTART_TIMEOUT,
+  );
 });

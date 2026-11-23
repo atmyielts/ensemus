@@ -1,3 +1,4 @@
+import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from './ui/table';
 // DOC-01: a guide's blocks as React elements and text nodes, so no guide can put markup in the page, and
 // the route has no raw HTML to get wrong (ADR-036 D5). Every link goes through hrefOf. Relative imports,
 // so that a unit test can load this: that runner does not know the app's `@/` paths.
@@ -67,28 +68,28 @@ function Block({ block, heading }: { block: GuideBlock; heading: GuideHeading | 
       );
     case 'table':
       return (
-        <table>
-          <thead>
-            <tr>
+        <Table>
+          <TableHeader>
+            <TableRow>
               {block.head.map((cell, index) => (
-                <th key={index} scope="col">
+                <TableHead key={index} scope="col">
                   <Inline parts={cell} />
-                </th>
+                </TableHead>
               ))}
-            </tr>
-          </thead>
-          <tbody>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {block.rows.map((row, rowIndex) => (
-              <tr key={rowIndex}>
+              <TableRow key={rowIndex}>
                 {row.map((cell, index) => (
-                  <td key={index}>
+                  <TableCell key={index}>
                     <Inline parts={cell} />
-                  </td>
+                  </TableCell>
                 ))}
-              </tr>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       );
   }
 }

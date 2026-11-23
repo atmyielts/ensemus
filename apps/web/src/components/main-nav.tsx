@@ -1,6 +1,15 @@
 'use client';
+import { WorkspaceSearch } from '@/components/workspace-search';
 
 import Link, { useLinkStatus } from 'next/link';
+import {
+  SidebarMenu,
+  SidebarMenuItem,
+  SidebarMenuButton,
+  SidebarGroup,
+  SidebarGroupLabel,
+} from '@/components/ui/sidebar';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { usePathname } from 'next/navigation';
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import {
@@ -65,37 +74,49 @@ function NavigationLink({
 }) {
   const current = isNavigationCurrent(item, pathname);
   return (
-    <Link
-      href={item.href}
-      className={child ? 'nav-child-link' : 'nav-link'}
-      onClick={(event) => {
-        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
-          return;
-        // Native details already works without scripts. Closing it on an ordinary client navigation
-        // keeps the destination in view, rather than leaving a tall mobile menu above the new page.
-        const menu = event.currentTarget.closest('details.mobile-navigation');
-        if (menu) {
-          menu.removeAttribute('open');
-          menu.querySelector('summary')?.focus();
-        }
-      }}
-      aria-current={
-        current
-          ? !child && (item.children || pathname !== item.href)
-            ? 'location'
-            : 'page'
-          : undefined
-      }
+    <SidebarMenuButton
+      asChild
+      isActive={current}
+      className="h-auto min-h-8 w-full whitespace-normal font-normal"
     >
-      {!child && <NavigationIcon name={item.icon} />}
-      <span className="nav-label">{item.label}</span>
-      {item.count ? (
-        <span className="count" aria-label={`${item.count} waiting`}>
-          {item.count}
-        </span>
-      ) : null}
-      <Pending label={item.label} />
-    </Link>
+      <Link
+        href={item.href}
+        className={child ? 'nav-child-link' : 'nav-link'}
+        onClick={(event) => {
+          if (
+            event.button !== 0 ||
+            event.metaKey ||
+            event.ctrlKey ||
+            event.shiftKey ||
+            event.altKey
+          )
+            return;
+          // Native details already works without scripts. Closing it on an ordinary client navigation
+          // keeps the destination in view, rather than leaving a tall mobile menu above the new page.
+          const menu = event.currentTarget.closest('details.mobile-navigation');
+          if (menu) {
+            menu.removeAttribute('open');
+            menu.querySelector('summary')?.focus();
+          }
+        }}
+        aria-current={
+          current
+            ? !child && (item.children || pathname !== item.href)
+              ? 'location'
+              : 'page'
+            : undefined
+        }
+      >
+        {!child && <NavigationIcon name={item.icon} />}
+        <span className="nav-label">{item.label}</span>
+        {item.count ? (
+          <span className="count" aria-label={`${item.count} waiting`}>
+            {item.count}
+          </span>
+        ) : null}
+        <Pending label={item.label} />
+      </Link>
+    </SidebarMenuButton>
   );
 }
 
@@ -104,25 +125,27 @@ export function MainNav({ groups, label = 'Main' }: { groups: NavGroup[]; label?
   return (
     <nav className="nav" aria-label={label}>
       {groups.map((group) => (
-        <div className="nav-group" key={group.label}>
-          <span className="nav-group-label">{group.label}</span>
-          <ul className="nav-items">
+        <SidebarGroup className="nav-group p-0" key={group.label}>
+          <SidebarGroupLabel className="nav-group-label h-6 px-3">{group.label}</SidebarGroupLabel>
+          <SidebarMenu className="nav-items">
             {group.items.map((item) => (
-              <li key={item.href}>
+              <SidebarMenuItem key={item.href}>
                 <NavigationLink item={item} pathname={pathname} />
                 {item.children && isNavigationCurrent(item, pathname) && (
                   <ul className="nav-children">
-                    {item.children.map((child) => (
-                      <li key={child.href}>
-                        <NavigationLink item={child} pathname={pathname} child />
-                      </li>
-                    ))}
+                    {item.children
+                      .filter((child) => child.href !== item.href)
+                      .map((child) => (
+                        <li key={child.href}>
+                          <NavigationLink item={child} pathname={pathname} child />
+                        </li>
+                      ))}
                   </ul>
                 )}
-              </li>
+              </SidebarMenuItem>
             ))}
-          </ul>
-        </div>
+          </SidebarMenu>
+        </SidebarGroup>
       ))}
     </nav>
   );
@@ -149,10 +172,10 @@ export function WorkspaceContext({
       ) : (
         <span>{current?.label ?? 'Workspace'}</span>
       )}
-      <Link className="workspace-search" href={`${base}/search`}>
-        <NavigationIcon name="search" />
-        Search the company
-      </Link>
+      <div className="workspace-tools">
+        <WorkspaceSearch base={base} />
+        <ThemeToggle />
+      </div>
     </div>
   );
 }

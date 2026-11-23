@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { Button } from '@/components/ui/button';
 import { useFormStatus } from 'react-dom';
 import { useActionGate } from './one-action-at-a-time';
 
@@ -31,7 +32,18 @@ export function SubmitButton({
   const held = useActionGate(pending);
   return (
     <>
-      <button
+      <Button
+        variant={
+          className?.includes('danger')
+            ? 'destructive'
+            : className?.includes('link')
+              ? 'link'
+              : className?.includes('quiet') || className?.includes('ghost')
+                ? 'ghost'
+                : className?.includes('secondary')
+                  ? 'outline'
+                  : 'default'
+        }
         className={className}
         type="submit"
         disabled={pending || held}
@@ -42,7 +54,7 @@ export function SubmitButton({
         formNoValidate={formNoValidate}
       >
         {children}
-      </button>
+      </Button>
       <span className="pending" role="status">
         {submitting ? working : ''}
       </span>

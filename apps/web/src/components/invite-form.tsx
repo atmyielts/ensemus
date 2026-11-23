@@ -1,4 +1,7 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
 
 import { useActionState, useState, useSyncExternalStore } from 'react';
 import type { InviteFormState } from '@/lib/form-state';
@@ -56,10 +59,10 @@ export function InviteForm({ organizationId }: { organizationId: string }) {
         <div className="notice good invite-link" role="status">
           <strong>Your invitation is ready</strong>
           <div className="invite-link-field">
-            <label>
+            <Label>
               Invitation link
-              <input readOnly value={state.link} />
-            </label>
+              <Input readOnly value={state.link} />
+            </Label>
             <CopyLink key={state.link} link={state.link} />
           </div>
           <p>
@@ -72,28 +75,28 @@ export function InviteForm({ organizationId }: { organizationId: string }) {
       )}
       <form className="inline-form" action={action}>
         <input type="hidden" name="organizationId" value={organizationId} />
-        <label>
+        <Label>
           Email address
-          <input
+          <Input
             name="email"
             type="email"
             required
             autoComplete="off"
             defaultValue={state.values?.email ?? ''}
           />
-        </label>
-        <label className="field-short">
+        </Label>
+        <Label className="field-short">
           Access
           {/* The key brings a refused choice back: React only reads defaultValue on a new select. */}
-          <select
+          <NativeSelect
             key={state.values?.role}
             name="role"
             defaultValue={state.values?.role ?? 'member'}
           >
             <option value="member">Member</option>
             <option value="admin">Admin</option>
-          </select>
-        </label>
+          </NativeSelect>
+        </Label>
         <SubmitButton>Create invitation</SubmitButton>
       </form>
     </>

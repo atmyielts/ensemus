@@ -275,5 +275,5 @@ test('a brand-new person can sign up and create an organization with only the ke
   await page.keyboard.type('Lane Studio');
   await tabTo(page, /^Create organization$/);
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('heading', { name: 'Hello, Kit' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'My work' })).toBeVisible();
 });

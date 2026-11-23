@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import { AppError } from '@ensemus/application';
 import { getPulseSignal } from '@ensemus/application/pulse';
 import { createPulseMetadataReaders } from '@ensemus/application/pulse-metadata';
@@ -42,9 +43,15 @@ export default async function PulseEvidencePage({
       <div className="stack">
         <section aria-labelledby="fact-heading">
           <h2 id="fact-heading">What is recorded</h2>
-          <div className="card">
-            <PulseSignalRow organizationId={organizationId} signal={signal} showControls={false} />
-          </div>
+          <Card asChild>
+            <div className="card">
+              <PulseSignalRow
+                organizationId={organizationId}
+                signal={signal}
+                showControls={false}
+              />
+            </div>
+          </Card>
         </section>
         <details className="card">
           <summary>Technical details</summary>

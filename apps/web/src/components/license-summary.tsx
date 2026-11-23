@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import type { LicenseStatusView, LicenseView } from '@ensemus/application';
 import type { UpdateRights } from '@ensemus/domain/license';
 import { Empty, formatDate } from './ui';
@@ -66,74 +67,82 @@ export function LicenseSummary({ status }: { status: LicenseStatusView }) {
   const { license, maintenance, runningRelease } = status;
   return (
     <>
-      <section className="card" aria-labelledby="license-standing">
-        <h2 id="license-standing">License</h2>
-        <p>{STANDING_WORDS[status.standing]}</p>
-        {license ? (
-          <LicenseFacts license={license} />
-        ) : (
-          <Empty>There is no license to show here yet.</Empty>
-        )}
-      </section>
+      <Card asChild>
+        <section className="card" aria-labelledby="license-standing">
+          <h2 id="license-standing">License</h2>
+          <p>{STANDING_WORDS[status.standing]}</p>
+          {license ? (
+            <LicenseFacts license={license} />
+          ) : (
+            <Empty>There is no license to show here yet.</Empty>
+          )}
+        </section>
+      </Card>
 
-      <section className="card" aria-labelledby="license-support">
-        <h2 id="license-support">Support and maintenance</h2>
-        <p>{SUPPORT_WORDS[maintenance.status]}</p>
-        <dl>
-          <dt>Last day covered</dt>
-          <dd>{maintenance.lastCoveredOn ?? 'None installed'}</dd>
-        </dl>
-      </section>
-
-      <section className="card" aria-labelledby="license-release">
-        <h2 id="license-release">This deployment</h2>
-        {runningRelease ? (
+      <Card asChild>
+        <section className="card" aria-labelledby="license-support">
+          <h2 id="license-support">Support and maintenance</h2>
+          <p>{SUPPORT_WORDS[maintenance.status]}</p>
           <dl>
-            <dt>Running release</dt>
-            <dd>{runningRelease.version}</dd>
-            <dt>Within this license&apos;s update rights</dt>
-            <dd>
-              {runningRelease.verdict === null
-                ? 'Not known'
-                : runningRelease.verdict.covered
-                  ? 'Yes'
-                  : 'No. It keeps running'}
-            </dd>
-          </dl>
-        ) : (
-          <p className="muted">
-            This deployment has no signed bundle manifest it can verify, so the release it runs is
-            not shown here.
-          </p>
-        )}
-      </section>
-
-      {license && (
-        <section className="card" aria-labelledby="license-footprint">
-          <h2 id="license-footprint">What the license states</h2>
-          <p className="muted">
-            These come from the signed license. They are shown for your records, and nothing here is
-            enforced.
-          </p>
-          <dl>
-            <dt>Seats</dt>
-            <dd>
-              {shown(license.footprint.seats)} stated, {status.seatsInUse} in use
-            </dd>
-            <dt>Organizations</dt>
-            <dd>{shown(license.footprint.organizations)}</dd>
-            <dt>Production deployments</dt>
-            <dd>{shown(license.footprint.production_deployments)}</dd>
-            <dt>Other deployments</dt>
-            <dd>{shown(license.footprint.nonproduction_deployments)}</dd>
-            {updateRightWords(license.updateRights).map(([label, value]) => (
-              <div key={label} className="contents">
-                <dt>{label}</dt>
-                <dd>{value}</dd>
-              </div>
-            ))}
+            <dt>Last day covered</dt>
+            <dd>{maintenance.lastCoveredOn ?? 'None installed'}</dd>
           </dl>
         </section>
+      </Card>
+
+      <Card asChild>
+        <section className="card" aria-labelledby="license-release">
+          <h2 id="license-release">This deployment</h2>
+          {runningRelease ? (
+            <dl>
+              <dt>Running release</dt>
+              <dd>{runningRelease.version}</dd>
+              <dt>Within this license&apos;s update rights</dt>
+              <dd>
+                {runningRelease.verdict === null
+                  ? 'Not known'
+                  : runningRelease.verdict.covered
+                    ? 'Yes'
+                    : 'No. It keeps running'}
+              </dd>
+            </dl>
+          ) : (
+            <p className="muted">
+              This deployment has no signed bundle manifest it can verify, so the release it runs is
+              not shown here.
+            </p>
+          )}
+        </section>
+      </Card>
+
+      {license && (
+        <Card asChild>
+          <section className="card" aria-labelledby="license-footprint">
+            <h2 id="license-footprint">What the license states</h2>
+            <p className="muted">
+              These come from the signed license. They are shown for your records, and nothing here
+              is enforced.
+            </p>
+            <dl>
+              <dt>Seats</dt>
+              <dd>
+                {shown(license.footprint.seats)} stated, {status.seatsInUse} in use
+              </dd>
+              <dt>Organizations</dt>
+              <dd>{shown(license.footprint.organizations)}</dd>
+              <dt>Production deployments</dt>
+              <dd>{shown(license.footprint.production_deployments)}</dd>
+              <dt>Other deployments</dt>
+              <dd>{shown(license.footprint.nonproduction_deployments)}</dd>
+              {updateRightWords(license.updateRights).map(([label, value]) => (
+                <div key={label} className="contents">
+                  <dt>{label}</dt>
+                  <dd>{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        </Card>
       )}
     </>
   );

@@ -1,3 +1,6 @@
+import { Card } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
 import { randomUUID } from 'node:crypto';
 import { idSchema, AppError } from '@ensemus/application';
 import { listStartableSpecs } from '@ensemus/application/process-runs';
@@ -77,12 +80,12 @@ export default async function StartProcessPage({
         />
       ) : specs.length ? (
         <form method="get" className="card fields" aria-label="Choose a definition to review">
-          <label htmlFor="choose-start-definition">
+          <Label htmlFor="choose-start-definition">
             <span id="choose-start-definition-label">Workflow</span>
             <small id="choose-start-definition-help">
               You will see its steps before anything starts.
             </small>
-            <select
+            <NativeSelect
               id="choose-start-definition"
               name="spec"
               required
@@ -96,8 +99,8 @@ export default async function StartProcessPage({
                   {spec.name} · Version {spec.versionNumber}
                 </option>
               ))}
-            </select>
-          </label>
+            </NativeSelect>
+          </Label>
           <div>
             <button type="submit">Show its steps</button>
           </div>
@@ -112,41 +115,43 @@ export default async function StartProcessPage({
       )}
 
       {selected && (
-        <section className="card gap-above-large" aria-labelledby="selected-workflow">
-          <div className="spread">
-            <h2 id="selected-workflow">Its steps: {selected.name}</h2>
-            <ClassificationBadge value={selected.classification} />
-          </div>
-          <p className="muted">
-            Version {selected.versionNumber}. Each step waits for the ones listed with it; steps
-            that do not wait for each other can happen at the same time.
-          </p>
-          <ol className="list gap-above">
-            {selected.spec.steps.map((step) => (
-              <li key={step.key}>
-                <span>
-                  <strong>{step.label}</strong>
-                  <br />
-                  <small>
-                    {stepKindNames[step.kind]} ·{' '}
-                    {step.after.length
-                      ? `Waits for ${step.after.map((key) => selected.spec.steps.find((before) => before.key === key)?.label ?? 'a step that is no longer listed').join('; ')}`
-                      : 'First step'}
-                  </small>
-                </span>
-              </li>
-            ))}
-          </ol>
-          <details className="gap-above">
-            <summary>Technical details</summary>
-            <p className="gap-above-small">
-              Definition fingerprint: <code>{selected.specSha256}</code>
+        <Card asChild>
+          <section className="card gap-above-large" aria-labelledby="selected-workflow">
+            <div className="spread">
+              <h2 id="selected-workflow">Its steps: {selected.name}</h2>
+              <ClassificationBadge value={selected.classification} />
+            </div>
+            <p className="muted">
+              Version {selected.versionNumber}. Each step waits for the ones listed with it; steps
+              that do not wait for each other can happen at the same time.
             </p>
-            <p>
-              Definition identifier: <code>{selected.id}</code>
-            </p>
-          </details>
-        </section>
+            <ol className="list gap-above">
+              {selected.spec.steps.map((step) => (
+                <li key={step.key}>
+                  <span>
+                    <strong>{step.label}</strong>
+                    <br />
+                    <small>
+                      {stepKindNames[step.kind]} ·{' '}
+                      {step.after.length
+                        ? `Waits for ${step.after.map((key) => selected.spec.steps.find((before) => before.key === key)?.label ?? 'a step that is no longer listed').join('; ')}`
+                        : 'First step'}
+                    </small>
+                  </span>
+                </li>
+              ))}
+            </ol>
+            <details className="gap-above">
+              <summary>Technical details</summary>
+              <p className="gap-above-small">
+                Definition fingerprint: <code>{selected.specSha256}</code>
+              </p>
+              <p>
+                Definition identifier: <code>{selected.id}</code>
+              </p>
+            </details>
+          </section>
+        </Card>
       )}
       <p className="muted gap-above-large">
         {selected && (

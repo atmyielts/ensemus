@@ -1,4 +1,5 @@
 'use client';
+import { Card } from '@/components/ui/card';
 
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
@@ -29,20 +30,22 @@ export default function OrganizationError({
         title="This page could not be shown"
         description="Something went wrong on our side, not because of anything you did."
       />
-      <div className="card">
-        <p role="alert">
-          Nothing you saved has been lost, and the rest of Ensemus should still work. Try this page
-          again, or go back to Home and carry on from there.
-        </p>
-        <div className="row">
-          <button type="button" onClick={tryAgain}>
-            Try again
-          </button>
-          <Link className="button secondary" href={`/o/${organizationId}`}>
-            Go to Home
-          </Link>
+      <Card asChild>
+        <div className="card">
+          <p role="alert">
+            Nothing you saved has been lost, and the rest of Ensemus should still work. Try this
+            page again, or go back to Home and carry on from there.
+          </p>
+          <div className="row">
+            <button type="button" onClick={tryAgain}>
+              Try again
+            </button>
+            <Link className="button secondary" href={`/o/${organizationId}`}>
+              Go to Home
+            </Link>
+          </div>
         </div>
-      </div>
+      </Card>
       {error.digest && (
         <details className="error-reference gap-above-large">
           <summary>If this keeps happening</summary>

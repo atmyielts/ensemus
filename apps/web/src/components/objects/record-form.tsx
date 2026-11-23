@@ -1,4 +1,9 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
+import { Textarea } from '@/components/ui/textarea';
+
 import { useActionState, useEffect, useId, useRef } from 'react';
 import type { ObjectRecordView } from '@ensemus/application/custom-objects';
 import type { ObjectField } from '@ensemus/domain/custom-object';
@@ -92,16 +97,16 @@ export function ObjectRecordForm(props: RecordFormProps) {
         ) : (
           <input type="hidden" name="requestKey" value={value('requestKey', requestKey)} />
         )}
-        <label htmlFor={`${prefix}-name`}>
+        <Label htmlFor={`${prefix}-name`}>
           Record name
-          <input
+          <Input
             id={`${prefix}-name`}
             name="displayName"
             maxLength={120}
             required
             defaultValue={value('displayName', record?.displayName)}
           />
-        </label>
+        </Label>
         <DescribedChoices
           id={`${prefix}-class`}
           name="classification"
@@ -130,7 +135,7 @@ export function ObjectRecordForm(props: RecordFormProps) {
                 initial = raw === undefined || raw === null ? '' : String(raw),
                 current = value(fieldName, initial);
               return (
-                <label key={f.key} htmlFor={fieldId}>
+                <Label key={f.key} htmlFor={fieldId}>
                   <span id={`${fieldId}-label`}>
                     {f.label}
                     {f.required ? ' (required)' : ''}
@@ -141,7 +146,7 @@ export function ObjectRecordForm(props: RecordFormProps) {
                     </small>
                   )}
                   {f.kind === 'boolean' ? (
-                    <select
+                    <NativeSelect
                       id={fieldId}
                       aria-labelledby={`${fieldId}-label`}
                       name={fieldName}
@@ -151,9 +156,9 @@ export function ObjectRecordForm(props: RecordFormProps) {
                       <option value="">Not specified</option>
                       <option value="true">Yes</option>
                       <option value="false">No</option>
-                    </select>
+                    </NativeSelect>
                   ) : f.kind === 'enum' ? (
-                    <select
+                    <NativeSelect
                       id={fieldId}
                       aria-labelledby={`${fieldId}-label`}
                       name={fieldName}
@@ -166,9 +171,9 @@ export function ObjectRecordForm(props: RecordFormProps) {
                           {o}
                         </option>
                       ))}
-                    </select>
+                    </NativeSelect>
                   ) : f.kind === 'long_text' ? (
-                    <textarea
+                    <Textarea
                       id={fieldId}
                       aria-labelledby={`${fieldId}-label`}
                       name={fieldName}
@@ -198,7 +203,7 @@ export function ObjectRecordForm(props: RecordFormProps) {
                       defaultValue={current}
                     />
                   )}
-                </label>
+                </Label>
               );
             })}
           </div>

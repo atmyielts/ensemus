@@ -1,3 +1,13 @@
+import { Card } from '@/components/ui/card';
+import {
+  Table,
+  TableCaption,
+  TableHeader,
+  TableRow,
+  TableHead,
+  TableBody,
+  TableCell,
+} from '@/components/ui/table';
 import { AppError } from '@ensemus/application';
 import { listEgressLedger } from '@ensemus/application/knowledge/egress';
 import { can } from '@ensemus/domain/policy';
@@ -58,80 +68,84 @@ export default async function EgressPage({
           included yet, so a comparison cannot confirm what would be sent for them.
         </p>
       )}
-      <section className="card stack" aria-labelledby="decisions-heading">
-        <div className="spread">
-          <h2 id="decisions-heading">Recorded decisions</h2>
-          <a
-            className="button secondary"
-            href={
-              '/api/v1/organizations/' +
-              organizationId +
-              '/egress-ledger' +
-              (cursor ? '?cursor=' + encodeURIComponent(cursor) : '')
-            }
-            download="model-sharing-decisions.json"
-          >
-            Download these decisions as JSON
-          </a>
-        </div>
-        {!page.items.length ? (
-          <Empty title="Nothing recorded yet">
-            When company information is sent to an AI model, or held back, the decision is recorded
-            here.
-          </Empty>
-        ) : (
-          <div className="table-wrap">
-            <table>
-              <caption className="visually-hidden">Model transmission decisions</caption>
-              <thead>
-                <tr>
-                  <th scope="col">When</th>
-                  <th scope="col">Purpose</th>
-                  <th scope="col">Who can see it</th>
-                  <th scope="col">Sent to</th>
-                  <th scope="col">Decision</th>
-                </tr>
-              </thead>
-              <tbody>
-                {page.items.map((row) => (
-                  <tr key={row.id}>
-                    <td>{formatDateTime(row.occurredAt)}</td>
-                    <td>
-                      {(
-                        {
-                          embed: 'Search indexing',
-                          rerank: 'Passage ranking',
-                          answer: 'Answer',
-                          agent_run: 'Assistant run',
-                        } as Record<string, string>
-                      )[row.purpose] ?? row.purpose}
-                    </td>
-                    <td>
-                      <ClassificationBadge value={row.dataClass} />
-                    </td>
-                    <td>{row.destinationHost ?? 'No destination selected'}</td>
-                    <td>
-                      {row.decision === 'allow' ? 'Allowed' : 'Refused'}
-                      <details>
-                        <summary>Technical details</summary>
-                        <p>
-                          {row.reasonCode} · Policy {row.policyVersion}
-                        </p>
-                        {row.requestSha256 && <p>Request digest: {row.requestSha256}</p>}
-                      </details>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <Card asChild>
+        <section className="card stack" aria-labelledby="decisions-heading">
+          <div className="spread">
+            <h2 id="decisions-heading">Recorded decisions</h2>
+            <a
+              className="button secondary"
+              href={
+                '/api/v1/organizations/' +
+                organizationId +
+                '/egress-ledger' +
+                (cursor ? '?cursor=' + encodeURIComponent(cursor) : '')
+              }
+              download="model-sharing-decisions.json"
+            >
+              Download these decisions as JSON
+            </a>
           </div>
-        )}
-        {page.next && (
-          <p className="link-line">
-            <Link href={`?cursor=${encodeURIComponent(page.next)}`}>Earlier decisions</Link>
-          </p>
-        )}
-      </section>
+          {!page.items.length ? (
+            <Empty title="Nothing recorded yet">
+              When company information is sent to an AI model, or held back, the decision is
+              recorded here.
+            </Empty>
+          ) : (
+            <div className="table-wrap">
+              <Table>
+                <TableCaption className="visually-hidden">
+                  Model transmission decisions
+                </TableCaption>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead scope="col">When</TableHead>
+                    <TableHead scope="col">Purpose</TableHead>
+                    <TableHead scope="col">Who can see it</TableHead>
+                    <TableHead scope="col">Sent to</TableHead>
+                    <TableHead scope="col">Decision</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {page.items.map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell>{formatDateTime(row.occurredAt)}</TableCell>
+                      <TableCell>
+                        {(
+                          {
+                            embed: 'Search indexing',
+                            rerank: 'Passage ranking',
+                            answer: 'Answer',
+                            agent_run: 'Assistant run',
+                          } as Record<string, string>
+                        )[row.purpose] ?? row.purpose}
+                      </TableCell>
+                      <TableCell>
+                        <ClassificationBadge value={row.dataClass} />
+                      </TableCell>
+                      <TableCell>{row.destinationHost ?? 'No destination selected'}</TableCell>
+                      <TableCell>
+                        {row.decision === 'allow' ? 'Allowed' : 'Refused'}
+                        <details>
+                          <summary>Technical details</summary>
+                          <p>
+                            {row.reasonCode} · Policy {row.policyVersion}
+                          </p>
+                          {row.requestSha256 && <p>Request digest: {row.requestSha256}</p>}
+                        </details>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+          {page.next && (
+            <p className="link-line">
+              <Link href={`?cursor=${encodeURIComponent(page.next)}`}>Earlier decisions</Link>
+            </p>
+          )}
+        </section>
+      </Card>
       <details className="card gap-above-large">
         <summary>Compare a proposed provider</summary>
         <KnowledgeForm

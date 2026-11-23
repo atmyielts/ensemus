@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import { createPackService, type PackCatalogEntry } from '@ensemus/application/packs';
 import { canProduct } from '@ensemus/domain/product-policy';
 import Link from 'next/link';
@@ -80,63 +81,67 @@ export default async function PacksPage({
         rehearsed, reviewed and published.
       </p>
       <div className="stack">
-        <section className="card" aria-labelledby="catalog-heading">
-          <h2 id="catalog-heading">Available in this release</h2>
-          {catalog.length === 0 ? (
-            <Empty title="No packs in this release">
-              You can still build assistants and workflows of your own in Automation Studio.
-            </Empty>
-          ) : (
-            <ul className="list">
-              {catalog.map((entry) => (
-                <li key={`${entry.key}-${entry.version}`} className="block">
-                  <div className="spread">
-                    <span>
-                      <strong>{entry.name}</strong> <small>Version {entry.version}</small>
-                    </span>
-                    {entry.upgrade?.needsReview && !entry.upgrade.refused && (
-                      <span className="badge active">Asks for something new</span>
-                    )}
-                  </div>
-                  <p className="muted">{entry.description}</p>
-                  <div className="link-line gap-above-small">
-                    <VersionAction organizationId={organizationId} entry={entry} base={base} />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-        <section className="card" aria-labelledby="history-heading">
-          <h2 id="history-heading">In your organization</h2>
-          {history.length === 0 ? (
-            <Empty title="No packs yet">
-              Choose “Review what it asks for” on a pack above. You see everything it needs before
-              anything is made.
-            </Empty>
-          ) : (
-            <ul className="list">
-              {history.map((row) => (
-                <li key={row.id}>
-                  <span>
-                    <Link href={`${base}/packs/installations/${row.id}`}>
-                      {packName(row.packKey)} {row.packVersion}
-                    </Link>
-                    <br />
-                    <small>
-                      {row.activatedAt ? (
-                        <>Installed {formatDateTime(row.activatedAt)}</>
-                      ) : (
-                        <>Review started {formatDateTime(row.createdAt)}</>
+        <Card asChild>
+          <section className="card" aria-labelledby="catalog-heading">
+            <h2 id="catalog-heading">Available in this release</h2>
+            {catalog.length === 0 ? (
+              <Empty title="No packs in this release">
+                You can still build assistants and workflows of your own in Automation Studio.
+              </Empty>
+            ) : (
+              <ul className="list">
+                {catalog.map((entry) => (
+                  <li key={`${entry.key}-${entry.version}`} className="block">
+                    <div className="spread">
+                      <span>
+                        <strong>{entry.name}</strong> <small>Version {entry.version}</small>
+                      </span>
+                      {entry.upgrade?.needsReview && !entry.upgrade.refused && (
+                        <span className="badge active">Asks for something new</span>
                       )}
-                    </small>
-                  </span>
-                  <PackStatusBadge status={row.status} />
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+                    </div>
+                    <p className="muted">{entry.description}</p>
+                    <div className="link-line gap-above-small">
+                      <VersionAction organizationId={organizationId} entry={entry} base={base} />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </Card>
+        <Card asChild>
+          <section className="card" aria-labelledby="history-heading">
+            <h2 id="history-heading">In your organization</h2>
+            {history.length === 0 ? (
+              <Empty title="No packs yet">
+                Choose “Review what it asks for” on a pack above. You see everything it needs before
+                anything is made.
+              </Empty>
+            ) : (
+              <ul className="list">
+                {history.map((row) => (
+                  <li key={row.id}>
+                    <span>
+                      <Link href={`${base}/packs/installations/${row.id}`}>
+                        {packName(row.packKey)} {row.packVersion}
+                      </Link>
+                      <br />
+                      <small>
+                        {row.activatedAt ? (
+                          <>Installed {formatDateTime(row.activatedAt)}</>
+                        ) : (
+                          <>Review started {formatDateTime(row.createdAt)}</>
+                        )}
+                      </small>
+                    </span>
+                    <PackStatusBadge status={row.status} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </Card>
       </div>
     </>
   );

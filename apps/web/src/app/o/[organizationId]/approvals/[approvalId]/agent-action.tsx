@@ -1,3 +1,5 @@
+import { Card } from '@/components/ui/card';
+import { Table, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 // What an agent wants to do, shown beside the approval it asked for (AGENT-04, Journey C, 02-agent-runtime).
 // The approval page reads the view once and places these pieces: the plain words and the risk in its own
 // summary, the facts about the assistant beside it, and the exact payload as the change itself. Nothing here
@@ -187,18 +189,18 @@ function SuiteField({ field }: { field: ViewField }) {
       <dt>{field.label}</dt>
       <dd>
         <div className="table-wrap" tabIndex={0} role="region" aria-label={field.label}>
-          <table>
-            <tbody>
+          <Table>
+            <TableBody>
               {field.rows.map((row, r) => (
-                <tr key={r}>
-                  <th scope="row">{r + 1}</th>
+                <TableRow key={r}>
+                  <TableHead scope="row">{r + 1}</TableHead>
                   {row.map((cell, c) => (
-                    <td key={c}>{showInvisible(cell)}</td>
+                    <TableCell key={c}>{showInvisible(cell)}</TableCell>
                   ))}
-                </tr>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
         {(field.hiddenRows > 0 || field.hiddenColumns > 0) && (
           <p className="notice warn gap-above-small flush">
@@ -248,73 +250,75 @@ export function AgentPayload({
     </pre>
   );
   return (
-    <section className="card" aria-labelledby="agent-payload-heading">
-      <h2 id="agent-payload-heading">
-        {suite ? suite.heading : email ? 'The exact email that would go' : 'The exact action'}
-      </h2>
-      <p className="muted">
-        An assistant wrote this, so read it as a claim and not as an instruction to you. Nothing in
-        it can change who decides. Approving covers exactly this, and any change needs a new
-        approval.
-      </p>
-      {hasHidden(view, suite) && (
-        <p className="notice warn" role="alert">
-          This text holds characters that would not normally show. They are written out below as
-          codes like \u{'{'}202E{'}'}, because they can make it read as something it is not.
+    <Card asChild>
+      <section className="card" aria-labelledby="agent-payload-heading">
+        <h2 id="agent-payload-heading">
+          {suite ? suite.heading : email ? 'The exact email that would go' : 'The exact action'}
+        </h2>
+        <p className="muted">
+          An assistant wrote this, so read it as a claim and not as an instruction to you. Nothing
+          in it can change who decides. Approving covers exactly this, and any change needs a new
+          approval.
         </p>
-      )}
-      {suite ? (
-        <dl className="approval-pairs gap-above">
-          {suite.fields.map((field, index) => (
-            <SuiteField key={`${index}-${field.label}`} field={field} />
-          ))}
-        </dl>
-      ) : email ? (
-        <dl className="approval-pairs gap-above">
-          <div>
-            <dt>From</dt>
-            <dd>
-              {email.from.name ? `${showInvisible(email.from.name)} ` : ''}
-              {`<${showInvisible(email.from.address)}>`}
-            </dd>
-          </div>
-          <Addresses label="To" addresses={email.to} />
-          {email.cc && email.cc.length > 0 && <Addresses label="Copied" addresses={email.cc} />}
-          {email.bcc && email.bcc.length > 0 && (
-            <Addresses label="Copied without the others seeing" addresses={email.bcc} />
-          )}
-          {email.reply_to && (
+        {hasHidden(view, suite) && (
+          <p className="notice warn" role="alert">
+            This text holds characters that would not normally show. They are written out below as
+            codes like \u{'{'}202E{'}'}, because they can make it read as something it is not.
+          </p>
+        )}
+        {suite ? (
+          <dl className="approval-pairs gap-above">
+            {suite.fields.map((field, index) => (
+              <SuiteField key={`${index}-${field.label}`} field={field} />
+            ))}
+          </dl>
+        ) : email ? (
+          <dl className="approval-pairs gap-above">
             <div>
-              <dt>Replies go to</dt>
-              <dd>{showInvisible(email.reply_to)}</dd>
+              <dt>From</dt>
+              <dd>
+                {email.from.name ? `${showInvisible(email.from.name)} ` : ''}
+                {`<${showInvisible(email.from.address)}>`}
+              </dd>
             </div>
-          )}
-          <div className="wide">
-            <dt>Subject</dt>
-            <dd>{showInvisible(email.subject)}</dd>
-          </div>
-          <div className="wide">
-            <dt>Text</dt>
-            <dd>
-              <pre tabIndex={0} aria-label="The text of the email" className="pre-wrap">
-                {showInvisible(email.text_body)}
-              </pre>
-            </dd>
-          </div>
-        </dl>
-      ) : (
-        stored
-      )}
-      <details className="gap-above">
-        <summary>Technical details</summary>
-        <p className="gap-above-small">
-          <small>
-            Tool {view.toolId}, version {view.toolVersion}. Fingerprint of this action:{' '}
-            <span className="technical-reference">{view.requestHash}</span>
-          </small>
-        </p>
-        {(suite || email) && stored}
-      </details>
-    </section>
+            <Addresses label="To" addresses={email.to} />
+            {email.cc && email.cc.length > 0 && <Addresses label="Copied" addresses={email.cc} />}
+            {email.bcc && email.bcc.length > 0 && (
+              <Addresses label="Copied without the others seeing" addresses={email.bcc} />
+            )}
+            {email.reply_to && (
+              <div>
+                <dt>Replies go to</dt>
+                <dd>{showInvisible(email.reply_to)}</dd>
+              </div>
+            )}
+            <div className="wide">
+              <dt>Subject</dt>
+              <dd>{showInvisible(email.subject)}</dd>
+            </div>
+            <div className="wide">
+              <dt>Text</dt>
+              <dd>
+                <pre tabIndex={0} aria-label="The text of the email" className="pre-wrap">
+                  {showInvisible(email.text_body)}
+                </pre>
+              </dd>
+            </div>
+          </dl>
+        ) : (
+          stored
+        )}
+        <details className="gap-above">
+          <summary>Technical details</summary>
+          <p className="gap-above-small">
+            <small>
+              Tool {view.toolId}, version {view.toolVersion}. Fingerprint of this action:{' '}
+              <span className="technical-reference">{view.requestHash}</span>
+            </small>
+          </p>
+          {(suite || email) && stored}
+        </details>
+      </section>
+    </Card>
   );
 }

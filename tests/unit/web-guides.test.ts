@@ -288,7 +288,13 @@ describe('how a guide renders', () => {
     ]);
     expect(html).toContain('<p>Before <code>pnpm</code></p>');
     expect(html).toContain('<ol><li>One</li><li>Two</li></ol>');
-    expect(html).toContain(
+    expect(html).toContain('data-slot="table"');
+    // shadcn adds presentation attributes; retain the exact semantic table and header scope check.
+    const semantic = html.replace(
+      /\s(?:class|data-slot|data-state|data-variant|data-size)="[^"]*"/g,
+      '',
+    );
+    expect(semantic).toContain(
       '<table><thead><tr><th scope="col">Who</th></tr></thead>' +
         '<tbody><tr><td><strong>Owner</strong></td></tr></tbody></table>',
     );
@@ -344,7 +350,11 @@ describe('the headings of a guide', () => {
       heading(2, 'Before you start 1'),
     ]).map((one) => one?.id);
     expect(new Set(ids).size).toBe(4);
-    expect(ids.slice(0, 3)).toEqual(['before-you-start', 'before-you-start-1', 'before-you-start-2']);
+    expect(ids.slice(0, 3)).toEqual([
+      'before-you-start',
+      'before-you-start-1',
+      'before-you-start-2',
+    ]);
   });
 
   it('gives no address to a heading with no letters it could use', () => {
@@ -356,7 +366,11 @@ describe('the headings of a guide', () => {
 describe('what the routes are allowed to touch', () => {
   const source = (path: string) => readFileSync(join(repoRoot, path), 'utf8');
   const routes = ['apps/web/src/app/help/page.tsx', 'apps/web/src/app/help/[slug]/page.tsx'];
-  const parts = [...routes, 'apps/web/src/components/guide-blocks.tsx', 'apps/web/src/lib/guides.ts'];
+  const parts = [
+    ...routes,
+    'apps/web/src/components/guide-blocks.tsx',
+    'apps/web/src/lib/guides.ts',
+  ];
 
   it.each(parts)('%s renders no raw HTML', (path) => {
     // Named in two pieces so that this file does not itself hold what a search would look for.

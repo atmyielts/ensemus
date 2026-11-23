@@ -1,3 +1,6 @@
+import { Card } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import { AppError } from '@ensemus/application';
 import { searchCompany } from '@ensemus/application/knowledge/company-search';
 import Link from 'next/link';
@@ -40,9 +43,9 @@ export default async function SearchPage({
       />
       <ErrorNotice code={error} />
       <form method="get" role="search" className="card inline-form company-search-form">
-        <label>
+        <Label>
           Search
-          <input
+          <Input
             type="search"
             name="q"
             required
@@ -50,7 +53,7 @@ export default async function SearchPage({
             defaultValue={q.slice(0, 200)}
             placeholder="A name, a word or a phrase"
           />
-        </label>
+        </Label>
         <SubmitButton>Search</SubmitButton>
       </form>
       {q.trim() &&
@@ -66,19 +69,21 @@ export default async function SearchPage({
                 {hits.length} {hits.length === 1 ? 'match' : 'matches'}
               </p>
             </div>
-            <div className="card">
-              <ol className="list result-list">
-                {hits.map((hit) => (
-                  <li key={`${hit.kind}:${hit.id}`}>
-                    <div className="result-title">
-                      <Link href={hit.path}>{hit.title}</Link>
-                      <span className="badge tag">{KIND[hit.kind] ?? 'Record'}</span>
-                    </div>
-                    {hit.excerpt && <p className="result-snippet">{hit.excerpt}</p>}
-                  </li>
-                ))}
-              </ol>
-            </div>
+            <Card asChild>
+              <div className="card">
+                <ol className="list result-list">
+                  {hits.map((hit) => (
+                    <li key={`${hit.kind}:${hit.id}`}>
+                      <div className="result-title">
+                        <Link href={hit.path}>{hit.title}</Link>
+                        <span className="badge tag">{KIND[hit.kind] ?? 'Record'}</span>
+                      </div>
+                      {hit.excerpt && <p className="result-snippet">{hit.excerpt}</p>}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            </Card>
           </section>
         ))}
     </div>

@@ -1,4 +1,7 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 
 import { useActionState, useEffect, useRef, useState } from 'react';
 import { sameContent, type WorkDraft, type WorkFormState } from '@/lib/form-state';
@@ -116,14 +119,14 @@ export function EditWorkForm({
           )}
         </div>
       )}
-      <label>
+      <Label>
         Title
         {state.field === 'title' && (
           <small className="field-error" id="edit-title-error">
             Write what should be true when this is done.
           </small>
         )}
-        <input
+        <Input
           name="title"
           required
           maxLength={300}
@@ -132,17 +135,17 @@ export function EditWorkForm({
           aria-invalid={state.field === 'title'}
           aria-describedby={state.field === 'title' ? 'edit-title-error' : undefined}
         />
-      </label>
-      <label>
+      </Label>
+      <Label>
         Details
-        <textarea
+        <Textarea
           name="objective"
           maxLength={10000}
           value={draft.objective}
           onChange={set('objective')}
         />
-      </label>
-      <label>
+      </Label>
+      <Label>
         Due date
         <small>Optional.</small>
         {state.field === 'dueAt' && (
@@ -150,7 +153,7 @@ export function EditWorkForm({
             That is not a date.
           </small>
         )}
-        <input
+        <Input
           name="dueAt"
           type="date"
           value={draft.dueAt}
@@ -158,7 +161,7 @@ export function EditWorkForm({
           aria-invalid={state.field === 'dueAt'}
           aria-describedby={state.field === 'dueAt' ? 'edit-due-error' : undefined}
         />
-      </label>
+      </Label>
       <div>
         <SubmitButton>Save changes</SubmitButton>
       </div>

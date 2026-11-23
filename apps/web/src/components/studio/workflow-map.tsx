@@ -1,4 +1,6 @@
 'use client';
+import { Card } from '@/components/ui/card';
+
 import { useEffect, useState, type MouseEvent } from 'react';
 import type { ProcessDraftView } from '@ensemus/application/process-specs';
 import type { GraphLayout, MapNode } from '@/lib/graph-layout';
@@ -408,12 +410,14 @@ export function WorkflowMapChecks() {
   const editor = useWorkflowEditor();
   if (!editor) return null;
   return (
-    <section className="card fields" aria-labelledby="edit-workflow-checks">
-      <h2 id="edit-workflow-checks">Checks</h2>
-      <WorkflowIssues graph={editor.draft.graph} issues={editor.draft.issues} />
-      {!editor.draft.specSha256 && !editor.draft.issues.length && (
-        <p className="notice">Save the workflow again before you rehearse it.</p>
-      )}
-    </section>
+    <Card asChild>
+      <section className="card fields" aria-labelledby="edit-workflow-checks">
+        <h2 id="edit-workflow-checks">Checks</h2>
+        <WorkflowIssues graph={editor.draft.graph} issues={editor.draft.issues} />
+        {!editor.draft.specSha256 && !editor.draft.issues.length && (
+          <p className="notice">Save the workflow again before you rehearse it.</p>
+        )}
+      </section>
+    </Card>
   );
 }

@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import { randomUUID } from 'node:crypto';
 import { streamRuleFor } from '@ensemus/domain/business-connector';
 import { BusinessProposalForm } from '@/components/business-proposal-form';
@@ -43,27 +44,29 @@ export default async function SourceRecordPage({
         description={`${row.connectionDisplayName} · ${sourceStreamLabels[row.stream] ?? row.stream}`}
         actions={<Link href={`/o/${organizationId}/records`}>Source records</Link>}
       />
-      <section className="card stack" aria-labelledby="source-snapshot-heading">
-        <h2 id="source-snapshot-heading">Last read from the source</h2>
-        <div>
-          <ClassificationBadge value={row.classification} />
-        </div>
-        <p>
-          Last read <LocalTime iso={row.updatedAt.toISOString()} />. This is a stored copy; check
-          the connected system for its latest state.
-        </p>
-        <dl className="details source-record-fields">
+      <Card asChild>
+        <section className="card stack" aria-labelledby="source-snapshot-heading">
+          <h2 id="source-snapshot-heading">Last read from the source</h2>
           <div>
-            <dt>Source reference</dt>
-            <dd>{row.externalId}</dd>
+            <ClassificationBadge value={row.classification} />
           </div>
-          <div>
-            <dt>Source version</dt>
-            <dd>{row.externalVersion ?? 'Not provided by the source'}</dd>
-          </div>
-        </dl>
-        <SourceRecordFields fields={row.fields} />
-      </section>
+          <p>
+            Last read <LocalTime iso={row.updatedAt.toISOString()} />. This is a stored copy; check
+            the connected system for its latest state.
+          </p>
+          <dl className="details source-record-fields">
+            <div>
+              <dt>Source reference</dt>
+              <dd>{row.externalId}</dd>
+            </div>
+            <div>
+              <dt>Source version</dt>
+              <dd>{row.externalVersion ?? 'Not provided by the source'}</dd>
+            </div>
+          </dl>
+          <SourceRecordFields fields={row.fields} />
+        </section>
+      </Card>
       {row.classification === 'restricted' ? (
         <p>Restricted source records cannot be proposed as external changes.</p>
       ) : !enabled ? (

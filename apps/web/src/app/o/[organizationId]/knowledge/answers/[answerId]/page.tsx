@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import { ResourceRefresh } from '@/components/resource-refresh';
 import { getAnswer } from '@ensemus/application/knowledge/answers';
 import Link from 'next/link';
@@ -42,10 +43,12 @@ export default async function AnswerPage({
             </p>
           ) : answer.state === 'answered' ? (
             <>
-              <section className="card answer" aria-labelledby="answer-heading">
-                <h2 id="answer-heading">Answer</h2>
-                <p className="pre-wrap answer-text">{answer.answerText}</p>
-              </section>
+              <Card asChild>
+                <section className="card answer" aria-labelledby="answer-heading">
+                  <h2 id="answer-heading">Answer</h2>
+                  <p className="pre-wrap answer-text">{answer.answerText}</p>
+                </section>
+              </Card>
               <section className="stack" aria-label="Sources for this answer">
                 <div className="section-intro">
                   <h2>Where this answer comes from</h2>

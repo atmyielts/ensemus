@@ -1,4 +1,8 @@
 'use client';
+import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
+import { Textarea } from '@/components/ui/textarea';
+
 import { useActionState, useEffect, useId, useRef } from 'react';
 import type { ObjectTypeView } from '@ensemus/application/custom-objects';
 import { saveObjectTypeAction } from '@/server/object-actions';
@@ -80,7 +84,7 @@ export function ObjectTypeForm(props: TypeFormProps) {
         <legend>Field {index + 1}</legend>
         <label htmlFor={`${base}-label`}>
           Label
-          <input
+          <Input
             id={`${base}-label`}
             name={name + 'label'}
             maxLength={120}
@@ -91,7 +95,7 @@ export function ObjectTypeForm(props: TypeFormProps) {
           <summary>Advanced field settings</summary>
           <label htmlFor={`${base}-key`}>
             Field key
-            <input
+            <Input
               id={`${base}-key`}
               name={name + 'key'}
               pattern="[a-z][a-z0-9_]{0,62}"
@@ -106,7 +110,7 @@ export function ObjectTypeForm(props: TypeFormProps) {
         </details>
         <label htmlFor={`${base}-kind`}>
           Field type
-          <select
+          <NativeSelect
             id={`${base}-kind`}
             name={name + 'kind'}
             defaultValue={value(name + 'kind', f?.kind ?? 'text')}
@@ -117,7 +121,7 @@ export function ObjectTypeForm(props: TypeFormProps) {
                 {kindLabels[k]}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </label>
         {f && <input type="hidden" name={name + 'kind'} value={value(name + 'kind', f.kind)} />}
         <label className="check">
@@ -145,7 +149,7 @@ export function ObjectTypeForm(props: TypeFormProps) {
         <label htmlFor={`${base}-options`}>
           Choices, one per line
           <small>Only for a Choice field.</small>
-          <textarea
+          <Textarea
             id={`${base}-options`}
             name={name + 'options'}
             rows={3}
@@ -154,7 +158,7 @@ export function ObjectTypeForm(props: TypeFormProps) {
         </label>
         <label htmlFor={`${base}-max`}>
           Text length limit (optional)
-          <input
+          <Input
             id={`${base}-max`}
             type="number"
             name={name + 'maxLength'}
@@ -175,7 +179,7 @@ export function ObjectTypeForm(props: TypeFormProps) {
         <legend>Relation {index + 1}</legend>
         <label htmlFor={`${base}-label`}>
           Relation label
-          <input
+          <Input
             id={`${base}-label`}
             name={name + 'label'}
             maxLength={120}
@@ -186,7 +190,7 @@ export function ObjectTypeForm(props: TypeFormProps) {
           <summary>Advanced connection settings</summary>
           <label htmlFor={`${base}-key`}>
             Relation key
-            <input
+            <Input
               id={`${base}-key`}
               name={name + 'key'}
               pattern="[a-z][a-z0-9_]{0,62}"
@@ -198,7 +202,7 @@ export function ObjectTypeForm(props: TypeFormProps) {
         </details>
         <label htmlFor={`${base}-target`}>
           Related type
-          <select
+          <NativeSelect
             id={`${base}-target`}
             name={name + 'toTypeSlug'}
             defaultValue={value(name + 'toTypeSlug', r?.toTypeSlug)}
@@ -209,18 +213,18 @@ export function ObjectTypeForm(props: TypeFormProps) {
                 {t.displayName}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </label>
         <label htmlFor={`${base}-cardinality`}>
           How many
-          <select
+          <NativeSelect
             id={`${base}-cardinality`}
             name={name + 'cardinality'}
             defaultValue={value(name + 'cardinality', r?.cardinality ?? 'many')}
           >
             <option value="many">Multiple records</option>
             <option value="one">One record</option>
-          </select>
+          </NativeSelect>
         </label>
       </fieldset>
     );
@@ -270,7 +274,7 @@ export function ObjectTypeForm(props: TypeFormProps) {
           <>
             <label htmlFor={`${prefix}-name`}>
               Type name
-              <input
+              <Input
                 id={`${prefix}-name`}
                 name="displayName"
                 required
@@ -282,7 +286,7 @@ export function ObjectTypeForm(props: TypeFormProps) {
               <summary>Advanced type settings</summary>
               <label htmlFor={`${prefix}-slug`}>
                 <span id={`${prefix}-slug-label`}>Type key</span>
-                <input
+                <Input
                   id={`${prefix}-slug`}
                   aria-labelledby={`${prefix}-slug-label`}
                   aria-describedby={`${prefix}-slug-help`}

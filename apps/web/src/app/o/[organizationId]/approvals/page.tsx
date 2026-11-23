@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import { listDirectory, listMyPendingApprovals } from '@ensemus/application';
 import Link from 'next/link';
 import {
@@ -70,35 +71,39 @@ export default async function ApprovalsPage({
           would change.
         </Empty>
       ) : (
-        <section className="card" aria-labelledby="waiting-heading">
-          <h2 id="waiting-heading">Waiting for you</h2>
-          <ul className="list approval-rows">
-            {pending.map((approval, index) => {
-              const who = askedBy(index);
-              return (
-                <li key={approval.id}>
-                  <span>
-                    <Link href={`${base}/approvals/${approval.id}`}>{approval.workTitle}</Link>
-                    <br />
-                    <small>
-                      {TOOL_WORDS[approval.toolName] ?? 'A proposed action'}
-                      {who &&
-                        (approval.toolName === 'work.review' ? (
-                          <> · Asked by {who}</>
-                        ) : (
-                          <> · An assistant asked, for {who}</>
-                        ))}
-                    </small>
-                  </span>
-                  <span className="row">
-                    <small className="nowrap">Decide by {formatDateTime(approval.expiresAt)}</small>
-                    <StatusBadge status="pending" />
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
+        <Card asChild>
+          <section className="card" aria-labelledby="waiting-heading">
+            <h2 id="waiting-heading">Waiting for you</h2>
+            <ul className="list approval-rows">
+              {pending.map((approval, index) => {
+                const who = askedBy(index);
+                return (
+                  <li key={approval.id}>
+                    <span>
+                      <Link href={`${base}/approvals/${approval.id}`}>{approval.workTitle}</Link>
+                      <br />
+                      <small>
+                        {TOOL_WORDS[approval.toolName] ?? 'A proposed action'}
+                        {who &&
+                          (approval.toolName === 'work.review' ? (
+                            <> · Asked by {who}</>
+                          ) : (
+                            <> · An assistant asked, for {who}</>
+                          ))}
+                      </small>
+                    </span>
+                    <span className="row">
+                      <small className="nowrap">
+                        Decide by {formatDateTime(approval.expiresAt)}
+                      </small>
+                      <StatusBadge status="pending" />
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        </Card>
       )}
     </>
   );

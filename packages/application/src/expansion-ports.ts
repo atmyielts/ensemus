@@ -19,8 +19,7 @@ export type MeetingEgressRequest = {
 };
 
 export type MeetingEgressDecision =
-  | { allowed: true; auditRef: string }
-  | { allowed: false; code: 'EGRESS_DENIED' };
+  { allowed: true; auditRef: string } | { allowed: false; code: 'EGRESS_DENIED' };
 
 export interface MeetingEgressGate {
   decide(request: MeetingEgressRequest): Promise<MeetingEgressDecision>;

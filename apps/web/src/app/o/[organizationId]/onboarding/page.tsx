@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import { randomUUID } from 'node:crypto';
 import { listDirectory } from '@ensemus/application';
 import { listConnections } from '@ensemus/application';
@@ -31,17 +32,19 @@ const STEPS = [
 
 function Steps() {
   return (
-    <section className="card" aria-labelledby="onboarding-steps-heading">
-      <h2 id="onboarding-steps-heading">What happens when you start</h2>
-      <ol className="onboarding-steps">
-        {STEPS.map((step) => (
-          <li key={step.title}>
-            <strong>{step.title}</strong>
-            <span>{step.text}</span>
-          </li>
-        ))}
-      </ol>
-    </section>
+    <Card asChild>
+      <section className="card" aria-labelledby="onboarding-steps-heading">
+        <h2 id="onboarding-steps-heading">What happens when you start</h2>
+        <ol className="onboarding-steps">
+          {STEPS.map((step) => (
+            <li key={step.title}>
+              <strong>{step.title}</strong>
+              <span>{step.text}</span>
+            </li>
+          ))}
+        </ol>
+      </section>
+    </Card>
   );
 }
 

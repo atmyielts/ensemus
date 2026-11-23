@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import {
   countUnread,
   INBOX_SIZE,
@@ -93,38 +94,40 @@ export default async function InboxPage({
           Nothing here. When a decision needs you, or something you own changes, it appears here.
         </Empty>
       ) : (
-        <div className="card">
-          <ul className="list">
-            {ordered.map((notification) => (
-              <li key={notification.id}>
-                <form className="inbox-item" action={openNotificationAction}>
-                  <input type="hidden" name="organizationId" value={organizationId} />
-                  <input type="hidden" name="id" value={notification.id} />
-                  <input
-                    type="hidden"
-                    name="target"
-                    value={targetPath(base, notification.targetRef)}
-                  />
-                  <SubmitButton className="link">
-                    {KIND_WORDS[notification.kind] ?? 'Something needs your attention'}
-                  </SubmitButton>
-                  {titleOf.has(notification.targetRef) && (
-                    <small>{titleOf.get(notification.targetRef)}</small>
-                  )}
-                </form>
-                <span className="row">
-                  <small>
-                    {formatDateTime(notification.lastRemindedAt ?? notification.createdAt)}
-                  </small>
-                  {notification.remindersSent > 0 && !notification.readAt && (
-                    <span className="badge attention">Reminder</span>
-                  )}
-                  {!notification.readAt && <span className="badge active">New</span>}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <Card asChild>
+          <div className="card">
+            <ul className="list">
+              {ordered.map((notification) => (
+                <li key={notification.id}>
+                  <form className="inbox-item" action={openNotificationAction}>
+                    <input type="hidden" name="organizationId" value={organizationId} />
+                    <input type="hidden" name="id" value={notification.id} />
+                    <input
+                      type="hidden"
+                      name="target"
+                      value={targetPath(base, notification.targetRef)}
+                    />
+                    <SubmitButton className="link">
+                      {KIND_WORDS[notification.kind] ?? 'Something needs your attention'}
+                    </SubmitButton>
+                    {titleOf.has(notification.targetRef) && (
+                      <small>{titleOf.get(notification.targetRef)}</small>
+                    )}
+                  </form>
+                  <span className="row">
+                    <small>
+                      {formatDateTime(notification.lastRemindedAt ?? notification.createdAt)}
+                    </small>
+                    {notification.remindersSent > 0 && !notification.readAt && (
+                      <span className="badge attention">Reminder</span>
+                    )}
+                    {!notification.readAt && <span className="badge active">New</span>}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </Card>
       )}
     </>
   );

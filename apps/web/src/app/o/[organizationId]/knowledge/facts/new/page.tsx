@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import { randomUUID } from 'node:crypto';
 import { listDirectory, listTeams, listWorkUnits } from '@ensemus/application';
 import { getSourcePassage } from '@ensemus/application/knowledge/sources';
@@ -48,19 +49,21 @@ export default async function NewFactPage({
           description="Write down one thing this passage says. It becomes a trusted fact once someone else has checked it against the passage."
         />
       </div>
-      <section className="card citation" aria-labelledby="passage-heading">
-        <h2 id="passage-heading">The passage</h2>
-        <blockquote className="pre-wrap">{passage.text}</blockquote>
-        <footer className="row">
-          <span className="muted">
-            From{' '}
-            <Link href={`/o/${organizationId}/knowledge/sources/${passage.sourceId}`}>
-              {passage.title}
-            </Link>
-          </span>
-          <ClassificationBadge value={passage.classification} />
-        </footer>
-      </section>
+      <Card asChild>
+        <section className="card citation" aria-labelledby="passage-heading">
+          <h2 id="passage-heading">The passage</h2>
+          <blockquote className="pre-wrap">{passage.text}</blockquote>
+          <footer className="row">
+            <span className="muted">
+              From{' '}
+              <Link href={`/o/${organizationId}/knowledge/sources/${passage.sourceId}`}>
+                {passage.title}
+              </Link>
+            </span>
+            <ClassificationBadge value={passage.classification} />
+          </footer>
+        </section>
+      </Card>
       <KnowledgeForm
         action={proposeKnowledgeFactAction}
         hidden={{

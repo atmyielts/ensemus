@@ -1,3 +1,5 @@
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
 import { getCheckoutOptions } from '@ensemus/application/saas/checkout';
 import type { CheckoutProvider } from '@ensemus/domain/checkout';
 import { can } from '@ensemus/domain/policy';
@@ -106,7 +108,7 @@ export default async function CheckoutChoicePage({
           <fieldset className="choice-list">
             <legend>How would you like to pay?</legend>
             {options.providers.map((provider, index) => (
-              <label className="choice" key={provider}>
+              <Label className="choice" key={provider}>
                 <input
                   type="radio"
                   name="provider"
@@ -116,19 +118,19 @@ export default async function CheckoutChoicePage({
                 />
                 <strong>{choices[provider].name}</strong>
                 <small>{choices[provider].detail}</small>
-              </label>
+              </Label>
             ))}
           </fieldset>
           {options.providers.includes('payme') && (
-            <label>
+            <Label>
               Language on Payme’s page
               <small>Only Payme asks for this. Click and Paddle choose for you.</small>
-              <select name="language" defaultValue="uz">
+              <NativeSelect name="language" defaultValue="uz">
                 <option value="uz">O‘zbekcha</option>
                 <option value="ru">Русский</option>
                 <option value="en">English</option>
-              </select>
-            </label>
+              </NativeSelect>
+            </Label>
           )}
           <p className="muted">
             You’ll pay exactly {amount}. Nothing is charged until you confirm on the payment page.

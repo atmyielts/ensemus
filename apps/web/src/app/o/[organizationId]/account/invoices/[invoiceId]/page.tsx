@@ -1,3 +1,12 @@
+import {
+  Table,
+  TableCaption,
+  TableHeader,
+  TableRow,
+  TableHead,
+  TableBody,
+  TableCell,
+} from '@/components/ui/table';
 import { getInvoice } from '@ensemus/application/saas/invoices';
 import Link from 'next/link';
 import { BillingMoney } from '@/components/billing-money';
@@ -66,32 +75,32 @@ export default async function InvoicePage({
         )}
       </dl>
       <div className="table-wrap">
-        <table>
-          <caption>Every invoice line in {invoice.currency}</caption>
-          <thead>
-            <tr>
-              <th scope="col">Description</th>
-              <th scope="col">Quantity</th>
-              <th scope="col">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
+        <Table>
+          <TableCaption>Every invoice line in {invoice.currency}</TableCaption>
+          <TableHeader>
+            <TableRow>
+              <TableHead scope="col">Description</TableHead>
+              <TableHead scope="col">Quantity</TableHead>
+              <TableHead scope="col">Amount</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {invoice.lines.map((line) => (
-              <tr key={line.lineNo}>
-                <th scope="row">
+              <TableRow key={line.lineNo}>
+                <TableHead scope="row">
                   {kinds[line.kind] ?? line.kind}
                   {line.meter && <p className="muted">{line.meter}</p>}
-                </th>
-                <td>
+                </TableHead>
+                <TableCell>
                   {line.quantity === null ? '—' : `${line.quantity.toString()} ${line.unit ?? ''}`}
-                </td>
-                <td>
+                </TableCell>
+                <TableCell>
                   <BillingMoney amount={line.amountMicros} currency={invoice.currency} />
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
       <dl className="facts">
         <dt>Subtotal including rounding</dt>

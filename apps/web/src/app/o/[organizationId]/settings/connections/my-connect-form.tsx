@@ -1,4 +1,6 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 
 import { useActionState } from 'react';
 import { SubmitButton } from '@/components/submit-button';
@@ -40,22 +42,22 @@ export function MyConnectForm({
       <form className="fields" action={action}>
         <input type="hidden" name="organizationId" value={organizationId} />
         <input type="hidden" name="connectorType" value={connectorType} />
-        <label>
+        <Label>
           Name
           <small>Only you see it. For example, the account you are connecting.</small>
-          <input
+          <Input
             name="displayName"
             required
             maxLength={120}
             autoComplete="off"
             defaultValue={values?.displayName ?? providerName}
           />
-        </label>
+        </Label>
         <fieldset className="group">
           <legend>What assistants you start may do with it</legend>
           <div className="choice-list">
             {capabilities.map((capability) => (
-              <label key={capability.id} className="choice">
+              <Label key={capability.id} className="choice">
                 <input
                   type="checkbox"
                   name="capability"
@@ -64,7 +66,7 @@ export function MyConnectForm({
                 />
                 <strong>{capability.label}</strong>
                 <small>{capability.description}</small>
-              </label>
+              </Label>
             ))}
           </div>
         </fieldset>

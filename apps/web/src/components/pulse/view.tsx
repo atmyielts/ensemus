@@ -1,3 +1,5 @@
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
 import Link from 'next/link';
 import type { PulsePartial, PulseSignalView } from '@ensemus/application/pulse';
 import type { PulseEvidence, PulseSignalKind } from '@ensemus/domain/pulse';
@@ -140,12 +142,12 @@ export function PulseSignalRow({
               <form action={setPulseSignalStateAction} className="inline-form">
                 {hidden(organizationId, signal)}
                 <input type="hidden" name="state" value="snoozed" />
-                <label htmlFor={`${labelId}-days`}>Snooze for</label>
-                <select id={`${labelId}-days`} name="days" defaultValue="1">
+                <Label htmlFor={`${labelId}-days`}>Snooze for</Label>
+                <NativeSelect id={`${labelId}-days`} name="days" defaultValue="1">
                   <option value="1">1 day</option>
                   <option value="7">7 days</option>
                   <option value="30">30 days</option>
-                </select>
+                </NativeSelect>
                 <SubmitButton className="secondary" label={controlName('Snooze for me', signal)}>
                   Snooze for me
                 </SubmitButton>

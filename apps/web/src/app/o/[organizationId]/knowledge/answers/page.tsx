@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import { AppError } from '@ensemus/application';
 import { listMyAnswers } from '@ensemus/application/knowledge/answers';
 import Link from 'next/link';
@@ -45,25 +46,27 @@ export default async function AnswersPage({
           it came from.
         </Empty>
       ) : (
-        <section className="card" aria-labelledby="answers-heading">
-          <h2 id="answers-heading" className="visually-hidden">
-            Your questions
-          </h2>
-          <ul className="list">
-            {page.items.map((answer) => (
-              <li key={answer.id}>
-                <div>
-                  <Link href={`/o/${organizationId}/knowledge/answers/${answer.id}`}>
-                    {answer.question}
-                  </Link>
-                  <br />
-                  <small>Asked {formatDateTime(answer.createdAt)}</small>
-                </div>
-                <StatusBadge status={answer.state} />
-              </li>
-            ))}
-          </ul>
-        </section>
+        <Card asChild>
+          <section className="card" aria-labelledby="answers-heading">
+            <h2 id="answers-heading" className="visually-hidden">
+              Your questions
+            </h2>
+            <ul className="list">
+              {page.items.map((answer) => (
+                <li key={answer.id}>
+                  <div>
+                    <Link href={`/o/${organizationId}/knowledge/answers/${answer.id}`}>
+                      {answer.question}
+                    </Link>
+                    <br />
+                    <small>Asked {formatDateTime(answer.createdAt)}</small>
+                  </div>
+                  <StatusBadge status={answer.state} />
+                </li>
+              ))}
+            </ul>
+          </section>
+        </Card>
       )}
       {page.next && (
         <p className="link-line">

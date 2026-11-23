@@ -83,16 +83,14 @@ describe('business records through the actual read routes', () => {
         })
         .returning();
       resourceId = r!.id;
-      await tx
-        .insert(externalResourceAcl)
-        .values({
-          organizationId: organization,
-          resourceId,
-          principalKind: 'user',
-          principalExternalId: 'generated-reader',
-          access: 'read',
-          membershipId: viewer.membershipId,
-        });
+      await tx.insert(externalResourceAcl).values({
+        organizationId: organization,
+        resourceId,
+        principalKind: 'user',
+        principalExternalId: 'generated-reader',
+        access: 'read',
+        membershipId: viewer.membershipId,
+      });
     });
   });
   afterAll(async () => {

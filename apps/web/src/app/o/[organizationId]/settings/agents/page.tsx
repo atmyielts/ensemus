@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import { getAgentPolicyVersion, listAgentRegistry } from '@ensemus/application/ai-agents';
 import { can } from '@ensemus/domain/policy';
 import { ActionLink, BackLink, Empty, formatDateTime, PageHead } from '@/components/ui';
@@ -39,53 +40,57 @@ export default async function AgentsPage({
     <>
       <BackLink href={`/o/${organizationId}/studio`}>Automation Studio</BackLink>
       <PageHead title="Assistant versions" description={DESCRIPTION} />
-      <section className="card" aria-labelledby="published-heading">
-        <h2 id="published-heading">Published versions</h2>
-        {versions.length === 0 ? (
-          <Empty
-            title="No assistant has been published yet"
-            action={
-              canPublish ? (
-                <ActionLink href={`/o/${organizationId}/studio/agents/new`} variant="secondary">
-                  Create an assistant
-                </ActionLink>
-              ) : undefined
-            }
-          >
-            Build one in Automation Studio. Once it has been reviewed and published, each version
-            appears here.
-          </Empty>
-        ) : (
-          <ul className="list">
-            {versions.map((version) => (
-              <li key={version.versionId} className="block">
-                <div className="spread">
-                  <strong>
-                    {version.name}, version {version.versionNumber}
-                  </strong>
-                  {version.active && <span className="badge active">Used for new runs</span>}
-                </div>
-                <small>Published {formatDateTime(version.publishedAt)}</small>
-                <details className="gap-above-small">
-                  <summary>Technical details</summary>
-                  <p className="technical-reference">SHA-256: {version.specSha256}</p>
-                  <p className="technical-reference">Policy version: {version.policyVersion}</p>
-                </details>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-      {canPublish && (
-        <section className="card settings-section" aria-labelledby="publish-heading">
-          <h2 id="publish-heading">Publish from a manifest (advanced)</h2>
-          <p className="muted">
-            Most assistants are built and published in Automation Studio. This is for an assistant
-            defined as a JSON manifest, with a passing evaluation report for that exact manifest
-            under policy version <strong>{policyVersion}</strong>, the one in force now.
-          </p>
-          <PublishForm organizationId={context.organizationId} />
+      <Card asChild>
+        <section className="card" aria-labelledby="published-heading">
+          <h2 id="published-heading">Published versions</h2>
+          {versions.length === 0 ? (
+            <Empty
+              title="No assistant has been published yet"
+              action={
+                canPublish ? (
+                  <ActionLink href={`/o/${organizationId}/studio/agents/new`} variant="secondary">
+                    Create an assistant
+                  </ActionLink>
+                ) : undefined
+              }
+            >
+              Build one in Automation Studio. Once it has been reviewed and published, each version
+              appears here.
+            </Empty>
+          ) : (
+            <ul className="list">
+              {versions.map((version) => (
+                <li key={version.versionId} className="block">
+                  <div className="spread">
+                    <strong>
+                      {version.name}, version {version.versionNumber}
+                    </strong>
+                    {version.active && <span className="badge active">Used for new runs</span>}
+                  </div>
+                  <small>Published {formatDateTime(version.publishedAt)}</small>
+                  <details className="gap-above-small">
+                    <summary>Technical details</summary>
+                    <p className="technical-reference">SHA-256: {version.specSha256}</p>
+                    <p className="technical-reference">Policy version: {version.policyVersion}</p>
+                  </details>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
+      </Card>
+      {canPublish && (
+        <Card asChild>
+          <section className="card settings-section" aria-labelledby="publish-heading">
+            <h2 id="publish-heading">Publish from a manifest (advanced)</h2>
+            <p className="muted">
+              Most assistants are built and published in Automation Studio. This is for an assistant
+              defined as a JSON manifest, with a passing evaluation report for that exact manifest
+              under policy version <strong>{policyVersion}</strong>, the one in force now.
+            </p>
+            <PublishForm organizationId={context.organizationId} />
+          </section>
+        </Card>
       )}
     </>
   );

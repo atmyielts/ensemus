@@ -1,3 +1,5 @@
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 /** Shared native form for both authority requests. Every spending ceiling is entered explicitly. */
 export function ModelBoundsFields({ qualification = false }: { qualification?: boolean }) {
   return (
@@ -7,9 +9,9 @@ export function ModelBoundsFields({ qualification = false }: { qualification?: b
         Limits apply to each job and remain subject to the organization budget and model policy. One
         US dollar is 1,000,000 micro-USD.
       </p>
-      <label>
+      <Label>
         Maximum calls
-        <input
+        <Input
           name="maxCalls"
           type="number"
           required
@@ -17,27 +19,27 @@ export function ModelBoundsFields({ qualification = false }: { qualification?: b
           max="1000"
           {...(qualification ? { value: 1, readOnly: true } : {})}
         />
-      </label>
-      <label>
+      </Label>
+      <Label>
         Maximum input tokens per call
-        <input name="maxInputTokens" type="number" required min="1" max="2147483647" />
-      </label>
-      <label>
+        <Input name="maxInputTokens" type="number" required min="1" max="2147483647" />
+      </Label>
+      <Label>
         Maximum output tokens per call
-        <input name="maxOutputTokens" type="number" required min="1" max="2147483647" />
-      </label>
-      <label>
+        <Input name="maxOutputTokens" type="number" required min="1" max="2147483647" />
+      </Label>
+      <Label>
         Maximum total tokens per job
-        <input name="maxTotalTokens" type="number" required min="1" max="9007199254740991" />
-      </label>
-      <label>
+        <Input name="maxTotalTokens" type="number" required min="1" max="9007199254740991" />
+      </Label>
+      <Label>
         Maximum cost per job (micro-USD)
-        <input name="maxCostMicros" type="number" required min="0" max="9007199254740991" />
-      </label>
-      <label>
+        <Input name="maxCostMicros" type="number" required min="0" max="9007199254740991" />
+      </Label>
+      <Label>
         Time limit per job (seconds)
-        <input name="timeoutSeconds" type="number" required min="1" max="86400" />
-      </label>
+        <Input name="timeoutSeconds" type="number" required min="1" max="86400" />
+      </Label>
     </fieldset>
   );
 }

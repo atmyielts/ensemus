@@ -16,8 +16,8 @@ export default function HelpPage() {
         <h1>Help</h1>
         {sections.length === 0 ? (
           <Empty>
-            This version of Ensemus has no help pages yet. If you need help now, ask an administrator
-            in your organization.
+            This version of Ensemus has no help pages yet. If you need help now, ask an
+            administrator in your organization.
           </Empty>
         ) : (
           sections.map(({ section, pages }) => (

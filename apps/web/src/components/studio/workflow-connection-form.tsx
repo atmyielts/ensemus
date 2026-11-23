@@ -1,4 +1,6 @@
 'use client';
+import { Label } from '@/components/ui/label';
+
 import { useActionState, useEffect, useRef, useState } from 'react';
 import {
   removeWorkflowConnectionAction,
@@ -75,10 +77,10 @@ export function RemoveWorkflowConnection({
           saved editor.
         </p>
       </noscript>
-      <label className="check">
+      <Label className="check">
         <input type="checkbox" name="confirmed" value="yes" required />
         Remove only this connection to missing points.
-      </label>
+      </Label>
       <div>
         <SubmitButton className="secondary" working="Removing the saved connection">
           Remove this connection

@@ -128,7 +128,9 @@ const withGraph = (graph: PackGraph): DepartmentPackManifest => ({
 });
 const withAnswers = (change: Partial<typeof answers>): DepartmentPackManifest => ({
   ...pack,
-  agentDrafts: [{ key: 'campaign_planner', name: 'Campaign planner', answers: { ...answers, ...change } }],
+  agentDrafts: [
+    { key: 'campaign_planner', name: 'Campaign planner', answers: { ...answers, ...change } },
+  ],
 });
 
 describe('the review rules', () => {
@@ -184,7 +186,9 @@ describe('the review rules', () => {
         objectTypes: [
           {
             ...object0,
-            fields: [{ key: 'stage', label: 'Stage', kind: 'enum', required: false, indexed: false }],
+            fields: [
+              { key: 'stage', label: 'Stage', kind: 'enum', required: false, indexed: false },
+            ],
           },
         ],
       },
@@ -232,7 +236,10 @@ describe('the review rules', () => {
       'CAPABILITY_UNKNOWN_ITEM',
       {
         ...pack,
-        capabilities: [{ ...pack.capabilities[0]!, requiredBy: ['nothing'] }, ...pack.capabilities.slice(1)],
+        capabilities: [
+          { ...pack.capabilities[0]!, requiredBy: ['nothing'] },
+          ...pack.capabilities.slice(1),
+        ],
       },
     ],
     [
@@ -246,10 +253,7 @@ describe('the review rules', () => {
       'CAPABILITY_EFFECT_NOT_ELEVATED',
       {
         ...pack,
-        capabilities: [
-          ...pack.capabilities.slice(0, 2),
-          { ...pack.capabilities[2]!, risk: 'low' },
-        ],
+        capabilities: [...pack.capabilities.slice(0, 2), { ...pack.capabilities[2]!, risk: 'low' }],
       },
     ],
     ['TOOL_NOT_ASKED', withAnswers({ toolIds: ['documents.search'] })],
@@ -265,11 +269,7 @@ describe('the review rules', () => {
       'PROCESS_EFFECT_WITHOUT_APPROVAL',
       withGraph({
         ...safeGraph,
-        edges: [
-          { from: 's', to: 'send' },
-          { from: 'send', to: 'e' },
-          ...safeGraph.edges,
-        ],
+        edges: [{ from: 's', to: 'send' }, { from: 'send', to: 'e' }, ...safeGraph.edges],
       }),
     ],
     [
@@ -304,7 +304,12 @@ describe('the review rules', () => {
       {
         ...pack,
         processes: [
-          { key: 'campaign_review', name: 'Review', classification: 'restricted', graph: safeGraph },
+          {
+            key: 'campaign_review',
+            name: 'Review',
+            classification: 'restricted',
+            graph: safeGraph,
+          },
         ],
       },
     ],
@@ -418,9 +423,9 @@ describe('the rollback rules', () => {
   });
 
   it('refuse changing what is already there underneath', () => {
-    expect(
-      upgrade({ objectTypes: [{ ...object0, classification: 'public' }] }),
-    ).toContain('UPGRADE_CHANGES_CLASS');
+    expect(upgrade({ objectTypes: [{ ...object0, classification: 'public' }] })).toContain(
+      'UPGRADE_CHANGES_CLASS',
+    );
     expect(
       upgrade({
         objectTypes: [

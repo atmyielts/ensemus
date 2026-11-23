@@ -129,7 +129,9 @@ export function createClientAddressWatch(options: ClientAddressWatchOptions): Cl
 
       // A public or unreadable first address is never kept: anything after it is a second address.
       const sameAddress =
-        soleAddress === undefined ? isNonPublicAddress(clientAddress) : soleAddress === clientAddress;
+        soleAddress === undefined
+          ? isNonPublicAddress(clientAddress)
+          : soleAddress === clientAddress;
       if (!sameAddress) {
         ruledOut = true;
         rememberNothing();

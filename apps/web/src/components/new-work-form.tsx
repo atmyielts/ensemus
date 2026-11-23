@@ -1,4 +1,8 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { NativeSelect } from '@/components/ui/native-select';
 
 import Link from 'next/link';
 import { useActionState, useEffect, useRef } from 'react';
@@ -64,7 +68,7 @@ export function NewWorkForm({
       <form ref={form} className="card fields" action={action}>
         <input type="hidden" name="organizationId" value={organizationId} />
         <input type="hidden" name="requestKey" value={requestKey} />
-        <label>
+        <Label>
           What should be true when this is done?
           <small>A short title, such as “The spring brochure is printed”.</small>
           {state.field === 'title' && (
@@ -72,7 +76,7 @@ export function NewWorkForm({
               Write what should be true when this is done. It cannot be only spaces.
             </small>
           )}
-          <input
+          <Input
             name="title"
             required
             maxLength={300}
@@ -81,13 +85,13 @@ export function NewWorkForm({
             aria-invalid={state.field === 'title'}
             aria-describedby={state.field === 'title' ? 'title-error' : undefined}
           />
-        </label>
-        <label>
+        </Label>
+        <Label>
           Details
           <small>Optional. Anything someone needs to know to do this well.</small>
-          <textarea name="objective" maxLength={10000} defaultValue={values?.objective ?? ''} />
-        </label>
-        <label>
+          <Textarea name="objective" maxLength={10000} defaultValue={values?.objective ?? ''} />
+        </Label>
+        <Label>
           Due date
           <small>Optional.</small>
           {state.field === 'dueAt' && (
@@ -95,20 +99,20 @@ export function NewWorkForm({
               That is not a date.
             </small>
           )}
-          <input
+          <Input
             name="dueAt"
             type="date"
             defaultValue={values?.dueAt ?? ''}
             aria-invalid={state.field === 'dueAt'}
             aria-describedby={state.field === 'dueAt' ? 'due-error' : undefined}
           />
-        </label>
+        </Label>
         {projects.length > 0 && (
-          <label>
+          <Label>
             Project
             <small>Optional.</small>
             {/* The key brings a refused choice back: React only reads defaultValue on a new select. */}
-            <select
+            <NativeSelect
               key={values?.projectId ?? ''}
               name="projectId"
               defaultValue={values?.projectId ?? ''}
@@ -119,8 +123,8 @@ export function NewWorkForm({
                   {project.clientName ? `${project.name} (${project.clientName})` : project.name}
                 </option>
               ))}
-            </select>
-          </label>
+            </NativeSelect>
+          </Label>
         )}
         <div className="form-section">
           <h2 id="who-can-see-heading">Who can see this</h2>
@@ -134,7 +138,7 @@ export function NewWorkForm({
             </small>
             <div className="choice-list">
               {WHO_CAN_SEE.map((option) => (
-                <label key={option.value} className="choice">
+                <Label key={option.value} className="choice">
                   <input
                     type="radio"
                     name="classification"
@@ -144,7 +148,7 @@ export function NewWorkForm({
                   />
                   <strong>{option.label}</strong>
                   <small>{option.who}</small>
-                </label>
+                </Label>
               ))}
             </div>
           </fieldset>
@@ -160,7 +164,7 @@ export function NewWorkForm({
               It cannot be marked done until what you tick is true. Tick nothing, and its owner
               confirms it themselves.
             </small>
-            <label className="check">
+            <Label className="check">
               <input
                 type="checkbox"
                 name="criteria"
@@ -168,8 +172,8 @@ export function NewWorkForm({
                 defaultChecked={ticked('artifact_exists')}
               />
               Someone attaches a file
-            </label>
-            <label className="check">
+            </Label>
+            <Label className="check">
               <input
                 type="checkbox"
                 name="criteria"
@@ -177,10 +181,10 @@ export function NewWorkForm({
                 defaultChecked={ticked('reviewer_approved')}
               />
               A reviewer approves
-            </label>
+            </Label>
             {/* Only with a connection that can act. With none, nothing could ever satisfy it. */}
             {canAskForReceipt && (
-              <label className="check">
+              <Label className="check">
                 <input
                   type="checkbox"
                   name="criteria"
@@ -188,14 +192,14 @@ export function NewWorkForm({
                   defaultChecked={ticked('external_receipt')}
                 />
                 The outside system confirms it happened
-              </label>
+              </Label>
             )}
           </fieldset>
         </div>
         <div className="form-section">
           <h2 id="plan-heading">How it gets done</h2>
           <fieldset className="group" aria-labelledby="plan-heading" aria-describedby="plan-help">
-            <label className="check">
+            <Label className="check">
               <input
                 type="checkbox"
                 name="executionPlan"
@@ -203,7 +207,7 @@ export function NewWorkForm({
                 defaultChecked={values?.executionPlan ?? false}
               />
               Ensemus runs the checklist plan
-            </label>
+            </Label>
             <small id="plan-help">
               Leave this off and people do the work and update it. Turn it on and, once someone
               presses Run the plan, Ensemus adds a checklist, asks for any review and sends the work

@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import { listPublishReviews, type PublishReviewView } from '@ensemus/application/publish-reviews';
 import Link from 'next/link';
 import {
@@ -57,32 +58,34 @@ export default async function ReviewsPage({
         ))}
       </nav>
       {reviews.length ? (
-        <div className="card">
-          <ul className="list" aria-label="Publication reviews">
-            {reviews.map((review) => (
-              <li key={review.id}>
-                <span>
-                  <Link href={`${base}/reviews/${review.id}`}>
-                    {review.subjectName ??
-                      (review.subjectKind === 'agent_draft'
-                        ? 'Assistant review'
-                        : 'Workflow review')}
-                  </Link>
-                  <br />
-                  <small>
-                    {review.subjectKind === 'agent_draft' ? 'Assistant' : 'Workflow'} · Requested{' '}
-                    {formatDateTime(review.createdAt)}
-                    {review.riskLevel === 'elevated'
-                      ? ' · Needs someone other than the requester'
-                      : ''}
-                  </small>
-                </span>
-                <StatusBadge status={review.status} />
-              </li>
-            ))}
-          </ul>
-          <p className="studio-next-step">The 200 most recent reviews you can read are shown.</p>
-        </div>
+        <Card asChild>
+          <div className="card">
+            <ul className="list" aria-label="Publication reviews">
+              {reviews.map((review) => (
+                <li key={review.id}>
+                  <span>
+                    <Link href={`${base}/reviews/${review.id}`}>
+                      {review.subjectName ??
+                        (review.subjectKind === 'agent_draft'
+                          ? 'Assistant review'
+                          : 'Workflow review')}
+                    </Link>
+                    <br />
+                    <small>
+                      {review.subjectKind === 'agent_draft' ? 'Assistant' : 'Workflow'} · Requested{' '}
+                      {formatDateTime(review.createdAt)}
+                      {review.riskLevel === 'elevated'
+                        ? ' · Needs someone other than the requester'
+                        : ''}
+                    </small>
+                  </span>
+                  <StatusBadge status={review.status} />
+                </li>
+              ))}
+            </ul>
+            <p className="studio-next-step">The 200 most recent reviews you can read are shown.</p>
+          </div>
+        </Card>
       ) : (
         <Empty
           title={status === 'all' ? 'No reviews yet' : 'No reviews in this view'}

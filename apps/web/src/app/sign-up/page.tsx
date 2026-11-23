@@ -1,3 +1,5 @@
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { KeptInput } from '@/components/kept-field';
@@ -35,17 +37,17 @@ export default async function SignUpPage({
         )}
         <form className="fields" action={signUpAction}>
           {next && <input type="hidden" name="next" value={next} />}
-          <label>
+          <Label>
             Name
             <KeptInput keep="name" name="name" autoComplete="name" required />
-          </label>
-          <label>
+          </Label>
+          <Label>
             Email
             <KeptInput keep="email" name="email" type="email" autoComplete="username" required />
-          </label>
-          <label>
+          </Label>
+          <Label>
             Password
-            <input
+            <Input
               name="password"
               type="password"
               autoComplete="new-password"
@@ -53,7 +55,7 @@ export default async function SignUpPage({
               required
             />
             <small>At least 12 characters. A short sentence is easy to remember.</small>
-          </label>
+          </Label>
           <div>
             <SubmitButton working="Creating your account">Create account</SubmitButton>
           </div>

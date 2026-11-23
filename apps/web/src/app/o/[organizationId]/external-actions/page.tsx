@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import {
   AppError,
   listExternalActions,
@@ -67,48 +68,52 @@ export default async function ExternalActionsPage({
       <ErrorNotice code={error} />
       <div className="stack">
         {needingReview.length > 0 && (
-          <section className="card" aria-labelledby="decision-heading">
-            <h2 id="decision-heading">Needs a decision</h2>
-            <p className="notice unknown">
-              Nobody can say whether these were sent, and Ensemus will not try them again by itself.
-              Open each one to see what to look for, then record what you found.
-            </p>
-            <ul className="list">
-              {needingReview.map((action) => (
-                <ActionRow key={action.id} base={base} action={action} />
-              ))}
-            </ul>
-          </section>
+          <Card asChild>
+            <section className="card" aria-labelledby="decision-heading">
+              <h2 id="decision-heading">Needs a decision</h2>
+              <p className="notice unknown">
+                Nobody can say whether these were sent, and Ensemus will not try them again by
+                itself. Open each one to see what to look for, then record what you found.
+              </p>
+              <ul className="list">
+                {needingReview.map((action) => (
+                  <ActionRow key={action.id} base={base} action={action} />
+                ))}
+              </ul>
+            </section>
+          </Card>
         )}
-        <section className="card" aria-labelledby="everything-heading">
-          <h2 id="everything-heading">Everything you can see</h2>
-          {page.items.length === 0 ? (
-            <Empty
-              action={
-                <ActionLink href={`${base}/work`} variant="secondary">
-                  Go to your work
-                </ActionLink>
-              }
-            >
-              {after
-                ? 'Nothing further.'
-                : 'Nothing yet. When someone proposes an email on a piece of work, it appears here with how it went.'}
-            </Empty>
-          ) : (
-            <ul className="list">
-              {page.items.map((action) => (
-                <ActionRow key={action.id} base={base} action={action} />
-              ))}
-            </ul>
-          )}
-          {page.next && (
-            <p className="gap-above link-line">
-              <Link href={`${base}/external-actions?after=${encodeURIComponent(page.next)}`}>
-                Show older ones
-              </Link>
-            </p>
-          )}
-        </section>
+        <Card asChild>
+          <section className="card" aria-labelledby="everything-heading">
+            <h2 id="everything-heading">Everything you can see</h2>
+            {page.items.length === 0 ? (
+              <Empty
+                action={
+                  <ActionLink href={`${base}/work`} variant="secondary">
+                    Go to your work
+                  </ActionLink>
+                }
+              >
+                {after
+                  ? 'Nothing further.'
+                  : 'Nothing yet. When someone proposes an email on a piece of work, it appears here with how it went.'}
+              </Empty>
+            ) : (
+              <ul className="list">
+                {page.items.map((action) => (
+                  <ActionRow key={action.id} base={base} action={action} />
+                ))}
+              </ul>
+            )}
+            {page.next && (
+              <p className="gap-above link-line">
+                <Link href={`${base}/external-actions?after=${encodeURIComponent(page.next)}`}>
+                  Show older ones
+                </Link>
+              </p>
+            )}
+          </section>
+        </Card>
       </div>
     </>
   );

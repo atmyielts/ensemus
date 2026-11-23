@@ -1,4 +1,8 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
+
 import { useActionState, useEffect, useId, useRef } from 'react';
 import type { ProcessDraftView } from '@ensemus/application/process-specs';
 import type { ProcessGraph, ProcessGraphNode } from '@ensemus/domain/process-spec';
@@ -74,12 +78,12 @@ export function WorkflowDetailsForm({
           <input type="hidden" name="version" value={kept.version ?? draft.version} />
         </>
       )}
-      <label htmlFor={`${prefix}-name`}>
+      <Label htmlFor={`${prefix}-name`}>
         <span id={`${prefix}-name-label`}>Workflow name</span>
         <small id={`${prefix}-name-help`}>
           What the process is, such as “Approve a new supplier”.
         </small>
-        <input
+        <Input
           id={`${prefix}-name`}
           name="name"
           required
@@ -88,13 +92,13 @@ export function WorkflowDetailsForm({
           aria-describedby={`${prefix}-name-help`}
           defaultValue={value('name', draft?.name)}
         />
-      </label>
+      </Label>
       <fieldset className="group">
         <legend>Who can see this</legend>
         <small>This covers the workflow and the names of its steps.</small>
         <div className="choice-list">
           {CLASSIFICATIONS.map(([key, name, help]) => (
-            <label className="choice" key={key}>
+            <Label className="choice" key={key}>
               <input
                 type="radio"
                 name="classification"
@@ -103,7 +107,7 @@ export function WorkflowDetailsForm({
               />
               <strong>{name}</strong>
               <small>{help}</small>
-            </label>
+            </Label>
           ))}
         </div>
       </fieldset>
@@ -184,16 +188,16 @@ export function WorkflowPointForm({
       <input type="hidden" name="requestKey" value={value('requestKey', requestKey)} />
       <input type="hidden" name="mode" value={node ? 'update' : 'add'} />
       <input type="hidden" name="nodeId" value={nodeId} />
-      <label htmlFor={`${prefix}-label`}>Point name</label>
-      <input
+      <Label htmlFor={`${prefix}-label`}>Point name</Label>
+      <Input
         id={`${prefix}-label`}
         name="label"
         required
         maxLength={120}
         defaultValue={value('label', node?.label)}
       />
-      <label htmlFor={`${prefix}-kind`}>What happens here?</label>
-      <select
+      <Label htmlFor={`${prefix}-kind`}>What happens here?</Label>
+      <NativeSelect
         id={`${prefix}-kind`}
         name="kind"
         defaultValue={selectedKind}
@@ -209,7 +213,7 @@ export function WorkflowPointForm({
             {label}
           </option>
         ))}
-      </select>
+      </NativeSelect>
       <p id={`${prefix}-kind-help`} className="muted">
         Start and Finish mark the beginning and the end. Every other point is work for a person, a
         task for an assistant, an approval, a proposed action or a check. You can save a draft that
@@ -220,8 +224,8 @@ export function WorkflowPointForm({
         <p className="muted">
           Fill in the setting that matches the kind you chose above. The others are ignored.
         </p>
-        <label htmlFor={`${prefix}-agent`}>For an assistant point: published assistant</label>
-        <select
+        <Label htmlFor={`${prefix}-agent`}>For an assistant point: published assistant</Label>
+        <NativeSelect
           id={`${prefix}-agent`}
           name="agentDefinitionId"
           defaultValue={selectedAgent}
@@ -238,7 +242,7 @@ export function WorkflowPointForm({
               {a.name} · Offered version {a.versionNumber}
             </option>
           ))}
-        </select>
+        </NativeSelect>
         <p id={`${prefix}-agent-help`} className="muted">
           {choices.agents === null
             ? 'The list of published assistants cannot be read right now. Try again later.'
@@ -246,8 +250,8 @@ export function WorkflowPointForm({
               ? 'When this step starts, it uses the published version of the assistant at that moment. Editing starts nothing.'
               : 'No published assistant is offered yet. Publish one first, or make this work for a person.'}
         </p>
-        <label htmlFor={`${prefix}-tool`}>For an outside-action point: action to propose</label>
-        <select
+        <Label htmlFor={`${prefix}-tool`}>For an outside-action point: action to propose</Label>
+        <NativeSelect
           id={`${prefix}-tool`}
           name="toolId"
           defaultValue={selectedTool}
@@ -264,14 +268,14 @@ export function WorkflowPointForm({
               {tool.name}
             </option>
           ))}
-        </select>
+        </NativeSelect>
         <p id={`${prefix}-tool-help`} className="muted">
           {choices.tools === null
             ? 'The list of outside actions cannot be read right now.'
             : 'Every path to this point has to pass an approval first. When it runs, a person still approves the exact action, and it needs a working connection. Editing sends nothing.'}
         </p>
-        <label htmlFor={`${prefix}-approver`}>For an approval point: who may decide?</label>
-        <select
+        <Label htmlFor={`${prefix}-approver`}>For an approval point: who may decide?</Label>
+        <NativeSelect
           id={`${prefix}-approver`}
           name="approverRole"
           defaultValue={selectedApprover}
@@ -296,13 +300,13 @@ export function WorkflowPointForm({
           {selectedApprover === 'starter_manager' && (
             <option value="starter_manager">Saved manager selection — unavailable here</option>
           )}
-        </select>
+        </NativeSelect>
         <p id={`${prefix}-approver-help`} className="muted">
           The approver has to be able to read the work and cannot be the person asking. This chooses
           how the approver is found; it does not assign anyone.
         </p>
-        <label htmlFor={`${prefix}-evidence`}>For an evidence point: what must exist?</label>
-        <select id={`${prefix}-evidence`} name="evidence" defaultValue={selectedEvidence}>
+        <Label htmlFor={`${prefix}-evidence`}>For an evidence point: what must exist?</Label>
+        <NativeSelect id={`${prefix}-evidence`} name="evidence" defaultValue={selectedEvidence}>
           {selectedEvidence &&
             !Object.hasOwn(
               { artifact_attached: true, external_receipt: true, reviewer_approved: true },
@@ -316,7 +320,7 @@ export function WorkflowPointForm({
           <option value="artifact_attached">A file attached to the work</option>
           <option value="external_receipt">A verified outside-action receipt</option>
           <option value="reviewer_approved">The current result has human approval</option>
-        </select>
+        </NativeSelect>
       </details>
       <details open={!node}>
         <summary>What comes before and after</summary>
@@ -329,7 +333,7 @@ export function WorkflowPointForm({
           <legend>Before this point (all must finish)</legend>
           {previousChoices.length ? (
             previousChoices.map((point) => (
-              <label className="check" key={point.id}>
+              <Label className="check" key={point.id}>
                 <input
                   type="checkbox"
                   name="previous"
@@ -337,7 +341,7 @@ export function WorkflowPointForm({
                   defaultChecked={previous.includes(point.id)}
                 />
                 {point.label}
-              </label>
+              </Label>
             ))
           ) : (
             <p className="muted">There are no other points yet.</p>
@@ -347,7 +351,7 @@ export function WorkflowPointForm({
           <legend>After this point (each one carries on)</legend>
           {nextChoices.length ? (
             nextChoices.map((point) => (
-              <label className="check" key={point.id}>
+              <Label className="check" key={point.id}>
                 <input
                   type="checkbox"
                   name="next"
@@ -355,14 +359,14 @@ export function WorkflowPointForm({
                   defaultChecked={next.includes(point.id)}
                 />
                 {point.label}
-              </label>
+              </Label>
             ))
           ) : (
             <p className="muted">There are no other points yet.</p>
           )}
         </fieldset>
         {!node && (
-          <label className="check">
+          <Label className="check">
             <input
               type="checkbox"
               name="replaceDirect"
@@ -371,7 +375,7 @@ export function WorkflowPointForm({
             />
             Put it in between: replace the direct links between those points. Untick to add it as an
             extra path alongside them.
-          </label>
+          </Label>
         )}
       </details>
       <div>

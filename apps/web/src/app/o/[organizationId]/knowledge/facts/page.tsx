@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import { AppError } from '@ensemus/application';
 import { listFacts } from '@ensemus/application/knowledge/facts';
 import Link from 'next/link';
@@ -45,35 +46,39 @@ export default async function FactsPage({
           the fact from it.
         </Empty>
       ) : (
-        <section className="card" aria-labelledby="facts-heading">
-          <h2 id="facts-heading" className="visually-hidden">
-            Facts
-          </h2>
-          <ul className="list">
-            {page.items.map((fact) => (
-              <li key={fact.id}>
-                <div>
-                  <Link href={`/o/${organizationId}/knowledge/facts/${fact.id}`}>
-                    {typeof fact.claim === 'string' ? fact.claim : 'Structured claim'}
-                  </Link>
-                  <br />
-                  <small>
-                    {fact.origin === 'model' ? 'Proposed by an assistant' : 'Proposed by a person'}{' '}
-                    · backed by {fact.evidence.length}{' '}
-                    {fact.evidence.length === 1 ? 'passage' : 'passages'}
-                    {fact.evidence.some((e) => e.stale) && (
-                      <> · A document has a newer version. Check the passage again.</>
-                    )}
-                  </small>
-                </div>
-                <div className="row">
-                  <ClassificationBadge value={fact.classification} />
-                  <StatusBadge status={fact.trustState} />
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
+        <Card asChild>
+          <section className="card" aria-labelledby="facts-heading">
+            <h2 id="facts-heading" className="visually-hidden">
+              Facts
+            </h2>
+            <ul className="list">
+              {page.items.map((fact) => (
+                <li key={fact.id}>
+                  <div>
+                    <Link href={`/o/${organizationId}/knowledge/facts/${fact.id}`}>
+                      {typeof fact.claim === 'string' ? fact.claim : 'Structured claim'}
+                    </Link>
+                    <br />
+                    <small>
+                      {fact.origin === 'model'
+                        ? 'Proposed by an assistant'
+                        : 'Proposed by a person'}{' '}
+                      · backed by {fact.evidence.length}{' '}
+                      {fact.evidence.length === 1 ? 'passage' : 'passages'}
+                      {fact.evidence.some((e) => e.stale) && (
+                        <> · A document has a newer version. Check the passage again.</>
+                      )}
+                    </small>
+                  </div>
+                  <div className="row">
+                    <ClassificationBadge value={fact.classification} />
+                    <StatusBadge status={fact.trustState} />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        </Card>
       )}
       {page.next && (
         <p className="link-line">

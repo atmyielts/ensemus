@@ -1,3 +1,6 @@
+import { Card } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
 import { BusinessRevisionForm } from '@/components/business-revision-form';
 import { businessRevisionFields } from '@/lib/business-revision-input';
 import { businessActionWords, BusinessActionPayload } from '@/components/business-action-payload';
@@ -98,130 +101,137 @@ export default async function ExternalActionPage({
       <PageHead title={business ?? action.subject ?? 'External action'} />
       <ErrorNotice code={error} />
       <div className="stack">
-        <section className="card" aria-labelledby="what-happened-heading">
-          <h2 id="what-happened-heading">What happened</h2>
-          <dl className="facts">
-            <div>
-              <dt>Status</dt>
-              <dd>
-                <ReceiptStatusBadge {...facts} />
-              </dd>
-            </div>
-            <div>
-              <dt>Work</dt>
-              <dd>
-                <Link href={`${base}/work/${action.workUnitId}`}>{action.workTitle}</Link>
-              </dd>
-            </div>
-            <div>
-              <dt>Goes through</dt>
-              <dd>{action.connectionName}</dd>
-            </div>
-            <div>
-              <dt>Last changed</dt>
-              <dd>{formatDateTime(action.updatedAt)}</dd>
-            </div>
-          </dl>
-          {action.status === 'unknown' ? (
-            <div className="notice unknown gap-above flush">
-              <p>{business ? businessStatusExplanation(facts) : statusExplanation(facts)}</p>
-              <p className="gap-above">
-                {business
-                  ? 'Ensemus request key: '
-                  : hint.whole
-                    ? 'Message-ID: '
-                    : 'The Message-ID starts with: '}
-                <code className="source-reference">
-                  {business ? idempotencyKeyFor(action.id) : hint.value}
-                </code>
-              </p>
-              {!action.canResolve && (
+        <Card asChild>
+          <section className="card" aria-labelledby="what-happened-heading">
+            <h2 id="what-happened-heading">What happened</h2>
+            <dl className="facts">
+              <div>
+                <dt>Status</dt>
+                <dd>
+                  <ReceiptStatusBadge {...facts} />
+                </dd>
+              </div>
+              <div>
+                <dt>Work</dt>
+                <dd>
+                  <Link href={`${base}/work/${action.workUnitId}`}>{action.workTitle}</Link>
+                </dd>
+              </div>
+              <div>
+                <dt>Goes through</dt>
+                <dd>{action.connectionName}</dd>
+              </div>
+              <div>
+                <dt>Last changed</dt>
+                <dd>{formatDateTime(action.updatedAt)}</dd>
+              </div>
+            </dl>
+            {action.status === 'unknown' ? (
+              <div className="notice unknown gap-above flush">
+                <p>{business ? businessStatusExplanation(facts) : statusExplanation(facts)}</p>
                 <p className="gap-above">
-                  The accountable owner of this work or an organization admin says what they found.
+                  {business
+                    ? 'Ensemus request key: '
+                    : hint.whole
+                      ? 'Message-ID: '
+                      : 'The Message-ID starts with: '}
+                  <code className="source-reference">
+                    {business ? idempotencyKeyFor(action.id) : hint.value}
+                  </code>
                 </p>
-              )}
-            </div>
-          ) : (
-            <p className="gap-above">
-              {business ? businessStatusExplanation(facts) : statusExplanation(facts)}
-            </p>
-          )}
-          {action.status === 'sent' && action.externalId && (
-            <p className="muted">
-              {business ? 'Source reference' : 'Message-ID'}:{' '}
-              <code className="source-reference">{action.externalId}</code>
-            </p>
-          )}
-          {action.resolutionReason && (
-            <>
-              <h3 className="gap-above-large">
-                What {action.resolvedByName ?? 'someone no longer here'} found
-              </h3>
-              <p className="pre-wrap">{action.resolutionReason}</p>
-            </>
-          )}
-          {action.approvalId && (
-            <p className="gap-above">
-              <Link href={`${base}/approvals/${action.approvalId}`}>See its approval</Link>
-            </p>
-          )}
-          {action.supersedesId && (
-            <p className="gap-above">
-              <Link href={`${base}/external-actions/${action.supersedesId}`}>
-                See the version this replaced
-              </Link>
-            </p>
-          )}
-          {action.retryOfId && (
-            <p className="gap-above">
-              <Link href={`${base}/external-actions/${action.retryOfId}`}>
-                See the action this asks for again
-              </Link>
-            </p>
-          )}
-        </section>
+                {!action.canResolve && (
+                  <p className="gap-above">
+                    The accountable owner of this work or an organization admin says what they
+                    found.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="gap-above">
+                {business ? businessStatusExplanation(facts) : statusExplanation(facts)}
+              </p>
+            )}
+            {action.status === 'sent' && action.externalId && (
+              <p className="muted">
+                {business ? 'Source reference' : 'Message-ID'}:{' '}
+                <code className="source-reference">{action.externalId}</code>
+              </p>
+            )}
+            {action.resolutionReason && (
+              <>
+                <h3 className="gap-above-large">
+                  What {action.resolvedByName ?? 'someone no longer here'} found
+                </h3>
+                <p className="pre-wrap">{action.resolutionReason}</p>
+              </>
+            )}
+            {action.approvalId && (
+              <p className="gap-above">
+                <Link href={`${base}/approvals/${action.approvalId}`}>See its approval</Link>
+              </p>
+            )}
+            {action.supersedesId && (
+              <p className="gap-above">
+                <Link href={`${base}/external-actions/${action.supersedesId}`}>
+                  See the version this replaced
+                </Link>
+              </p>
+            )}
+            {action.retryOfId && (
+              <p className="gap-above">
+                <Link href={`${base}/external-actions/${action.retryOfId}`}>
+                  See the action this asks for again
+                </Link>
+              </p>
+            )}
+          </section>
+        </Card>
 
         {action.canResolve && (
-          <section className="card" aria-labelledby="resolve-heading">
-            <h2 id="resolve-heading">Say what you found</h2>
-            <ResolveForm
-              organizationId={organizationId}
-              externalActionId={action.id}
-              version={action.version}
-            />
-          </section>
+          <Card asChild>
+            <section className="card" aria-labelledby="resolve-heading">
+              <h2 id="resolve-heading">Say what you found</h2>
+              <ResolveForm
+                organizationId={organizationId}
+                externalActionId={action.id}
+                version={action.version}
+              />
+            </section>
+          </Card>
         )}
 
         {action.canRetry && connectorsEnabled && (
-          <section className="card" aria-labelledby="retry-heading">
-            <h2 id="retry-heading">Ask for it again</h2>
-            {approvers.length === 0 ? (
-              <p className="muted">Nobody else who can see this work is able to approve it.</p>
-            ) : (
-              <form className="inline-form" action={retryExternalActionAction}>
-                <input type="hidden" name="organizationId" value={organizationId} />
-                <input type="hidden" name="id" value={action.id} />
-                <label>
-                  Who approves it this time?
-                  <select name="approverMembershipId" required defaultValue="">
-                    <option value="" disabled>
-                      Choose a person
-                    </option>
-                    {approvers.map((approver) => (
-                      <option key={approver.id} value={approver.id}>
-                        {approver.label}
+          <Card asChild>
+            <section className="card" aria-labelledby="retry-heading">
+              <h2 id="retry-heading">Ask for it again</h2>
+              {approvers.length === 0 ? (
+                <p className="muted">Nobody else who can see this work is able to approve it.</p>
+              ) : (
+                <form className="inline-form" action={retryExternalActionAction}>
+                  <input type="hidden" name="organizationId" value={organizationId} />
+                  <input type="hidden" name="id" value={action.id} />
+                  <Label>
+                    Who approves it this time?
+                    <NativeSelect name="approverMembershipId" required defaultValue="">
+                      <option value="" disabled>
+                        Choose a person
                       </option>
-                    ))}
-                  </select>
-                </label>
-                <SubmitButton className="secondary">Ask for approval</SubmitButton>
-                <small>
-                  This makes a new action with the same words, and it needs its own approval.
-                  Nothing goes until someone gives it.
-                </small>
-              </form>
-            )}
-          </section>
+                      {approvers.map((approver) => (
+                        <option key={approver.id} value={approver.id}>
+                          {approver.label}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  </Label>
+                  <SubmitButton className="secondary">Ask for approval</SubmitButton>
+                  <small>
+                    This makes a new action with the same words, and it needs its own approval.
+                    Nothing goes until someone gives it.
+                  </small>
+                </form>
+              )}
+            </section>
+          </Card>
         )}
 
         {business ? (
@@ -246,51 +256,57 @@ export default async function ExternalActionPage({
               ))}
           </>
         ) : (
-          <section className="card" aria-labelledby="exact-heading">
-            <h2 id="exact-heading">Exactly what this covers</h2>
-            <ExactEmail payload={action.payload} />
-            {action.canRevise && connectorsEnabled && mail.success && (
-              <details className="gap-above">
-                <summary>Change what would be sent</summary>
-                {approvers.length === 0 ? (
-                  <p className="muted">Nobody else who can see this work is able to approve it.</p>
-                ) : (
-                  <NewEmailForm
-                    organizationId={organizationId}
-                    target={{
-                      kind: 'revise',
-                      externalActionId: action.id,
-                      version: action.version,
-                    }}
-                    connections={[]}
-                    approvers={approvers}
-                    requestKey={randomUUID()}
-                    defaults={{
-                      to: mail.data.to.join(', '),
-                      cc: mail.data.cc?.join(', ') ?? '',
-                      bcc: mail.data.bcc?.join(', ') ?? '',
-                      replyTo: mail.data.reply_to ?? '',
-                      subject: mail.data.subject,
-                      textBody: mail.data.text_body,
-                    }}
-                  />
-                )}
-              </details>
-            )}
-          </section>
+          <Card asChild>
+            <section className="card" aria-labelledby="exact-heading">
+              <h2 id="exact-heading">Exactly what this covers</h2>
+              <ExactEmail payload={action.payload} />
+              {action.canRevise && connectorsEnabled && mail.success && (
+                <details className="gap-above">
+                  <summary>Change what would be sent</summary>
+                  {approvers.length === 0 ? (
+                    <p className="muted">
+                      Nobody else who can see this work is able to approve it.
+                    </p>
+                  ) : (
+                    <NewEmailForm
+                      organizationId={organizationId}
+                      target={{
+                        kind: 'revise',
+                        externalActionId: action.id,
+                        version: action.version,
+                      }}
+                      connections={[]}
+                      approvers={approvers}
+                      requestKey={randomUUID()}
+                      defaults={{
+                        to: mail.data.to.join(', '),
+                        cc: mail.data.cc?.join(', ') ?? '',
+                        bcc: mail.data.bcc?.join(', ') ?? '',
+                        replyTo: mail.data.reply_to ?? '',
+                        subject: mail.data.subject,
+                        textBody: mail.data.text_body,
+                      }}
+                    />
+                  )}
+                </details>
+              )}
+            </section>
+          </Card>
         )}
 
-        <section className="card" aria-labelledby="receipts-heading">
-          <h2 id="receipts-heading">Receipts</h2>
-          <p className="muted">
-            {action.attemptCount === 0
-              ? 'Ensemus has not tried to send this.'
-              : action.attemptCount === 1
-                ? 'Ensemus has tried to send this once.'
-                : `Ensemus has tried ${action.attemptCount} times, and every earlier try definitely did not go.`}
-          </p>
-          <ReceiptList receipts={action.receipts} business={business !== null} />
-        </section>
+        <Card asChild>
+          <section className="card" aria-labelledby="receipts-heading">
+            <h2 id="receipts-heading">Receipts</h2>
+            <p className="muted">
+              {action.attemptCount === 0
+                ? 'Ensemus has not tried to send this.'
+                : action.attemptCount === 1
+                  ? 'Ensemus has tried to send this once.'
+                  : `Ensemus has tried ${action.attemptCount} times, and every earlier try definitely did not go.`}
+            </p>
+            <ReceiptList receipts={action.receipts} business={business !== null} />
+          </section>
+        </Card>
 
         <details className="card">
           <summary>Technical details</summary>

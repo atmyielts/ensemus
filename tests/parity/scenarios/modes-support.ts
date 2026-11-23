@@ -176,7 +176,10 @@ export interface LedgerGroup {
 }
 
 /** Corrections are left out: they correct an entry, and are not a second charge. */
-export async function ledgerOf(su: pg.Client, organization: string): Promise<readonly LedgerGroup[]> {
+export async function ledgerOf(
+  su: pg.Client,
+  organization: string,
+): Promise<readonly LedgerGroup[]> {
   const { rows } = await su.query<LedgerGroup>(
     `select meter, billable, commercial_mode, count(*)::int as entries
        from platform.usage_ledger
@@ -425,7 +428,11 @@ export const licenseValidationFrom = (check: {
   readonly valid: boolean;
   readonly outsideContact: boolean;
 }) =>
-  !check.valid ? 'invalid' : check.outsideContact ? 'needed_outside_contact' : 'offline_certificate';
+  !check.valid
+    ? 'invalid'
+    : check.outsideContact
+      ? 'needed_outside_contact'
+      : 'offline_certificate';
 
 export const maintenanceLapseFrom = (
   check: { readonly valid: boolean },

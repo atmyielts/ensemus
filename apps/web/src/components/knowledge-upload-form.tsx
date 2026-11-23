@@ -1,4 +1,8 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
+
 import { useActionState, useEffect, useId, useRef, useState } from 'react';
 import type { Classification } from '@ensemus/domain/policy';
 import type { KnowledgeFormState } from '@/lib/knowledge-form-state';
@@ -49,7 +53,7 @@ export function KnowledgeUploadForm({
       <form className="card fields" action={action}>
         <input type="hidden" name="organizationId" value={organizationId} />
         <input type="hidden" name="requestKey" value={state.values?.requestKey ?? requestKey} />
-        <label htmlFor={prefix + '-file'}>
+        <Label htmlFor={prefix + '-file'}>
           <span id={prefix + '-file-label'}>Document</span>
           <small id={prefix + '-file-help'}>
             Text, Markdown, CSV, HTML or JSON, up to 25 MB. If saving fails, choose the file again.
@@ -63,13 +67,13 @@ export function KnowledgeUploadForm({
             accept=".txt,.md,.csv,.html,.htm,.json"
             required
           />
-        </label>
-        <label htmlFor={prefix + '-title'}>
+        </Label>
+        <Label htmlFor={prefix + '-title'}>
           <span id={prefix + '-title-label'}>Source name</span>
           <small id={prefix + '-title-help'}>
             The name people will see in search results and answers.
           </small>
-          <input
+          <Input
             id={prefix + '-title'}
             name="title"
             aria-labelledby={prefix + '-title-label'}
@@ -79,7 +83,7 @@ export function KnowledgeUploadForm({
             value={title}
             onChange={(event) => setTitle(event.currentTarget.value)}
           />
-        </label>
+        </Label>
         <div className="form-section">
           <DescribedChoices
             id={prefix + '-class'}
@@ -93,13 +97,13 @@ export function KnowledgeUploadForm({
               if (!sourceSharingChoiceAllowed(next as Classification, sharing)) setSharing('');
             }}
           />
-          <label htmlFor={prefix + '-sharing'}>
+          <Label htmlFor={prefix + '-sharing'}>
             <span id={prefix + '-sharing-label'}>Share with</span>
             <small id={prefix + '-sharing-help'}>
               {!selected ? 'Choose someone this level allows. ' : ''}You can always read it
               yourself, and you can add more people after it is saved.
             </small>
-            <select
+            <NativeSelect
               id={prefix + '-sharing'}
               name="sharing"
               aria-labelledby={prefix + '-sharing-label'}
@@ -114,8 +118,8 @@ export function KnowledgeUploadForm({
                   {option.label}
                 </option>
               ))}
-            </select>
-          </label>
+            </NativeSelect>
+          </Label>
           <noscript>
             <p className="notice">
               To share with a team without JavaScript, add the document first, then use Source

@@ -105,9 +105,9 @@ describe.skipIf(!sinkFile)(`what the web tier sends a collector (${NEEDS_SINK})`
 
   it('does not send a name, an email or the password', () => {
     const [localPart] = person.email.split('@') as [string];
-    expect(
-      leaksIn(raw, [personName, organizationName, person.email, localPart, PASSWORD]),
-    ).toEqual([]);
+    expect(leaksIn(raw, [personName, organizationName, person.email, localPart, PASSWORD])).toEqual(
+      [],
+    );
     expect(emailsIn(raw)).toEqual([]);
     expect(leaksIn(raw, ['example.invalid'])).toEqual([]);
   });

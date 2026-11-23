@@ -155,7 +155,7 @@ describe('the product through its forms', () => {
       const home = await read(`/o/${id}`, person.jar);
       expect(home.status).toBe(200);
       expect(home.html).toContain(name);
-      expect(home.html).toContain('Hello, Second');
+      expect(home.html).toContain('My work');
       expect(await visit(`/o/${id}/work/new`, person.jar).then((r) => r.status)).toBe(200);
     });
 
@@ -679,7 +679,7 @@ describe('the product through its forms', () => {
       const title = `Title ${randomUUID()}`;
       const id = await createWork(owner, { title });
       for (const [path, expected] of [
-        [`/o/${org}`, 'Home | Ensemus'],
+        [`/o/${org}`, 'My work | Ensemus'],
         [`/o/${org}/work`, 'Work | Ensemus'],
         [`/o/${org}/approvals`, 'Approvals | Ensemus'],
         [people(org), 'People and teams | Ensemus'],

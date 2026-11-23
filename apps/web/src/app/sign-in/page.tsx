@@ -1,3 +1,5 @@
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import Link from 'next/link';
 import { KeptInput } from '@/components/kept-field';
 import { SubmitButton } from '@/components/submit-button';
@@ -33,14 +35,14 @@ export default async function SignInPage({
         )}
         <form className="fields" action={signInAction}>
           {next && <input type="hidden" name="next" value={next} />}
-          <label>
+          <Label>
             Email
             <KeptInput keep="email" name="email" type="email" autoComplete="username" required />
-          </label>
-          <label>
+          </Label>
+          <Label>
             Password
-            <input name="password" type="password" autoComplete="current-password" required />
-          </label>
+            <Input name="password" type="password" autoComplete="current-password" required />
+          </Label>
           <div>
             <SubmitButton working="Signing in">Sign in</SubmitButton>
           </div>
