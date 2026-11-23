@@ -89,6 +89,7 @@ class MemoryStore implements ObjectStore, LedgerReader {
 
 describe('the tombstone ledger', () => {
   let app: ReturnType<typeof openAppDatabase>;
+  let worker: ReturnType<typeof openAppDatabase>;
   let dispatcher: ReturnType<typeof openDispatcherDatabase>;
   let su: pg.Client;
   let auth: pg.Client;
@@ -186,6 +187,7 @@ describe('the tombstone ledger', () => {
 
   beforeAll(async () => {
     app = openAppDatabase(urls.app());
+    worker = openAppDatabase(urls.worker());
     dispatcher = openDispatcherDatabase(urls.dispatcher());
     su = new pg.Client({ connectionString: urls.superuser() });
     await su.connect();
@@ -195,6 +197,7 @@ describe('the tombstone ledger', () => {
 
   afterAll(async () => {
     await app?.close();
+    await worker?.close();
     await dispatcher?.close();
     await su?.end();
     await auth?.end();
@@ -489,7 +492,7 @@ describe('the tombstone ledger', () => {
       const { gate, pass } = gateOver(store);
       await expect(gate.assertServing(a)).rejects.toEqual(closed);
 
-      await reapplyTombstoneLedger(db(), store, createServiceContext);
+      await reapplyTombstoneLedger(worker.db, store, createServiceContext);
       // A closed answer is remembered only briefly.
       pass(2_001);
       await expect(gate.assertServing(a)).resolves.toBeUndefined();
@@ -804,19 +807,37 @@ describe('the tombstone ledger', () => {
       it('goes back to refusing at the first request once the store is quick again', async () => {
         const a = await newOrg();
         const held = heldStore();
-        const { gate, pass } = slowGate(held.reader);
+        let clock = 1_000_000;
+        let clockReads = 0;
+        const gate = createRestoreGate({
+          database: db(),
+          store: held.reader,
+          now: () => {
+            clockReads += 1;
+            return clock;
+          },
+          // Keep room for actual database round trips on loaded qualification hosts.
+          waitMs: 3_000,
+          recheckWaitMs: 2_500,
+        });
         held.hold();
         await gate.assertServing(a);
+        const beforeFirstRelease = clockReads;
         held.release();
-        await settled();
+        // The gate reads the clock to publish its completed check in the cache.
+        await expect.poll(() => clockReads).toBeGreaterThan(beforeFirstRelease);
 
-        // This check runs behind the request and finds the store quick.
-        pass(30_001);
+        // This check runs behind the request and finds the store quick. Keep it held
+        // until the request returns, then observe cache publication before advancing time.
+        held.hold();
+        clock += 30_001;
         await gate.assertServing(a);
-        await settled();
+        const beforeSecondRelease = clockReads;
+        held.release();
+        await expect.poll(() => clockReads).toBeGreaterThan(beforeSecondRelease);
 
         inLedger(held.store, a.organizationId, randomUUID());
-        pass(30_001);
+        clock += 30_001;
         await expect(gate.assertServing(a)).rejects.toEqual(closed);
       });
 
@@ -867,7 +888,7 @@ describe('the tombstone ledger', () => {
       ).toBe('doomed.txt');
 
       const result = await reapplyTombstoneLedger(
-        db(),
+        worker.db,
         store,
         createServiceContext,
         undefined,
@@ -923,14 +944,19 @@ describe('the tombstone ledger', () => {
       const doomed = await file(a, store, work.id);
       inLedger(store, a.organizationId, doomed.id);
       withoutBytes(store, a.organizationId, doomed.id);
-      const first = await reapplyTombstoneLedger(db(), store, createServiceContext);
+      const first = await reapplyTombstoneLedger(worker.db, store, createServiceContext);
       expect(first.tombstonesAdded).toBeGreaterThanOrEqual(1);
       const before = await stateOf(a.organizationId);
       const objects = [...store.objects.keys()].sort();
 
-      const second = await reapplyTombstoneLedger(db(), store, createServiceContext, (error) => {
-        throw error;
-      });
+      const second = await reapplyTombstoneLedger(
+        worker.db,
+        store,
+        createServiceContext,
+        (error) => {
+          throw error;
+        },
+      );
       expect(second).toEqual({
         entries: first.entries,
         tombstonesAdded: 0,
@@ -952,14 +978,14 @@ describe('the tombstone ledger', () => {
       const doomed = await file(a, store, work.id);
       inLedger(store, a.organizationId, doomed.id);
       withoutBytes(store, a.organizationId, doomed.id);
-      await reapplyTombstoneLedger(db(), store, createServiceContext);
+      await reapplyTombstoneLedger(worker.db, store, createServiceContext);
       const before = await stateOf(a.organizationId);
 
       // An object store rolled back separately from the database. The database's own tombstone says
       // this file was deleted, so this needs nobody's word for it.
       const key = objectKey(a.organizationId, doomed.id);
       store.objects.set(key, Buffer.from('back again'));
-      const again = await reapplyTombstoneLedger(db(), store, createServiceContext);
+      const again = await reapplyTombstoneLedger(worker.db, store, createServiceContext);
       expect(again.bytesRemoved).toBe(1);
       expect(store.objects.has(key)).toBe(false);
       expect(await stateOf(a.organizationId)).toEqual(before);
@@ -974,7 +1000,7 @@ describe('the tombstone ledger', () => {
       // An entry filed under one organization, naming a file that belongs to another.
       inLedger(store, a.organizationId, victim.id);
 
-      await reapplyTombstoneLedger(db(), store, createServiceContext);
+      await reapplyTombstoneLedger(worker.db, store, createServiceContext);
 
       expect(
         (await readArtifact(db(), store, b, { workUnitId: theirs.id, artifactId: victim.id })).name,
@@ -1001,7 +1027,7 @@ describe('the tombstone ledger', () => {
       inLedger(store, a.organizationId, doomed.id);
       withoutBytes(store, a.organizationId, doomed.id);
 
-      await reapplyTombstoneLedger(db(), store, createServiceContext);
+      await reapplyTombstoneLedger(worker.db, store, createServiceContext);
 
       const approval = await getApproval(db(), a, review.id);
       expect(approval.approval.status).toBe('cancelled');
@@ -1040,7 +1066,7 @@ describe('the tombstone ledger', () => {
       inLedger(store, a.organizationId, doomed.id);
       withoutBytes(store, a.organizationId, doomed.id);
 
-      await reapplyTombstoneLedger(db(), store, createServiceContext);
+      await reapplyTombstoneLedger(worker.db, store, createServiceContext);
 
       // Only a decision can release it, and there is now nothing to decide, so someone has to ask.
       expect((await getWorkUnit(db(), a, work.id)).status).toBe('awaiting_approval');
@@ -1068,7 +1094,7 @@ describe('the tombstone ledger', () => {
         to: 'ready',
       });
       await requestExecution(db(), a, work.id, { reviewerMembershipId: approver.membershipId });
-      const activities = createActivities({ database: db(), store });
+      const activities = createActivities({ database: worker.db, store });
       const run = { organizationId: a.organizationId, workUnitId: work.id, runId: randomUUID() };
       await activities.prepareWork(run);
       await activities.requestReview(run);
@@ -1076,7 +1102,7 @@ describe('the tombstone ledger', () => {
       inLedger(store, a.organizationId, doomed.id);
       withoutBytes(store, a.organizationId, doomed.id);
 
-      await reapplyTombstoneLedger(db(), store, createServiceContext);
+      await reapplyTombstoneLedger(worker.db, store, createServiceContext);
 
       const after = await getWorkUnit(db(), a, work.id);
       expect(after.status).toBe('failed');
@@ -1101,9 +1127,15 @@ describe('the tombstone ledger', () => {
         const before = await stateOf(a.organizationId);
         const named: LedgerEntry[] = [];
 
-        const result = await reapplyTombstoneLedger(db(), store, createServiceContext, undefined, {
-          onUnconfirmed: (entry) => named.push(entry),
-        });
+        const result = await reapplyTombstoneLedger(
+          worker.db,
+          store,
+          createServiceContext,
+          undefined,
+          {
+            onUnconfirmed: (entry) => named.push(entry),
+          },
+        );
 
         expect(result).toMatchObject({
           unconfirmed: 1,
@@ -1128,7 +1160,7 @@ describe('the tombstone ledger', () => {
         inLedger(store, a.organizationId, other.id);
 
         const result = await reapplyTombstoneLedger(
-          db(),
+          worker.db,
           store,
           createServiceContext,
           undefined,
@@ -1144,7 +1176,7 @@ describe('the tombstone ledger', () => {
         const { a, store, live } = await forged();
         withoutBytes(store, a.organizationId, live.id);
 
-        const result = await reapplyTombstoneLedger(db(), store, createServiceContext);
+        const result = await reapplyTombstoneLedger(worker.db, store, createServiceContext);
 
         expect(result).toMatchObject({
           unconfirmed: 0,
@@ -1164,7 +1196,7 @@ describe('the tombstone ledger', () => {
           },
         });
 
-        const result = await reapplyTombstoneLedger(db(), blind, createServiceContext);
+        const result = await reapplyTombstoneLedger(worker.db, blind, createServiceContext);
 
         expect(result).toMatchObject({ failed: 1, unconfirmed: 0, artifactsRemoved: 0 });
         expect(await stateOf(a.organizationId)).toEqual(before);
@@ -1184,12 +1216,12 @@ describe('the tombstone ledger', () => {
         const body = store.objects.get(key);
         expect(await countUnappliedTombstones(db(), store, a)).toBe(1);
 
-        await quarantineLedgerObject(db(), store, createServiceContext, key);
+        await quarantineLedgerObject(worker.db, store, createServiceContext, key);
 
         expect(store.objects.has(key)).toBe(false);
         expect(store.objects.get(quarantineKeyFor(key))).toEqual(body);
         expect(await countUnappliedTombstones(db(), store, a)).toBe(0);
-        const again = await reapplyTombstoneLedger(db(), store, createServiceContext);
+        const again = await reapplyTombstoneLedger(worker.db, store, createServiceContext);
         expect(again).toMatchObject({ unconfirmed: 0, artifactsRemoved: 0, invalid: 0 });
         expect(
           (await readArtifact(db(), store, a, { workUnitId: work.id, artifactId: live.id })).name,
@@ -1218,13 +1250,17 @@ describe('the tombstone ledger', () => {
           targetId: id,
         });
         store.objects.set(key, Buffer.from(''));
-        expect((await reapplyTombstoneLedger(db(), store, createServiceContext)).invalid).toBe(1);
+        expect((await reapplyTombstoneLedger(worker.db, store, createServiceContext)).invalid).toBe(
+          1,
+        );
         expect(await countUnappliedTombstones(db(), store, a)).toBe(1);
 
-        await quarantineLedgerObject(db(), store, createServiceContext, key);
+        await quarantineLedgerObject(worker.db, store, createServiceContext, key);
 
         expect(await countUnappliedTombstones(db(), store, a)).toBe(0);
-        expect((await reapplyTombstoneLedger(db(), store, createServiceContext)).invalid).toBe(0);
+        expect((await reapplyTombstoneLedger(worker.db, store, createServiceContext)).invalid).toBe(
+          0,
+        );
       });
 
       it('touches nothing outside the ledger', async () => {
@@ -1234,7 +1270,7 @@ describe('the tombstone ledger', () => {
         const live = await file(a, store, work.id, 'live.txt');
         const bytes = objectKey(a.organizationId, live.id);
         await expect(
-          quarantineLedgerObject(db(), store, createServiceContext, bytes),
+          quarantineLedgerObject(worker.db, store, createServiceContext, bytes),
         ).rejects.toEqual(expect.objectContaining({ code: 'INVALID_INPUT' }));
         expect(store.objects.has(bytes)).toBe(true);
       });
@@ -1243,7 +1279,7 @@ describe('the tombstone ledger', () => {
         const store = new MemoryStore();
         const missing = randomUUID();
         const key = inLedger(store, missing, randomUUID());
-        await quarantineLedgerObject(db(), store, createServiceContext, key);
+        await quarantineLedgerObject(worker.db, store, createServiceContext, key);
         expect(store.objects.has(key)).toBe(false);
         expect(store.objects.has(quarantineKeyFor(key))).toBe(true);
       });
@@ -1263,7 +1299,7 @@ describe('the tombstone ledger', () => {
       const errors: unknown[] = [];
 
       const result = await reapplyTombstoneLedger(
-        db(),
+        worker.db,
         refusing,
         createServiceContext,
         (error) => errors.push(error),
@@ -1278,12 +1314,14 @@ describe('the tombstone ledger', () => {
       ).rejects.toEqual(expect.objectContaining({ code: 'NOT_FOUND' }));
 
       // The ordinary sweep can finish it, and so can running this again.
-      expect(await purgeDueBlobs(db(), store, a)).toEqual({ purged: 1, failed: 0 });
+      expect(await purgeDueBlobs(worker.db, store, createServiceContext(a.organizationId))).toEqual(
+        { purged: 1, failed: 0 },
+      );
       expect(store.objects.has(objectKey(a.organizationId, doomed.id))).toBe(false);
       expect((await stateOf(a.organizationId)).blobs).toEqual([
         expect.objectContaining({ state: 'purged' }),
       ]);
-      expect((await reapplyTombstoneLedger(db(), store, createServiceContext)).failed).toBe(0);
+      expect((await reapplyTombstoneLedger(worker.db, store, createServiceContext)).failed).toBe(0);
     });
 
     it('takes an upload the backup caught in flight through to purged', async () => {
@@ -1299,7 +1337,7 @@ describe('the tombstone ledger', () => {
       );
       inLedger(store, a.organizationId, id);
 
-      const result = await reapplyTombstoneLedger(db(), store, createServiceContext);
+      const result = await reapplyTombstoneLedger(worker.db, store, createServiceContext);
       expect(result).toMatchObject({ tombstonesAdded: 1, artifactsRemoved: 0, bytesRemoved: 1 });
       expect(store.objects.has(key)).toBe(false);
       expect((await stateOf(a.organizationId)).blobs).toEqual([
@@ -1315,7 +1353,7 @@ describe('the tombstone ledger', () => {
       store.objects.set(key, Buffer.from('from an organization the backup never saw'));
       inLedger(store, missing, id);
 
-      const result = await reapplyTombstoneLedger(db(), store, createServiceContext);
+      const result = await reapplyTombstoneLedger(worker.db, store, createServiceContext);
       expect(result.organizationsMissing).toBe(1);
       expect(result.bytesRemoved).toBe(1);
       expect(result.failed).toBe(0);
@@ -1344,7 +1382,7 @@ describe('the tombstone ledger', () => {
       inLedger(store, a.organizationId, good.id);
       withoutBytes(store, a.organizationId, good.id);
 
-      const result = await reapplyTombstoneLedger(db(), store, createServiceContext);
+      const result = await reapplyTombstoneLedger(worker.db, store, createServiceContext);
       expect(result.invalid).toBe(1);
       expect(result.artifactsRemoved).toBe(1);
       expect(store.objects.has(objectKey(a.organizationId, named.id))).toBe(true);

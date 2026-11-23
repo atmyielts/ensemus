@@ -1142,3 +1142,19 @@ Compose resolved the expected limits, 45 focused tests passed, and the same loca
 served the namespace RPC after recreation. The process reported about 502 MiB in one post-recovery
 sample. Sustained load, the remaining integration failures and the full release gates still need
 qualification.
+
+
+### Restore-ledger role and Temporal readiness (2026-11-23)
+
+The restore-ledger integration suite now uses the platform worker login for operator replay,
+quarantine, cleanup and workflow activities. Browser-facing reads and deletion requests retain
+the app login. The slow-store recovery case observes the completion of both checks before
+advancing its clock. The real-role suite passed all 48 cases, and its lint and test type checks
+passed. This tests the restore logic with an in-memory object store and a migrated PostgreSQL
+database. A full dump-and-restore rehearsal remains a separate gate.
+
+The Temporal health check now requires a local socket in LISTEN state on port 7233. An outbound
+connection to that port cannot satisfy the check. The applied Compose probe accepted a listener
+fixture and rejected an established outbound socket. The recreated local service passed the health
+check and answered its namespace RPC. Eleven focused Compose tests passed. The live local
+workspace also returned indexed passages through Knowledge search.

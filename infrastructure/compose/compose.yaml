@@ -822,8 +822,13 @@ services:
     depends_on:
       temporal-schema: { condition: service_completed_successfully }
     healthcheck:
-      # Listening on 7233 (0x1C41). The namespace job below proves the server really answers.
-      test: ['CMD-SHELL', "grep -q ':1C41 ' /proc/net/tcp /proc/net/tcp6"]
+      # Check the local endpoint in LISTEN state. An outbound or lingering socket on 7233
+      # cannot establish readiness. The namespace job below checks the RPC itself.
+      test:
+        - CMD-SHELL
+        - >-
+          awk '$$2 ~ /:1C41$$/ && $$4 == "0A" { found = 1 }
+          END { exit !found }' /proc/net/tcp /proc/net/tcp6
       interval: 5s
       timeout: 3s
       retries: 60
