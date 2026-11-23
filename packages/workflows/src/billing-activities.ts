@@ -1,6 +1,7 @@
 // Owned by the invoicing slice (BILL-02). See docs/06-delivery/m8-slices.md.
 import type { BillingActivityDeps } from './saas-deps';
 import type { BillingCycleInput } from './saas-schemas';
+import { requireBillingActivity } from './billing-activity-admission';
 import { billingCycleInputSchema } from './saas-schemas';
 import {
   draftDuePeriodInvoices,
@@ -21,7 +22,7 @@ export function createBillingActivities(deps: BillingActivityDeps) {
     async runBillingSweep(
       input: BillingCycleInput,
     ): Promise<{ closedPeriods: number; draftIds: readonly string[]; refusedCode: string | null }> {
-      if (deps.billingEnabled !== true) throw new AppError('BILLING_NOT_ENABLED');
+      requireBillingActivity(deps.billingEnabled);
       const value = billingCycleInputSchema.parse(input);
       const context = createServiceContext(value.organizationId);
       const result = await draftDuePeriodInvoices(
@@ -37,7 +38,7 @@ export function createBillingActivities(deps: BillingActivityDeps) {
     async issueDraftInvoice(
       input: BillingCycleInput & { invoiceId: string },
     ): Promise<'issued' | 'already_issued' | 'needs_tax_port' | 'refused'> {
-      if (deps.billingEnabled !== true) throw new AppError('BILLING_NOT_ENABLED');
+      requireBillingActivity(deps.billingEnabled);
       const { organizationId, invoiceId } = billingCycleInputSchema
         .extend({ invoiceId: idSchema })
         .parse(input);
@@ -57,7 +58,7 @@ export function createBillingActivities(deps: BillingActivityDeps) {
       }
     },
     async runCollectionsStep(input: BillingCycleInput): Promise<{ stepsTaken: number }> {
-      if (deps.billingEnabled !== true) throw new AppError('BILLING_NOT_ENABLED');
+      requireBillingActivity(deps.billingEnabled);
       const value = billingCycleInputSchema.parse(input);
       const result = await runCollections(
         deps.database,

@@ -43,7 +43,7 @@ describe('tax stays inside a connector activity', () => {
         ...deps({ provider: 'test', compute }),
         billingEnabled: false,
       }).computeTaxAndIssue(input),
-    ).rejects.toMatchObject({ code: 'BILLING_NOT_ENABLED' });
+    ).rejects.toMatchObject({ type: 'BILLING_NOT_ENABLED', nonRetryable: true });
     expect(loadTaxQuestion).not.toHaveBeenCalled();
     expect(compute).not.toHaveBeenCalled();
     expect(issueInvoice).not.toHaveBeenCalled();

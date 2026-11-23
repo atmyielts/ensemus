@@ -1,6 +1,7 @@
 // Owned by the invoicing slice (BILL-03). On the connector queue, because a tax provider is an outside call.
 import type { PaymentConnectorDeps } from './saas-deps';
 import type { BillingCycleInput } from './saas-schemas';
+import { requireBillingActivity } from './billing-activity-admission';
 import { billingCycleInputSchema } from './saas-schemas';
 import { AppError, idSchema } from '@ensemus/application';
 import { issueInvoice, loadTaxQuestion } from '@ensemus/application/saas/invoices';
@@ -16,7 +17,7 @@ export function createTaxActivities(deps: PaymentConnectorDeps) {
     async computeTaxAndIssue(
       input: BillingCycleInput & { invoiceId: string },
     ): Promise<'issued' | 'already_issued' | 'refused'> {
-      if (deps.billingEnabled !== true) throw new AppError('BILLING_NOT_ENABLED');
+      requireBillingActivity(deps.billingEnabled);
       const { organizationId, invoiceId } = billingCycleInputSchema
         .extend({ invoiceId: idSchema })
         .parse(input);
