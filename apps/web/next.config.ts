@@ -27,6 +27,8 @@ const config: NextConfig = {
   ],
   serverExternalPackages: ['pg'],
   poweredByHeader: false,
+  // Keep the development overlay clear of the mobile workspace shortcuts.
+  devIndicators: false,
   // Artifacts are uploaded through Server Actions. The service enforces the same limit.
   experimental: { serverActions: { bodySizeLimit: '26mb' } },
   // Nothing may be fetched from an outside host at runtime (ADR-021).
