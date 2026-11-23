@@ -138,6 +138,25 @@ describe('manual meeting registration, consent and notes', () => {
       decision: null,
     });
   });
+  it('normalizes capitalized IDs before checking duplicate or member participants', async () => {
+    const m = await meeting();
+    await expect(
+      addMeetingParticipant(app.db, owner, {
+        meetingId: m.id.toUpperCase(),
+        expectedVersion: m.version,
+        participant: { kind: 'member', membershipId: owner.membershipId.toUpperCase() },
+      }),
+    ).rejects.toEqual(refused('INVALID_STATE'));
+    await addMeetingParticipant(app.db, owner, {
+      meetingId: m.id.toUpperCase(),
+      expectedVersion: m.version,
+      participant: { kind: 'member', membershipId: member.membershipId.toUpperCase() },
+    });
+    const detail = await getMeeting(app.db, owner, m.id.toUpperCase());
+    expect(detail.participants).toHaveLength(2);
+    expect(detail.participants.find((p) => p.membershipId === member.membershipId)).toBeDefined();
+  });
+
   it('reveals no title, notes or participants to an administrator outside the room', async () => {
     const m = await granted();
     await importMeetingNotes(app.db, owner, {

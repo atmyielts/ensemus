@@ -28,6 +28,7 @@ const uuid = (value: string) => {
   if (!p.success) throw new AppError('INVALID_INPUT');
   return p.data;
 };
+const idOf = (form: FormData, name: string) => uuid(text(form, name));
 async function fail(t: Awaited<ReturnType<typeof requireTenant>>, error: unknown) {
   redirectForSsoRefusal(error);
   if (isAuditedRefusal(error))
@@ -42,7 +43,7 @@ export async function saveMeetingAction(
   previous: MeetingFormState,
   form: FormData,
 ): Promise<MeetingFormState> {
-  const org = uuid(text(form, 'organizationId')),
+  const org = idOf(form, 'organizationId'),
     t = await requireTenant(org),
     kind = text(form, 'kind');
   let destination: string | null = null;
@@ -97,17 +98,17 @@ export async function saveMeetingAction(
       if (!participantKind.success) throw new AppError('INVALID_INPUT');
       const member = participantKind.data === 'member';
       await addMeetingParticipant(t.database, t.context, {
-        meetingId: uuid(text(form, 'meetingId')),
+        meetingId: idOf(form, 'meetingId'),
         expectedVersion: Number(text(form, 'version')),
         participant: member
-          ? { kind: 'member', membershipId: uuid(text(form, 'membershipId')) }
+          ? { kind: 'member', membershipId: idOf(form, 'membershipId') }
           : { kind: 'external', label: text(form, 'label') },
       });
     } else if (kind === 'notes')
       await importNotesOnce(
         t.database,
         t.context,
-        uuid(text(form, 'meetingId')),
+        idOf(form, 'meetingId'),
         text(form, 'text'),
         text(form, 'requestKey'),
       );
@@ -125,8 +126,8 @@ export async function saveMeetingAction(
   return { saved: true, revision: (previous.revision ?? 0) + 1 };
 }
 export async function consentAction(form: FormData): Promise<void> {
-  const org = uuid(text(form, 'organizationId')),
-    meetingId = uuid(text(form, 'meetingId')),
+  const org = idOf(form, 'organizationId'),
+    meetingId = idOf(form, 'meetingId'),
     t = await requireTenant(org);
   let code: string | null = null;
   try {
@@ -136,7 +137,7 @@ export async function consentAction(form: FormData): Promise<void> {
       throw new AppError('INVALID_INPUT');
     await recordMeetingConsent(t.database, t.context, {
       meetingId,
-      participantId: uuid(text(form, 'participantId')),
+      participantId: idOf(form, 'participantId'),
       decision: decision.data,
       noticeRef: text(form, 'noticeRef'),
     });
@@ -147,14 +148,14 @@ export async function consentAction(form: FormData): Promise<void> {
   redirect(`/o/${org}/meetings/${meetingId}${code ? '?error=' + encodeURIComponent(code) : ''}`);
 }
 export async function removeParticipantAction(form: FormData): Promise<void> {
-  const org = uuid(text(form, 'organizationId')),
-    meetingId = uuid(text(form, 'meetingId')),
+  const org = idOf(form, 'organizationId'),
+    meetingId = idOf(form, 'meetingId'),
     t = await requireTenant(org);
   let code: string | null = null;
   try {
     await removeMeetingParticipant(t.database, t.context, {
       meetingId,
-      participantId: uuid(text(form, 'participantId')),
+      participantId: idOf(form, 'participantId'),
       expectedVersion: Number(text(form, 'version')),
     });
     revalidatePath(`/o/${org}/meetings`, 'layout');

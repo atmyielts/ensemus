@@ -49,11 +49,12 @@ import { z } from 'zod';
 import type { Classification } from '@ensemus/domain/policy';
 import type { MeetingDetailView, MeetingParticipantView, MeetingSettingsView } from './meetings';
 import { AppError, pgCode } from './errors';
+import { idSchema } from './ids';
 import { emit } from './events';
 import { auditAction, notify } from './work';
 import { assertInteractivePrivilege } from './product/privileged';
 
-const id = z.uuid();
+const id = idSchema;
 const version = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const createInput = z.strictObject({
   title: z.string().trim().min(1).max(300),

@@ -14,10 +14,15 @@ export function secret(name: string): string {
 }
 
 /** A connection URL for a role, reaching Postgres through the test-only published port. */
-export function dbUrl(role: string, passwordFile: string, database = 'ensemus'): string {
-  // Parallel runs each set their own port and COMPOSE_PROJECT_NAME, so they share no database.
+export function dbUrl(
+  role: string,
+  passwordFile: string,
+  database = process.env.ENSEMUS_TEST_DATABASE ?? 'ensemus',
+): string {
+  // Parallel stacks set their own port and COMPOSE_PROJECT_NAME. An operator may instead select
+  // an already provisioned qualification database; PostgreSQL roles are still cluster-wide.
   const port = process.env.ENSEMUS_TEST_PG_PORT ?? '55432';
-  return `postgres://${role}:${secret(passwordFile)}@127.0.0.1:${port}/${database}`;
+  return `postgres://${role}:${secret(passwordFile)}@127.0.0.1:${port}/${encodeURIComponent(database)}`;
 }
 
 export const urls = {

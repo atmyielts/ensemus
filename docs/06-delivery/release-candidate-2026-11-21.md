@@ -1086,3 +1086,32 @@ Anonymous root briefly returned 500/APIError during these checks, then correctly
 sign-in. Its cause is not established; authentication failures were not broadly swallowed. Previously
 reported planned API, portability, erasure, CI and human review gates remain open. No production or
 live provider acceptance is claimed, and local credentials/cookies remain in ignored files only.
+
+
+### Canonical meeting IDs and isolated row qualification (2026-11-23)
+
+The latest CI quality job at 097358d passed 9,745 unit cases and failed four cases: 57 planned API
+methods, 30 missing portability inventory rows, and two ID convention regressions from the meeting
+slice. Meeting form fields now use the shared ID-reading helper, and meeting services use the same
+lowercase UUID schema as the rest of the application. The native regression checks an uppercase
+duplicate organizer and an uppercase new member without bypassing the duplicate rule.
+
+The three ID source guards and all 19 native meeting cases passed. Affected lint and application,
+web and test TypeScript checks passed. The production web build was deliberately not replaced while
+the owner is using the local preview; this is source and native-service qualification.
+
+Test connection URLs now support ENSEMUS_TEST_DATABASE for an already provisioned qualification
+database, with the existing default unchanged. A fresh Compose test launch stalled during network
+creation and was cancelled before executing tests. The successful local qualification used a private
+Vitest bootstrap to create and migrate a separate database in the task-owned PostgreSQL cluster,
+retaining actual role credentials, native sessions and RLS. This isolates row fixtures, not cluster
+roles; restore and role-mutation suites must retain a dedicated cluster. Receipt hashes and exact
+scope are in evidence/rc-meeting-ids-20261123.json.
+
+Exploratory grounding qualification still fails after selecting the actual worker login: a named
+viewer is being refused as SOURCE_CLOSED. Its fixture and service investigation is not a passing
+checkpoint. The local Temporal endpoint also refused a dispatcher TCP probe while Docker still
+reported healthy; the background runtime therefore needs recovery and fresh proof. Earlier runtime
+receipts remain historical successes at their recorded times. No overall green CI, provider,
+production, portability, erasure or outside-review claim is made. Owner-requested local sample data
+and browser captures remain ignored, and none of their contents or account details are published.
