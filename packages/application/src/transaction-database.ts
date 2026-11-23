@@ -16,6 +16,7 @@ const EMPTY_BINDINGS = {
   'app.process_start_spec_id': '',
   'app.process_step_run_id': '',
   'app.process_step_key': '',
+  'app.client_onboarding_id': '',
   'app.interactive_session_id': '',
   'app.invitation_token_hash': '',
   'app.webhook_token_hash': '',

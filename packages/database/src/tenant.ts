@@ -107,6 +107,7 @@ export class AppDatabase {
         'app.process_start_spec_id': '',
         'app.process_step_run_id': '',
         'app.process_step_key': '',
+        'app.client_onboarding_id': '',
         'app.payment_customer_hash': '',
         'app.mail_unsubscribe_token': '',
         'lifecycle.erasure_count_org': '',

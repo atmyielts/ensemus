@@ -1142,6 +1142,13 @@
       "when": 1794201807635,
       "tag": "0753_meeting_organizer_handoff",
       "breakpoints": true
+    },
+    {
+      "idx": 163,
+      "version": "7",
+      "when": 1794201807636,
+      "tag": "0754_onboarding_work_material_scope",
+      "breakpoints": true
     }
   ]
 }

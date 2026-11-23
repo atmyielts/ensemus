@@ -66,6 +66,7 @@ import { urls } from '../helpers/stack';
 describe('deal won to one verified onboarding', () => {
   let database: ReturnType<typeof openAppDatabase>, auth: pg.Client;
   let agent: ReturnType<typeof openAgentTestDatabase>;
+  let worker: ReturnType<typeof openAppDatabase>;
   let owner: TenantContext,
     reviewer: TenantContext,
     reader: TenantContext,
@@ -78,6 +79,7 @@ describe('deal won to one verified onboarding', () => {
   const service = () => createServiceContext(owner.organizationId);
   beforeAll(async () => {
     database = openAppDatabase(urls.app());
+    worker = openAppDatabase(urls.worker());
     agent = openAgentTestDatabase();
     auth = new pg.Client({ connectionString: urls.auth() });
     await auth.connect();
@@ -139,6 +141,7 @@ describe('deal won to one verified onboarding', () => {
   afterAll(async () => {
     await auth?.end();
     await database?.close();
+    await worker?.close();
     await agent?.close();
   });
   const input = () => ({
@@ -152,7 +155,7 @@ describe('deal won to one verified onboarding', () => {
   });
   const row = async (id: string) =>
     (
-      await withTenantTx(database.db, service(), (tx) =>
+      await withTenantTx(worker.db, service(), (tx) =>
         tx.select().from(clientOnboardings).where(eq(clientOnboardings.id, id)),
       )
     )[0]!;
@@ -192,7 +195,7 @@ describe('deal won to one verified onboarding', () => {
     };
   }
   const advance = (id: string, port: AgentRuns) =>
-    advanceClientOnboarding(database.db, service(), { agentRuns: port }, { onboardingId: id });
+    advanceClientOnboarding(worker.db, service(), { agentRuns: port }, { onboardingId: id });
 
   /**
    * Everything a start writes in one tenant, all in its one transaction: the onboarding, its client and
@@ -200,7 +203,7 @@ describe('deal won to one verified onboarding', () => {
    * (0209/0211: a service actor passes client and project visibility).
    */
   const footprint = (tenant: TenantContext) =>
-    withTenantTx(database.db, createServiceContext(tenant.organizationId), async (tx) => ({
+    withTenantTx(worker.db, createServiceContext(tenant.organizationId), async (tx) => ({
       onboardings: (await tx.select({ id: clientOnboardings.id }).from(clientOnboardings)).length,
       clients: (await tx.select({ id: clients.id }).from(clients)).length,
       projects: (await tx.select({ id: projects.id }).from(projects)).length,
@@ -280,11 +283,11 @@ describe('deal won to one verified onboarding', () => {
         stored.sendWorkUnitId,
       ]).size,
     ).toBe(4);
-    const children = await withTenantTx(database.db, service(), (tx) =>
+    const children = await withTenantTx(worker.db, service(), (tx) =>
       tx.select().from(workUnits).where(eq(workUnits.parentId, stored.workUnitId)),
     );
     expect(children).toHaveLength(3);
-    const dependencies = await withTenantTx(database.db, service(), (tx) =>
+    const dependencies = await withTenantTx(worker.db, service(), (tx) =>
       tx.select().from(workDependencies),
     );
     expect(
@@ -404,10 +407,14 @@ describe('deal won to one verified onboarding', () => {
         runId: stored.agentRunId!,
         sourceIds: [source.sourceId],
         budgetTokens: 1000,
-        signal: AbortSignal.timeout(10_000),
+        // The scripted model test is bounded by Vitest; it does not exercise cancellation.
+        signal: new AbortController().signal,
       },
     );
-    expect(compiled).toMatchObject({ ok: true, items: [{ sourceId: source.sourceId }] });
+    expect(compiled, compiled.ok ? undefined : compiled.code).toMatchObject({
+      ok: true,
+      items: [{ sourceId: source.sourceId }],
+    });
     // The decision that let it through is recorded: one allow, for this run's own profile and class.
     const decisions = await listEgressDecisions(database.db, owner, {
       runId: stored.agentRunId!,
@@ -451,7 +458,7 @@ describe('deal won to one verified onboarding', () => {
       (await getWorkDetail(database.db, owner, stored.briefWorkUnitId!)).evidence.artifactCount,
     ).toBe(0);
     const reviewInput = { workUnitId: stored.briefWorkUnitId!, artifactId: artifact.id };
-    await checkArtifactGrounding(database.db, store, service(), reviewInput);
+    await checkArtifactGrounding(worker.db, store, service(), reviewInput);
     const proof = await getArtifactVerification(database.db, reviewer, reviewInput);
     await decideArtifact(
       database.db,
@@ -481,13 +488,13 @@ describe('deal won to one verified onboarding', () => {
     ).toEqual([1, 1, 1]);
     expect(updated.acceptedVerificationId).not.toBeNull();
     expect(updated.emailExternalActionId).not.toBeNull();
-    const [action] = await withTenantTx(database.db, service(), (tx) =>
+    const [action] = await withTenantTx(worker.db, service(), (tx) =>
       tx
         .select()
         .from(externalActions)
         .where(eq(externalActions.id, updated.emailExternalActionId!)),
     );
-    const [approval] = await withTenantTx(database.db, service(), (tx) =>
+    const [approval] = await withTenantTx(worker.db, service(), (tx) =>
       tx.select().from(approvals).where(eq(approvals.id, updated.emailApprovalId!)),
     );
     expect(action?.payload).toMatchObject({ to: ['client@example.invalid'] });
@@ -497,7 +504,7 @@ describe('deal won to one verified onboarding', () => {
     expect((await getClientOnboarding(database.db, owner, created.onboardingId)).costMicros).toBe(
       1234,
     );
-    const sentRows = await withTenantTx(database.db, service(), (tx) =>
+    const sentRows = await withTenantTx(worker.db, service(), (tx) =>
       tx.execute<{ count: string }>(
         sql`select count(*)::text as count from integrations.external_actions where organization_id=${owner.organizationId}::uuid and work_unit_id=${stored.sendWorkUnitId}::uuid`,
       ),
@@ -512,7 +519,7 @@ describe('deal won to one verified onboarding', () => {
       ),
     ).toHaveLength(1);
     expect(
-      await withTenantTx(database.db, service(), (tx) =>
+      await withTenantTx(worker.db, service(), (tx) =>
         tx
           .select()
           .from(workArtifacts)
@@ -520,7 +527,7 @@ describe('deal won to one verified onboarding', () => {
       ),
     ).toHaveLength(0);
     const bridge = () =>
-      withTenantTx(database.db, service(), (tx) =>
+      withTenantTx(worker.db, service(), (tx) =>
         tx.execute<{ parent: boolean; review: boolean }>(
           sql`select knowledge.onboarding_artifact_evidence(${artifact.id}::uuid,${stored.workUnitId}::uuid) as parent,knowledge.onboarding_artifact_evidence(${artifact.id}::uuid,${stored.reviewWorkUnitId}::uuid) as review`,
         ),
@@ -528,7 +535,7 @@ describe('deal won to one verified onboarding', () => {
     expect((await bridge()).rows[0]).toEqual({ parent: true, review: true });
     expect(stored.parentObjectiveSha256).not.toBe(stored.reviewObjectiveSha256);
     expect(stored.briefObjectiveSha256).not.toBe(stored.reviewObjectiveSha256);
-    await withTenantTx(database.db, service(), (tx) =>
+    await withTenantTx(worker.db, service(), (tx) =>
       tx.execute(
         sql`update work.work_units set objective='A changed review goal',version=version+1 where organization_id=${owner.organizationId}::uuid and id=${stored.reviewWorkUnitId}::uuid`,
       ),

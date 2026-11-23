@@ -506,6 +506,21 @@ async function stableSources(tx: Tx, artifactId: string, lockedIds: ReadonlySet<
   if (current.rows.some((row) => !lockedIds.has(row.id))) throw new AppError('VERSION_CONFLICT');
 }
 
+/** Bind the request selector inside the tenant transaction. PostgreSQL verifies its authority. */
+export function withOnboardingTx<T>(
+  database: AppDatabase,
+  actor: TenantContext,
+  onboardingId: string,
+  effect: (tx: Tx) => Promise<T>,
+): Promise<T> {
+  if (actor.actorType !== 'delegated') throw new AppError('FORBIDDEN');
+  const requestId = id(onboardingId).toLowerCase();
+  return withTenantTx(database, actor, async (tx) => {
+    await tx.execute(sql`select set_config('app.client_onboarding_id',${requestId},true)`);
+    return effect(tx);
+  });
+}
+
 export async function advanceClientOnboarding(
   database: AppDatabase,
   context: TenantContext,
@@ -534,7 +549,7 @@ export async function advanceClientOnboarding(
   try {
     let candidate = snapshot.briefArtifactId;
     if (!candidate && snapshot.agentRunId) {
-      const status = await withTenantTx(database, actor, (tx) =>
+      const status = await withOnboardingTx(database, actor, onboardingId, (tx) =>
         deps.agentRuns.statusOf(tx, actor, snapshot.agentRunId!),
       );
       if (!status) throw new OnboardingFailure('AGENT_RUN_MISSING');
@@ -548,7 +563,7 @@ export async function advanceClientOnboarding(
         candidate = id(status.artifactIds[0]!);
       }
     }
-    return await withTenantTx(database, actor, async (tx) => {
+    return await withOnboardingTx(database, actor, onboardingId, async (tx) => {
       actor = await person(tx, actor);
       const sourceIds = candidate ? await inputSources(tx, actor, candidate) : new Set<string>();
       let row = await locked(tx, onboardingId);
