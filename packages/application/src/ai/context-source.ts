@@ -1,6 +1,7 @@
 // Owned by the context slice (AGENT-15). What an agent can read, loaded under its initiator's context, so
 // every read goes through the same Work Unit access rules a person gets. The tool gateway reads through
 // this as well. Only agent-worker uses it.
+import { CLIENT_BRIEF_SCHEMA_REF } from '@ensemus/contracts/knowledge';
 import { createHash } from 'node:crypto';
 import { agentSpecV1Schema } from '@ensemus/contracts/ai';
 import {
@@ -277,7 +278,10 @@ export function createContextSource(deps: {
       const { run: stored } = row;
       return {
         objective: spec.data.objective,
-        instructions: spec.data.instructions,
+        instructions:
+          spec.data.id === 'client-brief' && spec.data.output.schema_ref === CLIENT_BRIEF_SCHEMA_REF
+            ? `${spec.data.instructions}\n\nAfter the draft tool succeeds, return one JSON object with artifact_id (the exact tool result ID), summary (one short string) and open_questions (an array of strings). Use no Markdown fences. If the tool has not created a draft, do not invent its ID.`
+            : spec.data.instructions,
         requiredCapabilities: spec.data.model.required_capabilities,
         qualityTier: spec.data.model.quality_tier,
         allowFallback: spec.data.model.fallback === 'approved_profiles_only',

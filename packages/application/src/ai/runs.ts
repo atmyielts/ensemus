@@ -2,6 +2,7 @@
 // See docs/06-delivery/m4-slices.md and ADR-028 FD-1, FD-7, FD-12. Only agent-worker uses this, except
 // `closeStrandedRunInTx`, which the base worker's upkeep calls. No transaction here spans a model call.
 import { createHash } from 'node:crypto';
+import { CLIENT_BRIEF_SCHEMA_REF, clientBriefResultSchema } from '@ensemus/contracts/knowledge';
 import {
   actorOf,
   agentAssignments,
@@ -12,9 +13,11 @@ import {
   artifactEvidence,
   budgetReservations,
   budgets,
+  clientOnboardings,
   egressDecisions,
   executionSteps,
   externalActions,
+  knowledgeArtifactCitations,
   modelProfiles,
   runControls,
   stepPayloads,
@@ -47,6 +50,7 @@ import { and, desc, eq, inArray, lte, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { AppError, pgCode } from '../errors';
 import { emit } from '../events';
+import { readOnboardingOutputs } from '../knowledge/onboarding-output';
 import {
   applyTransition,
   closeOutdatedReviews,
@@ -211,6 +215,7 @@ export function verdictFrom(input: {
   /** The last turn's answer, as stored, if its hash still matches. */
   answer: string | null;
   evidenceRows: number;
+  onboardingReviewReady?: boolean;
   denials: number;
 }): 'completed' | 'outcome_unverified' {
   if (input.checks === null || input.answer === null || input.answer.length === 0) {
@@ -229,6 +234,10 @@ export function verdictFrom(input: {
         break;
       case 'source_citation_check':
         if (input.evidenceRows === 0) return 'outcome_unverified';
+        break;
+      case 'human_artifact_acceptance':
+        // The onboarding worker will ground the exact brief and wait for its named reviewer.
+        if (!input.onboardingReviewReady) return 'outcome_unverified';
         break;
       // Anything policy refused during this run, even if the run found another way, goes to a person.
       case 'organization_policy_check':
@@ -1253,8 +1262,49 @@ export async function readToolWait(
 }
 
 const specChecks = z.looseObject({
-  output: z.looseObject({ verification: z.array(z.string()) }),
+  id: z.string(),
+  output: z.looseObject({ schema_ref: z.string(), verification: z.array(z.string()) }),
 });
+
+async function onboardingBriefReady(tx: Tx, run: RunRow, answer: string): Promise<boolean> {
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(answer);
+  } catch {
+    return false;
+  }
+  const parsed = clientBriefResultSchema.safeParse(decoded);
+  if (!parsed.success || run.parentRunId !== null) return false;
+  const [onboarding] = await tx
+    .select({ id: clientOnboardings.id })
+    .from(clientOnboardings)
+    .where(
+      and(
+        eq(clientOnboardings.organizationId, run.organizationId),
+        eq(clientOnboardings.agentRunId, run.id),
+        eq(clientOnboardings.briefWorkUnitId, run.workUnitId),
+        eq(clientOnboardings.requestedByMembershipId, run.initiatorMembershipId),
+        eq(clientOnboardings.state, 'waiting_for_brief'),
+      ),
+    )
+    .limit(1);
+  if (!onboarding) return false;
+  const output = await readOnboardingOutputs(tx, run);
+  if (output.artifactState !== 'ready' || output.artifactIds[0] !== parsed.data.artifact_id)
+    return false;
+  const [citation] = await tx
+    .select({ ordinal: knowledgeArtifactCitations.ordinal })
+    .from(knowledgeArtifactCitations)
+    .where(
+      and(
+        eq(knowledgeArtifactCitations.organizationId, run.organizationId),
+        eq(knowledgeArtifactCitations.artifactId, parsed.data.artifact_id),
+        eq(knowledgeArtifactCitations.recordedByMembershipId, run.initiatorMembershipId),
+      ),
+    )
+    .limit(1);
+  return Boolean(citation);
+}
 
 /** Checks a final output against what its manifest asks for, once, and keeps the answer in a step row. */
 export async function verifyOutput(
@@ -1321,10 +1371,17 @@ export async function verifyOutput(
       .from(toolProposals)
       .where(and(eq(toolProposals.runId, run.id), eq(toolProposals.status, 'denied')));
 
+    const isClientBrief =
+      parsed.success &&
+      parsed.data.id === 'client-brief' &&
+      parsed.data.output.schema_ref === CLIENT_BRIEF_SCHEMA_REF;
+    const onboardingReviewReady =
+      isClientBrief && intact === true && (await onboardingBriefReady(tx, run, answer.content));
     const verdict = verdictFrom({
       checks: parsed.success ? parsed.data.output.verification : null,
-      answer: intact ? answer.content : null,
-      evidenceRows: evidence?.count ?? 0,
+      answer: intact && (!isClientBrief || onboardingReviewReady) ? answer.content : null,
+      evidenceRows: isClientBrief ? Number(onboardingReviewReady) : (evidence?.count ?? 0),
+      onboardingReviewReady,
       denials: (refusedEgress?.count ?? 0) + (refusedTools?.count ?? 0),
     });
     await tx.insert(executionSteps).values({

@@ -172,6 +172,13 @@ export const decideArtifactSchema = z
   });
 export type DecideArtifactBody = z.infer<typeof decideArtifactSchema>;
 
+export const CLIENT_BRIEF_SCHEMA_REF = 'schemas/client-brief.schema.json';
+export const clientBriefResultSchema = z.strictObject({
+  artifact_id: uuid,
+  summary: z.string().trim().min(1).max(4000),
+  open_questions: z.array(z.string().trim().min(1).max(1000)).max(50),
+});
+
 export const startClientOnboardingSchema = z.strictObject({
   deal_ref: z.string().trim().min(1).max(128),
   client_name: z.string().trim().min(1).max(200),
