@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { randomUUID } from 'node:crypto';
-import { getMeetingSettings, listMeetings } from '@ensemus/application';
+import { getMeetingSettings, listMeetings, listMeetingSourceChoices } from '@ensemus/application';
 import { canAdministerMeetings } from '@ensemus/domain/meeting';
 import { hasRecentMfa } from '@ensemus/application/privileged';
 import { interactiveSessionOf } from '@ensemus/database';
@@ -24,6 +24,7 @@ export default async function MeetingsPage({
     getMeetingSettings(database, context),
     listMeetings(database, context, query.cursor ? { after: query.cursor } : {}),
   ]);
+  const sources = settings.enabled ? await listMeetingSourceChoices(database, context) : [];
   const admin = canAdministerMeetings(context.role),
     ready = admin
       ? await hasRecentMfa(database, context, 'meeting.manage', interactiveSessionOf(context))
@@ -47,6 +48,7 @@ export default async function MeetingsPage({
           disclosureClassName="group"
           key={actor.userId + '-create'}
           kind="create"
+          sources={sources}
           organizationId={organizationId}
           requestKey={randomUUID()}
         />

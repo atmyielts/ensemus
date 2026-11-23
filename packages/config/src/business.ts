@@ -5,11 +5,13 @@ const SETTINGS = {
   crm_http: 'ENSEMUS_EGRESS_GATEWAY_CRM',
   ticketing_http: 'ENSEMUS_EGRESS_GATEWAY_TICKETING',
   accounting_http: 'ENSEMUS_EGRESS_GATEWAY_ACCOUNTING',
-} as const;
+  meeting_notes_http: 'ENSEMUS_EGRESS_GATEWAY_MEETING_NOTES',
+} as const satisfies Record<BusinessConnectorType | 'meeting_notes_http', string>;
+type AdapterRoute = keyof typeof SETTINGS;
 export function loadBusinessConnectorRoutes(
   env: Readonly<Record<string, string | undefined>> = process.env,
-): Partial<Record<BusinessConnectorType, string>> {
-  const routes: Partial<Record<BusinessConnectorType, string>> = {};
+): Partial<Record<AdapterRoute, string>> {
+  const routes: Partial<Record<AdapterRoute, string>> = {};
   for (const [type, setting] of Object.entries(SETTINGS)) {
     const address = env[setting]?.trim();
     if (!address) continue;
@@ -35,7 +37,7 @@ export function loadBusinessConnectorRoutes(
       url.hash
     )
       throw new ConfigError(`Invalid ${setting}`);
-    routes[type as BusinessConnectorType] = address;
+    routes[type as AdapterRoute] = address;
   }
   return routes;
 }

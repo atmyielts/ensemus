@@ -4,6 +4,7 @@ import {
   AppError,
   getMeeting,
   getMeetingSettings,
+  getMeetingSourceImportPanel,
   listDirectory,
   listMeetingDerivations,
   listMeetingProcessingOptions,
@@ -23,6 +24,7 @@ import { NativeSelect } from '@/components/ui/native-select';
 import { canReassignOrganizer } from '@ensemus/domain/meeting';
 import { can } from '@ensemus/domain/policy';
 import { MeetingDerivedContent } from './derived-content';
+import { ConnectedNotes } from './connected-notes';
 import { MeetingProcessing } from './processing';
 import { SubmitButton } from '@/components/submit-button';
 import { ConfirmForm } from '@/components/confirm-form';
@@ -57,6 +59,10 @@ export default async function MeetingPage({
     open = meeting.status === 'open';
   const query = await searchParams;
   const canRequestProcessing = organizer && settings.enabled && meeting.consent === 'complete';
+  const connectedImport =
+    organizer && readable && open && meeting.sourceKind === 'connector'
+      ? await getMeetingSourceImportPanel(database, context, meetingId)
+      : null;
   const [summaries, proposals, runs, options] =
     readable && open && meeting.currentNotes
       ? await Promise.all([
@@ -259,18 +265,29 @@ export default async function MeetingPage({
               open &&
               settings.enabled &&
               (meeting.consent === 'complete' ? (
-                <MeetingForm
-                  summary={meeting.currentNotes ? 'Store a new version' : 'Add notes'}
-                  key={actor.userId + '-notes'}
-                  kind="notes"
-                  initialText={meeting.currentNotes?.text ?? ''}
-                  organizationId={organizationId}
-                  meetingId={meetingId}
-                  requestKey={randomUUID()}
-                />
+                meeting.sourceKind === 'manual' && (
+                  <MeetingForm
+                    summary={meeting.currentNotes ? 'Store a new version' : 'Add notes'}
+                    key={actor.userId + '-notes'}
+                    kind="notes"
+                    initialText={meeting.currentNotes?.text ?? ''}
+                    organizationId={organizationId}
+                    meetingId={meetingId}
+                    requestKey={randomUUID()}
+                  />
+                )
               ) : (
                 <p className="muted">Everyone listed must agree before notes can be stored.</p>
               ))}
+            {connectedImport && (
+              <ConnectedNotes
+                organizationId={organizationId}
+                meetingId={meetingId}
+                panel={connectedImport}
+                canRequest={canRequestProcessing}
+                hasNotes={meeting.currentNotes !== null}
+              />
+            )}
           </section>
           {open && meeting.currentNotes && (organizer || runs.length > 0) && (
             <MeetingProcessing

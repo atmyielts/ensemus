@@ -1,3 +1,4 @@
+import { meetingNotesConnectorConfigSchema } from '@ensemus/contracts/business-adapter';
 import { businessConnectorConfigSchema } from '@ensemus/contracts/business-records';
 import {
   isBusinessConnectorType,
@@ -132,6 +133,11 @@ export async function createConnection(
   if (!rule || !CONNECTOR_TYPE_PATTERN.test(input.connectorType)) {
     throw new AppError('INVALID_INPUT');
   }
+  if (
+    input.connectorType === 'meeting_notes_http' &&
+    !meetingNotesConnectorConfigSchema.safeParse(input.config).success
+  )
+    throw new AppError('INVALID_INPUT');
   const name = displayName.safeParse(input.displayName);
   if (!name.success) throw new AppError('INVALID_INPUT');
   if (!isSafeConnectorConfig(input.config)) throw new AppError('INVALID_INPUT');

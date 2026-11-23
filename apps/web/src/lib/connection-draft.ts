@@ -37,6 +37,8 @@ export function connectionSettings(draft: ConnectionDraft): Record<string, unkno
         ...(draft.allowWrites ? [writeScopeFor(draft.connectorType)] : []),
       ],
     };
+  if (draft.connectorType === 'meeting_notes_http')
+    return draft.tlsServerName.trim() ? { tlsServerName: draft.tlsServerName.trim() } : {};
   return draft.connectorType === 'email_smtp'
     ? {
         fromAddress: draft.fromAddress.trim(),

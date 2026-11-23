@@ -4,6 +4,7 @@ import {
   AppError,
   auditRefusal,
   createMeeting,
+  createMeetingFromResource,
   isAuditedRefusal,
   recordMeetingConsent,
   reassignMeetingOrganizer,
@@ -20,7 +21,8 @@ import { requireTenant } from '@/server/tenant';
 import { getRuntime } from '@/server/runtime';
 import { redirectForSsoRefusal } from '@/server/interactive-refusal';
 import { studioOnce } from '@/server/studio-api';
-import { importNotesOnce } from '@/server/meeting-api';
+import { requestNotesImportSchema } from '@ensemus/contracts/meetings';
+import { importNotesOnce, requestNotesImportOnce } from '@/server/meeting-api';
 import type { MeetingFormState } from './form-state';
 const text = (form: FormData, key: string) =>
   typeof form.get(key) === 'string' ? (form.get(key) as string) : '';
@@ -53,6 +55,7 @@ export async function saveMeetingAction(
       'title',
       'occurredAt',
       'classification',
+      'resourceId',
       'noticeRef',
       'enabled',
       'participantKind',
@@ -73,7 +76,10 @@ export async function saveMeetingAction(
         .enum(['public', 'internal', 'confidential', 'restricted'])
         .safeParse(text(form, 'classification'));
       if (!parsed.success) throw new AppError('INVALID_INPUT');
+      const source = text(form, 'resourceId');
+      const resourceId = source ? uuid(source) : undefined;
       const input = {
+        ...(resourceId ? { resource_id: resourceId } : {}),
         title: text(form, 'title'),
         occurred_at: text(form, 'occurredAt') + ':00Z',
         classification: parsed.data,
@@ -82,14 +88,18 @@ export async function saveMeetingAction(
         t.database,
         t.context,
         text(form, 'requestKey'),
-        'meeting.create',
+        resourceId ? 'meeting.create_from_source' : 'meeting.create',
         input,
-        (db) =>
-          createMeeting(db, t.context, {
+        (db) => {
+          const data = {
             title: input.title,
             occurredAt: new Date(input.occurred_at),
             classification: input.classification,
-          }),
+          };
+          return resourceId
+            ? createMeetingFromResource(db, t.context, { ...data, resourceId })
+            : createMeeting(db, t.context, data);
+        },
       );
       destination = `/o/${org}/meetings/${id}`;
     } else if (kind === 'participant') {
@@ -126,6 +136,31 @@ export async function saveMeetingAction(
   if (destination) redirect(destination);
   return { saved: true, revision: (previous.revision ?? 0) + 1 };
 }
+export async function requestConnectedNotesAction(form: FormData): Promise<void> {
+  const organizationId = idOf(form, 'organizationId'),
+    meetingId = idOf(form, 'meetingId');
+  const t = await requireTenant(organizationId);
+  const path = `/o/${organizationId}/meetings/${meetingId}`;
+  let errorCode: string | null = null;
+  try {
+    const parsed = requestNotesImportSchema.safeParse({
+      provider_approval_id: text(form, 'providerApprovalId'),
+    });
+    if (!parsed.success) throw new AppError('INVALID_INPUT');
+    await requestNotesImportOnce(
+      t.database,
+      t.context,
+      text(form, 'requestKey'),
+      meetingId,
+      parsed.data,
+    );
+    revalidatePath(path);
+  } catch (error) {
+    errorCode = await fail(t, error);
+  }
+  redirect(path + (errorCode ? '?error=' + encodeURIComponent(errorCode) : '') + '#notes-heading');
+}
+
 export async function consentAction(form: FormData): Promise<void> {
   const org = idOf(form, 'organizationId'),
     meetingId = idOf(form, 'meetingId'),

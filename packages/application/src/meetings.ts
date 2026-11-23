@@ -1,4 +1,5 @@
 import * as manual from './meeting-manual';
+export { listMeetingSourceChoices } from './meeting-manual';
 // Owned by the meetings-core slice (EXP-03). See docs/06-delivery/m11a-slices.md and ADR-033 D4 to D6. Settings,
 // meetings, who was there, consent, provider approvals, imported notes and the purge when consent goes.
 import type { AppDatabase, TenantContext, Tx } from '@ensemus/database';
@@ -99,7 +100,7 @@ export function createMeetingFromResource(
     classification?: Classification;
   },
 ): Promise<MeetingDetailView> {
-  throw new Error('NOT_IMPLEMENTED');
+  return manual.createMeeting(_database, _context, _input);
 }
 
 /** Meetings this person organized or attended, and for owners and admins every meeting's metadata. */

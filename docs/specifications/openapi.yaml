@@ -8689,7 +8689,6 @@ paths:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
     post:
-      x-ensemus-status: planned
       tags:
         - meetings
       summary: Start a meeting record from something a meeting notes connection found.
@@ -9035,7 +9034,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/MeetingID"
     post:
-      x-ensemus-status: planned
       tags:
         - meetings
       summary: Read the notes from their source. Needs everyone's agreement and an

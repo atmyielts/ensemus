@@ -3,7 +3,11 @@ import { assertInteractivePrivilege } from '@ensemus/application/privileged';
 import { withTenantTx } from '@ensemus/database';
 import { loadBusinessConnectorRoutes } from '@ensemus/config/business';
 import { businessConnectorConfigSchema } from '@ensemus/contracts/business-records';
-import { BUSINESS_CONNECTOR_MANIFESTS } from '@ensemus/connectors/manifest-business';
+import {
+  BUSINESS_CONNECTOR_MANIFESTS,
+  MEETING_NOTES_CONNECTOR_MANIFEST,
+} from '@ensemus/connectors/manifest-business';
+import { meetingNotesConnectorConfigSchema } from '@ensemus/contracts/business-adapter';
 import {
   isBusinessConnectorType,
   BUSINESS_STREAMS,
@@ -465,16 +469,22 @@ const BUSINESS_CATALOG = BUSINESS_CONNECTOR_MANIFESTS.filter((manifest) =>
     );
   }),
 }));
+const MEETING_NOTES_CATALOG = {
+  manifest: MEETING_NOTES_CONNECTOR_MANIFEST,
+  settings: meetingNotesConnectorConfigSchema,
+};
 export function connectorCatalog() {
   const routes = loadBusinessConnectorRoutes();
   return [
     ...BASIC_CONNECTOR_CATALOG,
     ...BUSINESS_CATALOG.filter(({ manifest }) => Object.hasOwn(routes, manifest.type)),
+    ...(routes.meeting_notes_http ? [MEETING_NOTES_CATALOG] : []),
   ];
 }
 export const manifestOf = (type: string) =>
-  [...BASIC_CONNECTOR_CATALOG, ...BUSINESS_CATALOG].find((entry) => entry.manifest.type === type)
-    ?.manifest;
+  [...BASIC_CONNECTOR_CATALOG, ...BUSINESS_CATALOG, MEETING_NOTES_CATALOG].find(
+    (entry) => entry.manifest.type === type,
+  )?.manifest;
 
 /** So no row can wait for a worker that is not coming, and nothing pretends to be connected. */
 export function assertConnectorsEnabled() {

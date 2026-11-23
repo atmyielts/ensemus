@@ -9,6 +9,8 @@ import {
   getMeeting,
   idSchema,
   importMeetingNotes,
+  getMeetingImport,
+  requestMeetingNotesImport,
   getMeetingDerivation,
   requestMeetingDerivation,
   requestHash,
@@ -27,6 +29,7 @@ import type {
   AcceptProposedWorkBody,
   ApproveProviderBody,
   RequestDerivationBody,
+  RequestNotesImportBody,
 } from '@ensemus/contracts/meetings';
 import { z } from 'zod';
 import { organizationParams } from './api';
@@ -88,6 +91,29 @@ export async function importNotesOnce(
   if ((await getMeeting(database, context, meetingId)).status === 'purged')
     throw new AppError('MEETING_PURGED');
   return result.body as { id: string; version: number };
+}
+
+export async function requestNotesImportOnce(
+  database: AppDatabase,
+  context: TenantContext,
+  key: string,
+  meetingId: string,
+  body: RequestNotesImportBody,
+) {
+  const id = await studioOnce(
+    database,
+    context,
+    key,
+    'meeting.request_notes_import',
+    { meetingId, ...body },
+    (db) =>
+      requestMeetingNotesImport(db, context, {
+        meetingId,
+        providerApprovalId: body.provider_approval_id,
+      }),
+    202,
+  );
+  return getMeetingImport(database, context, meetingId, id);
 }
 
 export const providerApprovalParams = organizationParams.extend({ providerApprovalId: idSchema });

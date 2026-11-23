@@ -38,3 +38,12 @@ services:
       outbound: {}
     environment:
       ENSEMUS_EGRESS_TARGET: ${ENSEMUS_ACCOUNTING_ADAPTER_TARGET:-}
+
+  egress-meeting-notes:
+    <<: *business-relay
+    profiles: ['business-meeting-notes']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.24' }
+      outbound: {}
+    environment:
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_MEETING_NOTES_ADAPTER_TARGET:-}

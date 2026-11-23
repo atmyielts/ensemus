@@ -2,7 +2,13 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { disableMember } from '@ensemus/application';
-import { openAppDatabase } from '@ensemus/database';
+import {
+  externalResourceAcl,
+  externalResources,
+  openAppDatabase,
+  withTenantTx,
+} from '@ensemus/database';
+import { storeSecret } from '@ensemus/secrets/seal';
 import {
   BASE,
   createOrganization,
@@ -15,7 +21,7 @@ import {
 import { nativePersonContext } from '../helpers/product';
 import { seedConnection } from '../helpers/integrations';
 import { seedMeetingSuggestions, seedReadyMeeting, TEST_NOTICE } from '../helpers/expansion';
-import { urls } from '../helpers/stack';
+import { secret, urls } from '../helpers/stack';
 import { contractProblems } from '../helpers/openapi';
 
 describe('manual meeting HTTP lifecycle', () => {
@@ -144,6 +150,95 @@ describe('manual meeting HTTP lifecycle', () => {
     const replayed = await call(owner, 'POST', endpoint, body, key);
     expect(replayed.body.revoked_at).toEqual(expect.any(String));
     expect((await call(owner, 'GET', endpoint)).body.items).toEqual([replayed.body]);
+  });
+  it('creates a room from authorized metadata and queues the linked read only after consent', async () => {
+    const administrator = await contextFor(owner, org);
+    const resource = randomUUID();
+    const sealed = await storeSecret(app.db, administrator, {
+      publicKeyPem: secret('sealing_public_key.pem'),
+      purpose: 'connector_credential',
+      plaintext: 'GENERATED-HTTP-ADAPTER-CREDENTIAL',
+    });
+    const connection = await seedConnection(app.db, administrator, {
+      connectorType: 'meeting_notes_http',
+      credentialSecretId: sealed.secretRef,
+    });
+    await withTenantTx(app.db, administrator, async (tx) => {
+      await tx.insert(externalResources).values({
+        organizationId: org,
+        id: resource,
+        connectionId: connection,
+        stream: 'meetings.notes',
+        resourceType: 'meetings.notes',
+        externalId: 'generated-http-note',
+        classification: 'confidential',
+        aclState: 'mapped',
+      });
+      await tx.insert(externalResourceAcl).values({
+        organizationId: org,
+        resourceId: resource,
+        principalKind: 'user',
+        principalExternalId: 'generated-subject',
+        access: 'read',
+        membershipId: administrator.membershipId,
+      });
+    });
+    const from = base() + '/meetings/from-resource';
+    const body = {
+      resource_id: resource,
+      title: 'Generated connected meeting',
+      occurred_at: new Date().toISOString(),
+    };
+    const key = { 'idempotency-key': randomUUID() };
+    expect((await call(member, 'POST', from, body, key)).response.status).toBe(404);
+    const created = await call(owner, 'POST', from, body, key);
+    expect(created.response.status).toBe(201);
+    expect(created.body).toMatchObject({
+      source_kind: 'connector',
+      current_notes: null,
+      consent: 'pending',
+    });
+    expect((await call(owner, 'POST', from, body, key)).body.id).toBe(created.body.id);
+    const approval = await call(
+      owner,
+      'POST',
+      base() + '/meeting-provider-approvals',
+      {
+        kind: 'source',
+        connection_id: connection,
+        max_classification: 'confidential',
+        terms_ref: 'generated-connected-terms',
+        expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+      },
+      { 'idempotency-key': randomUUID() },
+    );
+    expect(approval.response.status).toBe(201);
+    const room = base() + '/meetings/' + created.body.id;
+    const importBody = { provider_approval_id: approval.body.id };
+    const importKey = { 'idempotency-key': randomUUID() };
+    expect(
+      (await call(owner, 'POST', room + '/notes-import', importBody, importKey)).response.status,
+    ).toBe(409);
+    expect(
+      (
+        await call(
+          owner,
+          'POST',
+          room + '/participants/' + created.body.participants[0].id + '/consent',
+          { decision: 'granted', notice_ref: 'generated-notice' },
+          { 'if-match': created.response.headers.get('etag')! },
+        )
+      ).response.ok,
+    ).toBe(true);
+    const queued = await call(owner, 'POST', room + '/notes-import', importBody, importKey);
+    expect(queued.response.status).toBe(202);
+    expect(queued.body).toMatchObject({ meeting_id: created.body.id });
+    expect((await call(owner, 'POST', room + '/notes-import', importBody, importKey)).body.id).toBe(
+      queued.body.id,
+    );
+    expect(
+      (await call(member, 'POST', room + '/notes-import', importBody, importKey)).response.status,
+    ).toBe(404);
   });
   it('creates once, records each actual answer, stores notes once and rejects stale participant changes', async () => {
     const key = randomUUID(),

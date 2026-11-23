@@ -14,6 +14,18 @@ describe('operator business routes', () => {
       }),
     ).toEqual({ crm_http: 'crm-relay:2525', accounting_http: '127.0.0.1:1234' });
   });
+  it('validates meeting notes as an independent, opt-in adapter route', () => {
+    const env = { ENSEMUS_EGRESS_GATEWAY_MEETING_NOTES: 'egress-meeting-notes:2525' };
+    expect(loadBusinessConnectorRoutes(env)).toEqual({
+      meeting_notes_http: 'egress-meeting-notes:2525',
+    });
+    expect(() => loadBusinessConnectorRoutes({ ...env, ENSEMUS_MODE: 'cloud' })).toThrow(
+      /require BYOM or Sovereign/,
+    );
+    expect(() =>
+      loadBusinessConnectorRoutes({ ENSEMUS_EGRESS_GATEWAY_MEETING_NOTES: 'relay:2525/path' }),
+    ).toThrow('Invalid ENSEMUS_EGRESS_GATEWAY_MEETING_NOTES');
+  });
   it('refuses Cloud adapter routing until the multi-tenant route contract exists', () => {
     expect(() =>
       loadBusinessConnectorRoutes({

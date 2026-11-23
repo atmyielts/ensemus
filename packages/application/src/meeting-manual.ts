@@ -55,12 +55,14 @@ import { idSchema } from './ids';
 import { emit } from './events';
 import { auditAction, notify } from './work';
 import { assertInteractivePrivilege } from './product/privileged';
+import { coversMeetingSource, findMeetingSource, recentMeetingSources } from './meeting-source';
 
 const id = idSchema;
 const version = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const createInput = z.strictObject({
   title: z.string().trim().min(1).max(300),
   occurredAt: z.date(),
+  resourceId: idSchema.optional(),
   classification: z
     .enum(['public', 'internal', 'confidential', 'restricted'])
     .default('confidential'),
@@ -307,11 +309,26 @@ async function detail(
 export function createMeeting(
   database: AppDatabase,
   context: TenantContext,
-  input: { title: string; occurredAt: Date; classification?: Classification },
+  input: { title: string; occurredAt: Date; classification?: Classification; resourceId?: string },
 ) {
   return withMeetingPerson(database, context, async (tx, viewer) => {
     const value = parsed(createInput, input);
     await enabled(tx);
+    const source =
+      value.resourceId === undefined
+        ? null
+        : await findMeetingSource(tx, {
+            organizationId: context.organizationId,
+            requester: viewer.membershipId,
+            resourceId: value.resourceId,
+          });
+    if (value.resourceId !== undefined && !source) throw new AppError('NOT_FOUND');
+    if (
+      source &&
+      (value.classification === 'restricted' ||
+        !coversMeetingSource(value.classification, source.classification))
+    )
+      throw new AppError('CLASSIFICATION_NOT_ALLOWED');
     const [row] = await tx
       .insert(meetings)
       .values({
@@ -320,6 +337,13 @@ export function createMeeting(
         occurredAt: value.occurredAt,
         classification: value.classification,
         organizerMembershipId: viewer.membershipId,
+        ...(source
+          ? {
+              sourceKind: 'connector',
+              connectionId: source.connectionId,
+              sourceResourceId: value.resourceId,
+            }
+          : {}),
       })
       .returning();
     if (!row) throw new AppError('INVALID_STATE');
@@ -339,6 +363,15 @@ export function createMeeting(
     });
     await auditAction(tx, context, MEETING_CREATED, meetingTargetRef(row.id));
     return detail(tx, row, viewer);
+  });
+}
+export function listMeetingSourceChoices(database: AppDatabase, context: TenantContext) {
+  return withMeetingPerson(database, context, async (tx, viewer) => {
+    if (!(await settings(tx)).enabled) return [];
+    return recentMeetingSources(tx, {
+      organizationId: context.organizationId,
+      requester: viewer.membershipId,
+    });
   });
 }
 export function getMeeting(database: AppDatabase, context: TenantContext, meetingId: string) {

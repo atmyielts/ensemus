@@ -1167,8 +1167,8 @@
     },
     {
       "path": "guides/operator/connector-worker.md",
-      "size_bytes": 13429,
-      "sha256": "6913d3c22e44fc612198c938a221a87dfea13c4084742316a8e0d0f7f808b152"
+      "size_bytes": 14136,
+      "sha256": "15a58295c5d59ea2f104830f6c024a305e4e32f3977b536c8dc23abb866fb6e7"
     },
     {
       "path": "guides/operator/diagnostics-export.md",
@@ -1687,8 +1687,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 564602,
-      "sha256": "7c77d0c544f559abf86b5598969a064a187f10e273d33f24a0df4064770b7007"
+      "size_bytes": 564538,
+      "sha256": "b1a7e990b07bd94d769fa467496ff748f0ba394f0d8efc3be8ea430d6da4f0ca"
     },
     {
       "path": "specifications/qa-scenarios.csv",

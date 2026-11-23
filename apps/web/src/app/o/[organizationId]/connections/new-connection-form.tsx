@@ -90,9 +90,12 @@ export function NewConnectionForm({
               defaultValue={values?.fromName ?? ''}
             />
           </Label>
+        </fieldset>
+        <fieldset className="group">
+          <legend>For email and meeting notes</legend>
           <Label>
-            Name on your mail server&apos;s certificate
-            <small>Optional. Ensemus checks the certificate against this name.</small>
+            Name on the server certificate
+            <small>Use the certificate name your operator gave you.</small>
             <Input
               name="tlsServerName"
               maxLength={253}

@@ -145,16 +145,19 @@ A restore to before a send loses the attempt row, and that action goes back to `
 
 Business adapters use the protocol in `packages/contracts/src/business-adapter.ts`. Each kind gets one fixed-target gateway. They are not vendor integrations by themselves; deploy an adapter for your actual source, with credentials and source ACL mapping. Multi-tenant Cloud routing remains unqualified, and configuring these routes in Cloud is refused.
 
-Use `infrastructure/compose/compose.business.yaml` alongside the core Compose file and an already configured connector profile. That profile currently also requires the existing SMTP gateway target. The optional relay profiles are independent: `business-crm`, `business-ticketing` and `business-accounting`. Keep a route unset when its relay is not running, so setup does not offer it.
+Use `infrastructure/compose/compose.business.yaml` alongside the core Compose file and an already configured connector profile. That profile currently also requires the existing SMTP gateway target. The relay profiles are independent. Keep a route unset when its relay is not running, so setup does not offer it.
 
 | Kind | Optional profile | Operator target setting | Shared web/worker route setting |
 |---|---|---|---|
 | CRM | `business-crm` | `ENSEMUS_CRM_ADAPTER_TARGET=adapter.example.invalid:443` | `ENSEMUS_EGRESS_GATEWAY_CRM=egress-crm:2525` |
 | Ticketing | `business-ticketing` | `ENSEMUS_TICKETING_ADAPTER_TARGET=adapter.example.invalid:443` | `ENSEMUS_EGRESS_GATEWAY_TICKETING=egress-ticketing:2525` |
 | Accounting | `business-accounting` | `ENSEMUS_ACCOUNTING_ADAPTER_TARGET=adapter.example.invalid:443` | `ENSEMUS_EGRESS_GATEWAY_ACCOUNTING=egress-accounting:2525` |
+| Meeting notes | `business-meeting-notes` | `ENSEMUS_MEETING_NOTES_ADAPTER_TARGET=adapter.example.invalid:443` | `ENSEMUS_EGRESS_GATEWAY_MEETING_NOTES=egress-meeting-notes:2525` |
 
 The values above are examples, not real targets. Put only the selected routes in the operator env file. Include both Compose files and the matching profile whenever creating those services. Web receives route metadata without joining the connector or outbound networks; only the worker opens the fixed relay. The relays hold no credential. `ENSEMUS_BUSINESS_TLS` defaults to `required`; a site CA can be supplied as public PEM in `ENSEMUS_BUSINESS_CA_PEM`. Certificate checking remains enabled. Do not use `none` on an untrusted network.
 
 The company administrator grants a local read/write ceiling while supplying a manual credential. This is not a provider OAuth consent receipt or a claim that the key has those permissions. The source still independently authorizes every request. Fields and streams are checked against the connector's allowlist; every write still uses the existing immutable approval and receipt path. No selected streams means no source read. Revocation immediately closes stored-record access and the worker revokes the sealed lease.
+
+For a meeting notes adapter, enter the relay target's certificate name and a read credential when adding the connection. A sync keeps only the resource identifier, version, title, classification and mapped source grants. The organizer selects an accessible source when creating a meeting. The import reads its text only after everyone has consented and an administrator has approved that connection. The worker rechecks those conditions before the request and before storing the reply. Live credentials and real meeting content remain gated on the security review and consent decisions in ADR-033.
 
 Qualification in the current candidate uses generated credentials, actual TLS, native PostgreSQL roles and real connector sync activities. It does not qualify a vendor adapter, live provider or complete Temporal deployment. See the current release-candidate report for exact results.

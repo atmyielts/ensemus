@@ -2,6 +2,7 @@
 import { useActionState, useState } from 'react';
 import Link from 'next/link';
 import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ErrorNotice } from '@/components/ui';
@@ -18,6 +19,7 @@ export function MeetingForm({
   noticeRef,
   enabled,
   people = [],
+  sources = [],
   initialText,
   summary,
   disclosureClassName,
@@ -33,6 +35,7 @@ export function MeetingForm({
   noticeRef?: string | null;
   enabled?: boolean;
   people?: readonly { membershipId: string; name: string }[];
+  sources?: readonly { resourceId: string; title: string | null; connectionName: string }[];
 }) {
   const [state, action, pending] = useActionState<MeetingFormState, FormData>(
     saveMeetingAction,
@@ -119,6 +122,24 @@ export function MeetingForm({
         )}
         {kind === 'create' && (
           <>
+            {sources.length > 0 && (
+              <Label>
+                Notes source
+                <NativeSelect
+                  name="resourceId"
+                  value={field('resourceId')}
+                  onChange={(e) => change('resourceId', e.target.value)}
+                  disabled={pending}
+                >
+                  <option value="">Add notes manually</option>
+                  {sources.map((source) => (
+                    <option key={source.resourceId} value={source.resourceId}>
+                      {source.title ?? 'Untitled note'} · {source.connectionName}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </Label>
+            )}
             <Label>
               Meeting title
               <Input

@@ -7,6 +7,10 @@ import { z } from 'zod';
 export const ADAPTER_BASE_PATH = '/ensemus-adapter/v1';
 export const ADAPTER_IDEMPOTENCY_HEADER = 'idempotency-key';
 
+export const meetingNotesConnectorConfigSchema = z.strictObject({
+  tlsServerName: z.hostname().max(253).optional(),
+});
+
 const shortId = z.string().min(1).max(1024);
 
 export const adapterGrantSchema = z.strictObject({

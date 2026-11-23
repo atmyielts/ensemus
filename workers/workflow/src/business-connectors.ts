@@ -7,7 +7,10 @@ import type { Connector } from '@ensemus/connectors';
 import { createAccountingConnector } from '@ensemus/connectors/accounting';
 import { routeConnector, type BusinessRecordSink } from '@ensemus/connectors/business';
 import { createCrmConnector } from '@ensemus/connectors/crm';
-import { createMeetingNotesConnector } from '@ensemus/connectors/meetings';
+import {
+  createMeetingNotesConnector,
+  type MeetingNotesConnector,
+} from '@ensemus/connectors/meetings';
 import { createGatewayNetwork } from '@ensemus/connectors/runtime';
 import { createTicketingConnector } from '@ensemus/connectors/ticketing';
 import type { AppDatabase } from '@ensemus/database';
@@ -36,6 +39,16 @@ export function businessConnectorsFrom(env: Env, database: AppDatabase): readonl
   add(routes.crm_http, () => createCrmConnector({ ...transport, sink }));
   add(routes.ticketing_http, () => createTicketingConnector({ ...transport, sink }));
   add(routes.accounting_http, () => createAccountingConnector({ ...transport, sink }));
-  add(env.ENSEMUS_EGRESS_GATEWAY_MEETING_NOTES, () => createMeetingNotesConnector(transport));
+  if (routes.meeting_notes_http) {
+    const connector = createMeetingNotesConnector(transport);
+    const network = createGatewayNetwork(routes.meeting_notes_http);
+    const routed: MeetingNotesConnector = {
+      ...routeConnector(connector, network),
+      notes: {
+        read: (context, request) => connector.notes.read({ ...context, network }, request),
+      },
+    };
+    connectors.push(routed);
+  }
   return connectors;
 }

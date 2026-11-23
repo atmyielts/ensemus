@@ -188,6 +188,11 @@ export const SHIPPED_CONNECTOR_RULES: readonly ConnectorTypeRule[] = [
     },
   },
   { type: 'inbound_webhook', credential: { required: false }, configFields: {} },
+  {
+    type: 'meeting_notes_http',
+    credential: { required: true },
+    configFields: { tlsServerName: { required: false, kind: 'name' } },
+  },
   ...['crm_http', 'ticketing_http', 'accounting_http'].map((type) => ({
     type,
     credential: { required: true },
