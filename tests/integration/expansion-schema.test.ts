@@ -707,7 +707,11 @@ describe('expansion rules in the database', () => {
       return { ...ready, runId, itemId: id };
     };
     const work = () =>
-      createWorkUnit(db(), ctxA, { title: 'Send the plan', objective: 'Send it.' });
+      createWorkUnit(db(), ctxA, {
+        title: 'Send the plan',
+        objective: 'Send it.',
+        classification: 'confidential',
+      });
 
     it.each([
       ['accepted already', { status: 'accepted' }],
@@ -767,7 +771,7 @@ describe('expansion rules in the database', () => {
       withTenantTx(db(), ctxA, (tx) =>
         tx
           .update(meetingProposedItems)
-          .set({ status: 'accepted', decidedAt: new Date(), ...change })
+          .set({ status: 'accepted', decidedAt: new Date(), version: 2, ...change })
           .where(eq(meetingProposedItems.id, itemId)),
       );
 

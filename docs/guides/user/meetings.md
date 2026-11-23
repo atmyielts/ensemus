@@ -6,14 +6,14 @@ tickets: [EXP-03]
 modes: [cloud, byom, sovereign]
 status: written_untested
 sources: [apps/web/src/app/o/[organizationId]/meetings/providers/page.tsx, packages/application/src/meeting-manual.ts, apps/web/src/app/o/[organizationId]/meetings/page.tsx, apps/web/src/app/o/[organizationId]/meetings/[meetingId]/page.tsx, apps/web/src/app/o/[organizationId]/meetings/actions.ts, packages/database/migrations/0752_meeting_consent_administration.sql]
-tests: [tests/integration/meeting-manual.test.ts, tests/stack/meeting-manual-api.test.ts, tests/browser/specs/meeting-manual.spec.ts]
+tests: [tests/integration/meeting-proposals.test.ts, tests/integration/meeting-manual.test.ts, tests/stack/meeting-manual-api.test.ts, tests/browser/specs/meeting-manual.spec.ts]
 ---
 
 # Meetings and private notes
 
 > **Not yet tested end to end.** This page was written from the code, and nobody has followed it on a running system yet.
 
-Open **Meetings** in the workspace. This workflow registers a meeting and stores plain-text notes. It does not record a call or contact a model or provider. Summaries, proposed work and connector imports are not available through this page yet.
+Open **Meetings** in the workspace to register a meeting and store plain-text notes. The manual workflow stores only the notes you enter. Provider runs and connector imports are still being implemented.
 
 ## Turn meetings on
 
@@ -42,6 +42,12 @@ An unanswered participant can be removed before notes exist. A recorded answer s
 Everyone listed must agree first. The organizer then opens **Add notes**, enters plain text and chooses **Store notes**. Another save creates a new version. The page shows the latest version. Empty notes and notes exceeding the byte limit are refused.
 
 Only the organizer and listed participants can read the title, participants and notes. Owners and administrators outside the room see only meeting status and metadata; their role does not give them the content. A person outside the company cannot read it here.
+
+## Review summaries and suggestions
+
+When generated results are available, **Summaries** and **Suggested work and decisions** appear for the people listed in the meeting. Review the model-generated text before acting on it.
+
+Choose **Record decision** to keep a decision with the meeting. Choose **Create work from suggestion** to review and edit the title, objective, owner, and due date before creating work. The Work Unit inherits the meeting’s classification. You can also dismiss a suggestion.
 
 ## Hand off a meeting
 

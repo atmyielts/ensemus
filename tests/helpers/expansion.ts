@@ -10,6 +10,7 @@ import {
   meetingProviderApprovals,
   meetings,
   meetingSettings,
+  meetingSummaries,
   withTenantTx,
   type AppDatabase,
   type TenantContext,
@@ -215,4 +216,58 @@ export async function seedProposedItem(
     }),
   );
   return id;
+}
+
+/** Generated results behind real consent and run state. No provider runs in these tests. */
+export async function seedMeetingSuggestions(
+  database: AppDatabase,
+  organizer: TenantContext,
+  attendee?: TenantContext,
+) {
+  await enableMeetings(database, organizer);
+  const room = await seedMeeting(database, organizer);
+  const consent = { meetingId: room.id, participantId: room.organizerParticipantId };
+  if (attendee) {
+    const participantId = randomUUID();
+    await withTenantTx(database, organizer, (tx) =>
+      tx.insert(meetingParticipants).values({
+        organizationId: organizer.organizationId,
+        id: participantId,
+        meetingId: room.id,
+        kind: 'member',
+        membershipId: attendee.membershipId,
+      }),
+    );
+    await recordConsent(database, attendee, { meetingId: room.id, participantId });
+  }
+  await recordConsent(database, organizer, consent);
+  const notes = 'Generated notes only.';
+  const notesId = await seedNotes(database, organizer, { meetingId: room.id, text: notes });
+  const providerApprovalId = await seedModelApproval(database, organizer);
+  const running = { meetingId: room.id, notesId, providerApprovalId, status: 'running' as const };
+  const extraction = await seedDerivationRun(database, organizer, running);
+  const result = { meetingId: room.id, runId: extraction };
+  const work = await seedProposedItem(database, organizer, result);
+  const decision = await seedProposedItem(database, organizer, {
+    ...result,
+    ordinal: 2,
+    kind: 'decision',
+  });
+  const dismiss = await seedProposedItem(database, organizer, { ...result, ordinal: 3 });
+  const summaryRun = await seedDerivationRun(database, organizer, {
+    ...running,
+    purpose: 'summarize',
+  });
+  const summaryText = 'Generated summary for participants.';
+  await withTenantTx(database, organizer, (tx) =>
+    tx.insert(meetingSummaries).values({
+      organizationId: organizer.organizationId,
+      meetingId: room.id,
+      runId: summaryRun,
+      body: summaryText,
+      classification: 'confidential',
+      sourceNotesSha256: sha256(notes),
+    }),
+  );
+  return { ...room, work, decision, dismiss, summaryText };
 }

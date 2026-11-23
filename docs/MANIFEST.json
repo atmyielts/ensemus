@@ -1427,8 +1427,8 @@
     },
     {
       "path": "guides/user/meetings.md",
-      "size_bytes": 4639,
-      "sha256": "64e7f5cf6f5f9b0181d3bb22717864d348a42b9d920d5295b79f215a26cb33e2"
+      "size_bytes": 5144,
+      "sha256": "5042a266899dfe17c80b7d96ad2ca2ec626d7d1d6bb693bc05be6d9e35e60110"
     },
     {
       "path": "guides/user/members-and-invitations.md",
@@ -1687,8 +1687,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 564826,
-      "sha256": "b5e8b496d7b4e4b867cd27b29ab990d6cae62b884c654c0f93221baabcca145a"
+      "size_bytes": 564666,
+      "sha256": "75bf9e1a23be89abb64c1c21b11db2d85efc509d10571fa0cdd521ef874fe5ab"
     },
     {
       "path": "specifications/qa-scenarios.csv",

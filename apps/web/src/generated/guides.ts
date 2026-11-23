@@ -10433,7 +10433,7 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
           },
           {
             "t": "text",
-            "v": " in the workspace. This workflow registers a meeting and stores plain-text notes. It does not record a call or contact a model or provider. Summaries, proposed work and connector imports are not available through this page yet."
+            "v": " in the workspace to register a meeting and store plain-text notes. The manual workflow stores only the notes you enter. Provider runs and connector imports are still being implemented."
           }
         ]
       },
@@ -10628,6 +10628,66 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
           {
             "t": "text",
             "v": "Only the organizer and listed participants can read the title, participants and notes. Owners and administrators outside the room see only meeting status and metadata; their role does not give them the content. A person outside the company cannot read it here."
+          }
+        ]
+      },
+      {
+        "b": "h",
+        "level": 2,
+        "inline": [
+          {
+            "t": "text",
+            "v": "Review summaries and suggestions"
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "When generated results are available, "
+          },
+          {
+            "t": "strong",
+            "v": "Summaries"
+          },
+          {
+            "t": "text",
+            "v": " and "
+          },
+          {
+            "t": "strong",
+            "v": "Suggested work and decisions"
+          },
+          {
+            "t": "text",
+            "v": " appear for the people listed in the meeting. Review the model-generated text before acting on it."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Choose "
+          },
+          {
+            "t": "strong",
+            "v": "Record decision"
+          },
+          {
+            "t": "text",
+            "v": " to keep a decision with the meeting. Choose "
+          },
+          {
+            "t": "strong",
+            "v": "Create work from suggestion"
+          },
+          {
+            "t": "text",
+            "v": " to review and edit the title, objective, owner, and due date before creating work. The Work Unit inherits the meeting’s classification. You can also dismiss a suggestion."
           }
         ]
       },

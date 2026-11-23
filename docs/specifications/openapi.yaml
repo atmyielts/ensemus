@@ -9173,7 +9173,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/MeetingID"
     get:
-      x-ensemus-status: planned
       tags:
         - meetings
       summary: What a model made of the notes. Always marked as that, and never a fact
@@ -9209,7 +9208,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/MeetingID"
     get:
-      x-ensemus-status: planned
       tags:
         - meetings
       summary: Decisions and work a model suggests. Nothing here exists until a person
@@ -9246,7 +9244,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/MeetingItemID"
     post:
-      x-ensemus-status: planned
       tags:
         - meetings
       summary: Accept proposed work. This is the only way one becomes a Work Unit, and
@@ -9324,7 +9321,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/MeetingItemID"
     post:
-      x-ensemus-status: planned
       tags:
         - meetings
       summary: Record a proposed decision as made. It stays with the meeting and
@@ -9369,7 +9365,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/MeetingItemID"
     post:
-      x-ensemus-status: planned
       tags:
         - meetings
       summary: Say a proposal is wrong or not wanted

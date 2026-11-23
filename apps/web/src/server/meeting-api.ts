@@ -1,6 +1,9 @@
 import 'server-only';
 import {
   AppError,
+  acceptProposedWork,
+  confirmProposedWork,
+  getWorkUnit,
   approveMeetingProvider,
   getMeetingProviderApproval,
   getMeeting,
@@ -11,11 +14,14 @@ import {
   type MeetingDetailView,
   type MeetingParticipantView,
   type MeetingSummaryView,
+  type MeetingSummaryTextView,
+  type ProposedItemView,
   type ProviderApprovalView,
 } from '@ensemus/application';
 import type { AppDatabase, TenantContext } from '@ensemus/database';
 import { canonicalJson } from '@ensemus/domain/approval';
-import type { ApproveProviderBody } from '@ensemus/contracts/meetings';
+import type { AcceptProposedWorkBody, ApproveProviderBody } from '@ensemus/contracts/meetings';
+import { z } from 'zod';
 import { organizationParams } from './api';
 import { studioOnce } from './studio-api';
 export const meetingParams = organizationParams.extend({ meetingId: idSchema });
@@ -119,4 +125,76 @@ export async function approveMeetingProviderOnce(
   );
   // The memo holds only the ID. Current role and current revocation state are read on every response.
   return getMeetingProviderApproval(database, context, id);
+}
+
+export const meetingItemParams = organizationParams.extend({ itemId: idSchema });
+
+export const meetingSummaryTextDto = (row: MeetingSummaryTextView) => ({
+  id: row.id,
+  run_id: row.runId,
+  text: row.text,
+  trust: row.trust,
+  created_at: row.createdAt.toISOString(),
+});
+
+export const meetingProposalDto = (row: ProposedItemView) => ({
+  id: row.id,
+  meeting_id: row.meetingId,
+  kind: row.kind,
+  title: row.title,
+  detail: row.detail,
+  suggested_owner_membership_id: row.suggestedOwnerMembershipId,
+  suggested_due_on: row.suggestedDueOn,
+  status: row.status,
+  decided_by_membership_id: row.decidedByMembershipId,
+  decided_at: row.decidedAt?.toISOString() ?? null,
+  work_unit_id: row.workUnitId,
+  version: row.version,
+});
+
+const acceptedProposal = z.strictObject({ work_unit_id: idSchema, version: z.int().positive() });
+
+export async function acceptProposedWorkOnce(
+  database: AppDatabase,
+  context: TenantContext,
+  key: string,
+  itemId: string,
+  expectedVersion: number,
+  body: AcceptProposedWorkBody,
+) {
+  const once = () =>
+    runIdempotent(
+      database,
+      context,
+      {
+        key,
+        requestHash: requestHash([
+          'meeting.item.work',
+          itemId,
+          String(expectedVersion),
+          canonicalJson(body),
+        ]),
+      },
+      (db) =>
+        acceptProposedWork(db, context, {
+          itemId,
+          expectedVersion,
+          title: body.title,
+          ...(body.objective !== undefined ? { objective: body.objective } : {}),
+          ownerMembershipId: body.owner_membership_id,
+          dueAt: body.due_at === null ? null : new Date(body.due_at),
+        }),
+      (work) => ({ status: 201, body: { work_unit_id: work.workUnitId, version: work.version } }),
+    );
+  const result = await once().catch((error: unknown) => {
+    // A second request can reach the item lock before seeing the first request's committed key.
+    if (!(error instanceof AppError) || error.code !== 'PROPOSAL_ALREADY_DECIDED') throw error;
+    return once();
+  });
+  if (result.kind === 'conflict') throw new AppError('IDEMPOTENCY_KEY_REUSED');
+  const parsed = acceptedProposal.safeParse(result.body);
+  if (!parsed.success) throw new AppError('INVALID_STATE');
+  await confirmProposedWork(database, context, itemId, parsed.data.work_unit_id);
+  await getWorkUnit(database, context, parsed.data.work_unit_id);
+  return parsed.data;
 }

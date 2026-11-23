@@ -1,6 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { notFound } from 'next/navigation';
-import { AppError, getMeeting, getMeetingSettings, listDirectory } from '@ensemus/application';
+import {
+  AppError,
+  getMeeting,
+  getMeetingSettings,
+  listDirectory,
+  listMeetingSummaries,
+  listProposedItems,
+} from '@ensemus/application';
 import {
   BackLink,
   ClassificationBadge,
@@ -12,6 +19,8 @@ import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { NativeSelect } from '@/components/ui/native-select';
 import { canReassignOrganizer } from '@ensemus/domain/meeting';
+import { can } from '@ensemus/domain/policy';
+import { MeetingDerivedContent } from './derived-content';
 import { SubmitButton } from '@/components/submit-button';
 import { ConfirmForm } from '@/components/confirm-form';
 import { requireTenant } from '@/server/tenant';
@@ -23,7 +32,7 @@ export default async function MeetingPage({
   searchParams,
 }: {
   params: Promise<{ organizationId: string; meetingId: string }>;
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; proposal?: string }>;
 }) {
   const { organizationId, meetingId } = await params,
     { actor, database, context } = await requireTenant(organizationId);
@@ -38,9 +47,23 @@ export default async function MeetingPage({
     organizer = meeting.organizerMembershipId === context.membershipId,
     readable = meeting.title !== null,
     open = meeting.status === 'open';
+  const query = await searchParams;
+  const [summaries, proposals] =
+    readable && open && meeting.currentNotes
+      ? await Promise.all([
+          listMeetingSummaries(database, context, meetingId),
+          listProposedItems(database, context, meetingId),
+        ])
+      : ([[], []] as const);
+  const mayDecide = open && meeting.consent === 'complete';
+  const mayCreateFromProposal =
+    mayDecide &&
+    can(context.role, 'work.create') &&
+    proposals.some((item) => item.kind === 'work' && item.status === 'proposed');
   const canAdd = organizer && open && !meeting.currentNotes;
   const canHandoff = open && canReassignOrganizer(context.role);
-  const directory = canAdd || canHandoff ? await listDirectory(database, context) : [];
+  const directory =
+    canAdd || canHandoff || mayCreateFromProposal ? await listDirectory(database, context) : [];
   const organizerLeft = directory.some(
     (person) =>
       person.membershipId === meeting.organizerMembershipId && person.status === 'disabled',
@@ -69,7 +92,7 @@ export default async function MeetingPage({
         title={meeting.title ?? 'Private meeting'}
         description={formatDateTime(meeting.occurredAt)}
       />
-      <ErrorNotice code={(await searchParams).error} />
+      <ErrorNotice code={query.error} />
       <div className="row">
         <ClassificationBadge value={meeting.classification} />
         <Badge variant="outline">
@@ -238,6 +261,22 @@ export default async function MeetingPage({
                 <p className="muted">Everyone listed must agree before notes can be stored.</p>
               ))}
           </section>
+          <MeetingDerivedContent
+            organizationId={organizationId}
+            meetingId={meetingId}
+            currentMember={context.membershipId}
+            summaries={summaries}
+            proposals={proposals}
+            mayDecide={mayDecide}
+            people={
+              mayCreateFromProposal
+                ? directory
+                    .filter((person) => person.status === 'active')
+                    .map((person) => ({ id: person.membershipId, name: person.name }))
+                : []
+            }
+            {...(query.proposal !== undefined ? { notice: query.proposal } : {})}
+          />
         </>
       )}
     </>

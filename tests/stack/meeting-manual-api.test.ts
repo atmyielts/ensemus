@@ -14,6 +14,7 @@ import {
 } from '../helpers/forms';
 import { nativePersonContext } from '../helpers/product';
 import { seedConnection } from '../helpers/integrations';
+import { seedMeetingSuggestions, TEST_NOTICE } from '../helpers/expansion';
 import { urls } from '../helpers/stack';
 import { contractProblems } from '../helpers/openapi';
 
@@ -442,5 +443,69 @@ describe('manual meeting HTTP lifecycle', () => {
     expect((await call(owner, 'GET', formMeeting!.path)).body.organizer_membership_id).toBe(
       ownerContext.membershipId,
     );
+  });
+  it('reviews private derived content and creates only one work unit through concurrent retries', async () => {
+    const coworker = await join(owner, org, 'Generated non-attendee');
+    const coworkerContext = await contextFor(coworker, org);
+    const room = await seedMeetingSuggestions(app.db, await contextFor(owner, org));
+    const parent = base() + '/meetings/' + room.id;
+    const items = base() + '/meeting-items/';
+    const view = await call(owner, 'GET', parent + '/summaries');
+    expect(view.body.items).toEqual([
+      expect.objectContaining({ trust: 'model_generated', text: room.summaryText }),
+    ]);
+    expect((await call(coworker, 'GET', parent + '/proposed-items')).response.status).toBe(404);
+    expect((await call(foreign, 'GET', parent + '/summaries')).response.status).toBe(404);
+
+    const approval = { 'if-match': '"1"' };
+    expect(
+      (await call(owner, 'POST', items + room.decision + '/decision', {}, approval)).body,
+    ).toEqual({ version: 2 });
+    expect(
+      (await call(owner, 'POST', items + room.dismiss + '/rejection', {}, approval)).body,
+    ).toEqual({ version: 2 });
+
+    const key = { ...approval, 'idempotency-key': randomUUID() };
+    const workPath = items + room.work + '/work';
+    const input = {
+      title: 'Generated accepted meeting work',
+      owner_membership_id: coworkerContext.membershipId,
+      due_at: null,
+    };
+    expect(
+      (await call(owner, 'POST', workPath, input, { 'idempotency-key': randomUUID() })).response
+        .status,
+    ).toBe(428);
+    expect((await call(coworker, 'POST', workPath, input, key)).response.status).toBe(404);
+    const [first, replay] = await Promise.all([
+      call(owner, 'POST', workPath, input, key),
+      call(owner, 'POST', workPath, input, key),
+    ]);
+    expect(first.response.status, JSON.stringify(first.body)).toBe(201);
+    expect(replay.response.status, JSON.stringify(replay.body)).toBe(201);
+    expect(replay.body).toEqual(first.body);
+    const item = (await call(owner, 'GET', parent + '/proposed-items')).body.items.find(
+      (entry: { id: string }) => entry.id === room.work,
+    );
+    expect(item).toMatchObject({
+      status: 'accepted',
+      work_unit_id: first.body.work_unit_id,
+      version: 2,
+    });
+    const work = base() + '/work-units/' + first.body.work_unit_id;
+    expect((await call(owner, 'GET', work)).body).toMatchObject({ title: input.title });
+
+    const withdrawn = await call(
+      owner,
+      'POST',
+      parent + '/participants/' + room.organizerParticipantId + '/consent',
+      { decision: 'withdrawn', notice_ref: TEST_NOTICE },
+    );
+    expect(withdrawn.response.status).toBe(200);
+    expect((await call(owner, 'POST', workPath, input, key)).body.code).toBe('MEETING_PURGED');
+    expect((await call(owner, 'GET', parent + '/summaries')).body.items).toEqual([
+      expect.objectContaining({ text: null }),
+    ]);
+    expect((await call(owner, 'GET', work)).response.status).toBe(200);
   });
 });

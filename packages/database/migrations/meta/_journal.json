@@ -1177,6 +1177,13 @@
       "when": 1794201807640,
       "tag": "0758_meeting_provider_approval_authority",
       "breakpoints": true
+    },
+    {
+      "idx": 168,
+      "version": "7",
+      "when": 1794201807641,
+      "tag": "0759_meeting_proposal_decision_actor",
+      "breakpoints": true
     }
   ]
 }
