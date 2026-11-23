@@ -58,7 +58,11 @@ export async function statusShown(path: string, person: Person): Promise<string>
 
 /** The refusal notice a page shows a person, in the words on the screen. */
 export function noticeOn(html: string): string | undefined {
-  const notice = /<p class="notice error" role="alert">([^<]*)<\/p>/.exec(mainOf(html))?.[1];
+  const main = mainOf(html);
+  const notice =
+    /<div\b(?=[^>]*\bdata-slot="alert")(?=[^>]*\brole="alert")[^>]*>\s*<div\b[^>]*\bdata-slot="alert-description"[^>]*>([^<]*)<\/div>/.exec(
+      main,
+    )?.[1] ?? /<p class="notice error" role="alert">([^<]*)<\/p>/.exec(main)?.[1];
   return notice?.replaceAll('&#x27;', "'").replaceAll('&quot;', '"').replaceAll('&amp;', '&');
 }
 
