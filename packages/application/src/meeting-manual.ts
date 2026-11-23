@@ -89,7 +89,7 @@ async function activePerson(tx: Tx, context: TenantContext) {
   if (native.rows[0]?.allowed !== true || !row) throw new AppError('FORBIDDEN');
   return { membershipId: row.id, role: row.role };
 }
-async function human<T>(
+export async function withMeetingPerson<T>(
   database: AppDatabase,
   context: TenantContext,
   use: (tx: Tx, viewer: { membershipId: string; role: string }) => Promise<T>,
@@ -122,14 +122,14 @@ async function enabled(tx: Tx) {
   return value;
 }
 export function getMeetingSettings(database: AppDatabase, context: TenantContext) {
-  return human(database, context, (tx) => settings(tx));
+  return withMeetingPerson(database, context, (tx) => settings(tx));
 }
 export function updateMeetingSettings(
   database: AppDatabase,
   context: TenantContext,
   input: { expectedVersion: number; enabled: boolean; noticeRef: string | null },
 ) {
-  return human(database, context, async (tx, viewer) => {
+  return withMeetingPerson(database, context, async (tx, viewer) => {
     if (!canAdministerMeetings(viewer.role)) throw new AppError('FORBIDDEN');
     const value = parsed(
       z.strictObject({
@@ -276,7 +276,7 @@ export function createMeeting(
   context: TenantContext,
   input: { title: string; occurredAt: Date; classification?: Classification },
 ) {
-  return human(database, context, async (tx, viewer) => {
+  return withMeetingPerson(database, context, async (tx, viewer) => {
     const value = parsed(createInput, input);
     await enabled(tx);
     const [row] = await tx
@@ -309,7 +309,7 @@ export function createMeeting(
   });
 }
 export function getMeeting(database: AppDatabase, context: TenantContext, meetingId: string) {
-  return human(database, context, async (tx, viewer) =>
+  return withMeetingPerson(database, context, async (tx, viewer) =>
     detail(tx, await load(tx, meetingId), viewer),
   );
 }
@@ -319,7 +319,7 @@ export function listMeetings(
   context: TenantContext,
   input: { after?: string; limit?: number },
 ) {
-  return human(database, context, async (tx, viewer) => {
+  return withMeetingPerson(database, context, async (tx, viewer) => {
     const limit = parsed(z.number().int().min(1).max(100), input.limit ?? 25);
     let after: z.infer<typeof cursorSchema> | null = null;
     if (input.after !== undefined) {
@@ -383,7 +383,7 @@ export function reassignMeetingOrganizer(
   context: TenantContext,
   input: { meetingId: string; expectedVersion: number; organizerMembershipId: string },
 ): Promise<void> {
-  return human(database, context, async (tx, viewer) => {
+  return withMeetingPerson(database, context, async (tx, viewer) => {
     if (!canReassignOrganizer(viewer.role)) throw new AppError('FORBIDDEN');
     const value = parsed(
       z.strictObject({ meetingId: id, expectedVersion: version, organizerMembershipId: id }),
@@ -450,7 +450,7 @@ export function addMeetingParticipant(
     participant: { kind: 'member'; membershipId: string } | { kind: 'external'; label: string };
   },
 ) {
-  return human(database, context, async (tx, viewer) => {
+  return withMeetingPerson(database, context, async (tx, viewer) => {
     const value = parsed(
       z.discriminatedUnion('kind', [
         z.strictObject({ kind: z.literal('member'), membershipId: id }),
@@ -506,7 +506,7 @@ export function removeMeetingParticipant(
   context: TenantContext,
   input: { meetingId: string; participantId: string; expectedVersion: number },
 ) {
-  return human(database, context, async (tx, viewer) => {
+  return withMeetingPerson(database, context, async (tx, viewer) => {
     parsed(id, input.participantId);
     const { row, listed } = await changeable(
       tx,
@@ -533,7 +533,7 @@ export function recordMeetingConsent(
   context: TenantContext,
   input: { meetingId: string; participantId: string; decision: ConsentDecision; noticeRef: string },
 ) {
-  return human(database, context, async (tx, viewer) => {
+  return withMeetingPerson(database, context, async (tx, viewer) => {
     const value = parsed(
       z.strictObject({
         meetingId: id,
@@ -603,7 +603,7 @@ export function importMeetingNotes(
   context: TenantContext,
   input: { meetingId: string; text: string },
 ) {
-  return human(database, context, async (tx, viewer) => {
+  return withMeetingPerson(database, context, async (tx, viewer) => {
     if (
       typeof input.text !== 'string' ||
       !input.text.trim() ||

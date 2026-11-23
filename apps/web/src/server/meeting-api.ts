@@ -1,6 +1,8 @@
 import 'server-only';
 import {
   AppError,
+  approveMeetingProvider,
+  getMeetingProviderApproval,
   getMeeting,
   idSchema,
   importMeetingNotes,
@@ -9,10 +11,13 @@ import {
   type MeetingDetailView,
   type MeetingParticipantView,
   type MeetingSummaryView,
+  type ProviderApprovalView,
 } from '@ensemus/application';
 import type { AppDatabase, TenantContext } from '@ensemus/database';
 import { canonicalJson } from '@ensemus/domain/approval';
+import type { ApproveProviderBody } from '@ensemus/contracts/meetings';
 import { organizationParams } from './api';
+import { studioOnce } from './studio-api';
 export const meetingParams = organizationParams.extend({ meetingId: idSchema });
 export const participantParams = meetingParams.extend({ participantId: idSchema });
 export const meetingSummaryDto = (row: MeetingSummaryView) => ({
@@ -70,4 +75,48 @@ export async function importNotesOnce(
   if ((await getMeeting(database, context, meetingId)).status === 'purged')
     throw new AppError('MEETING_PURGED');
   return result.body as { id: string; version: number };
+}
+
+export const providerApprovalParams = organizationParams.extend({ providerApprovalId: idSchema });
+
+export const meetingProviderApprovalDto = (row: ProviderApprovalView) => ({
+  id: row.id,
+  kind: row.kind,
+  target_ref: row.targetRef,
+  purposes: row.purposes,
+  max_classification: row.maxClassification,
+  terms_ref: row.termsRef,
+  approved_by_membership_id: row.approvedByMembershipId,
+  approved_at: row.approvedAt.toISOString(),
+  expires_at: row.expiresAt.toISOString(),
+  revoked_at: row.revokedAt?.toISOString() ?? null,
+});
+
+export async function approveMeetingProviderOnce(
+  database: AppDatabase,
+  context: TenantContext,
+  key: string,
+  body: ApproveProviderBody,
+) {
+  const common = {
+    maxClassification: body.max_classification,
+    termsRef: body.terms_ref,
+    expiresAt: new Date(body.expires_at),
+  };
+  const id = await studioOnce(database, context, key, 'meeting.provider.approve', body, (db) =>
+    approveMeetingProvider(
+      db,
+      context,
+      body.kind === 'model'
+        ? {
+            ...common,
+            kind: body.kind,
+            modelProfileId: body.model_profile_id,
+            purposes: body.purposes,
+          }
+        : { ...common, kind: body.kind, connectionId: body.connection_id },
+    ),
+  );
+  // The memo holds only the ID. Current role and current revocation state are read on every response.
+  return getMeetingProviderApproval(database, context, id);
 }

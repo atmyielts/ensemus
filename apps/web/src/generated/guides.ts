@@ -10487,6 +10487,50 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
         "inline": [
           {
             "t": "text",
+            "v": "Manage provider approvals"
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Owners and administrators can open "
+          },
+          {
+            "t": "strong",
+            "v": "Provider approvals"
+          },
+          {
+            "t": "text",
+            "v": " from "
+          },
+          {
+            "t": "strong",
+            "v": "Meetings"
+          },
+          {
+            "t": "text",
+            "v": ". Choose an active model profile or meeting notes connection, the highest classification it may handle, a terms reference, and an expiry. A model approval also names its allowed purposes."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "The list shows expiry and revocation. An approval records the administrator’s choice without sending notes or starting a run."
+          }
+        ]
+      },
+      {
+        "b": "h",
+        "level": 2,
+        "inline": [
+          {
+            "t": "text",
             "v": "Register the meeting and its participants"
           }
         ]

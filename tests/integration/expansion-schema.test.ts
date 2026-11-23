@@ -43,6 +43,7 @@ import {
   TEST_TERMS,
 } from '../helpers/expansion';
 import { seedConnection } from '../helpers/integrations';
+import { makePerson, nativePersonContext } from '../helpers/product';
 import { urls } from '../helpers/stack';
 
 const client = async (url: string) => {
@@ -82,14 +83,14 @@ describe('expansion rules in the database', () => {
   };
 
   const addMember = async (organizationId: string, label: string) => {
-    const userId = await makeUser(label);
+    const person = await makePerson(label);
     await inFixtureTenant(su, organizationId, () =>
       su.query(
         `insert into org.memberships (organization_id, id, user_id, role, status) values ($1, $2, $3, 'member', 'active')`,
-        [organizationId, randomUUID(), userId],
+        [organizationId, randomUUID(), person.userId],
       ),
     );
-    return resolveTenantContext(db(), userId, organizationId);
+    return nativePersonContext(db(), person, organizationId);
   };
 
   beforeAll(async () => {
@@ -97,20 +98,20 @@ describe('expansion rules in the database', () => {
     connector = openAppDatabase(urls.connector());
     auth = await client(urls.auth());
     su = await client(urls.superuser());
-    const alice = await makeUser('alice');
-    const bob = await makeUser('bob');
+    const alice = await makePerson('alice');
+    const bob = await makePerson('bob');
     const orgA = await createOrganization(db(), {
-      userId: alice,
+      userId: alice.userId,
       name: 'Same Name Ltd',
       commercialMode: 'cloud',
     });
     const orgB = await createOrganization(db(), {
-      userId: bob,
+      userId: bob.userId,
       name: 'Same Name Ltd',
       commercialMode: 'cloud',
     });
-    ctxA = await resolveTenantContext(db(), alice, orgA.organizationId);
-    ctxB = await resolveTenantContext(db(), bob, orgB.organizationId);
+    ctxA = await nativePersonContext(db(), alice, orgA.organizationId);
+    ctxB = await nativePersonContext(db(), bob, orgB.organizationId);
     memberA = await addMember(orgA.organizationId, 'carol');
     outsiderA = await addMember(orgA.organizationId, 'dave');
     await enableMeetings(db(), ctxA);
@@ -466,12 +467,25 @@ describe('expansion rules in the database', () => {
       expiresAt: new Date(Date.now() + 60_000),
     });
 
-    it('takes an active owner or admin', async () => {
+    it('refuses non-admins and caller impersonation', async () => {
       await expect(
         withTenantTx(db(), memberA, (tx) =>
           tx
             .insert(meetingProviderApprovals)
             .values({ ...approvalValues(), approvedByMembershipId: memberA.membershipId }),
+        ),
+      ).rejects.toEqual(sqlState('EN405'));
+      await expect(
+        withTenantTx(db(), memberA, (tx) =>
+          tx.insert(meetingProviderApprovals).values(approvalValues()),
+        ),
+      ).rejects.toEqual(sqlState('EN405'));
+      await expect(
+        withTenantTx(db(), ctxA, (tx) =>
+          tx.insert(meetingProviderApprovals).values({
+            ...approvalValues(),
+            approvedByMembershipId: ctxB.membershipId,
+          }),
         ),
       ).rejects.toEqual(sqlState(PROVIDER));
     });

@@ -1170,6 +1170,13 @@
       "when": 1794201807639,
       "tag": "0757_expansion_erasure_lock_dispatch",
       "breakpoints": true
+    },
+    {
+      "idx": 167,
+      "version": "7",
+      "when": 1794201807640,
+      "tag": "0758_meeting_provider_approval_authority",
+      "breakpoints": true
     }
   ]
 }

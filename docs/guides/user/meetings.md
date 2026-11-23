@@ -5,7 +5,7 @@ area: work
 tickets: [EXP-03]
 modes: [cloud, byom, sovereign]
 status: written_untested
-sources: [packages/application/src/meeting-manual.ts, apps/web/src/app/o/[organizationId]/meetings/page.tsx, apps/web/src/app/o/[organizationId]/meetings/[meetingId]/page.tsx, apps/web/src/app/o/[organizationId]/meetings/actions.ts, packages/database/migrations/0752_meeting_consent_administration.sql]
+sources: [apps/web/src/app/o/[organizationId]/meetings/providers/page.tsx, packages/application/src/meeting-manual.ts, apps/web/src/app/o/[organizationId]/meetings/page.tsx, apps/web/src/app/o/[organizationId]/meetings/[meetingId]/page.tsx, apps/web/src/app/o/[organizationId]/meetings/actions.ts, packages/database/migrations/0752_meeting_consent_administration.sql]
 tests: [tests/integration/meeting-manual.test.ts, tests/stack/meeting-manual-api.test.ts, tests/browser/specs/meeting-manual.spec.ts]
 ---
 
@@ -20,6 +20,12 @@ Open **Meetings** in the workspace. This workflow registers a meeting and stores
 An owner or administrator opens **Meeting settings**, chooses **Allow new meetings**, and enters a notice reference. Your organization holds the notice itself; the reference identifies its document or version. Ensemus supplies no legal terms. Company sign-in and administrative identity policy also apply to this change.
 
 Switching meetings off stops new meetings and notes. People can still withdraw consent. Keep the notice reference while an open meeting exists; clearing it is refused so participants retain a current reference for withdrawal.
+
+## Manage provider approvals
+
+Owners and administrators can open **Provider approvals** from **Meetings**. Choose an active model profile or meeting notes connection, the highest classification it may handle, a terms reference, and an expiry. A model approval also names its allowed purposes.
+
+The list shows expiry and revocation. An approval records the administrator’s choice without sending notes or starting a run.
 
 ## Register the meeting and its participants
 

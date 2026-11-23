@@ -166,43 +166,13 @@ export function importMeetingNotes(
   return manual.importMeetingNotes(_database, _context, _input);
 }
 
-export function approveMeetingProvider(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input:
-    | {
-        kind: 'model';
-        modelProfileId: string;
-        purposes: readonly ('summarize' | 'extract_items')[];
-        maxClassification: Exclude<Classification, 'restricted'>;
-        termsRef: string;
-        expiresAt: Date;
-      }
-    | {
-        kind: 'source';
-        connectionId: string;
-        maxClassification: Exclude<Classification, 'restricted'>;
-        termsRef: string;
-        expiresAt: Date;
-      },
-): Promise<ProviderApprovalView> {
-  throw new Error('NOT_IMPLEMENTED');
-}
-
-export function revokeMeetingProvider(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: { providerApprovalId: string },
-): Promise<void> {
-  throw new Error('NOT_IMPLEMENTED');
-}
-
-export function listMeetingProviderApprovals(
-  _database: AppDatabase,
-  _context: TenantContext,
-): Promise<readonly ProviderApprovalView[]> {
-  throw new Error('NOT_IMPLEMENTED');
-}
+export {
+  approveMeetingProvider,
+  getMeetingProviderApproval,
+  listMeetingProviderApprovals,
+  listMeetingProviderTargets,
+  revokeMeetingProvider,
+} from './meeting-providers';
 
 /** The organizer has left. Owners and admins hand it on, and that shows them nothing it said. */
 export function reassignMeetingOrganizer(

@@ -8485,7 +8485,6 @@ paths:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
     get:
-      x-ensemus-status: planned
       tags:
         - meetings
       summary: Which providers an administrator has approved for meeting content
@@ -8517,7 +8516,6 @@ paths:
         "503":
           $ref: "#/components/responses/RestorePending"
     post:
-      x-ensemus-status: planned
       tags:
         - meetings
       summary: Approve one provider for named purposes up to one class, until a date.
@@ -8565,7 +8563,6 @@ paths:
           type: string
           format: uuid
     post:
-      x-ensemus-status: planned
       tags:
         - meetings
       summary: Take an approval back. A run not yet started stops at its next check

@@ -4,7 +4,7 @@ import { getMeetingSettings, listMeetings } from '@ensemus/application';
 import { canAdministerMeetings } from '@ensemus/domain/meeting';
 import { hasRecentMfa } from '@ensemus/application/privileged';
 import { interactiveSessionOf } from '@ensemus/database';
-import { Empty, PageHead, formatDateTime } from '@/components/ui';
+import { ActionLink, Empty, PageHead, formatDateTime } from '@/components/ui';
 import { Badge } from '@/components/ui/badge';
 import { requireTenant } from '@/server/tenant';
 import { stepUpPath } from '@/lib/step-up';
@@ -30,7 +30,17 @@ export default async function MeetingsPage({
       : false;
   return (
     <>
-      <PageHead title="Meetings" description="Private notes for the people in the room." />
+      <PageHead
+        title="Meetings"
+        description="Private notes for the people in the room."
+        actions={
+          admin && (
+            <ActionLink href={'/o/' + organizationId + '/meetings/providers'} variant="secondary">
+              Provider approvals
+            </ActionLink>
+          )
+        }
+      />
       {settings.enabled ? (
         <MeetingForm
           summary="New meeting"

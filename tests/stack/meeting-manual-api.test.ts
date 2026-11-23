@@ -13,6 +13,7 @@ import {
   type Person,
 } from '../helpers/forms';
 import { nativePersonContext } from '../helpers/product';
+import { seedConnection } from '../helpers/integrations';
 import { urls } from '../helpers/stack';
 import { contractProblems } from '../helpers/openapi';
 
@@ -51,22 +52,24 @@ describe('manual meeting HTTP lifecycle', () => {
     ).toEqual([]);
     return { response, body: text ? JSON.parse(text) : null };
   }
+  async function contextFor(person: Person, organizationId: string) {
+    const response = await fetch(BASE + '/api/auth/get-session', {
+      headers: { cookie: person.jar.cookie },
+    });
+    expect(response.status).toBe(200);
+    const { user, session } = (await response.json()) as {
+      user: { id: string };
+      session: { id: string };
+    };
+    return nativePersonContext(app.db, { userId: user.id, sessionId: session.id }, organizationId);
+  }
   beforeAll(async () => {
     owner = await signUp('Generated meeting organizer');
     org = await createOrganization(owner, 'Generated meeting company');
     member = await join(owner, org, 'Generated meeting participant');
     foreign = await signUp('Generated other company organizer');
     foreignOrg = await createOrganization(foreign, 'Generated other meeting company');
-    const session = (await (
-      await fetch(BASE + '/api/auth/get-session', { headers: { cookie: member.jar.cookie } })
-    ).json()) as { user: { id: string }; session: { id: string } };
-    memberId = (
-      await nativePersonContext(
-        app.db,
-        { userId: session.user.id, sessionId: session.session.id },
-        org,
-      )
-    ).membershipId;
+    memberId = (await contextFor(member, org)).membershipId;
   });
   afterAll(() => app.close());
   it('starts off, refuses member administration, then records the owner notice and settings ETag', async () => {
@@ -93,6 +96,53 @@ describe('manual meeting HTTP lifecycle', () => {
     );
     expect(updated.response.status).toBe(200);
     expect(updated.body.enabled).toBe(true);
+  });
+  it('grants only a tenant-local notes provider once, and can revoke it without replaying a grant', async () => {
+    const endpoint = base() + '/meeting-provider-approvals';
+    const administrator = await contextFor(owner, org);
+    const connection = await seedConnection(app.db, administrator, {
+      connectorType: 'meeting_notes_http',
+      displayName: 'Generated meeting notes connection',
+    });
+    const body = {
+      kind: 'source',
+      connection_id: connection,
+      max_classification: 'internal',
+      terms_ref: 'generated-provider-terms',
+      expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+    };
+    const key = { 'idempotency-key': randomUUID() };
+    expect((await call(member, 'GET', endpoint)).response.status).toBe(403);
+    expect((await call(member, 'POST', endpoint, body, key)).response.status).toBe(403);
+    expect((await call(foreign, 'GET', endpoint)).response.status).toBe(404);
+    const otherEndpoint = '/api/v1/organizations/' + foreignOrg + '/meeting-provider-approvals';
+    expect((await call(foreign, 'POST', otherEndpoint, body, key)).response.status).toBe(404);
+    expect(
+      (await call(owner, 'POST', endpoint, { ...body, max_classification: 'restricted' }, key))
+        .response.status,
+    ).toBe(400);
+
+    const created = await call(owner, 'POST', endpoint, body, key);
+    expect(created.response.status).toBe(201);
+    expect(created.body).toMatchObject({
+      kind: 'source',
+      target_ref: 'connection:' + connection,
+      purposes: ['import_notes'],
+      revoked_at: null,
+    });
+    expect((await call(owner, 'POST', endpoint, body, key)).body).toEqual(created.body);
+    expect(
+      (await call(owner, 'POST', endpoint, { ...body, terms_ref: 'changed' }, key)).response.status,
+    ).toBe(409);
+    const id = created.body.id as string;
+    const revoke = '/' + id + '/revocation';
+    expect((await call(member, 'POST', endpoint + revoke)).response.status).toBe(403);
+    expect((await call(foreign, 'POST', otherEndpoint + revoke)).response.status).toBe(404);
+    expect((await call(owner, 'POST', endpoint + revoke)).response.status).toBe(204);
+    expect((await call(owner, 'POST', endpoint + revoke)).response.status).toBe(204);
+    const replayed = await call(owner, 'POST', endpoint, body, key);
+    expect(replayed.body.revoked_at).toEqual(expect.any(String));
+    expect((await call(owner, 'GET', endpoint)).body.items).toEqual([replayed.body]);
   });
   it('creates once, records each actual answer, stores notes once and rejects stale participant changes', async () => {
     const key = randomUUID(),

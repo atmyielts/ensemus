@@ -7,6 +7,7 @@ import {
   domainEvents,
   meetingConsentRecords,
   meetingNotes,
+  meetingProviderApprovals,
   meetings,
   memberships,
   openAppDatabase,
@@ -18,6 +19,10 @@ import { createServiceContext } from '@ensemus/database/service';
 import { ledgerKeyFor, serializeLedgerEntry } from '@ensemus/domain/tombstone-ledger';
 import {
   addMeetingParticipant,
+  approveMeetingProvider,
+  listMeetingProviderTargets,
+  listMeetingProviderApprovals,
+  revokeMeetingProvider,
   createMeeting,
   disableMember,
   getMeeting,
@@ -39,12 +44,15 @@ import {
   proveSecondFactor,
 } from '../helpers/product';
 import { urls } from '../helpers/stack';
+import { seedConnection } from '../helpers/integrations';
+import { seedActiveProfile, seedDraftProfile } from '../helpers/ai/fixtures';
 
 const notice = 'generated-notice-v1';
 const refused = (code: string) => expect.objectContaining({ code });
 describe('manual meeting registration, consent and notes', () => {
   const app = openAppDatabase(urls.app());
   const worker = openAppDatabase(urls.worker());
+  const agent = openAppDatabase(urls.agent());
   let pair: Awaited<ReturnType<typeof makeTwoTenants>>;
   let owner: TenantContext, admin: TenantContext, member: TenantContext, outsider: TenantContext;
   beforeAll(async () => {
@@ -65,6 +73,7 @@ describe('manual meeting registration, consent and notes', () => {
   });
   afterAll(async () => {
     await worker.close();
+    await agent.close();
     await app.close();
   });
   async function enable() {
@@ -123,6 +132,109 @@ describe('manual meeting registration, consent and notes', () => {
       }),
     ).rejects.toEqual(refused('VERSION_CONFLICT'));
     expect((await getMeetingSettings(app.db, owner)).enabled).toBe(true);
+  });
+  it('records a scoped provider grant once per decision and denies other actors', async () => {
+    const connection = await seedConnection(app.db, admin, {
+      connectorType: 'meeting_notes_http',
+      displayName: 'Generated tenant meeting notes',
+    });
+    const wrongKind = await seedConnection(app.db, admin);
+    const anotherTenant = pair.b.owner.context;
+    const foreign = await seedConnection(app.db, anotherTenant, {
+      connectorType: 'meeting_notes_http',
+    });
+    const input = {
+      kind: 'source' as const,
+      connectionId: connection,
+      maxClassification: 'internal' as const,
+      termsRef: 'generated-approval-basis',
+      expiresAt: new Date(Date.now() + 60_000),
+    };
+    await expect(approveMeetingProvider(app.db, member, input)).rejects.toEqual(
+      refused('FORBIDDEN'),
+    );
+    await expect(listMeetingProviderTargets(app.db, member)).rejects.toEqual(refused('FORBIDDEN'));
+    await expect(
+      approveMeetingProvider(worker.db, createServiceContext(owner.organizationId), input),
+    ).rejects.toEqual(refused('FORBIDDEN'));
+    for (const connectionId of [wrongKind, foreign]) {
+      await expect(
+        approveMeetingProvider(app.db, admin, { ...input, connectionId }),
+      ).rejects.toEqual(refused('NOT_FOUND'));
+    }
+    const draft = await seedDraftProfile(app.db, owner);
+    await expect(
+      approveMeetingProvider(app.db, owner, {
+        kind: 'model',
+        modelProfileId: draft,
+        purposes: ['summarize'],
+        maxClassification: 'internal',
+        termsRef: input.termsRef,
+        expiresAt: input.expiresAt,
+      }),
+    ).rejects.toEqual(refused('MODEL_PROFILE_NOT_ACTIVE'));
+
+    // Both people are administrators. The caller cannot put the other person's name on a grant.
+    await expect(
+      withTenantTx(app.db, admin, (tx) =>
+        tx.insert(meetingProviderApprovals).values({
+          organizationId: owner.organizationId,
+          kind: 'source',
+          targetRef: 'connection:' + connection,
+          purposes: ['import_notes'],
+          maxClassification: 'internal',
+          termsRef: input.termsRef,
+          approvedByMembershipId: owner.membershipId,
+          expiresAt: input.expiresAt,
+        }),
+      ),
+    ).rejects.toMatchObject({ cause: { code: 'EN111' } });
+
+    const approval = await approveMeetingProvider(app.db, admin, input);
+    expect(approval).toMatchObject({
+      approvedByMembershipId: admin.membershipId,
+      targetRef: 'connection:' + connection,
+      purposes: ['import_notes'],
+      revokedAt: null,
+    });
+    await expect(listMeetingProviderApprovals(app.db, anotherTenant)).resolves.toEqual([]);
+    await expect(
+      revokeMeetingProvider(app.db, anotherTenant, { providerApprovalId: approval.id }),
+    ).rejects.toEqual(refused('NOT_FOUND'));
+    await revokeMeetingProvider(app.db, owner, { providerApprovalId: approval.id });
+    await revokeMeetingProvider(app.db, owner, { providerApprovalId: approval.id });
+    const [record] = await listMeetingProviderApprovals(app.db, owner);
+    expect(record?.revokedAt).toEqual(expect.any(Date));
+    const events = await withTenantTx(app.db, owner, (tx) =>
+      tx
+        .select({ kind: domainEvents.eventType, payload: domainEvents.payload })
+        .from(domainEvents)
+        .where(eq(domainEvents.aggregateId, approval.id))
+        .orderBy(domainEvents.aggregateVersion),
+    );
+    expect(events).toEqual([
+      { kind: 'meeting.provider_approved', payload: { provider_approval_id: approval.id } },
+      { kind: 'meeting.provider_revoked', payload: { provider_approval_id: approval.id } },
+    ]);
+  });
+  it('approves the named active model with only the selected purposes', async () => {
+    await proveSecondFactor(pair.a.owner);
+    const id = await seedActiveProfile(app.db, agent.db, owner);
+    const approval = await approveMeetingProvider(app.db, owner, {
+      kind: 'model',
+      modelProfileId: id,
+      purposes: ['extract_items'],
+      maxClassification: 'internal',
+      termsRef: 'generated-model-basis',
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    expect(approval).toMatchObject({
+      kind: 'model',
+      targetRef: 'model_profile:' + id,
+      purposes: ['extract_items'],
+    });
+    const targets = await listMeetingProviderTargets(app.db, owner);
+    expect(targets.models).toContainEqual(expect.objectContaining({ id, status: 'active' }));
   });
   it('automatically lists the organizer, with confidential content and pending consent', async () => {
     const m = await meeting();
