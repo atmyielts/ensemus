@@ -1132,10 +1132,15 @@ describe('durable agent input protocol and content fence as actual roles', () =>
         clientId,
         name: 'Actual private fact project',
       });
-      await tx.execute(
-        sql`update work.work_units set project_id=${projectId}::uuid,version=version+1 where id=${value.work.id}::uuid`,
-      );
     });
+    // The Work owner can attach the project through the web role. An app service context would
+    // silently update no rows because Work material is hidden from that purpose.
+    const attached = await withTenantTx(app.db, value.owner, (tx) =>
+      tx.execute<{ project_id: string }>(
+        sql`update work.work_units set project_id=${projectId}::uuid,version=version+1 where id=${value.work.id}::uuid returning project_id`,
+      ),
+    );
+    expect(attached.rows).toEqual([{ project_id: projectId }]);
     const [project] = await withTenantTx(app.db, value.service, (tx) =>
       tx.select().from(projects).where(eq(projects.id, projectId)),
     );
@@ -1182,13 +1187,22 @@ describe('durable agent input protocol and content fence as actual roles', () =>
       ]),
     );
     expect(JSON.stringify(observations)).not.toContain('Private actual fact parent');
-    await withTenantTx(app.db, value.service, (tx) =>
-      tx.update(projects).set({ clientId: null }).where(eq(projects.id, projectId)),
+    const reparented = await withTenantTx(app.db, value.member, (tx) =>
+      tx
+        .update(projects)
+        .set({ clientId: null })
+        .where(eq(projects.id, projectId))
+        .returning({ clientId: projects.clientId }),
     );
+    expect(reparented).toEqual([{ clientId: null }]);
     await expect(checkRunInputDispatch(agent.db, value.context)).resolves.toBeUndefined();
-    await withTenantTx(app.db, value.service, (tx) =>
-      tx.delete(clientReaders).where(eq(clientReaders.clientId, clientId)),
+    const revoked = await withTenantTx(app.db, value.member, (tx) =>
+      tx
+        .delete(clientReaders)
+        .where(eq(clientReaders.clientId, clientId))
+        .returning({ membershipId: clientReaders.membershipId }),
     );
+    expect(revoked).toEqual([{ membershipId: value.owner.membershipId }]);
     // The retained client read is now unreadable to the initiator, so 0414's run-level input proof
     // (currentRunCompanyClassInTx, reached first through assertRunInputsOpen) refuses dispatch.
     await expect(checkRunInputDispatch(agent.db, value.context)).rejects.toMatchObject({
