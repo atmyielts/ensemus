@@ -87,6 +87,13 @@ export const SETTINGS_DESTINATIONS: readonly SettingsDestination[] = [
     any: ['connection.manage'],
   },
   {
+    path: 'deployment',
+    label: 'Deployment posture',
+    description: 'Review isolation checks and declared data regions.',
+    icon: 'safety',
+    any: ['tenancy.view'],
+  },
+  {
     path: 'settings/models',
     label: 'Models',
     description: 'Choose which models may receive company information.',
@@ -286,6 +293,7 @@ export function workspaceNavigation(input: {
             `${base}/license`,
             `${base}/data`,
             `${base}/get-started`,
+            `${base}/deployment`,
           ],
           excludes: [`${base}/settings/agents`, `${base}/settings/connections`],
         },

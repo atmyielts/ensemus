@@ -177,8 +177,8 @@
     },
     {
       "path": "02-architecture/08-deployment-topologies.md",
-      "size_bytes": 5301,
-      "sha256": "04305f5b9070b0c5762cc1a9f7c54d00cdb0f369c57f608db5c85cdef09595a1"
+      "size_bytes": 6241,
+      "sha256": "3e43ffcc42b78c3b4faaff27751a2cee8042af1f5a6c804cb5dd166603944439"
     },
     {
       "path": "02-architecture/09-performance-scaling.md",
@@ -1687,8 +1687,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 564954,
-      "sha256": "60c31e568e5193859567e07084b735ae3fccc70d336a45ac4da7fb0e00c1f1bb"
+      "size_bytes": 564922,
+      "sha256": "18328bbfb83112fcc865c3bf3b50bbf80da751ddc497eb9b6cc3664d81e8612c"
     },
     {
       "path": "specifications/qa-scenarios.csv",

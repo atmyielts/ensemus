@@ -60,7 +60,7 @@ export type IsolationPosture = {
 export function isolationPosture(
   tier: TenancyTier,
   records: readonly IsolationRecord[],
-  releaseVersion: string,
+  releaseVersion: string | null,
 ): IsolationPosture {
   const aspects = ISOLATION_ASPECTS.map((aspect): IsolationAspectPosture => {
     const latest = records

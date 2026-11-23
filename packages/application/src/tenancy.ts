@@ -1,29 +1,105 @@
-// Owned by the tier slice (EXP-08). See docs/06-delivery/m11c-slices.md and ADR-035 D5. Reading what this
-// deployment is. Nothing a request reaches can change it: only the deploy job writes the profile.
-import type { AppDatabase, TenantContext } from '@ensemus/database';
-import type { IsolationPosture, TenancyTier } from '@ensemus/domain/tenancy';
+// ADR-035 D5. The deployment job owns these records. Request paths only read them.
+import {
+  deploymentProfile,
+  isolationEvidence,
+  memberships,
+  withTenantTx,
+  type AppDatabase,
+  type TenantContext,
+  type Tx,
+} from '@ensemus/database';
+import { can } from '@ensemus/domain/policy';
+import {
+  isolationPosture,
+  type IsolationPosture,
+  type IsolationRecord,
+  type TenancyTier,
+} from '@ensemus/domain/tenancy';
+import { and, desc, eq, sql } from 'drizzle-orm';
+import { AppError } from './errors';
 
 export type DeploymentProfileView = {
   tier: TenancyTier;
   homeRegion: string | null;
   crossOrgEnabled: boolean;
-  /** Whether a deploy job has ever written one. Without one, everything above is its default. */
+  /** Whether the deployment job has written a profile. */
   profiled: boolean;
 };
 
-/** Everything defaults when there is no row, and this never throws for that. Takes tenancy.view. */
-export function getDeploymentProfile(
-  _database: AppDatabase,
-  _context: TenantContext,
-): Promise<DeploymentProfileView> {
-  throw new Error('NOT_IMPLEMENTED');
+export async function requireTenancyViewer(tx: Tx, context: TenantContext): Promise<void> {
+  if (context.actorType !== 'user') throw new AppError('NOT_FOUND');
+  const [member] = await tx
+    .select({ role: memberships.role })
+    .from(memberships)
+    .where(
+      and(
+        eq(memberships.organizationId, context.organizationId),
+        eq(memberships.id, context.membershipId),
+        eq(memberships.userId, context.userId),
+        eq(memberships.status, 'active'),
+      ),
+    );
+  if (!member || !can(member.role, 'tenancy.view')) throw new AppError('NOT_FOUND');
 }
 
-/** What was found, by aspect, against this release. Takes tenancy.view. Says nothing it was not told. */
-export function getIsolationPosture(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: { releaseVersion: string },
+async function readProfile(tx: Tx): Promise<DeploymentProfileView> {
+  const [profile] = await tx
+    .select({
+      tier: deploymentProfile.tier,
+      homeRegion: deploymentProfile.homeRegion,
+      crossOrgEnabled: deploymentProfile.crossOrgEnabled,
+    })
+    .from(deploymentProfile);
+  return profile
+    ? { ...profile, tier: profile.tier as TenancyTier, profiled: true }
+    : { tier: 'shared', homeRegion: null, crossOrgEnabled: false, profiled: false };
+}
+
+export function getDeploymentProfile(
+  database: AppDatabase,
+  context: TenantContext,
+): Promise<DeploymentProfileView> {
+  return withTenantTx(database, context, async (tx) => {
+    await requireTenancyViewer(tx, context);
+    return readProfile(tx);
+  });
+}
+
+export function inspectDeployment(
+  database: AppDatabase,
+  context: TenantContext,
+  releaseVersion: string | null,
+) {
+  return withTenantTx(database, context, async (tx) => {
+    await requireTenancyViewer(tx, context);
+    const profile = await readProfile(tx);
+    const records = await tx
+      .selectDistinctOn([isolationEvidence.aspect], {
+        aspect: isolationEvidence.aspect,
+        result: isolationEvidence.result,
+        code: isolationEvidence.code,
+        releaseVersion: isolationEvidence.releaseVersion,
+        checkedAt: isolationEvidence.checkedAt,
+      })
+      .from(isolationEvidence)
+      .orderBy(
+        isolationEvidence.aspect,
+        desc(isolationEvidence.checkedAt),
+        // Equal-time evidence must not let a less conclusive result hide a failure.
+        sql`case ${isolationEvidence.result} when 'failed' then 0 when 'declared' then 1 else 2 end`,
+        isolationEvidence.id,
+      );
+    return {
+      profile,
+      isolation: isolationPosture(profile.tier, records as IsolationRecord[], releaseVersion),
+    };
+  });
+}
+
+export async function getIsolationPosture(
+  database: AppDatabase,
+  context: TenantContext,
+  input: { releaseVersion: string | null },
 ): Promise<IsolationPosture> {
-  throw new Error('NOT_IMPLEMENTED');
+  return (await inspectDeployment(database, context, input.releaseVersion)).isolation;
 }

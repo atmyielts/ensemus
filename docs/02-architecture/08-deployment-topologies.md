@@ -51,3 +51,17 @@ The customer can continue using the purchased version after maintenance expires.
 7. Publish operator release notes, rollback caveats, hashes and verified test results.
 
 See `05-operations/05-container-deployment-runbook.md`, `specifications/deployment/`, and `07-commercial/01-license-and-maintenance.md`.
+
+## 7. Deployment posture
+
+Owners and administrators can open **Administration → Deployment posture**. The page and
+`GET /api/v1/organizations/{organization_id}/tenancy/posture` show the recorded deployment tier,
+isolation findings for the running release, and the operator's data-region declarations. Without a
+profile the view starts with a shared deployment and an unconfirmed home region.
+
+The deployment job writes the profile under the migrator login. Set the same `ENSEMUS_HOME_REGION`
+for the web process and mount its `ENSEMUS_RESIDENCY_POLICY_FILE` read-only when making a regional
+statement. The view withholds the overall in-region statement if the profile and configuration differ,
+a surface lacks a matching declaration, or this organization's active models have outside or unknown
+regions. Model endpoints and credentials are excluded from the response. Reading this view changes
+no routing and makes no outbound requests.
