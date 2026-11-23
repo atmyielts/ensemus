@@ -867,6 +867,9 @@
       padding: 14px 0;
       min-height: 60px;
     }
+    .page-head > div:first-child:not(:has(> p)) {
+      flex-basis: min(9rem, 100%);
+    }
     .page-head h1 {
       font-size: 19px;
     }
