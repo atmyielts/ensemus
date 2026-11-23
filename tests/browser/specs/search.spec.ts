@@ -28,7 +28,15 @@ for (const javaScriptEnabled of [true, false])
     await expect(
       sections.getByRole('link', { name: 'Find a passage', exact: true }),
     ).toHaveAttribute('aria-current', 'page');
-    await page.getByRole('link', { name: 'Search the company', exact: true }).click();
+    await page.getByRole('link', { name: 'Search', exact: true }).click();
+    if (javaScriptEnabled) {
+      const dialog = page.getByRole('dialog', { name: 'Search the company', exact: true });
+      await dialog.getByRole('searchbox', { name: 'Search', exact: true }).fill('pricing');
+      await dialog.getByRole('button', { name: 'Search', exact: true }).click();
+      await expect(page).toHaveURL(`${base}/search?q=pricing`);
+    } else {
+      await expect(page).toHaveURL(`${base}/search`);
+    }
     await expect(
       page.getByRole('heading', { name: 'Search the company', exact: true }),
     ).toBeVisible();

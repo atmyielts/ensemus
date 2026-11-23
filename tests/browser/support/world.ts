@@ -314,7 +314,7 @@ export async function buildWorld(): Promise<World> {
   await move(alice, organization, doneWithFiles, 'verifying', 'completed');
 
   const failed = await createWork(alice, organization, {
-    title: 'Import last yearâ€™s time sheets',
+    title: 'Import last year’s time sheets',
     objective: 'The export from the old system was incomplete.',
   });
   await move(alice, organization, failed, 'ready', 'running', 'failed');

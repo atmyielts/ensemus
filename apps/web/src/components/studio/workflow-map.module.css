@@ -34,7 +34,7 @@
 }
 .edge {
   fill: none;
-  stroke: var(--muted);
+  stroke: var(--muted-foreground);
   stroke-width: 1.5;
 }
 .loop {
@@ -42,7 +42,7 @@
   stroke-dasharray: 5 4;
 }
 .arrow {
-  fill: var(--muted);
+  fill: var(--muted-foreground);
 }
 .loopArrow {
   fill: var(--warn);
@@ -86,7 +86,7 @@
   font-weight: 600;
 }
 .small {
-  fill: var(--muted);
+  fill: var(--muted-foreground);
   font-family: var(--font-sans);
   font-size: var(--text-small);
 }
@@ -97,7 +97,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-4);
-  color: var(--muted);
+  color: var(--muted-foreground);
   font-size: var(--text-small);
 }
 .legendItem {
@@ -107,7 +107,7 @@
 }
 .legendLine {
   inline-size: var(--space-8);
-  border-block-start: 2px solid var(--muted);
+  border-block-start: 2px solid var(--muted-foreground);
 }
 .legendLoop {
   border-color: var(--warn);
