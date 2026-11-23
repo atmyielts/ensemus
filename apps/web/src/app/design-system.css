@@ -684,12 +684,9 @@
     }
   }
   @media (max-width: 767px) {
-    :root:has(.mobile-tabbar) {
+    .shell {
       --mobile-header-height: 3.25rem;
       --mobile-tabbar-height: calc(3.5rem + env(safe-area-inset-bottom, 0px));
-      scroll-padding-block: var(--mobile-header-height) var(--mobile-tabbar-height);
-    }
-    .shell {
       display: block;
       background: var(--card);
     }
@@ -698,21 +695,29 @@
       display: none;
     }
     .content {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
       width: 100%;
-      min-height: 100dvh;
+      height: 100dvh;
+      min-height: 0;
       margin: 0;
       border: 0;
       border-radius: 0;
-      padding: 0 16px calc(var(--mobile-tabbar-height) + 16px);
+      padding: 0;
+    }
+    .content > main {
+      min-width: 0;
+      overflow: auto;
+      overscroll-behavior: contain;
+      padding: 0 16px 16px;
     }
     .workspace-context {
-      position: sticky;
-      top: 0;
+      position: relative;
       z-index: 10;
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
       min-height: var(--mobile-header-height);
-      margin: 0 -16px;
+      margin: 0;
       padding-inline: 16px 8px;
       gap: 8px;
       background: var(--card);
@@ -743,10 +748,8 @@
       display: block;
     }
     .mobile-tabbar {
-      position: fixed;
+      position: relative;
       z-index: 20;
-      inset-inline: 0;
-      inset-block-end: 0;
       display: grid;
       grid-template-columns: minmax(0, 4fr) minmax(0, 1fr);
       align-items: start;

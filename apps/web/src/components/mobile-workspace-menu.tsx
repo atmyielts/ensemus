@@ -8,8 +8,12 @@ export function MobileWorkspaceMenu({ children }: { children: ReactNode }) {
   const menu = useRef<HTMLDetailsElement>(null);
   const trigger = useRef<HTMLElement>(null);
   const pathname = usePathname();
+  const previousPathname = useRef(pathname);
 
   useEffect(() => {
+    // The native disclosure can already be open before React takes over.
+    if (previousPathname.current === pathname) return;
+    previousPathname.current = pathname;
     const disclosure = menu.current;
     if (disclosure?.open) {
       disclosure.open = false;

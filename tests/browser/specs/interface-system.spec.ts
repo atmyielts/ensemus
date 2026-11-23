@@ -31,6 +31,11 @@ for (const theme of ['light', 'dark'] as const)
       if (width < 768) {
         const shortcuts = page.getByRole('navigation', { name: 'Workspace shortcuts' });
         await expect(shortcuts.getByRole('link')).toHaveCount(4);
+        const [viewport, bar] = await Promise.all([
+          page.getByRole('main').boundingBox(),
+          shortcuts.boundingBox(),
+        ]);
+        expect(viewport!.y + viewport!.height).toBeLessThanOrEqual(bar!.y);
         const approvals = shortcuts.getByRole('link', { name: /Approvals/ });
         expect((await approvals.boundingBox())?.height).toBeGreaterThanOrEqual(44);
         await approvals.click();
@@ -90,6 +95,42 @@ test('members keep the workspace and cannot open administration or Studio by dee
   expect((await page.goto(`${base}/settings`))?.status()).toBe(404);
   expect((await page.goto(`${base}/studio`))?.status()).toBe(404);
 });
+
+for (const [width, javaScriptEnabled] of [
+  [1440, true],
+  [390, true],
+  [320, false],
+] as const) {
+  test(`workspace switching loads choices on request at ${width}px`, async ({ open, world }) => {
+    const page = await open(world.both, { width, javaScriptEnabled });
+    const base = `/o/${world.organization}`;
+    const response = await page.goto(base + '/work');
+    expect(response?.status()).toBe(200);
+    const html = await response!.text();
+    expect(html.includes('Ito &amp; Sons') || html.includes('Ito & Sons')).toBe(false);
+
+    if (width < 768) {
+      const menu = page.locator('details.mobile-navigation');
+      await menu.locator('summary').click();
+      await expect(menu).toHaveAttribute('open', '');
+    }
+    await page
+      .getByRole(javaScriptEnabled ? 'button' : 'link', {
+        name: 'Switch organization',
+        exact: true,
+      })
+      .click();
+    const destination = javaScriptEnabled
+      ? page.getByRole('menuitem', { name: 'Ito & Sons', exact: true })
+      : page.getByRole('link', { name: /Ito & Sons/ });
+    await expect(destination).toBeVisible();
+    const href = await destination.getAttribute('href');
+    expect(href).toMatch(/^\/o\/[a-f\d-]+$/);
+    expect(html.includes(href!)).toBe(false);
+    await destination.click();
+    await expect(page).toHaveURL(href!);
+  });
+}
 
 test('long account and organization names preserve a usable narrow workspace', async ({ open }) => {
   const person = await signUp('Alexandra'.repeat(8));

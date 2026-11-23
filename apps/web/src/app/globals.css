@@ -1809,6 +1809,14 @@
     min-height: 1.5rem;
     white-space: nowrap;
   }
+  @media (max-width: 767px) {
+    .pulse-open,
+    .pulse-signal h3 > a {
+      display: inline-flex;
+      align-items: center;
+      min-height: 2rem;
+    }
+  }
   .pulse-controls > summary {
     color: var(--muted-foreground);
     font-size: var(--text-small);

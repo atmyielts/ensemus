@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, ne, sql } from 'drizzle-orm';
 import { appendAudit } from './audit';
 import {
   auditEvents,
@@ -101,6 +101,30 @@ export function listMyOrganizations(database: AppDatabase, userId: string) {
       .where(eq(memberships.userId, userId))
       .orderBy(asc(organizations.name)),
   );
+}
+
+/** The workspace shell only needs to know whether the account has somewhere else to switch. */
+export function hasOtherAccessibleOrganization(
+  database: AppDatabase,
+  userId: string,
+  currentOrganizationId: string,
+) {
+  return withUserTx(database, userId, async (tx) => {
+    const [other] = await tx
+      .select({ found: sql<number>`1` })
+      .from(memberships)
+      .innerJoin(organizations, eq(organizations.id, memberships.organizationId))
+      .where(
+        and(
+          eq(memberships.userId, userId),
+          eq(memberships.status, 'active'),
+          ne(memberships.organizationId, currentOrganizationId),
+          ne(organizations.lifecycle, 'deleted'),
+        ),
+      )
+      .limit(1);
+    return other !== undefined;
+  });
 }
 
 /** Who is in this tenant, without contact details. People see those through the directory. */

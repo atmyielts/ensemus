@@ -9,6 +9,7 @@ export {
 export {
   createOrganization,
   getOrganization,
+  hasOtherAccessibleOrganization,
   listAuditEvents,
   listMembers,
   listMyOrganizations,
