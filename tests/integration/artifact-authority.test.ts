@@ -71,12 +71,14 @@ class ActualMemoryStore implements ObjectStore {
 
 describe('actual pre-put artifact authority (0419)', () => {
   const app = openAppDatabase(urls.app(), { max: 4 });
+  const worker = openAppDatabase(urls.worker(), { max: 4 });
   let a: AiTenant, b: AiTenant;
   beforeAll(async () => {
     a = await seedAiTenant(app.db, { commercialMode: 'sovereign' });
     b = await seedAiTenant(app.db, { commercialMode: 'sovereign' });
   });
   afterAll(async () => {
+    await worker.close();
     await app.close();
   });
 
@@ -117,7 +119,7 @@ describe('actual pre-put artifact authority (0419)', () => {
     );
     const input = { organizationId: a.organizationId, workUnitId: work.id, runId: randomUUID() };
     const store = new ActualMemoryStore(),
-      activities = createActivities({ database: app.db, store });
+      activities = createActivities({ database: worker.db, store });
     expect(await activities.prepareWork(input)).toMatchObject({ status: 'running' });
     return {
       work,
@@ -221,7 +223,7 @@ describe('actual pre-put artifact authority (0419)', () => {
     ]) {
       await expect(
         addGeneratedArtifact(
-          app.db,
+          worker.db,
           f.store,
           f.service,
           {
@@ -314,7 +316,7 @@ describe('actual pre-put artifact authority (0419)', () => {
     };
     await expect(
       addGeneratedArtifact(
-        app.db,
+        worker.db,
         f.store,
         f.service,
         {
@@ -408,14 +410,14 @@ describe('actual pre-put artifact authority (0419)', () => {
     const reviewerAction = await withTenantTx(app.db, f.reviewer, (tx) =>
       currentReviewAction(tx, work),
     );
-    const controlAction = await withTenantTx(app.db, f.service, (tx) =>
+    const controlAction = await withTenantTx(worker.db, f.service, (tx) =>
       currentReviewAction(tx, work),
     );
     expect(controlAction).toEqual(requesterAction);
     expect(reviewerAction).toEqual(requesterAction);
     expect(controlAction.payload).toMatchObject({ artifact_ids: [file.artifactId] });
     await expect(
-      readArtifact(app.db, f.store, f.service, {
+      readArtifact(worker.db, f.store, f.service, {
         workUnitId: f.work.id,
         artifactId: file.artifactId,
       }),
@@ -439,7 +441,7 @@ describe('actual pre-put artifact authority (0419)', () => {
     const released = await getWorkUnit(app.db, a.owner, f.work.id);
     expect(released.runId).toBeNull();
     expect(
-      await withTenantTx(app.db, f.service, (tx) => currentReviewAction(tx, released)),
+      await withTenantTx(worker.db, f.service, (tx) => currentReviewAction(tx, released)),
     ).toEqual(await withTenantTx(app.db, a.owner, (tx) => currentReviewAction(tx, released)));
     expect((await getApproval(app.db, f.reviewer, requested.approvalId)).approval.status).toBe(
       'approved',
@@ -462,21 +464,25 @@ describe('actual pre-put artifact authority (0419)', () => {
     await expect(withTenantTx(app.db, a.owner, (tx) => call(tx))).rejects.toSatisfy(
       (error: unknown) => pgCode(error) === '42501',
     );
+    // A web login cannot acquire a worker projection merely by claiming actor_type=service.
+    await expect(withTenantTx(app.db, f.service, (tx) => call(tx))).rejects.toSatisfy(
+      (error: unknown) => pgCode(error) === '42501',
+    );
     await expect(
-      withTenantTx(app.db, createServiceContext(b.organizationId), (tx) => call(tx)),
+      withTenantTx(worker.db, createServiceContext(b.organizationId), (tx) => call(tx)),
     ).rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
     await expect(
-      withTenantTx(app.db, f.service, (tx) => call(tx, work.version + 1)),
+      withTenantTx(worker.db, f.service, (tx) => call(tx, work.version + 1)),
     ).rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
     await expect(
-      withTenantTx(app.db, f.service, (tx) => call(tx, work.version, randomUUID())),
+      withTenantTx(worker.db, f.service, (tx) => call(tx, work.version, randomUUID())),
     ).rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
     await expect(
-      withTenantTx(app.db, f.service, (tx) =>
+      withTenantTx(worker.db, f.service, (tx) =>
         call(tx, work.version, f.input.runId, a.member.membershipId),
       ),
     ).rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
-    await withTenantTx(app.db, f.service, async (tx) => {
+    await withTenantTx(worker.db, f.service, async (tx) => {
       const prior = { org: b.organizationId, work: randomUUID() };
       await tx.execute(
         sql`select set_config('work.review_control_org',${prior.org},true),set_config('work.review_control_work',${prior.work},true)`,
@@ -492,6 +498,26 @@ describe('actual pre-put artifact authority (0419)', () => {
       ).rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
       expect((await selectors()).rows).toEqual([prior]);
     });
+    // Switching a genuine worker to the web role also loses the narrow projection.
+    const switched = new pg.Client({ connectionString: urls.worker() });
+    await switched.connect();
+    try {
+      await switched.query('set role ensemus_app');
+      await switched.query(
+        "select set_config('app.organization_id',$1,false),set_config('app.actor_type','service',false)",
+        [a.organizationId],
+      );
+      await expect(
+        switched.query('select id from work.held_review_artifact_ids($1,$2,$3,$4)', [
+          work.id,
+          work.version,
+          f.input.runId,
+          a.owner.membershipId,
+        ]),
+      ).rejects.toMatchObject({ code: '42501' });
+    } finally {
+      await switched.end();
+    }
     const agent = new pg.Client({ connectionString: urls.agent() });
     await agent.connect();
     try {

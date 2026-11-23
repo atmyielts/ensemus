@@ -7,8 +7,8 @@ one release candidate, integration issues fixed, and the full platform developed
 `codex/release-candidate` is the canonical implementation branch for this work. The old milestone
 reports remain historical evidence at their recorded revisions, not acceptance of this candidate.
 
-The current implementation phase covers consolidation and qualification across M1Ã¢â‚¬â€œM8 and the recovered
-M9P/hardening and M11AÃ¢â‚¬â€œM11C foundations. External security review, real-provider qualification, commercial
+The current implementation phase covers consolidation and qualification across M1ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“M8 and the recovered
+M9P/hardening and M11AÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“M11C foundations. External security review, real-provider qualification, commercial
 decisions and launch sign-off are distinct gates. No prices, jurisdiction, residency commitment,
 production signing key or approval is invented.
 
@@ -537,7 +537,7 @@ The native PostgreSQL regression reproduced private content reads that the exist
 refused: an unassigned member, four workers copying human bindings, and unadmitted agent/knowledge
 service contexts could read Work objectives, approval actions and external-action payloads. A later
 extension reproduced the same leak in free-text Work transition and approval-decision reasons,
-including an unadmitted delegated platform context. Migrations 0741Ã¢â‚¬â€œ0743 and 0746 add restrictive
+including an unadmitted delegated platform context. Migrations 0741ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“0743 and 0746 add restrictive
 SELECT policies on all five material tables, retaining their existing tenant, parent, inherited-input
 and immutable-history rules. An actual web person still needs a current active membership and the
 current Work ACL. Copied human bindings and SET ROLE do not turn a worker login into a person.
@@ -612,7 +612,7 @@ access. The source page does not copy source names or customer facts automatical
 invoice drafts. A single idempotent transaction creates Work, explicitly assigns its reviewer, and
 creates the approval; refusal rolls these effects back together.
 
-Migrations 0747â€“0749 add source-bound read restrictions and narrowly scoped record/team fact locks.
+Migrations 0747Ã¢â‚¬â€œ0749 add source-bound read restrictions and narrowly scoped record/team fact locks.
 Native connector dispatch repeats permission, version, scope and classification checks before
 creating an attempt. Team-grant deletion races return VERSION_CONFLICT without an attempt or a
 permanent cancellation. A subsequent committed loss cancels the action before contact. The lock
@@ -937,3 +937,38 @@ Local qualification:
 Logs are retained under ignored .local/ci-*-20261123.log. This qualifies local fixture/configuration
 repairs, not full Linux CI, provider delivery or production readiness. The full integration and
 portability/erasure/API release gates still need further work.
+
+## Native held-review projection and historical checklist regression (SEC-10, QA-007)
+
+The actual-role artifact fixture first reproduced both positive failures under the web login:
+its service could no longer prepare Work after native worker narrowing. Activities and service-only
+writes now use the real platform-worker login; human reads, writes and SQL denial checks still use web.
+The historical checklist-upgrade fixture uses the same split for its resumed activities and review request.
+
+A new negative check then exposed a real gap: the legacy held-review SECURITY DEFINER projection
+still accepted the web login with a claimed service binding. It returned exact candidate artifact IDs,
+not file bytes, but that control projection belongs only to the platform worker. New migration 0751
+narrows its EXECUTE grant and three private projection policies to the native worker, rejects SET ROLE,
+and preserves every exact Work/version/run/requester check, bound, lock and selector restoration. It
+adds no table, content grant, universal service role or changed human review payload. Its first lines
+explicitly flag pending human security review; this is not an agent security approval.
+
+Actual qualification: before fixture repair, two native artifact positives failed NOT_FOUND. After it,
+nine cases passed and the new web-spoof denial failed because the projection really succeeded. After
+0751, all ten artifact cases passed. The joined final artifact, worker-login and old-checklist upgrade
+run passed all 20 cases in 24.42 seconds. It includes malformed exact targets, foreign tenants, wrong
+versions/runs/requesters, app-written/deleted authority denial, no byte access for a service, real human
+review hash equality, selector restoration, agent SET ROLE denial and worker SET ROLE denial. Existing
+worker-login/delegation migration unit checks passed 39 cases. All data and file bytes were generated.
+
+One earlier local test command omitted COMPOSE_PROJECT_NAME and attempted to recreate a stopped
+default ensemus-postgres container. It could not bind the isolated fixture's already-occupied port;
+no provisioning, migrations or tests ran from that launch. Its retained ensemus_postgres-data volume
+was inspected intact, and the existing running stacks remained up. No data volume was deleted. The
+reproductions and passing runs above explicitly used ensemus-rc-20261121 and its own test ports.
+
+Ignored exact local evidence: ci-artifact-native-isolated-before-20261123.log,
+ci-artifact-native-after-20261123.log, ci-artifact-native-qualified-20261123.log,
+ci-native-review-regression-20261123.log, ci-native-review-regression-qualified-20261123.log,
+ci-native-review-unit-20261123.log. The first regression run also caught the old checklist fixture's
+same shared-login mismatch before that fixture was repaired. Linux CI and outside review remain owed.

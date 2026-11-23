@@ -88,10 +88,11 @@ const code = (name: string) => expect.objectContaining({ code: name });
 
 describe('a checklist written before 0208, on work paused for review', () => {
   let app: ReturnType<typeof openAppDatabase>;
+  let worker: ReturnType<typeof openAppDatabase>;
   let auth: pg.Client;
   const db = () => app.db;
   const store = new MemoryStore();
-  const activities = () => createActivities({ database: db(), store });
+  const activities = () => createActivities({ database: worker.db, store });
 
   async function makeUser(label: string) {
     const id = randomUUID();
@@ -217,7 +218,7 @@ describe('a checklist written before 0208, on work paused for review', () => {
     artifactIds: string[],
   ) {
     const work = await getWorkUnit(db(), owner, run.workUnitId);
-    const requested = await requestApproval(db(), createServiceContext(owner.organizationId), {
+    const requested = await requestApproval(worker.db, createServiceContext(owner.organizationId), {
       workUnitId: run.workUnitId,
       action: workReviewAction(work, artifactIds),
       approverMembershipId: reviewer.membershipId,
@@ -234,11 +235,13 @@ describe('a checklist written before 0208, on work paused for review', () => {
 
   beforeAll(async () => {
     app = openAppDatabase(urls.app());
+    worker = openAppDatabase(urls.worker());
     auth = new pg.Client({ connectionString: urls.auth() });
     await auth.connect();
   });
 
   afterAll(async () => {
+    await worker?.close();
     await app?.close();
     await auth?.end();
   });
@@ -299,7 +302,7 @@ describe('a checklist written before 0208, on work paused for review', () => {
     expect(await fileIds(owner, later.work.id)).toEqual([laterFile]);
   });
 
-  describe('is not requalified when its bytes are not its own Work’s checklist', () => {
+  describe('is not requalified when its bytes are not its own Workâ€™s checklist', () => {
     it('keeps a tampered checklist hidden, so the paused review stays refused', async () => {
       const owner = await newOrg();
       const reviewer = await join(owner, 'legacy-reviewer');
