@@ -186,6 +186,10 @@
 }
 
 @layer components {
+  /* Long redirect URLs must not establish a wider implicit grid track in settings forms. */
+  .group {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .shell {
     width: 100%;
     background: var(--sidebar);

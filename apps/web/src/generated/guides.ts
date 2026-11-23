@@ -10505,7 +10505,7 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
         "inline": [
           {
             "t": "text",
-            "v": "Those are the only two kinds. Neither one reads or copies anything from another system into Ensemus. Google Workspace, Microsoft 365 and outside tools are not in the product yet."
+            "v": "Google Workspace and Microsoft 365 also have their own consent forms. On a BYOM or Sovereign installation, an operator can offer CRM, ticketing and accounting adapters. Only configured business adapters appear; a Cloud deployment does not offer them until tenant routing is qualified."
           }
         ]
       },
@@ -10536,11 +10536,11 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
           },
           {
             "t": "strong",
-            "v": "External actions"
+            "v": "Administration"
           },
           {
             "t": "text",
-            "v": " in the main navigation and choose "
+            "v": ", then "
           },
           {
             "t": "strong",
@@ -10557,15 +10557,15 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
         "inline": [
           {
             "t": "text",
-            "v": "Other members do not get the button, and the address shows "
+            "v": "Members use "
           },
           {
             "t": "strong",
-            "v": "Page not found"
+            "v": "My connections"
           },
           {
             "t": "text",
-            "v": ". They can still choose an email connection when they propose an email, and they see its name and the address it sends as."
+            "v": " for their own supported Google or Microsoft account. Company connection management remains limited to owners and admins. They can still choose an email connection when they propose an email, and they see its name and the address it sends as."
           }
         ]
       },
@@ -10836,6 +10836,174 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
           {
             "t": "text",
             "v": "There is no field for your mail server's address. Your operator sets the one server this deployment may connect to, and nobody in an organization can name another."
+          }
+        ]
+      },
+      {
+        "b": "h",
+        "level": 2,
+        "inline": [
+          {
+            "t": "text",
+            "v": "Add a business connection"
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "When your operator has configured an adapter, its "
+          },
+          {
+            "t": "strong",
+            "v": "Connect CRM (adapter)"
+          },
+          {
+            "t": "text",
+            "v": ", "
+          },
+          {
+            "t": "strong",
+            "v": "Connect Ticketing (adapter)"
+          },
+          {
+            "t": "text",
+            "v": " or "
+          },
+          {
+            "t": "strong",
+            "v": "Connect Accounting (adapter)"
+          },
+          {
+            "t": "text",
+            "v": " section appears. These forms configure that installation's adapter; they do not connect to a vendor by name or choose a network destination."
+          }
+        ]
+      },
+      {
+        "b": "ol",
+        "items": [
+          [
+            {
+              "t": "text",
+              "v": "If asked, choose "
+            },
+            {
+              "t": "strong",
+              "v": "Verify your identity to set up this connection"
+            },
+            {
+              "t": "text",
+              "v": ". Administrative MFA and SSO follow your company's existing security policy."
+            }
+          ],
+          [
+            {
+              "t": "text",
+              "v": "Open "
+            },
+            {
+              "t": "strong",
+              "v": "Set up connection"
+            },
+            {
+              "t": "text",
+              "v": " and enter a name."
+            }
+          ],
+          [
+            {
+              "t": "text",
+              "v": "Under "
+            },
+            {
+              "t": "strong",
+              "v": "Records to import"
+            },
+            {
+              "t": "text",
+              "v": ", select the record groups to retain. With none selected, the connector imports nothing and makes no source read."
+            }
+          ],
+          [
+            {
+              "t": "text",
+              "v": "Leave "
+            },
+            {
+              "t": "strong",
+              "v": "Allow proposals for reviewed changes"
+            },
+            {
+              "t": "text",
+              "v": " clear for a read-only connection. Selecting it raises the local permission ceiling; the source must independently allow each request, and every proposed change still needs approval. Accounting can create drafts and edit notes, without paying or transferring money."
+            }
+          ],
+          [
+            {
+              "t": "text",
+              "v": "Enter the "
+            },
+            {
+              "t": "strong",
+              "v": "Adapter certificate name"
+            },
+            {
+              "t": "text",
+              "v": " supplied by your operator and the "
+            },
+            {
+              "t": "strong",
+              "v": "Credential"
+            },
+            {
+              "t": "text",
+              "v": ", then choose "
+            },
+            {
+              "t": "strong",
+              "v": "Add connection"
+            },
+            {
+              "t": "text",
+              "v": "."
+            }
+          ]
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "The credential is sealed and never returned. If validation refuses the form, the safe choices stay selected, the disclosure stays open and you must enter the credential again. With JavaScript enabled, safe choices can also survive a step-up round trip in the same account and tab; credentials never enter that draft store. Reloading or signing out clears those memory-only drafts."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Creation records the configuration and queues the existing background sync. It does not prove source connectivity or import permissions. Selected records appear under "
+          },
+          {
+            "t": "strong",
+            "v": "Source records"
+          },
+          {
+            "t": "text",
+            "v": " only after a successful sync and source-ACL mapping. Company administration alone grants no access to their contents. "
+          },
+          {
+            "t": "strong",
+            "v": "Active"
+          },
+          {
+            "t": "text",
+            "v": " means the connection is enabled, not that a provider test succeeded."
           }
         ]
       },
@@ -11361,7 +11529,16 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
         "inline": [
           {
             "t": "text",
-            "v": "Generated local API and browser checks are recorded in the release candidate report. This guide still awaits the required CI-backed checks and independent user walkthrough. Full customer connector setup and provider acceptance remain unfinished."
+            "v": "Generated local API and browser checks are recorded in the release candidate report. This guide still awaits the required CI-backed checks and independent user walkthrough. Business connection setup is available on explicitly operator-routed BYOM/Sovereign installations; see "
+          },
+          {
+            "t": "link",
+            "v": "Connecting other systems",
+            "href": "connections"
+          },
+          {
+            "t": "text",
+            "v": ". Durable execution and real provider acceptance remain separate gates."
           }
         ]
       },
@@ -11618,7 +11795,7 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
         "inline": [
           {
             "t": "text",
-            "v": "Removing a source grant hides record-backed proposals and their reviews on the next request. Invoice drafts name no existing target record: their manually entered content remains protected by their Work and connection access. Installing a department pack grants no source access or connector. Customer connection setup, built-worker execution and real provider acceptance remain separate release gates."
+            "v": "Removing a source grant hides record-backed proposals and their reviews on the next request. Invoice drafts name no existing target record: their manually entered content remains protected by their Work and connection access. Installing a department pack grants no source access or connector. Customer setup does not prove connectivity. Built-worker execution and real provider acceptance remain separate release gates."
           }
         ]
       }

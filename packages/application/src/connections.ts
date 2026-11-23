@@ -1,3 +1,10 @@
+import { businessConnectorConfigSchema } from '@ensemus/contracts/business-records';
+import {
+  isBusinessConnectorType,
+  BUSINESS_STREAMS,
+  readScopeFor,
+  writeScopeFor,
+} from '@ensemus/domain/business-connector';
 // Connections and their sync state (CONNECT-01, ADR-027 D3). Managing a connection needs
 // connection.manage. A credential arrives here already sealed, as a reference, and this file never reads
 // one. The worker's half is at the end: it holds a service context, and nothing a person calls reaches it.
@@ -139,6 +146,25 @@ export async function createConnection(
     throw foreignReference();
   }
 
+  let grantedScopes: string[] = [];
+  const businessType = input.connectorType;
+  if (isBusinessConnectorType(businessType)) {
+    const parsed = businessConnectorConfigSchema.safeParse(input.config);
+    if (
+      !parsed.success ||
+      parsed.data.streams.some(
+        (stream) => !Object.hasOwn(BUSINESS_STREAMS[businessType], stream),
+      ) ||
+      parsed.data.scopes.some(
+        (scope) => ![readScopeFor(businessType), writeScopeFor(businessType)].includes(scope),
+      )
+    )
+      throw new AppError('INVALID_INPUT');
+    // Manual credentials have an explicit admin-approved local ceiling. The source still authorizes
+    // each request independently; these are not an OAuth provider's consent receipt.
+    grantedScopes = [...new Set(parsed.data.scopes)];
+    input = { ...input, config: parsed.data };
+  }
   const id = randomUUID();
   return withTenantTx(database, context, async (tx) => {
     await assertInteractivePrivilege(tx, context, 'connection.manage');
@@ -152,6 +178,7 @@ export async function createConnection(
           connectorType: input.connectorType,
           displayName: name.data,
           config: input.config,
+          grantedScopes,
           credentialSecretId: input.credentialSecretId,
           createdByMembershipId: context.membershipId,
         })

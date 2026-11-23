@@ -5,7 +5,7 @@ area: op-sovereign
 tickets: [COMM-04, SOV-03]
 modes: [sovereign]
 status: written_untested
-sources: [m6-bundle:packages/sovereign/src/bundle.ts, m6-bundle:workers/workflow/src/tools/verify-bundle.ts, m6-bundle:workers/workflow/src/tools/install-bundle.ts, m6-bundle:workers/workflow/scripts/build-sovereign-tools.mjs, m6-bundle:infrastructure/scripts/build-bundle.mjs, m6-bundle:infrastructure/scripts/bundle-rehearsal.mjs, m6-bundle:infrastructure/compose/sovereign/README.md, m6-bundle:docs/05-operations/sovereign/offline-bundle.md, m6-bundle:docs/05-operations/sovereign/upgrade-and-rollback.md, m6-bundle:packages/sovereign/src/documents.ts, m6-foundation:docs/00-foundation/adr/ADR-030-sovereign-license-and-bundle.md, docs/specifications/deployment/SOVEREIGN_OFFLINE_ACCEPTANCE.md]
+sources: [packages/sovereign/src/bundle.ts, workers/workflow/src/tools/verify-bundle.ts, workers/workflow/src/tools/install-bundle.ts, workers/workflow/scripts/build-sovereign-tools.mjs, infrastructure/scripts/build-bundle.mjs, infrastructure/scripts/bundle-rehearsal.mjs, infrastructure/compose/sovereign/README.md, docs/05-operations/sovereign/offline-bundle.md, docs/05-operations/sovereign/upgrade-and-rollback.md, packages/sovereign/src/documents.ts, docs/00-foundation/adr/ADR-030-sovereign-license-and-bundle.md, docs/specifications/deployment/SOVEREIGN_OFFLINE_ACCEPTANCE.md]
 tests: []
 needs_walkthrough: true
 ---

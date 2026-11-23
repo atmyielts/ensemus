@@ -5,7 +5,7 @@ area: op-run
 tickets: [OPS-24]
 modes: [cloud, byom, sovereign]
 status: written_untested
-sources: [infrastructure/compose/postgres/provision.sql, infrastructure/compose/compose.yaml, m8-foundation:docs/00-foundation/adr/ADR-032-saas-operations-and-billing.md, m8-foundation:infrastructure/compose/postgres/provision.sql, m8-foundation:infrastructure/compose/postgres/upgrade-roles-m8.sql, m8-foundation:packages/database/migrations/0501_saas_security.sql, m8-foundation:packages/saas/src/support.ts, m8-foundation:packages/application/src/saas/break-glass.ts, m8-foundation:packages/application/src/saas/support-desk.ts, m8-foundation:packages/config/src/index.ts, m8-foundation:workers/workflow/src/ops.ts, m8-foundation:workers/workflow/src/ops-desk.ts, m8-foundation:tests/integration/saas-schema.test.ts]
+sources: [infrastructure/compose/postgres/provision.sql, infrastructure/compose/compose.yaml, docs/00-foundation/adr/ADR-032-saas-operations-and-billing.md, infrastructure/compose/postgres/provision.sql, infrastructure/compose/postgres/upgrade-roles-m8.sql, packages/database/migrations/0501_saas_security.sql, packages/saas/src/support.ts, packages/application/src/saas/break-glass.ts, packages/application/src/saas/support-desk.ts, packages/config/src/index.ts, workers/workflow/src/ops.ts, workers/workflow/src/ops-desk.ts, tests/integration/saas-schema.test.ts]
 tests: []
 ---
 

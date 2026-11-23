@@ -5,7 +5,7 @@ area: admin
 tickets: [COMM-03, SOV-02]
 modes: [sovereign]
 status: written_untested
-sources: [m6-license:packages/application/src/licensing.ts, m6-license:packages/domain/src/license.ts, m6-license:workers/workflow/src/sovereign-license-command.ts, m6-license:docs/05-operations/sovereign/license-and-maintenance.md, m6-license:tests/unit/no-license-gate.test.ts, m6-license:tests/integration/licensing.test.ts, m6-foundation:docs/00-foundation/adr/ADR-030-sovereign-license-and-bundle.md, m6-foundation:apps/web/src/lib/messages.ts]
+sources: [packages/application/src/licensing.ts, packages/domain/src/license.ts, workers/workflow/src/sovereign-license-command.ts, docs/05-operations/sovereign/license-and-maintenance.md, tests/unit/no-license-gate.test.ts, tests/integration/licensing.test.ts, docs/00-foundation/adr/ADR-030-sovereign-license-and-bundle.md, apps/web/src/lib/messages.ts]
 tests: []
 ---
 

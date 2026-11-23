@@ -5,7 +5,7 @@ area: op-install
 tickets: [FOUND-05]
 modes: [cloud, byom, sovereign]
 status: written_untested
-sources: [infrastructure/compose/compose.yaml, infrastructure/compose/postgres/10-provision.sh, infrastructure/compose/temporal/temporal-start.sh, infrastructure/scripts/generate-test-secrets.mjs, packages/config/src/index.ts, packages/secrets/src/broker.ts, packages/workflows/src/codec.ts, packages/auth/src/index.ts, apps/web/start.mjs, apps/web/src/server/runtime.ts, workers/workflow/src/connector-worker.ts, workers/workflow/src/main.ts, docs/00-foundation/adr/ADR-024-build-start-runtime-contracts.md, docs/00-foundation/adr/ADR-025-m1-implementation-decisions.md, docs/00-foundation/adr/ADR-026-tombstones-survive-restore.md, docs/specifications/implementation-backlog.csv, m3-verified-actions:apps/web/src/server/api.ts]
+sources: [infrastructure/compose/compose.yaml, infrastructure/compose/postgres/10-provision.sh, infrastructure/compose/temporal/temporal-start.sh, infrastructure/scripts/generate-test-secrets.mjs, packages/config/src/index.ts, packages/secrets/src/broker.ts, packages/workflows/src/codec.ts, packages/auth/src/index.ts, apps/web/start.mjs, apps/web/src/server/runtime.ts, workers/workflow/src/connector-worker.ts, workers/workflow/src/main.ts, docs/00-foundation/adr/ADR-024-build-start-runtime-contracts.md, docs/00-foundation/adr/ADR-025-m1-implementation-decisions.md, docs/00-foundation/adr/ADR-026-tombstones-survive-restore.md, docs/specifications/implementation-backlog.csv, apps/web/src/server/api.ts]
 tests: []
 ---
 

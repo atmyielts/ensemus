@@ -5,7 +5,7 @@ area: op-run
 tickets: []
 modes: [cloud, byom, sovereign]
 status: written_untested
-sources: [docs/00-foundation/adr/ADR-027-verified-external-actions.md, m3-verified-actions:workers/workflow/src/connector-worker.ts, m3-verified-actions:workers/workflow/src/egress-gateway.ts, m3-verified-actions:infrastructure/compose/compose.yaml, m3-verified-actions:docs/05-operations/05-container-deployment-runbook.md, m3-verified-actions:docs/06-delivery/evidence/M3-report.md, m3-verified-actions:packages/workflows/src/external-action-workflow.ts, m3-verified-actions:packages/workflows/src/external-action-step.ts, m3-verified-actions:packages/domain/src/webhook.ts, m3-verified-actions:apps/web/src/lib/webhook-limiter.ts, m3-verified-actions:apps/web/src/server/api.ts, m3-verified-actions:packages/application/src/errors.ts]
+sources: [docs/00-foundation/adr/ADR-027-verified-external-actions.md, workers/workflow/src/connector-worker.ts, workers/workflow/src/egress-gateway.ts, infrastructure/compose/compose.yaml, docs/05-operations/05-container-deployment-runbook.md, docs/06-delivery/evidence/M3-report.md, packages/workflows/src/external-action-workflow.ts, packages/workflows/src/external-action-step.ts, packages/domain/src/webhook.ts, apps/web/src/lib/webhook-limiter.ts, apps/web/src/server/api.ts, packages/application/src/errors.ts]
 tests: []
 ---
 
@@ -13,7 +13,7 @@ tests: []
 
 > **Not yet tested end to end.** This page was written from the code, and nobody has followed it on a running system yet.
 
-These two services are how Ensemus sends email and takes webhooks. They are off by default, and no install needs them.
+The connector worker and its fixed-target relays carry supported external actions, synchronization and webhooks. They are off by default, and no install needs them.
 
 **Use generated test values against a test relay only, for now.** The design needs an outside security review before any real credential is stored. No real provider or relay has been used. The tests for this path are written, and the M3 report records them as not yet run.
 
@@ -134,3 +134,21 @@ A restore to before a send loses the attempt row, and that action goes back to `
 - That a real relay or provider works.
 - That a message reached an inbox. `sent` means the mail server accepted it.
 - Exactly-once delivery. It is at most one effect from this side, and an honest `unknown` when nobody can say.
+
+## Optional business adapter routes (BYOM and Sovereign)
+
+Business adapters use the protocol in `packages/contracts/src/business-adapter.ts`. Each kind gets one fixed-target gateway. They are not vendor integrations by themselves; deploy an adapter for your actual source, with credentials and source ACL mapping. Multi-tenant Cloud routing remains unqualified, and configuring these routes in Cloud is refused.
+
+Use `infrastructure/compose/compose.business.yaml` alongside the core Compose file and an already configured connector profile. That profile currently also requires the existing SMTP gateway target. The optional relay profiles are independent: `business-crm`, `business-ticketing` and `business-accounting`. Keep a route unset when its relay is not running, so setup does not offer it.
+
+| Kind | Optional profile | Operator target setting | Shared web/worker route setting |
+|---|---|---|---|
+| CRM | `business-crm` | `ENSEMUS_CRM_ADAPTER_TARGET=adapter.example.invalid:443` | `ENSEMUS_EGRESS_GATEWAY_CRM=egress-crm:2525` |
+| Ticketing | `business-ticketing` | `ENSEMUS_TICKETING_ADAPTER_TARGET=adapter.example.invalid:443` | `ENSEMUS_EGRESS_GATEWAY_TICKETING=egress-ticketing:2525` |
+| Accounting | `business-accounting` | `ENSEMUS_ACCOUNTING_ADAPTER_TARGET=adapter.example.invalid:443` | `ENSEMUS_EGRESS_GATEWAY_ACCOUNTING=egress-accounting:2525` |
+
+The values above are examples, not real targets. Put only the selected routes in the operator env file. Include both Compose files and the matching profile whenever creating those services. Web receives route metadata without joining the connector or outbound networks; only the worker opens the fixed relay. The relays hold no credential. `ENSEMUS_BUSINESS_TLS` defaults to `required`; a site CA can be supplied as public PEM in `ENSEMUS_BUSINESS_CA_PEM`. Certificate checking remains enabled. Do not use `none` on an untrusted network.
+
+The company administrator grants a local read/write ceiling while supplying a manual credential. This is not a provider OAuth consent receipt or a claim that the key has those permissions. The source still independently authorizes every request. Fields and streams are checked against the connector's allowlist; every write still uses the existing immutable approval and receipt path. No selected streams means no source read. Revocation immediately closes stored-record access and the worker revokes the sealed lease.
+
+Qualification in the current candidate uses generated credentials, actual TLS, native PostgreSQL roles and real connector sync activities. It does not qualify a vendor adapter, live provider or complete Temporal deployment. See the current release-candidate report for exact results.

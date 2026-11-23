@@ -5,7 +5,7 @@ area: op-sovereign
 tickets: [SOV-06]
 modes: [sovereign]
 status: written_untested
-sources: [m6-tools:workers/workflow/src/diagnostics-command.ts, m6-tools:workers/workflow/src/diagnostics-export.ts, m6-tools:packages/sovereign/src/diagnostics.ts, m6-tools:docs/05-operations/sovereign/diagnostics.md, m6-tools:workers/workflow/src/tools/recipient-key.ts, m6-foundation:docs/00-foundation/adr/ADR-030-sovereign-license-and-bundle.md, infrastructure/compose/compose.yaml]
+sources: [workers/workflow/src/diagnostics-command.ts, workers/workflow/src/diagnostics-export.ts, packages/sovereign/src/diagnostics.ts, docs/05-operations/sovereign/diagnostics.md, workers/workflow/src/tools/recipient-key.ts, docs/00-foundation/adr/ADR-030-sovereign-license-and-bundle.md, infrastructure/compose/compose.yaml]
 tests: []
 ---
 

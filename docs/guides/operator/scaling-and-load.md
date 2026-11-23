@@ -5,7 +5,7 @@ area: op-run
 tickets: [PLAT-17, OPS-01, SEC-12]
 modes: [cloud, byom, sovereign]
 status: written_untested
-sources: [infrastructure/compose/compose.yaml, infrastructure/compose/compose.test.yaml, infrastructure/compose/proxy/Caddyfile, packages/database/src/connection.ts, packages/database/src/dispatcher.ts, packages/database/src/auth.ts, packages/database/src/secrets.ts, packages/auth/src/index.ts, apps/web/src/server/tenant.ts, workers/workflow/src/main.ts, tests/stack/replicas.test.ts, docs/05-operations/04-cost-and-capacity.md, docs/05-operations/05-container-deployment-runbook.md, docs/05-operations/06-performance-and-load-plan.md, m3-verified-actions:apps/web/src/lib/webhook-limiter.ts, m3-verified-actions:packages/domain/src/webhook.ts, m3-verified-actions:workers/workflow/src/egress-gateway.ts, m3-verified-actions:infrastructure/compose/compose.yaml, m8-foundation:docs/06-delivery/m8-slices.md]
+sources: [infrastructure/compose/compose.yaml, infrastructure/compose/compose.test.yaml, infrastructure/compose/proxy/Caddyfile, packages/database/src/connection.ts, packages/database/src/dispatcher.ts, packages/database/src/auth.ts, packages/database/src/secrets.ts, packages/auth/src/index.ts, apps/web/src/server/tenant.ts, workers/workflow/src/main.ts, tests/stack/replicas.test.ts, docs/05-operations/04-cost-and-capacity.md, docs/05-operations/05-container-deployment-runbook.md, docs/05-operations/06-performance-and-load-plan.md, apps/web/src/lib/webhook-limiter.ts, packages/domain/src/webhook.ts, workers/workflow/src/egress-gateway.ts, infrastructure/compose/compose.yaml, docs/06-delivery/m8-slices.md]
 tests: []
 ---
 

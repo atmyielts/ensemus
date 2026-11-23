@@ -2,11 +2,11 @@
 title: Connecting other systems
 audience: user
 area: connections
-tickets: [CONNECT-01]
+tickets: [CONNECT-01, EXP-02]
 modes: [cloud, byom, sovereign]
 status: written_untested
-sources: [m3-verified-actions:apps/web/src/app/o/[organizationId]/connections/page.tsx, m3-verified-actions:apps/web/src/app/o/[organizationId]/connections/new-connection-form.tsx, m3-verified-actions:apps/web/src/app/o/[organizationId]/connections/webhook-form.tsx, m3-verified-actions:apps/web/src/server/external-action-actions.ts, m3-verified-actions:apps/web/src/server/api.ts, m3-verified-actions:apps/web/src/lib/messages.ts, m3-verified-actions:packages/application/src/connections.ts, m3-verified-actions:packages/connectors/src/email/index.ts, m3-verified-actions:packages/workflows/src/external-action-activities.ts, m3-verified-actions:docs/00-foundation/adr/ADR-027-verified-external-actions.md]
-tests: []
+sources: [apps/web/src/app/o/[organizationId]/connections/page.tsx, apps/web/src/app/o/[organizationId]/connections/new-connection-form.tsx, apps/web/src/app/o/[organizationId]/connections/webhook-form.tsx, apps/web/src/server/external-action-actions.ts, apps/web/src/server/api.ts, apps/web/src/lib/messages.ts, packages/application/src/connections.ts, packages/connectors/src/email/index.ts, packages/workflows/src/external-action-activities.ts, docs/00-foundation/adr/ADR-027-verified-external-actions.md]
+tests: [tests/integration/business-connectors.test.ts, tests/stack/business-connection-setup.test.ts, tests/browser/specs/business-connection-setup.spec.ts]
 ---
 
 # Connecting other systems
@@ -24,13 +24,13 @@ A connection is how Ensemus reaches a system outside itself. It belongs to one o
 | **Email through your mail server** | Send an email that someone has approved. See [Sending email from Ensemus](sending-email.md) |
 | **A signed callback from your own systems** | Let one of your systems ask Ensemus for something. See [Webhooks](webhooks.md) |
 
-Those are the only two kinds. Neither one reads or copies anything from another system into Ensemus. Google Workspace, Microsoft 365 and outside tools are not in the product yet.
+Google Workspace and Microsoft 365 also have their own consent forms. On a BYOM or Sovereign installation, an operator can offer CRM, ticketing and accounting adapters. Only configured business adapters appear; a Cloud deployment does not offer them until tenant routing is qualified.
 
 ## Who can do this
 
-Organization owners and admins can open **Connections**, add a connection and revoke one. To get there, open **External actions** in the main navigation and choose **Connections**.
+Organization owners and admins can open **Connections**, add a connection and revoke one. To get there, open **Administration**, then **Connections**.
 
-Other members do not get the button, and the address shows **Page not found**. They can still choose an email connection when they propose an email, and they see its name and the address it sends as.
+Members use **My connections** for their own supported Google or Microsoft account. Company connection management remains limited to owners and admins. They can still choose an email connection when they propose an email, and they see its name and the address it sends as.
 
 ## Add a connection
 
@@ -54,6 +54,20 @@ You will see: "Connection added. Any credential you gave is sealed, and cannot b
 **Fill in the certificate name.** The page calls it optional, but a deployment that requires encryption, which is what it does unless your operator has said otherwise, cannot send through a connection without it. Every email through that connection ends as **Not sent**, with "Nothing on this deployment was able to pick it up."
 
 There is no field for your mail server's address. Your operator sets the one server this deployment may connect to, and nobody in an organization can name another.
+
+## Add a business connection
+
+When your operator has configured an adapter, its **Connect CRM (adapter)**, **Connect Ticketing (adapter)** or **Connect Accounting (adapter)** section appears. These forms configure that installation's adapter; they do not connect to a vendor by name or choose a network destination.
+
+1. If asked, choose **Verify your identity to set up this connection**. Administrative MFA and SSO follow your company's existing security policy.
+2. Open **Set up connection** and enter a name.
+3. Under **Records to import**, select the record groups to retain. With none selected, the connector imports nothing and makes no source read.
+4. Leave **Allow proposals for reviewed changes** clear for a read-only connection. Selecting it raises the local permission ceiling; the source must independently allow each request, and every proposed change still needs approval. Accounting can create drafts and edit notes, without paying or transferring money.
+5. Enter the **Adapter certificate name** supplied by your operator and the **Credential**, then choose **Add connection**.
+
+The credential is sealed and never returned. If validation refuses the form, the safe choices stay selected, the disclosure stays open and you must enter the credential again. With JavaScript enabled, safe choices can also survive a step-up round trip in the same account and tab; credentials never enter that draft store. Reloading or signing out clears those memory-only drafts.
+
+Creation records the configuration and queues the existing background sync. It does not prove source connectivity or import permissions. Selected records appear under **Source records** only after a successful sync and source-ACL mapping. Company administration alone grants no access to their contents. **Active** means the connection is enabled, not that a provider test succeeded.
 
 ## What the list shows
 

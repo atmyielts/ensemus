@@ -73,7 +73,7 @@ export const businessConnectorConfigSchema = z.strictObject({
     .optional(),
   /** The selected streams. Left out means none: choosing what to keep is a decision someone makes. */
   streams: z.array(stream).max(32).default([]),
-  /** What the provider granted this connection. Read and write are asked for separately. */
+  /** The admin-approved local scope ceiling for this manual credential. The source authorizes each request too. */
   scopes: z.array(z.string().regex(/^[a-z_]+\.(read|write)$/)).max(4),
 });
 export type BusinessConnectorConfig = z.infer<typeof businessConnectorConfigSchema>;

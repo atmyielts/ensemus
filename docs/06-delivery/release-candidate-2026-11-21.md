@@ -838,3 +838,69 @@ only fake-model with --no-deps --wait succeeded and its internal /__fake/stats a
 The focused Compose formatting check passed. This proves fixture startup, not application or provider
 acceptance; the Linux integration jobs also reported separate native authority/lifecycle failures.
 The shared runtime fixture repair is pushed as its own checkpoint before continuing customer connector setup.
+
+## Customer business connection setup and current guide provenance (EXP-02, CONNECT-01, DOC-01, QA-007)
+
+CRM, ticketing and accounting adapters can now be created through the existing production connection
+API and actual shadcn forms, on explicitly operator-routed BYOM/Sovereign deployments. The default is
+no business routes. Web and worker use the same bounded route parser; addresses remain server-only,
+and no customer setting chooses a network destination. The optional compose.business.yaml supplies
+three independent fixed-target relay profiles without credentials. It extends an existing configured
+connector profile; that profile's SMTP dependency and the optional Paddle startup coupling are separate
+integration concerns, not silently qualified by this slice. Cloud routes are refused until its
+multi-tenant routing contract is implemented, as ADR-033 already requires.
+
+Creation uses the real privileged connection service, selected stream allowlists, a sealed credential
+reference, outbox event and current administrative MFA/SSO policy. The server derives the manual
+credential's local permission ceiling from validated settings; this is explicitly not an OAuth provider
+consent receipt. The source independently authorizes each request. Read-only is the form default;
+reviewed changes require a separate choice and retain the existing immutable approval/receipt controls.
+Creation is not a connectivity test. Records appear after successful native synchronization and source
+ACL mapping; administrators gain no content access by their role. Revocation closes reads and the
+worker revokes the sealed lease. No migration, database privilege, public API shape or real provider
+credential was introduced.
+
+Safe form choices survive validation, and an account-scoped memory draft supports client navigation;
+credentials are never included. Identity proof is requested before showing the credential form when
+company policy requires it, and the action rechecks before sealing and again at the actual write.
+The form's own disclosure stays open on a refused native submission. A 320-pixel check exposed the
+existing OAuth callback URL widening an implicit fieldset grid track; the shared track now uses
+minmax(0,1fr), preserving the URL while allowing wrapping. User and operator guides describe actual
+setup, source authority, profile prerequisites and remaining qualification.
+
+Actual checks:
+
+- Changing the native TLS fixture to the real createConnection service first reproduced three
+  unsupported-type failures. After implementation, all ten native cases passed in 17.11 seconds:
+  three connectors, actual sealed leases/TLS, two separate tenants, source-only access, repeat,
+  revocation, wrong/untrusted TLS, policy-required MFA, foreign credentials and invalid scopes/targets.
+- Four production setup API cases passed, including all three read-only types and idempotent replay,
+  authorization/MFA and malformed target/scope refusals. With the business routes absent, all three
+  negative cases passed (four configured-only cases skipped). On the final functional build, setup
+  plus the existing business-action API file passed nine cases, with three unconfigured-route cases
+  deliberately skipped, in 27.25 seconds. No provider contact is part of connection creation.
+- Six final browser cases passed in 21.7 seconds: JavaScript and native business form refusal,
+  retained choices, cleared credential and successful creation at 320 pixels; policy-required fresh
+  identity; and the existing workbench native/search/theme regression. The complete page has no
+  sideways overflow at 320 pixels, not just the cropped new form. Actual light/dark setup audits had
+  zero automated WCAG A/AA findings; separate audit-only CSP bypass was used for axe injection.
+  Browser/native journeys retained the production CSP. Rendered setup screenshots were inspected.
+- The production build, final complete workspace typecheck, repository lint/format, 515 pin checks,
+  draft 527-component license inventory and optional Compose configuration validation passed.
+- The complete bounded-worker unit run passed 9,691 cases, failed the same two release gates, kept
+  four expected failures and 43 skips across 382 files, in 85.38 seconds. The open gates remain 66
+  planned API operations and the 30-table portability inventory. The first workspace typecheck found
+  one test-only unknown JSON typing issue; it was corrected before the final complete passing run.
+
+The current Linux quality log also named 207 missing historical guide-source references in a shallow
+checkout. This slice updates 21 as part of its two guide revisions and rebinds the remaining 186 to
+verified existing current files. The guide check passed with GIT_DIR pointed at an empty bare test
+repository, so none of the old local refs was available. All 184 focused guide cases passed, and
+rebuilding help after metadata rebinding left the generated content unchanged. Guide statuses were
+not promoted: independent walkthrough and current Linux acceptance remain separate requirements.
+
+Exact source/local-log/screenshot hashes are in evidence/rc-business-setup-20261123.json. This is a
+bounded local qualification using generated fixtures, not live adapter, full Temporal, joined CI,
+Cloud routing or product-completion acceptance. Expansion erasure/portability, remaining APIs,
+provider and other previously recorded release gates remain open. About 24.7 GiB remained free;
+no original source worktree, preserved history or Docker volume was cleaned or removed.

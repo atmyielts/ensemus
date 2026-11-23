@@ -5,7 +5,7 @@ area: connections
 tickets: [CONNECT-06]
 modes: [cloud, byom, sovereign]
 status: written_untested
-sources: [m3-verified-actions:apps/web/src/components/receipt-words.tsx, m3-verified-actions:apps/web/src/components/receipt-list.tsx, m3-verified-actions:apps/web/src/components/resolve-form.tsx, m3-verified-actions:apps/web/src/app/o/[organizationId]/external-actions/page.tsx, m3-verified-actions:apps/web/src/app/o/[organizationId]/external-actions/[externalActionId]/page.tsx, m3-verified-actions:apps/web/src/app/o/[organizationId]/inbox/page.tsx, m3-verified-actions:apps/web/src/server/external-action-actions.ts, m3-verified-actions:apps/web/src/lib/messages.ts, m3-verified-actions:packages/application/src/receipts.ts, m3-verified-actions:packages/application/src/external-actions.ts, m3-verified-actions:packages/domain/src/external-action.ts, m3-verified-actions:packages/connectors/src/email/index.ts, m3-verified-actions:tests/browser/specs/external-actions.spec.ts, m3-verified-actions:docs/00-foundation/adr/ADR-027-verified-external-actions.md]
+sources: [apps/web/src/components/receipt-words.tsx, apps/web/src/components/receipt-list.tsx, apps/web/src/components/resolve-form.tsx, apps/web/src/app/o/[organizationId]/external-actions/page.tsx, apps/web/src/app/o/[organizationId]/external-actions/[externalActionId]/page.tsx, apps/web/src/app/o/[organizationId]/inbox/page.tsx, apps/web/src/server/external-action-actions.ts, apps/web/src/lib/messages.ts, packages/application/src/receipts.ts, packages/application/src/external-actions.ts, packages/domain/src/external-action.ts, packages/connectors/src/email/index.ts, tests/browser/specs/external-actions.spec.ts, docs/00-foundation/adr/ADR-027-verified-external-actions.md]
 tests: []
 ---
 

@@ -1,3 +1,8 @@
+import { hasRecentMfa } from '@ensemus/application/privileged';
+import { interactiveSessionOf } from '@ensemus/database';
+import { stepUpPath } from '@/lib/step-up';
+import { isBusinessConnectorType } from '@ensemus/domain/business-connector';
+import { BusinessConnectionForm } from './business-connection-form';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { randomUUID } from 'node:crypto';
@@ -28,7 +33,7 @@ import { ResourceRefresh } from '@/components/resource-refresh';
 import { SubmitButton } from '@/components/submit-button';
 import { BackLink, Empty, ErrorNotice, formatDateTime, PageHead } from '@/components/ui';
 import { messageFor } from '@/lib/messages';
-import { CONNECTOR_CATALOG, manifestOf } from '@/server/api';
+import { connectorCatalog, manifestOf } from '@/server/api';
 import { revokeConnectionAction } from '@/server/external-action-actions';
 import { oauthRedirectUri, platformClientId } from '@/server/oauth';
 import { getRuntime } from '@/server/runtime';
@@ -181,7 +186,7 @@ export default async function ConnectionsPage({
 }) {
   const { organizationId } = await params;
   const { error, authorization } = await searchParams;
-  const { context, database } = await requireTenant(organizationId);
+  const { actor, context, database } = await requireTenant(organizationId);
   // The consent callback sends everyone back here. A member's own attempt, and anyone's who may not
   // manage connections, belongs on their own page, which shows only what is theirs.
   const own = `/o/${organizationId}/settings/connections`;
@@ -213,6 +218,10 @@ export default async function ConnectionsPage({
     .filter((attempt) => attempt.ownerMembershipId === null && attempt.id !== focused?.id)
     .slice(0, 5);
   const enabled = getRuntime().config.connectorsEnabled;
+  const catalog = enabled ? connectorCatalog() : [];
+  const setupReady = catalog.some(({ manifest }) => isBusinessConnectorType(manifest.type))
+    ? await hasRecentMfa(database, context, 'connection.manage', interactiveSessionOf(context))
+    : false;
   const base = `/o/${organizationId}`;
   const nameOf = new Map(rows.map((row) => [row.id, row.displayName]));
 
@@ -383,15 +392,49 @@ export default async function ConnectionsPage({
                 <NewConnectionForm
                   organizationId={organizationId}
                   requestKey={randomUUID()}
-                  connectors={CONNECTOR_CATALOG.map(({ manifest }) => ({
-                    type: manifest.type,
-                    label: manifest.displayName,
-                  }))}
+                  connectors={catalog
+                    .filter(({ manifest }) => !isBusinessConnectorType(manifest.type))
+                    .map(({ manifest }) => ({
+                      type: manifest.type,
+                      label: manifest.displayName,
+                    }))}
                 />
               </div>
             </section>
           </Card>
         )}
+        {enabled &&
+          catalog
+            .filter(({ manifest }) => isBusinessConnectorType(manifest.type))
+            .map(({ manifest }) => {
+              if (!isBusinessConnectorType(manifest.type)) return null;
+              return (
+                <Card asChild key={manifest.type}>
+                  <section className="card" aria-labelledby={`setup-${manifest.type}`}>
+                    <h2 id={`setup-${manifest.type}`}>Connect {manifest.displayName}</h2>
+                    <p className="muted">
+                      Use the adapter configured for this installation. Creating a connection stores
+                      the selected limits and sealed credential; the background sync imports records
+                      afterward.
+                    </p>
+                    {setupReady ? (
+                      <BusinessConnectionForm
+                        key={`${actor.userId}:${manifest.type}`}
+                        organizationId={organizationId}
+                        type={manifest.type}
+                        requestKey={randomUUID()}
+                      />
+                    ) : (
+                      <p>
+                        <a href={stepUpPath(organizationId, `${base}/connections`)}>
+                          Verify your identity to set up this connection
+                        </a>
+                      </p>
+                    )}
+                  </section>
+                </Card>
+              );
+            })}
         <Card asChild>
           <section className="card" aria-labelledby="members-heading">
             <h2 id="members-heading">People’s own accounts</h2>

@@ -241,6 +241,12 @@ No fake ships as a default. A deployment that has not wired M4 cannot leak meeti
 
 Remove the gateway routes and no business connector exists. Leave `meetings.settings` off and no meeting can start. Packs do nothing until M7's installer activates one. Dropping the two tables and the schema is safe until something real depends on them. D5 and D7 become expensive to change once real consent records exist, and those should be reviewed first.
 
+## Integration clarification, 2026-11-23
+
+The manual-credential setup path uses the existing administrator grant in the connector lifecycle. Its stored `granted_scopes` are a bounded local permission ceiling derived on the server from validated settings, after the native administrative MFA/SSO policy check. They are not represented as an OAuth provider consent receipt. The source independently authorizes each request; local write permission never bypasses payload approval or source ACLs. OAuth suite consent handling is unchanged.
+
+Web and the connector worker read the same fixed operator route declarations. No routes are offered by default, and Cloud routes are refused pending the tenant-routing decision above. The optional business relay overlay is an opt-in deployment artifact, with one target per kind and no relay credentials. These implementation details do not record owner/security/counsel approval or live provider acceptance.
+
 ## Approvals
 
 | Role | Name | Decision | Date |

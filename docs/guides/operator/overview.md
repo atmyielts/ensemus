@@ -5,7 +5,7 @@ area: op-install
 tickets: [PLAT-12, SEC-14]
 modes: [cloud, byom, sovereign]
 status: written_untested
-sources: [infrastructure/compose/compose.yaml, infrastructure/compose/postgres/provision.sql, infrastructure/compose/proxy/Caddyfile, infrastructure/containers/Dockerfile.web, infrastructure/containers/Dockerfile.worker, apps/web/src/server/runtime.ts, apps/web/src/app/page.tsx, apps/web/start.mjs, workers/workflow/src/main.ts, workers/workflow/src/dispatcher.ts, workers/workflow/src/connector-worker.ts, tests/stack/platform.test.ts, docs/00-foundation/adr/ADR-024-build-start-runtime-contracts.md, docs/00-foundation/adr/ADR-025-m1-implementation-decisions.md, docs/00-foundation/adr/ADR-026-tombstones-survive-restore.md, docs/05-operations/05-container-deployment-runbook.md, m3-verified-actions:infrastructure/compose/compose.yaml]
+sources: [infrastructure/compose/compose.yaml, infrastructure/compose/postgres/provision.sql, infrastructure/compose/proxy/Caddyfile, infrastructure/containers/Dockerfile.web, infrastructure/containers/Dockerfile.worker, apps/web/src/server/runtime.ts, apps/web/src/app/page.tsx, apps/web/start.mjs, workers/workflow/src/main.ts, workers/workflow/src/dispatcher.ts, workers/workflow/src/connector-worker.ts, tests/stack/platform.test.ts, docs/00-foundation/adr/ADR-024-build-start-runtime-contracts.md, docs/00-foundation/adr/ADR-025-m1-implementation-decisions.md, docs/00-foundation/adr/ADR-026-tombstones-survive-restore.md, docs/05-operations/05-container-deployment-runbook.md, infrastructure/compose/compose.yaml]
 tests: []
 ---
 

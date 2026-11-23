@@ -5,7 +5,7 @@ area: connections
 tickets: [WORK-08]
 modes: [cloud, byom, sovereign]
 status: written_untested
-sources: [m3-verified-actions:apps/web/src/components/new-email-form.tsx, m3-verified-actions:apps/web/src/components/new-work-form.tsx, m3-verified-actions:apps/web/src/components/receipt-email.tsx, m3-verified-actions:apps/web/src/components/receipt-words.tsx, m3-verified-actions:apps/web/src/app/o/[organizationId]/work/[workUnitId]/page.tsx, m3-verified-actions:apps/web/src/app/o/[organizationId]/external-actions/[externalActionId]/page.tsx, m3-verified-actions:apps/web/src/app/o/[organizationId]/approvals/[approvalId]/page.tsx, m3-verified-actions:apps/web/src/server/external-action-actions.ts, m3-verified-actions:apps/web/src/lib/messages.ts, m3-verified-actions:packages/application/src/external-actions.ts, m3-verified-actions:packages/application/src/approvals.ts, m3-verified-actions:packages/domain/src/external-action.ts, m3-verified-actions:packages/contracts/src/external-actions.ts, m3-verified-actions:packages/connectors/src/email/index.ts]
+sources: [apps/web/src/components/new-email-form.tsx, apps/web/src/components/new-work-form.tsx, apps/web/src/components/receipt-email.tsx, apps/web/src/components/receipt-words.tsx, apps/web/src/app/o/[organizationId]/work/[workUnitId]/page.tsx, apps/web/src/app/o/[organizationId]/external-actions/[externalActionId]/page.tsx, apps/web/src/app/o/[organizationId]/approvals/[approvalId]/page.tsx, apps/web/src/server/external-action-actions.ts, apps/web/src/lib/messages.ts, packages/application/src/external-actions.ts, packages/application/src/approvals.ts, packages/domain/src/external-action.ts, packages/contracts/src/external-actions.ts, packages/connectors/src/email/index.ts]
 tests: []
 ---
 

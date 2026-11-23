@@ -102,6 +102,10 @@ services:
     environment:
       ENSEMUS_ALLOW_SIGNUP: ${ENSEMUS_ALLOW_SIGNUP:-true}
       ENSEMUS_CONNECTORS_ENABLED: ${ENSEMUS_CONNECTORS_ENABLED:-false}
+      # Business adapter metadata only in web; sockets remain confined to the connector worker.
+      ENSEMUS_EGRESS_GATEWAY_CRM: ${ENSEMUS_EGRESS_GATEWAY_CRM:-}
+      ENSEMUS_EGRESS_GATEWAY_TICKETING: ${ENSEMUS_EGRESS_GATEWAY_TICKETING:-}
+      ENSEMUS_EGRESS_GATEWAY_ACCOUNTING: ${ENSEMUS_EGRESS_GATEWAY_ACCOUNTING:-}
       ENSEMUS_PRIVATE_MODEL_ENDPOINTS: http://fake-model:8000
       ENSEMUS_GOOGLE_CLIENT_ID: ${ENSEMUS_GOOGLE_CLIENT_ID:-generated-test-client.apps.example.invalid}
       ENSEMUS_LICENSE_TRUST_ROOT_FILE: /run/secrets/license_trust_root

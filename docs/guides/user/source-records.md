@@ -13,7 +13,7 @@ tests: [tests/integration/business-actions.test.ts, tests/stack/business-actions
 
 > **Not yet tested end to end.** This page was written from the code, and nobody has followed it on a running system yet.
 
-Generated local API and browser checks are recorded in the release candidate report. This guide still awaits the required CI-backed checks and independent user walkthrough. Full customer connector setup and provider acceptance remain unfinished.
+Generated local API and browser checks are recorded in the release candidate report. This guide still awaits the required CI-backed checks and independent user walkthrough. Business connection setup is available on explicitly operator-routed BYOM/Sovereign installations; see [Connecting other systems](connections.md). Durable execution and real provider acceptance remain separate gates.
 
 Open **Source records** in your workspace. Choose a **Record kind** and press **Apply filter**, or use **Clear filters** to return to all kinds. **Next records** opens another page when more are available. Filtering and navigation work without JavaScript.
 
@@ -41,4 +41,4 @@ An uncertain result stays **unknown**. Ensemus does not silently retry an action
 
 Changing a pending proposal needs a new approval; the old one cannot be spent. A proven failed action can be asked for again with its own new approval. Open the receipt of an unattempted pending or approved proposal. **Change the proposal** lets you edit its existing values, choose **Who approves the replacement?**, and press **Request a replacement review**. The source record and source version stay fixed. The replacement cancels the old approval and asks for a new independent review; invalid values leave the earlier proposal intact. You can edit every existing invoice line, including its decimal values and terms. To change the target, selected fields or number of invoice lines, create a new proposal. The receipt also offers a new approval for a proven failed action. These forms work without JavaScript.
 
-Removing a source grant hides record-backed proposals and their reviews on the next request. Invoice drafts name no existing target record: their manually entered content remains protected by their Work and connection access. Installing a department pack grants no source access or connector. Customer connection setup, built-worker execution and real provider acceptance remain separate release gates.
+Removing a source grant hides record-backed proposals and their reviews on the next request. Invoice drafts name no existing target record: their manually entered content remains protected by their Work and connection access. Installing a department pack grants no source access or connector. Customer setup does not prove connectivity. Built-worker execution and real provider acceptance remain separate release gates.

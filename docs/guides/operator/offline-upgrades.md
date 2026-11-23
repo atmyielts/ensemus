@@ -5,7 +5,7 @@ area: op-sovereign
 tickets: [OPS-11]
 modes: [sovereign]
 status: written_untested
-sources: [m6-bundle:docs/05-operations/sovereign/upgrade-and-rollback.md, m6-bundle:docs/05-operations/sovereign/offline-bundle.md, m6-bundle:workers/workflow/src/tools/install-bundle.ts, m6-bundle:packages/sovereign/src/bundle.ts, m6-bundle:infrastructure/scripts/bundle-rehearsal.mjs, m6-license:packages/domain/src/license.ts, m6-license:packages/application/src/licensing.ts, m6-license:workers/workflow/src/sovereign-license-command.ts, m6-license:docs/05-operations/sovereign/license-and-maintenance.md, m6-license:tests/unit/no-license-gate.test.ts, m6-foundation:docs/00-foundation/adr/ADR-030-sovereign-license-and-bundle.md]
+sources: [docs/05-operations/sovereign/upgrade-and-rollback.md, docs/05-operations/sovereign/offline-bundle.md, workers/workflow/src/tools/install-bundle.ts, packages/sovereign/src/bundle.ts, infrastructure/scripts/bundle-rehearsal.mjs, packages/domain/src/license.ts, packages/application/src/licensing.ts, workers/workflow/src/sovereign-license-command.ts, docs/05-operations/sovereign/license-and-maintenance.md, tests/unit/no-license-gate.test.ts, docs/00-foundation/adr/ADR-030-sovereign-license-and-bundle.md]
 tests: []
 ---
 

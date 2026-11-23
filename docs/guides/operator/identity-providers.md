@@ -5,7 +5,7 @@ area: op-install
 tickets: [ID-03]
 modes: [cloud, byom, sovereign]
 status: written_untested
-sources: [apps/web/src/server/runtime.ts, packages/auth/src/index.ts, apps/web/src/app/sign-in/page.tsx, infrastructure/compose/compose.yaml, infrastructure/compose/compose.test.yaml, tests/integration/auth.test.ts, docs/00-foundation/adr/ADR-024-build-start-runtime-contracts.md, docs/00-foundation/adr/ADR-025-m1-implementation-decisions.md, docs/05-operations/05-container-deployment-runbook.md, m7-foundation:packages/auth/src/sso.ts, m7-foundation:docs/06-delivery/m7-slices.md]
+sources: [apps/web/src/server/runtime.ts, packages/auth/src/index.ts, apps/web/src/app/sign-in/page.tsx, infrastructure/compose/compose.yaml, infrastructure/compose/compose.test.yaml, tests/integration/auth.test.ts, docs/00-foundation/adr/ADR-024-build-start-runtime-contracts.md, docs/00-foundation/adr/ADR-025-m1-implementation-decisions.md, docs/05-operations/05-container-deployment-runbook.md, packages/auth/src/sso.ts, docs/06-delivery/m7-slices.md]
 tests: []
 ---
 

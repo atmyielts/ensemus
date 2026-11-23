@@ -5,7 +5,7 @@ area: agents
 tickets: [MODEL-04]
 modes: [cloud, byom, sovereign]
 status: written_untested
-sources: [m4-usage:apps/web/src/app/o/[organizationId]/settings/budgets/page.tsx, m4-usage:apps/web/src/app/o/[organizationId]/settings/budgets/actions.ts, m4-usage:apps/web/src/app/api/v1/organizations/[organizationId]/budgets/route.ts, m4-usage:apps/web/src/app/api/v1/organizations/[organizationId]/usage/route.ts, m4-usage:apps/web/src/app/api/v1/organizations/[organizationId]/entitlements/route.ts, m4-usage:packages/application/src/ai/budget.ts, m4-usage:packages/application/src/ai/usage.ts, m4-usage:packages/commercial/src/index.ts, m4-usage:apps/web/src/lib/messages.ts]
+sources: [apps/web/src/app/o/[organizationId]/settings/budgets/page.tsx, apps/web/src/app/o/[organizationId]/settings/budgets/actions.ts, apps/web/src/app/api/v1/organizations/[organizationId]/budgets/route.ts, apps/web/src/app/api/v1/organizations/[organizationId]/usage/route.ts, apps/web/src/app/api/v1/organizations/[organizationId]/entitlements/route.ts, packages/application/src/ai/budget.ts, packages/application/src/ai/usage.ts, packages/commercial/src/index.ts, apps/web/src/lib/messages.ts]
 tests: []
 ---
 

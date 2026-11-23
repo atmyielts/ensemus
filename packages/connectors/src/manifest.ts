@@ -1,3 +1,8 @@
+import {
+  CRM_CONNECTOR_MANIFEST,
+  TICKETING_CONNECTOR_MANIFEST,
+  ACCOUNTING_CONNECTOR_MANIFEST,
+} from './manifest-business';
 // What a connector says it can do. Plain data with no I/O, so it is the one part of this package the web
 // tier may import, to show which connectors exist and refuse what one cannot do (ADR-027 D3).
 import type { StoredSignatureScheme } from '@ensemus/domain/webhook';
@@ -76,6 +81,9 @@ export const INBOUND_CONNECTOR_MANIFEST: ConnectorManifest = {
 export const CONNECTOR_MANIFESTS: readonly ConnectorManifest[] = [
   EMAIL_CONNECTOR_MANIFEST,
   INBOUND_CONNECTOR_MANIFEST,
+  CRM_CONNECTOR_MANIFEST,
+  TICKETING_CONNECTOR_MANIFEST,
+  ACCOUNTING_CONNECTOR_MANIFEST,
 ];
 
 export const manifestFor = (type: string): ConnectorManifest | undefined =>

@@ -5,7 +5,7 @@ area: admin
 tickets: [OPS-22]
 modes: [cloud, byom, sovereign]
 status: written_untested
-sources: [apps/web/src/lib/messages.ts, apps/web/src/app/error.tsx, apps/web/src/app/not-found.tsx, apps/web/src/app/restoring/route.ts, docs/00-foundation/adr/ADR-036-release-readiness.md, m8-foundation:packages/application/src/saas/support.ts, m6-foundation:packages/sovereign/src/diagnostics.ts]
+sources: [apps/web/src/lib/messages.ts, apps/web/src/app/error.tsx, apps/web/src/app/not-found.tsx, apps/web/src/app/restoring/route.ts, docs/00-foundation/adr/ADR-036-release-readiness.md, packages/application/src/saas/support.ts, packages/sovereign/src/diagnostics.ts]
 tests: []
 ---
 

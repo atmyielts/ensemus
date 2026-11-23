@@ -5,7 +5,7 @@ area: op-sovereign
 tickets: [SOV-04, SOV-05]
 modes: [sovereign]
 status: written_untested
-sources: [m6-license:packages/application/src/licensing.ts, m6-license:workers/workflow/src/sovereign-license-command.ts, m6-license:packages/domain/src/license.ts, m6-license:packages/sovereign/src/documents.ts, m6-license:docs/05-operations/sovereign/supported-branches.md, m6-license:docs/05-operations/sovereign/license-and-maintenance.md, m6-tools:packages/sovereign/src/issuer.ts, m6-tools:tests/unit/advisory-rehearsal.test.ts, m6-tools:docs/05-operations/sovereign/advisories.md, m6-bundle:workers/workflow/src/tools/install-bundle.ts, m6-foundation:docs/00-foundation/adr/ADR-030-sovereign-license-and-bundle.md]
+sources: [packages/application/src/licensing.ts, workers/workflow/src/sovereign-license-command.ts, packages/domain/src/license.ts, packages/sovereign/src/documents.ts, docs/05-operations/sovereign/supported-branches.md, docs/05-operations/sovereign/license-and-maintenance.md, packages/sovereign/src/issuer.ts, tests/unit/advisory-rehearsal.test.ts, docs/05-operations/sovereign/advisories.md, workers/workflow/src/tools/install-bundle.ts, docs/00-foundation/adr/ADR-030-sovereign-license-and-bundle.md]
 tests: []
 ---
 

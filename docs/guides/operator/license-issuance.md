@@ -5,7 +5,7 @@ area: op-sovereign
 tickets: [SOV-01]
 modes: [sovereign]
 status: written_untested
-sources: [m6-license:workers/workflow/src/sovereign-license-command.ts, m6-license:workers/workflow/src/sovereign-license.ts, m6-license:packages/application/src/licensing.ts, m6-license:docs/05-operations/sovereign/license-and-maintenance.md, m6-license:packages/sovereign/src/envelope.ts, m6-license:packages/sovereign/src/verify.ts, m6-license:packages/sovereign/src/trust-root.ts, m6-license:packages/domain/src/license.ts, m6-license:packages/domain/src/policy.ts, m6-license:packages/config/src/sovereign.ts, m6-license:tests/fixtures/license-corpus/v1/README.md, m6-tools:packages/sovereign/src/issuer.ts, m6-tools:packages/sovereign/src/issuer-cli.ts, m6-tools:workers/workflow/scripts/build-issuer.mjs, m6-tools:tests/unit/issuer-not-shipped.test.ts, m6-tools:docs/05-operations/sovereign/issuing-documents.md, m6-foundation:docs/00-foundation/adr/ADR-030-sovereign-license-and-bundle.md]
+sources: [workers/workflow/src/sovereign-license-command.ts, workers/workflow/src/sovereign-license.ts, packages/application/src/licensing.ts, docs/05-operations/sovereign/license-and-maintenance.md, packages/sovereign/src/envelope.ts, packages/sovereign/src/verify.ts, packages/sovereign/src/trust-root.ts, packages/domain/src/license.ts, packages/domain/src/policy.ts, packages/config/src/sovereign.ts, tests/fixtures/license-corpus/v1/README.md, packages/sovereign/src/issuer.ts, packages/sovereign/src/issuer-cli.ts, workers/workflow/scripts/build-issuer.mjs, tests/unit/issuer-not-shipped.test.ts, docs/05-operations/sovereign/issuing-documents.md, docs/00-foundation/adr/ADR-030-sovereign-license-and-bundle.md]
 tests: []
 ---
 

@@ -1,4 +1,15 @@
 import 'server-only';
+import { assertInteractivePrivilege } from '@ensemus/application/privileged';
+import { withTenantTx } from '@ensemus/database';
+import { loadBusinessConnectorRoutes } from '@ensemus/config/business';
+import { businessConnectorConfigSchema } from '@ensemus/contracts/business-records';
+import { BUSINESS_CONNECTOR_MANIFESTS } from '@ensemus/connectors/manifest-business';
+import {
+  isBusinessConnectorType,
+  BUSINESS_STREAMS,
+  readScopeFor,
+  writeScopeFor,
+} from '@ensemus/domain/business-connector';
 import { isRestoreAdmissionDenied } from '@ensemus/database';
 import { randomBytes, randomUUID } from 'node:crypto';
 import {
@@ -386,7 +397,7 @@ const noLineBreaks = (value: string) => !/[\r\n\0]/.test(value);
  * strict, so a `host` or a `port` is refused rather than ignored: a tenant can never say where a connector
  * connects (ADR-027 D3). The connector itself checks these again when it runs.
  */
-export const CONNECTOR_CATALOG: ReadonlyArray<{
+const BASIC_CONNECTOR_CATALOG: ReadonlyArray<{
   manifest: ConnectorManifest;
   settings: z.ZodType<Record<string, unknown>>;
 }> = [
@@ -438,8 +449,29 @@ export const CONNECTOR_CATALOG: ReadonlyArray<{
   },
 ];
 
+const BUSINESS_CATALOG = BUSINESS_CONNECTOR_MANIFESTS.filter((manifest) =>
+  isBusinessConnectorType(manifest.type),
+).map((manifest) => ({
+  manifest,
+  settings: businessConnectorConfigSchema.refine((config) => {
+    const type = manifest.type;
+    if (!isBusinessConnectorType(type)) return false;
+    return (
+      config.streams.every((stream) => Object.hasOwn(BUSINESS_STREAMS[type], stream)) &&
+      config.scopes.every((scope) => [readScopeFor(type), writeScopeFor(type)].includes(scope))
+    );
+  }),
+}));
+export function connectorCatalog() {
+  const routes = loadBusinessConnectorRoutes();
+  return [
+    ...BASIC_CONNECTOR_CATALOG,
+    ...BUSINESS_CATALOG.filter(({ manifest }) => Object.hasOwn(routes, manifest.type)),
+  ];
+}
 export const manifestOf = (type: string) =>
-  CONNECTOR_CATALOG.find((entry) => entry.manifest.type === type)?.manifest;
+  [...BASIC_CONNECTOR_CATALOG, ...BUSINESS_CATALOG].find((entry) => entry.manifest.type === type)
+    ?.manifest;
 
 /** So no row can wait for a worker that is not coming, and nothing pretends to be connected. */
 export function assertConnectorsEnabled() {
@@ -466,7 +498,7 @@ export async function addConnection(
 ): Promise<IdempotentOutcome> {
   assertManagesConnections(context);
   assertConnectorsEnabled();
-  const entry = CONNECTOR_CATALOG.find(({ manifest }) => manifest.type === body.connector_type);
+  const entry = connectorCatalog().find(({ manifest }) => manifest.type === body.connector_type);
   if (!entry) throw new AppError('INVALID_INPUT');
   const config = entry.settings.safeParse(body.config);
   if (!config.success) throw new AppError('INVALID_INPUT');
@@ -474,6 +506,9 @@ export async function addConnection(
   if (entry.manifest.credential.required !== Boolean(secret)) {
     throw new AppError('INVALID_INPUT');
   }
+  await withTenantTx(database, context, (tx) =>
+    assertInteractivePrivilege(tx, context, 'connection.manage'),
+  );
   return runIdempotent(
     database,
     context,

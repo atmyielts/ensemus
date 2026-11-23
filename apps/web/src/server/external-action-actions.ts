@@ -24,6 +24,7 @@ import { errorCode } from '@ensemus/telemetry';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { stepUpPath } from '@/lib/step-up';
+import { connectionDraft, connectionSettings, type ConnectionDraft } from '@/lib/connection-draft';
 import {
   addConnection,
   addWebhookEndpoint,
@@ -250,14 +251,6 @@ export async function retryExternalActionAction(form: FormData) {
 
 // --- Connections
 
-export type ConnectionDraft = {
-  connectorType: string;
-  displayName: string;
-  fromAddress: string;
-  fromName: string;
-  tlsServerName: string;
-};
-
 export type ConnectionFormState = {
   code?: string;
   /** Only ever a credential's absence: what was typed into that box never comes back. */
@@ -265,35 +258,20 @@ export type ConnectionFormState = {
   created?: boolean;
 };
 
-const settingsFrom = (draft: ConnectionDraft) =>
-  draft.connectorType === 'email_smtp'
-    ? {
-        fromAddress: draft.fromAddress.trim(),
-        ...(draft.fromName.trim() ? { fromName: draft.fromName.trim() } : {}),
-        ...(draft.tlsServerName.trim() ? { tlsServerName: draft.tlsServerName.trim() } : {}),
-      }
-    : {};
-
 export async function createConnectionFormAction(
   _previous: ConnectionFormState,
   form: FormData,
 ): Promise<ConnectionFormState> {
   const org = orgOf(form);
   const { context, database } = await requireTenant(org);
-  const values: ConnectionDraft = {
-    connectorType: text(form, 'connectorType'),
-    displayName: text(form, 'displayName'),
-    fromAddress: text(form, 'fromAddress'),
-    fromName: text(form, 'fromName'),
-    tlsServerName: text(form, 'tlsServerName'),
-  };
+  const values = connectionDraft(form);
   const credential = text(form, 'credential');
   try {
     assertManagesConnections(context);
     const body = createConnectionSchema.safeParse({
       connector_type: values.connectorType,
       display_name: values.displayName,
-      config: settingsFrom(values),
+      config: connectionSettings(values),
       ...(credential ? { credential } : {}),
     });
     if (!body.success) return { code: 'INVALID_INPUT', values };

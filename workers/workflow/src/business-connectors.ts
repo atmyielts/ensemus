@@ -1,3 +1,4 @@
+import { loadBusinessConnectorRoutes } from '@ensemus/config/business';
 // Which business connectors this deployment offers (ADR-033 D2). A connector is on the list only if an operator
 // gave it a gateway instance to go through. One with no route does not exist here, which is what the
 // integrations doc asks for: clearly unavailable, not silently simulated. Air-gapped installs set none of them.
@@ -22,6 +23,7 @@ export function createBusinessRecordSink(database: AppDatabase): BusinessRecordS
 }
 
 export function businessConnectorsFrom(env: Env, database: AppDatabase): readonly Connector[] {
+  const routes = loadBusinessConnectorRoutes(env);
   const tls = env.ENSEMUS_BUSINESS_TLS === 'none' ? 'none' : 'required';
   const ca = env.ENSEMUS_BUSINESS_CA_PEM;
   const transport = { tls, ...(ca ? { ca } : {}) } as const;
@@ -31,11 +33,9 @@ export function businessConnectorsFrom(env: Env, database: AppDatabase): readonl
     if (!address) return;
     connectors.push(routeConnector(make(), createGatewayNetwork(address)) as Connector);
   };
-  add(env.ENSEMUS_EGRESS_GATEWAY_CRM, () => createCrmConnector({ ...transport, sink }));
-  add(env.ENSEMUS_EGRESS_GATEWAY_TICKETING, () => createTicketingConnector({ ...transport, sink }));
-  add(env.ENSEMUS_EGRESS_GATEWAY_ACCOUNTING, () =>
-    createAccountingConnector({ ...transport, sink }),
-  );
+  add(routes.crm_http, () => createCrmConnector({ ...transport, sink }));
+  add(routes.ticketing_http, () => createTicketingConnector({ ...transport, sink }));
+  add(routes.accounting_http, () => createAccountingConnector({ ...transport, sink }));
   add(env.ENSEMUS_EGRESS_GATEWAY_MEETING_NOTES, () => createMeetingNotesConnector(transport));
   return connectors;
 }

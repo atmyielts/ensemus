@@ -5,7 +5,7 @@ area: agents
 tickets: [AGENT-01, AGENT-02, AGENT-06, AI-13, AGENT-15, AGENT-16]
 modes: [cloud, byom, sovereign]
 status: written_untested
-sources: [m4-agents:apps/web/src/app/o/[organizationId]/settings/agents/page.tsx, m4-agents:apps/web/src/app/o/[organizationId]/settings/agents/publish-form.tsx, m4-agents:apps/web/src/app/o/[organizationId]/settings/agents/actions.ts, m4-agents:apps/web/src/app/api/v1/organizations/[organizationId]/agent-versions/route.ts, m4-agents:apps/web/src/app/api/v1/organizations/[organizationId]/agent-versions/[agentVersionId]/route.ts, m4-agents:packages/application/src/ai/agents.ts, m4-agents:packages/policy/src/agent-spec-lint.ts, m4-agents:packages/contracts/src/ai.ts]
+sources: [apps/web/src/app/o/[organizationId]/settings/agents/page.tsx, apps/web/src/app/o/[organizationId]/settings/agents/publish-form.tsx, apps/web/src/app/o/[organizationId]/settings/agents/actions.ts, apps/web/src/app/api/v1/organizations/[organizationId]/agent-versions/route.ts, apps/web/src/app/api/v1/organizations/[organizationId]/agent-versions/[agentVersionId]/route.ts, packages/application/src/ai/agents.ts, packages/policy/src/agent-spec-lint.ts, packages/contracts/src/ai.ts]
 tests: []
 ---
 

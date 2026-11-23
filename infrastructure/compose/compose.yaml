@@ -71,6 +71,10 @@ services:
       ENSEMUS_PUBLIC_URL: ${ENSEMUS_PUBLIC_URL:-https://localhost:8443}
       ENSEMUS_ALLOW_SIGNUP: ${ENSEMUS_ALLOW_SIGNUP:-false}
       ENSEMUS_CONNECTORS_ENABLED: ${ENSEMUS_CONNECTORS_ENABLED:-false}
+      # Business adapter metadata only in web; sockets remain confined to the connector worker.
+      ENSEMUS_EGRESS_GATEWAY_CRM: ${ENSEMUS_EGRESS_GATEWAY_CRM:-}
+      ENSEMUS_EGRESS_GATEWAY_TICKETING: ${ENSEMUS_EGRESS_GATEWAY_TICKETING:-}
+      ENSEMUS_EGRESS_GATEWAY_ACCOUNTING: ${ENSEMUS_EGRESS_GATEWAY_ACCOUNTING:-}
       # The public keys of the evaluators whose reports may publish an agent (AGENT-16). Unset means no
       # report is accepted. Public only: the signing key belongs to CI or the agent worker, never to web.
       ENSEMUS_EVALUATION_PUBLIC_KEYS: ${ENSEMUS_EVALUATION_PUBLIC_KEYS:-}
@@ -315,6 +319,9 @@ services:
       - egress-google-docs:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.18
       - egress-google-sheets:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.19
       - egress-paddle:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.20
+      - egress-crm:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.21
+      - egress-ticketing:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.22
+      - egress-accounting:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.23
     environment:
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_NAMESPACE: default
@@ -324,6 +331,13 @@ services:
       DATABASE_URL_SECRETS_FILE: /run/secrets/db_secrets_url
       SECRET_SEALING_PRIVATE_KEY_FILE: /run/secrets/sealing_private_key.pem
       ENSEMUS_EGRESS_GATEWAY: egress-gateway:2525
+      # Business adapter metadata only in web; sockets remain confined to the connector worker.
+      ENSEMUS_EGRESS_GATEWAY_CRM: ${ENSEMUS_EGRESS_GATEWAY_CRM:-}
+      ENSEMUS_EGRESS_GATEWAY_TICKETING: ${ENSEMUS_EGRESS_GATEWAY_TICKETING:-}
+      ENSEMUS_EGRESS_GATEWAY_ACCOUNTING: ${ENSEMUS_EGRESS_GATEWAY_ACCOUNTING:-}
+      ENSEMUS_MODE: ${ENSEMUS_MODE:-sovereign}
+      ENSEMUS_BUSINESS_TLS: ${ENSEMUS_BUSINESS_TLS:-required}
+      ENSEMUS_BUSINESS_CA_PEM: ${ENSEMUS_BUSINESS_CA_PEM:-}
       # `none` is for a relay on a trusted site network, and only if an operator says so.
       ENSEMUS_SMTP_TLS: ${ENSEMUS_SMTP_TLS:-required}
       ENSEMUS_SMTP_MESSAGE_ID_DOMAIN: ${ENSEMUS_SMTP_MESSAGE_ID_DOMAIN:-ensemus.invalid}

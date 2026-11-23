@@ -1,3 +1,4 @@
+import { updateSecurityPolicy } from '@ensemus/application/security-policy';
 // Actual TLS, single-target TCP gateway, native connector role, sealed credentials and sync Activity.
 // Everything is generated and loopback-only; no live provider, Temporal poller or commercial acceptance.
 import { randomBytes } from 'node:crypto';
@@ -9,6 +10,7 @@ import { openAppDatabase } from '@ensemus/database';
 import { openSecretsDatabase } from '@ensemus/database/secrets';
 import { createServiceContext } from '@ensemus/database/service';
 import {
+  createConnection,
   applyBusinessRecordPage,
   listBusinessRecords,
   getBusinessRecord,
@@ -25,7 +27,6 @@ import { storeSecret } from '@ensemus/secrets/seal';
 import { startEgressGateway } from '../../workers/workflow/src/egress-gateway';
 import { generateTestCertificate } from '../helpers/smtp-sink';
 import { makeTwoTenants, proveSecondFactor } from '../helpers/product';
-import { seedConnection } from '../helpers/integrations';
 import { secret, urls } from '../helpers/stack';
 const name = 'adapter.example.invalid';
 const rows = [
@@ -144,6 +145,51 @@ describe('business connectors over actual TLS and native synchronization', () =>
   const email = async (userId: string) =>
     (await auth.query<{ email: string }>('select email from identity.users where id=$1', [userId]))
       .rows[0]!.email;
+  it('refuses missing native MFA, another tenant credential, arbitrary destinations and cross-kind scopes', async () => {
+    const own = people.a.owner.context;
+    const { secretRef } = await storeSecret(web.db, own, {
+      publicKeyPem: secret('sealing_public_key.pem'),
+      purpose: 'connector_credential',
+      plaintext: 'GENERATED-SETUP-SECRET',
+    });
+    const input = {
+      connectorType: 'crm_http',
+      displayName: 'Generated denied setup',
+      credentialSecretId: secretRef,
+      config: { tlsServerName: name, streams: ['crm.accounts'], scopes: ['crm_http.read'] },
+    };
+    const unproved = await makeTwoTenants(web.db);
+    await proveSecondFactor(unproved.a.owner);
+    await updateSecurityPolicy(
+      web.db,
+      unproved.a.owner.context,
+      { sessionId: unproved.a.owner.sessionId },
+      {
+        expectedVersion: 1,
+        mfaForAdministration: true,
+        mfaMaxAgeSeconds: 900,
+        ssoEnforcement: 'optional',
+      },
+    );
+    await expect(createConnection(web.db, unproved.a.admin.context, input)).rejects.toMatchObject({
+      code: 'MFA_REQUIRED',
+    });
+    await expect(createConnection(web.db, people.a.member.context, input)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+    for (const config of [
+      { ...input.config, host: '169.254.169.254' },
+      { ...input.config, credential: 'GENERATED-SECRET' },
+      { ...input.config, scopes: ['crm_http.read', 'accounting_http.write'] },
+      { ...input.config, streams: ['accounting.invoices'] },
+    ])
+      await expect(createConnection(web.db, own, { ...input, config })).rejects.toMatchObject({
+        code: 'INVALID_INPUT',
+      });
+    await expect(createConnection(web.db, people.b.owner.context, input)).rejects.toMatchObject({
+      code: 'INVALID_INPUT',
+    });
+  });
   for (const row of rows) {
     it.each(['wrong_name', 'untrusted_certificate'] as const)(
       row.type + ' refuses %s before any credential lease or HTTP request',
@@ -245,11 +291,11 @@ describe('business connectors over actual TLS and native synchronization', () =>
               purpose: 'connector_credential',
               plaintext: token,
             });
-          const connectionId = await seedConnection(web.db, context, {
+          const { id: connectionId } = await createConnection(web.db, context, {
             connectorType: row.type,
+            displayName: 'Generated manually authorized business connection',
             credentialSecretId: secretRef,
             config: { tlsServerName: name, streams: [row.stream], scopes: [row.type + '.read'] },
-            grantedScopes: [row.type + '.read'],
           });
           expect(
             await activities.syncConnection({
