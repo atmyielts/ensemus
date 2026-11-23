@@ -53,6 +53,7 @@ const idOf = (key: string) => key.split('/').at(-1)!;
 
 describe('ordinary upload writer receipts (0539) and late sharing writers (0544)', () => {
   const app = openAppDatabase(urls.app()),
+    worker = openAppDatabase(urls.worker()),
     auth = new pg.Client({ connectionString: urls.auth() });
   beforeAll(async () => {
     await auth.connect();
@@ -60,6 +61,7 @@ describe('ordinary upload writer receipts (0539) and late sharing writers (0544)
   afterAll(async () => {
     await auth.end();
     await app.close();
+    await worker.close();
   });
   const tenant = () => lifecycleTenant(app.db, auth);
   /** Past the one-hour upload grace period that a fenced orphan row keeps. */
@@ -341,7 +343,10 @@ describe('ordinary upload writer receipts (0539) and late sharing writers (0544)
         workUnitId: work.id,
         runId: randomUUID(),
       };
-      const activities = createActivities({ database: app.db, store });
+      await expect(
+        createActivities({ database: app.db, store }).prepareWork(input),
+      ).rejects.toMatchObject(code('NOT_FOUND'));
+      const activities = createActivities({ database: worker.db, store });
       expect(await activities.prepareWork(input)).toMatchObject({ status: 'running' });
       let refused: boolean | undefined;
       store.beforePut = async (key) => {
