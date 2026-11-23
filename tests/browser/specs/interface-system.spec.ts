@@ -25,12 +25,30 @@ for (const theme of ['light', 'dark'] as const)
         expect(response?.status(), label).toBe(200);
         await expect(page.getByRole('main').getByRole('heading', { level: 1 })).toHaveCount(1);
         expect(await sidewaysOverflow(page), label).toBeLessThanOrEqual(1);
+        expect(
+          await page
+            .locator(width < 768 ? 'main' : '.content')
+            .evaluate((pane) => pane.scrollWidth - pane.clientWidth),
+          label,
+        ).toBeLessThanOrEqual(1);
+        if (label === 'work-list') {
+          const tableContainer = page.locator('[data-slot="table-container"]');
+          expect(
+            await tableContainer.evaluate((table) => table.scrollWidth - table.clientWidth),
+            'Work table, including the long work title',
+          ).toBeLessThanOrEqual(1);
+        }
         expect(await axeFindings(page), label).toEqual([]);
         await saveLook(page, `interface-${theme}-${width}`, label);
       }
       if (width < 768) {
         const shortcuts = page.getByRole('navigation', { name: 'Workspace shortcuts' });
         await expect(shortcuts.getByRole('link')).toHaveCount(4);
+        await expect(page.getByRole('button', { name: 'Hide sidebar' })).toBeHidden();
+        await page.goto(base);
+        const deadline = page.locator('.queue-row time').first();
+        await expect(deadline).toBeVisible();
+        await expect(deadline).toHaveAttribute('datetime', /T/);
         const [viewport, bar] = await Promise.all([
           page.getByRole('main').boundingBox(),
           shortcuts.boundingBox(),
@@ -40,6 +58,19 @@ for (const theme of ['light', 'dark'] as const)
         expect((await approvals.boundingBox())?.height).toBeGreaterThanOrEqual(44);
         await approvals.click();
         await expect(approvals).toHaveAttribute('aria-current', 'page');
+        await expect
+          .poll(() =>
+            approvals.evaluate((link) => {
+              const expected = getComputedStyle(link).getPropertyValue('--accent').trim();
+              const probe = document.createElement('span');
+              probe.style.color = expected;
+              link.appendChild(probe);
+              const activeColor = getComputedStyle(probe).color;
+              probe.remove();
+              return getComputedStyle(link).backgroundColor === activeColor;
+            }),
+          )
+          .toBe(true);
         const menu = page.locator('details.mobile-navigation');
         await menu.locator('summary').focus();
         await page.keyboard.press('Enter');

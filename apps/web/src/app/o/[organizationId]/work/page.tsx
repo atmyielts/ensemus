@@ -136,7 +136,7 @@ export default async function WorkPage({
         <Card asChild>
           <div className="card table-wrap">
             {/* The roles keep this a table for a screen reader when a small screen stacks its rows. */}
-            <Table className="work-table" role="table">
+            <Table className="work-table [&_td]:p-[var(--work-cell-padding)]" role="table">
               <TableHeader role="rowgroup">
                 <TableRow role="row">
                   <TableHead role="columnheader" scope="col">
@@ -162,7 +162,7 @@ export default async function WorkPage({
                   );
                   return (
                     <TableRow key={work.id} role="row">
-                      <TableCell role="cell">
+                      <TableCell role="cell" className="whitespace-normal wrap-anywhere">
                         <Link href={`${base}/work/${work.id}`}>{work.title}</Link>
                         <small className="work-meta">
                           <span>

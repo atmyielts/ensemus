@@ -145,7 +145,9 @@ export default async function HomePage({
                       <CheckCheckIcon className="queue-icon" aria-hidden="true" />
                       <span className="queue-title">{approval.workTitle}</span>
                       <span className="queue-meta">
-                        Decide by {formatDate(approval.expiresAt)}
+                        <time className="queue-date" dateTime={approval.expiresAt.toISOString()}>
+                          Decide by {formatDate(approval.expiresAt)}
+                        </time>
                         <ArrowUpRightIcon className="queue-icon" aria-hidden="true" />
                       </span>
                     </Link>

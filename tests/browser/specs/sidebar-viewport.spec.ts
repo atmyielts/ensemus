@@ -147,3 +147,55 @@ for (const javaScriptEnabled of [true, false])
       await expect(signOut).toBeHidden();
       await expect(summary).toBeFocused();
     });
+
+test('the tablet sidebar opens up the work table and keeps the preference after reload', async ({
+  open,
+  world,
+}) => {
+  const page = await open(world.alice, { width: 768, height: 820 });
+  const work = `/o/${world.organization}/work`;
+  await page.goto(work);
+  const sidebar = page.getByRole('complementary', { name: 'Workspace sidebar' });
+  const hide = page.getByRole('button', { name: 'Hide sidebar' });
+  const show = page.getByRole('button', { name: 'Show sidebar' });
+  const tableHead = page.getByRole('table').locator('thead');
+  await expect(sidebar).toBeVisible();
+  await expect(tableHead).toHaveCSS('position', 'absolute');
+  await hide.focus();
+  await page.keyboard.press('Enter');
+  await expect(sidebar).toBeHidden();
+  await expect(show).toBeFocused();
+  await expect(show).toHaveAttribute('aria-expanded', 'false');
+  await expect(tableHead).toHaveCSS('position', 'static');
+  const main = page.getByRole('main');
+  expect(
+    await main.evaluate((element) => element.scrollWidth - element.clientWidth),
+  ).toBeLessThanOrEqual(1);
+  await page.reload();
+  await expect(show).toBeVisible();
+  await expect(sidebar).toBeHidden();
+  await expect(tableHead).toHaveCSS('position', 'static');
+  await show.click();
+  await expect(sidebar).toBeVisible();
+  await expect(hide).toHaveAttribute('aria-expanded', 'true');
+  await expect(tableHead).toHaveCSS('position', 'absolute');
+});
+
+test('the desktop navigation still works without scripts after a collapsed preference', async ({
+  open,
+  world,
+}) => {
+  const page = await open(world.alice, { width: 1024, javaScriptEnabled: false });
+  const base = `/o/${world.organization}`;
+  await page.goto(base);
+  await page
+    .context()
+    .addCookies([{ name: 'sidebar_state', value: 'false', url: new URL(page.url()).origin }]);
+  await page.goto(base);
+  await expect(page.getByRole('button', { name: /^(Hide|Show) sidebar$/ })).toHaveCount(0);
+  await page
+    .getByRole('navigation', { name: 'Main', exact: true })
+    .getByRole('link', { name: 'Work', exact: true })
+    .click();
+  await expect(page).toHaveURL(`${base}/work`);
+});

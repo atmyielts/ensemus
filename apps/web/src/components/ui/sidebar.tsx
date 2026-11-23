@@ -18,9 +18,9 @@ import {
 } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { SIDEBAR_COOKIE_NAME } from '@/lib/workspace-preferences';
 import { PanelLeftIcon } from 'lucide-react';
 
-const SIDEBAR_COOKIE_NAME = 'sidebar_state';
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
 const SIDEBAR_WIDTH = '16rem';
 const SIDEBAR_WIDTH_MOBILE = '18rem';
@@ -30,6 +30,7 @@ const SIDEBAR_KEYBOARD_SHORTCUT = 'b';
 type SidebarContextProps = {
   state: 'expanded' | 'collapsed';
   open: boolean;
+  hydrated: boolean;
   setOpen: (open: boolean) => void;
   openMobile: boolean;
   setOpenMobile: (open: boolean) => void;
@@ -50,6 +51,7 @@ function useSidebar() {
 
 function SidebarProvider({
   defaultOpen = true,
+  keyboardShortcut = true,
   open: openProp,
   onOpenChange: setOpenProp,
   className,
@@ -58,11 +60,14 @@ function SidebarProvider({
   ...props
 }: React.ComponentProps<'div'> & {
   defaultOpen?: boolean;
+  keyboardShortcut?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
   const isMobile = useIsMobile();
   const [openMobile, setOpenMobile] = React.useState(false);
+  const [hydrated, setHydrated] = React.useState(false);
+  React.useEffect(() => setHydrated(true), []);
 
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.
@@ -90,6 +95,7 @@ function SidebarProvider({
 
   // Adds a keyboard shortcut to toggle the sidebar.
   React.useEffect(() => {
+    if (!keyboardShortcut) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === SIDEBAR_KEYBOARD_SHORTCUT && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
@@ -99,7 +105,7 @@ function SidebarProvider({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [toggleSidebar]);
+  }, [keyboardShortcut, toggleSidebar]);
 
   // We add a state so that we can do data-state="expanded" or "collapsed".
   // This makes it easier to style the sidebar with Tailwind classes.
@@ -109,19 +115,21 @@ function SidebarProvider({
     () => ({
       state,
       open,
+      hydrated,
       setOpen,
       isMobile,
       openMobile,
       setOpenMobile,
       toggleSidebar,
     }),
-    [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar],
+    [state, open, hydrated, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar],
   );
 
   return (
     <SidebarContext.Provider value={contextValue}>
       <div
         data-slot="sidebar-wrapper"
+        data-sidebar-state={hydrated ? state : 'expanded'}
         style={
           {
             '--sidebar-width': SIDEBAR_WIDTH,
@@ -259,7 +267,7 @@ function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<t
       }}
       {...props}
     >
-      <PanelLeftIcon />
+      <PanelLeftIcon aria-hidden="true" />
       <span className="sr-only">Toggle Sidebar</span>
     </Button>
   );

@@ -3,6 +3,8 @@ import { WorkspaceSearch } from '@/components/workspace-search';
 
 import Link, { useLinkStatus } from 'next/link';
 import {
+  SidebarTrigger,
+  useSidebar,
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
@@ -173,7 +175,12 @@ export function MobileWorkspaceNavigation({
           if (!item) return null;
           const current = isNavigationCurrent(item, pathname);
           return (
-            <Button asChild variant="ghost" className="mobile-destination" key={item.href}>
+            <Button
+              asChild
+              variant="ghost"
+              className="mobile-destination text-[11px] text-muted-foreground"
+              key={item.href}
+            >
               <Link
                 href={item.href}
                 aria-current={current ? (pathname === item.href ? 'page' : 'location') : undefined}
@@ -211,8 +218,18 @@ export function WorkspaceContext({
 }) {
   const pathname = usePathname();
   const current = currentNavigation(groups, pathname);
+  const { open, hydrated } = useSidebar();
   return (
     <header className="workspace-context" aria-label="Workspace header">
+      {hydrated && (
+        <SidebarTrigger
+          className="-ms-1.5 hidden shrink-0 text-muted-foreground min-[768px]:inline-flex"
+          aria-controls="workspace-sidebar"
+          aria-expanded={open}
+          aria-label={open ? 'Hide sidebar' : 'Show sidebar'}
+          title={open ? 'Hide sidebar' : 'Show sidebar'}
+        />
+      )}
       <Link className="mobile-workspace-home" href={base}>
         <BrandMark />
         <span className="workspace-name" title={organizationName}>

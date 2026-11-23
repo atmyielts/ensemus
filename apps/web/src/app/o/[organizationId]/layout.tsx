@@ -1,13 +1,15 @@
-import { BrandIdentity } from '@/components/brand-identity';
+import { BrandIdentity, BrandMark } from '@/components/brand-identity';
 import { OrganizationSwitcher } from '@/components/organization-switcher';
 import { countUnread, listMyPendingApprovals } from '@ensemus/application';
 import { getOrganization, hasOtherAccessibleOrganization } from '@ensemus/database';
 import { LogOutIcon } from 'lucide-react';
 import Link from 'next/link';
 import type { Viewport } from 'next';
+import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { SidebarProvider } from '@/components/ui/sidebar';
+import { SIDEBAR_COOKIE_NAME } from '@/lib/workspace-preferences';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { DraftScope } from '@/components/kept-field';
 import {
@@ -34,11 +36,12 @@ export default async function OrganizationLayout({
   const { organizationId } = await params;
   // Around the account pages too, which a suspended tenant keeps, so the pages inside make the core check.
   const { actor, context, database } = await requireAccountTenant(organizationId);
-  const [organization, unread, pending, hasOtherWorkspace] = await Promise.all([
+  const [organization, unread, pending, hasOtherWorkspace, cookieStore] = await Promise.all([
     getOrganization(database, context),
     countUnread(database, context),
     listMyPendingApprovals(database, context),
     hasOtherAccessibleOrganization(database, actor.userId, organizationId),
+    cookies(),
   ]);
   if (!organization) notFound();
   const base = `/o/${organizationId}`;
@@ -78,21 +81,28 @@ export default async function OrganizationLayout({
   );
 
   return (
-    <SidebarProvider className="block">
+    <SidebarProvider
+      className="block"
+      defaultOpen={cookieStore.get(SIDEBAR_COOKIE_NAME)?.value !== 'false'}
+      keyboardShortcut={false}
+    >
       <NavigationPendingRegion>
         <div className="shell">
           <a className="skip" href="#main">
             Skip to content
           </a>
-          <aside className="sidebar">
+          <aside className="sidebar" id="workspace-sidebar" aria-label="Workspace sidebar">
             <div className="sidebar-inner">
               <div className="workspace-brand">
-                <Link className="brand" href={base}>
-                  <BrandIdentity />
+                <Link className="workspace-identity" href={base}>
+                  <BrandMark />
+                  <span className="workspace-identity-copy">
+                    <span className="workspace-name" title={organization.name}>
+                      {organization.name}
+                    </span>
+                    <span className="workspace-product">ensemus</span>
+                  </span>
                 </Link>
-                <div className="org-name" title={organization.name}>
-                  {organization.name}
-                </div>
                 {workspaceSwitcher}
               </div>
               <div className="desktop-navigation">
