@@ -10388,6 +10388,252 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
     ]
   },
   {
+    "slug": "meetings",
+    "title": "Meetings and private notes",
+    "section": "work",
+    "modes": [
+      "cloud",
+      "byom",
+      "sovereign"
+    ],
+    "status": "written_untested",
+    "blocks": [
+      {
+        "b": "quote",
+        "inline": [
+          {
+            "t": "strong",
+            "v": "Not yet tested end to end."
+          },
+          {
+            "t": "text",
+            "v": " This page was written from the code, and nobody has followed it on a running system yet."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Open "
+          },
+          {
+            "t": "strong",
+            "v": "Meetings"
+          },
+          {
+            "t": "text",
+            "v": " in the workspace. This workflow registers a meeting and stores plain-text notes. It does not record a call or contact a model or provider. Summaries, proposed work and connector imports are not available through this page yet."
+          }
+        ]
+      },
+      {
+        "b": "h",
+        "level": 2,
+        "inline": [
+          {
+            "t": "text",
+            "v": "Turn meetings on"
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "An owner or administrator opens "
+          },
+          {
+            "t": "strong",
+            "v": "Meeting settings"
+          },
+          {
+            "t": "text",
+            "v": ", chooses "
+          },
+          {
+            "t": "strong",
+            "v": "Allow new meetings"
+          },
+          {
+            "t": "text",
+            "v": ", and enters a notice reference. Your organization holds the notice itself; the reference identifies its document or version. Ensemus supplies no legal terms. Company sign-in and administrative identity policy also apply to this change."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Switching meetings off stops new meetings and notes. People can still withdraw consent. Keep the notice reference while an open meeting exists; clearing it is refused so participants retain a current reference for withdrawal."
+          }
+        ]
+      },
+      {
+        "b": "h",
+        "level": 2,
+        "inline": [
+          {
+            "t": "text",
+            "v": "Register the meeting and its participants"
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Open "
+          },
+          {
+            "t": "strong",
+            "v": "New meeting"
+          },
+          {
+            "t": "text",
+            "v": ", enter its title and when it occurred in UTC, choose a classification, and create it. Confidential is the default. The organizer is listed automatically."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "On the meeting page, the organizer opens "
+          },
+          {
+            "t": "strong",
+            "v": "Add someone"
+          },
+          {
+            "t": "text",
+            "v": ". Choose a company member, or choose an outside participant and enter their name. That name is a label, not an invitation or address. Nothing contacts an outside participant."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Each listed member records their own answer. The organizer can attest to an outside participant’s answer, and that is displayed as an attestation. Nobody, including an administrator, can answer for another company member. The notice reference must still be current when the answer is recorded."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "An unanswered participant can be removed before notes exist. A recorded answer stays with its participant as history, and the organizer stays listed. Once notes exist, the participant list is fixed."
+          }
+        ]
+      },
+      {
+        "b": "h",
+        "level": 2,
+        "inline": [
+          {
+            "t": "text",
+            "v": "Store notes"
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Everyone listed must agree first. The organizer then opens "
+          },
+          {
+            "t": "strong",
+            "v": "Add notes"
+          },
+          {
+            "t": "text",
+            "v": ", enters plain text and chooses "
+          },
+          {
+            "t": "strong",
+            "v": "Store notes"
+          },
+          {
+            "t": "text",
+            "v": ". Another save creates a new version. The page shows the latest version. Empty notes and notes exceeding the byte limit are refused."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Only the organizer and listed participants can read the title, participants and notes. Owners and administrators outside the room see only meeting status and metadata; their role does not give them the content. A person outside the company cannot read it here."
+          }
+        ]
+      },
+      {
+        "b": "h",
+        "level": 2,
+        "inline": [
+          {
+            "t": "text",
+            "v": "Withdraw"
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "A participant opens "
+          },
+          {
+            "t": "strong",
+            "v": "Withdraw consent"
+          },
+          {
+            "t": "text",
+            "v": ", reads the consequence, checks the confirmation, and chooses "
+          },
+          {
+            "t": "strong",
+            "v": "Withdraw and remove notes"
+          },
+          {
+            "t": "text",
+            "v": ". For an outside participant, the organizer attests to the withdrawal."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Withdrawal closes the meeting and removes every version of its notes and derived text in one transaction. It keeps the consent history and records the removal in the deletion ledger, so restoring an older database does not make notes readable again. Work someone separately created stays. People and providers may already have read an earlier copy; withdrawal cannot recall it."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "A refused save keeps the submitted fields on the form. If someone changed the meeting first, reload its current version before trying again."
+          }
+        ]
+      }
+    ]
+  },
+  {
     "slug": "connections",
     "title": "Connecting other systems",
     "section": "connections",

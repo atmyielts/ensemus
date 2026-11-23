@@ -8399,7 +8399,6 @@ paths:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
     get:
-      x-ensemus-status: planned
       tags:
         - meetings
       summary: Whether meetings are on, and which version of the organization's notice
@@ -8427,7 +8426,6 @@ paths:
         "503":
           $ref: "#/components/responses/RestorePending"
     patch:
-      x-ensemus-status: planned
       tags:
         - meetings
       summary: Turn meetings on or off. Owners and admins only, and turning on names a
@@ -8592,7 +8590,6 @@ paths:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
     get:
-      x-ensemus-status: planned
       tags:
         - meetings
       summary: Meetings this person organized or attended. Owners and admins also see
@@ -8637,7 +8634,6 @@ paths:
         "503":
           $ref: "#/components/responses/RestorePending"
     post:
-      x-ensemus-status: planned
       tags:
         - meetings
       summary: Start a meeting record. Refused until an administrator has turned
@@ -8760,7 +8756,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/MeetingID"
     get:
-      x-ensemus-status: planned
       tags:
         - meetings
       summary: One meeting. An owner or admin who was not there gets its metadata and
@@ -8840,7 +8835,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/MeetingID"
     post:
-      x-ensemus-status: planned
       tags:
         - meetings
       summary: List someone who was there. Refused once notes exist
@@ -8885,7 +8879,6 @@ paths:
       - $ref: "#/components/parameters/MeetingID"
       - $ref: "#/components/parameters/ParticipantID"
     delete:
-      x-ensemus-status: planned
       tags:
         - meetings
       summary: Take someone off the list. Refused once they have answered, or once
@@ -8917,7 +8910,6 @@ paths:
       - $ref: "#/components/parameters/MeetingID"
       - $ref: "#/components/parameters/ParticipantID"
     post:
-      x-ensemus-status: planned
       tags:
         - meetings
       summary: Record one person's answer. A withdrawal removes everything this
@@ -8985,7 +8977,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/MeetingID"
     post:
-      x-ensemus-status: planned
       tags:
         - meetings
       summary: Add notes as text. Refused until everyone listed has agreed. A
@@ -17928,13 +17919,52 @@ components:
               minLength: 1
               maxLength: 200
     Meeting:
-      allOf:
-        - $ref: "#/components/schemas/MeetingSummary"
       type: object
+      additionalProperties: false
       required:
+        - id
+        - title
+        - occurred_at
+        - organizer_membership_id
+        - classification
+        - status
+        - source_kind
+        - consent
+        - version
         - participants
         - current_notes
       properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type:
+            - string
+            - "null"
+          description: Null for an owner or admin who was not there.
+        occurred_at:
+          type: string
+          format: date-time
+        organizer_membership_id:
+          type: string
+          format: uuid
+        classification:
+          $ref: "#/components/schemas/Classification"
+        status:
+          type: string
+          enum:
+            - open
+            - purged
+        source_kind:
+          type: string
+          enum:
+            - manual
+            - connector
+        consent:
+          $ref: "#/components/schemas/MeetingConsentState"
+        version:
+          type: integer
+          minimum: 1
         participants:
           type: array
           items:
@@ -17943,8 +17973,7 @@ components:
           type:
             - object
             - "null"
-          description: Null for an owner or admin who was not there, and when no notes
-            exist.
+          description: Null for an owner or admin who was not there, and when no notes exist.
           additionalProperties: false
           required:
             - id

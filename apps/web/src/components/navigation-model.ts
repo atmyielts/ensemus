@@ -189,6 +189,7 @@ export function workspaceNavigation(input: {
             { href: `${base}/external-actions`, label: 'External actions', icon: 'arrow' },
           ],
         },
+        { href: `${base}/meetings`, label: 'Meetings', icon: 'people' },
         { href: `${base}/people`, label: 'People and teams', icon: 'people' },
         {
           href: `${base}/clients`,

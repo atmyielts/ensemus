@@ -956,6 +956,11 @@
       "sha256": "b872e45b9922132d706e1b8d5523fe10112cc9dc2c8aa7d84daa5c877b15551d"
     },
     {
+      "path": "06-delivery/evidence/rc-meeting-manual-20261123.json",
+      "size_bytes": 8509,
+      "sha256": "042175913cb637940e2dbbcedf09bab10d34a3cd60196518d178825bfb57d4cc"
+    },
+    {
       "path": "06-delivery/evidence/rc-native-human-readers-20261121.json",
       "size_bytes": 5194,
       "sha256": "99f051cbb90b8eb626e1d0a057d5a84332d76a7527deb44924d276a1cf479c92"
@@ -1042,8 +1047,8 @@
     },
     {
       "path": "06-delivery/release-candidate-2026-11-21.md",
-      "size_bytes": 78304,
-      "sha256": "52e1d6b6d28374b4862353548a64b019d0b241bcd64a54dc52a74591cf94324a"
+      "size_bytes": 84935,
+      "sha256": "618d5102e4d05423c7e364fed1dba6481001325d52018a0a502c0fee5d25f137"
     },
     {
       "path": "06-delivery/release-candidate-source-ledger.json",
@@ -1122,8 +1127,8 @@
     },
     {
       "path": "guides/index.json",
-      "size_bytes": 4678,
-      "sha256": "0af3f05952549c3ad3eae51a5fc992e0eba955e5b7619f6b640fe6bdfe7c78e4"
+      "size_bytes": 4706,
+      "sha256": "0544e8d3f459f278485e790d48fb5667b79c22258e73dd1e39d337c80157591c"
     },
     {
       "path": "guides/operator/advisories-and-branches.md",
@@ -1411,6 +1416,11 @@
       "sha256": "998f46ee5da5a0a3b62d79196eeb6c9f3a4703c5d284fe47d2bc7394f27b9ada"
     },
     {
+      "path": "guides/user/meetings.md",
+      "size_bytes": 3768,
+      "sha256": "c757f958acfe57ade92e52b5ec25996868a03dee0a57b10c2004b2f439a447b8"
+    },
+    {
       "path": "guides/user/members-and-invitations.md",
       "size_bytes": 5223,
       "sha256": "d5c1e4c0be292d1cb757f79cca73646c248287cb57da1fa35b09305a8d6dc783"
@@ -1667,8 +1677,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 564227,
-      "sha256": "4f45f2ced343117b27cdcbb5ae1de1dd62908a52511ec1aa634ac5fbc3f6189d"
+      "size_bytes": 564846,
+      "sha256": "6e87b20a8f5cf225c885734eca1dfb4925b045c6a43c167c213ff63b819fd1d4"
     },
     {
       "path": "specifications/qa-scenarios.csv",

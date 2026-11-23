@@ -68,6 +68,7 @@ export const PRIVILEGED_ACTIONS = {
   'organization.manage': 'administration',
   'connection.manage': 'administration',
   'skill.manage': 'administration',
+  'meeting.manage': 'administration',
 } as const;
 export type PrivilegedAction = keyof typeof PRIVILEGED_ACTIONS;
 

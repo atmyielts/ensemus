@@ -972,3 +972,82 @@ ci-artifact-native-after-20261123.log, ci-artifact-native-qualified-20261123.log
 ci-native-review-regression-20261123.log, ci-native-review-regression-qualified-20261123.log,
 ci-native-review-unit-20261123.log. The first regression run also caught the old checklist fixture's
 same shared-login mismatch before that fixture was repaired. Linux CI and outside review remain owed.
+
+## Manual meeting notes, consent, restore protection and workspace (EXP-03)
+
+Manual meetings are now a real workflow: company opt-in and notice reference, meeting creation,
+organizer and participants, each member's own consent, an organizer's explicit attestation for an
+outside participant, versioned plain-text notes, withdrawal and restore reapplication. The native
+services refuse service impersonation and non-native human sessions, reread active membership, keep
+administrator metadata separate from private titles/participants/notes, and lock the meeting before
+participant, consent or content changes. Recorded answers remain append-only. Source import, provider
+approval, model derivation and proposal services are still planned and are not presented as working UI.
+
+The nine implemented public methods use the existing authenticated API wrapper, strict runtime
+contracts, version preconditions and personal idempotency keys. Creation/notes keys retain committed
+identities, not note content; replays recheck current meeting authority and withdrawal. The notes route
+has a bounded 4 MiB JSON envelope for escaped text, with the independent 512 KiB UTF-8 content limit;
+other API routes keep their previous 256 KiB default. The Meeting response schema now declares its
+complete closed object: its earlier allOf of an already-closed summary could accept no valid detail.
+Only these nine methods lost their planned marker. The remaining API gate fell from 66 to 57 planned
+operations; it has not been weakened or removed.
+
+The compact shadcn workspace includes Meetings in navigation, company settings, a paged list,
+participant controls, consent and irreversible withdrawal review, and readable/versioned notes. It
+uses the existing copper tokens and fonts. Create/refusal/retry works with and without JavaScript.
+Stateful disclosures own their returned error/success visibility. Fields stay controlled during a
+client retry, retain submitted values in the native reply, and are disabled during the pending write;
+a late automatic form reset no longer discards a correction. Notes can be edited into a new version.
+
+New migration 0752 adds meeting administration to the existing native administrative MFA/SSO policy
+map, without using the owner-only organization-management action for an administrator. It also allows
+withdrawal when meeting creation is switched off, retaining the exact speaker/current-notice and
+atomic-purge constraint. Clearing the notice while an open meeting exists is refused by the service.
+The migration remains explicitly flagged for human security review, not approved by this record.
+
+Withdrawal clears every notes/summary/proposal text, refuses open derivation/import attempts, closes
+the meeting, records a tombstone and emits bounded ID/code-only events in one transaction. The external
+deletions ledger now has an actual meeting branch, rather than treating a meeting ID as an artifact;
+it is restricted to the native platform worker and is idempotent. The serving gate also checks for
+restored live meeting text even if a tombstone row survives. No restore entry grants a file read.
+
+Current local evidence:
+
+- All 18 new native service cases passed. A joined run with the existing expansion schema cases
+  passed 76 cases in 100.55 seconds; the final focused native run passed 18 in 31.17 seconds.
+  Coverage includes two tenants, admin metadata with no content canary, own/attested consent,
+  current notice, MFA policy, stale versions, UTF-8 size, fixed participant history, atomic rollback,
+  all-note withdrawal, disabling then withdrawal, actual worker ledger reapply and repeat.
+- All six production HTTP cases passed in 16.87 seconds. Together they exercise every one of the
+  nine active methods successfully through the contract checker, including personal replay,
+  authorization, positive list/removal, foreign/unknown equivalence, preconditions, large valid
+  notes, oversized UTF-8/wire refusal, and denial of an old key after withdrawal.
+- All five production browser cases passed in 24.2 seconds: two complete meeting journeys with
+  scripts on/off, server-refused create/correction, retained date, consent, note storage and
+  withdrawal; plus three existing workbench/search/theme cases. The native journey ran at 320px,
+  and both meeting pages were checked for horizontal overflow. Actual desktop/mobile screenshots
+  were inspected. These fixtures contain generated people, companies and text only.
+- The complete workspace typecheck passed, followed by the final production compilation/typecheck
+  and both test-project typechecks. Repository lint/format passed; the final disclosure/draft
+  changes and final journey tests also passed affected lint/format checks. Targeted pure checks
+  passed 115 policy/expansion/worker cases plus 221 API reader/navigation/guide cases. The two
+  explicit release-gate files passed 69 cases and failed exactly their two open gates: 57 planned
+  API methods and the same 30-table portability inventory. This is not a new full-unit-run claim.
+- Help now contains 31 user pages. Guide accounting passed for 86 total pages, including the new
+  meeting guide at written_untested; no guide is marked independently walked through.
+
+Initial runs honestly failed on stubs, a test import, audit-target formatting, the missing MFA action,
+the old disabled-withdrawal trigger, a closed native disclosure and a client retry reset. Those were
+corrected; assertions for actual consent, draft recovery and native interaction remain. An oversized
+request also exposed the task-owned Node test proxy's early-response/keepalive handling, which killed
+that local helper. Its ignored loopback implementation now buffers bounded requests and handles
+upstream errors; no application refusal was replaced or retried away. The final full HTTP and browser
+runs passed together through that proxy, including the oversized rejection followed by withdrawal.
+A Windows text rewrite's two punctuation encoding changes were corrected to their original Unicode.
+
+Exact public source and local evidence/screenshot hashes are in evidence/rc-meeting-manual-20261123.json.
+The web preview was checked ready at http://localhost:30451 and offered to the owner. It uses native
+PostgreSQL and object storage. Background workers are being started and need their own durable proof;
+this record does not claim that startup has passed. No live provider, production deployment, outside
+security approval, portability completion or complete-platform acceptance is claimed. The 24-table
+joined erasure-reach gap, other CI failures and previously stated release gates remain open.

@@ -276,9 +276,11 @@ export function apiRoute<S extends z.ZodType<{ organizationId: string }>>(
   };
 }
 
-async function readLimited(request: Request): Promise<Uint8Array> {
+async function readLimited(request: Request, maxBytes = MAX_JSON_BYTES): Promise<Uint8Array> {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 4 * 1024 * 1024)
+    throw new RangeError('Invalid JSON byte bound');
   // The declared length is only a quick refusal. It can be absent or wrong, so the bytes are counted.
-  if (Number(request.headers.get('content-length') ?? 0) > MAX_JSON_BYTES) throw tooLarge();
+  if (Number(request.headers.get('content-length') ?? 0) > maxBytes) throw tooLarge();
   const reader = request.body?.getReader();
   if (!reader) throw invalidInput();
   const chunks: Uint8Array[] = [];
@@ -287,7 +289,7 @@ async function readLimited(request: Request): Promise<Uint8Array> {
     const { done, value } = await reader.read();
     if (done) return Buffer.concat(chunks);
     total += value.byteLength;
-    if (total > MAX_JSON_BYTES) {
+    if (total > maxBytes) {
       await reader.cancel();
       throw tooLarge();
     }
@@ -299,10 +301,11 @@ async function readLimited(request: Request): Promise<Uint8Array> {
 export async function readJson<S extends z.ZodType>(
   request: Request,
   schema: S,
+  maxBytes = MAX_JSON_BYTES,
 ): Promise<z.output<S>> {
   const mediaType = request.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase();
   if (mediaType !== 'application/json') throw wrongMediaType();
-  return parseJsonBytes(await readLimited(request), schema);
+  return parseJsonBytes(await readLimited(request, maxBytes), schema);
 }
 
 /** An empty stream is also an absent optional body in Next's production request adapter. */

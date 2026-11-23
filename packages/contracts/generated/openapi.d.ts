@@ -15441,6 +15441,21 @@ export interface components {
             label: string;
         };
         Meeting: {
+            /** Format: uuid */
+            id: string;
+            /** @description Null for an owner or admin who was not there. */
+            title: string | null;
+            /** Format: date-time */
+            occurred_at: string;
+            /** Format: uuid */
+            organizer_membership_id: string;
+            classification: components["schemas"]["Classification"];
+            /** @enum {string} */
+            status: "open" | "purged";
+            /** @enum {string} */
+            source_kind: "manual" | "connector";
+            consent: components["schemas"]["MeetingConsentState"];
+            version: number;
             participants: components["schemas"]["MeetingParticipant"][];
             /** @description Null for an owner or admin who was not there, and when no notes exist. */
             current_notes: {
@@ -15452,7 +15467,7 @@ export interface components {
                 /** Format: date-time */
                 created_at: string;
             } | null;
-        } & components["schemas"]["MeetingSummary"];
+        };
         MeetingImportRequest: {
             /** Format: uuid */
             id: string;

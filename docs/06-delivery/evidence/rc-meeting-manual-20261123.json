@@ -1,0 +1,118 @@
+{
+  "schema": "ensemus.local-qualification/1",
+  "slice": "manual meeting notes and private consent workflow",
+  "recordedAt": "2026-11-23T11:10:38.704646+00:00",
+  "baseCommit": "bc2e6e81722aa4bf574755665ce9339f50040203",
+  "releaseReady": false,
+  "validation": {
+    "native": {
+      "newCasesPassed": 18,
+      "joinedSchemaCasesPassed": 76,
+      "finalNativeSeconds": 31.17,
+      "joinedSeconds": 100.55,
+      "actualNativeSessions": true,
+      "actualWorkerRestoreRole": true,
+      "actualTemporalPoller": false
+    },
+    "productionHttp": {
+      "casesPassed": 6,
+      "activeMethodsExercised": 9,
+      "seconds": 16.87,
+      "contractChecked": true,
+      "providerContact": false
+    },
+    "browser": {
+      "casesPassed": 5,
+      "seconds": 24.2,
+      "nativeAndJavascript": true,
+      "smallWidth": 320,
+      "horizontalOverflow": false,
+      "screenshotsInspected": true,
+      "productionCsp": true
+    },
+    "targetedUnit": {
+      "policyExpansionWorkerPassed": 115,
+      "apiNavigationGuidePassed": 221,
+      "remainingGateFilesPassed": 69,
+      "remainingGateFailures": 2,
+      "plannedApiOperations": 57,
+      "missingPortableTables": 30
+    },
+    "workspaceTypes": "passed before final form refinement; final production build and both test projects passed afterward",
+    "productionBuild": "passed",
+    "lint": "repository passed plus final affected checks",
+    "format": "repository passed",
+    "guidePages": 86,
+    "embeddedUserGuides": 31,
+    "independentGuideWalkthrough": false,
+    "migrationsAdded": [
+      "0752_meeting_consent_administration"
+    ],
+    "outsideSecurityReview": "pending",
+    "localWebReadiness": 200,
+    "localBackgroundWorkers": "startup and durable proof pending",
+    "productionDeployment": false
+  },
+  "limitations": [
+    "57 planned API operations and their unimplemented services remain",
+    "30-table portability profile remains incomplete",
+    "24 joined content tables lack reviewed erasure reach",
+    "Provider/model/connector meeting processing remains unavailable in the workspace",
+    "Other joined Linux CI and outside qualification gates remain open"
+  ],
+  "sourceSha256": {
+    "apps/web/src/app/api/v1/organizations/[organizationId]/meeting-settings/route.ts": "5be839e5a471394a8d00800f030391816942c85d9e5a339f1d842d72a9914678",
+    "apps/web/src/app/api/v1/organizations/[organizationId]/meetings/[meetingId]/notes/route.ts": "9c76867d08978fa0873fe2fd50b1e729a3fb6e89223721820ae3a1f130aaf22e",
+    "apps/web/src/app/api/v1/organizations/[organizationId]/meetings/[meetingId]/participants/[participantId]/consent/route.ts": "7ba4f77cb6b8c96826960230bc9656975db30a57a9fb55011b99202b4b4a8792",
+    "apps/web/src/app/api/v1/organizations/[organizationId]/meetings/[meetingId]/participants/[participantId]/route.ts": "3841822bf66fad1ae10cd6482093b1e89c67138e973c76243fc0d23341e2812a",
+    "apps/web/src/app/api/v1/organizations/[organizationId]/meetings/[meetingId]/participants/route.ts": "3cc2804925cc8f1403c755da8b5b460159a3bf630a6f88bc6b0aa2a4b588efbe",
+    "apps/web/src/app/api/v1/organizations/[organizationId]/meetings/[meetingId]/route.ts": "3785b7486ccb7039dd2e5e4b22443d72c8f958dccbea96259b1828a8528b1ae4",
+    "apps/web/src/app/api/v1/organizations/[organizationId]/meetings/route.ts": "31ac2a5bb5dec2fd5cf913caa2145815e3814ea49c70acc531131cbf31746bfe",
+    "apps/web/src/app/o/[organizationId]/meetings/[meetingId]/page.tsx": "2cea1cc47f239ddcaa574b3b79c800ffb461f384cbe5b215f33d9cfcdf717100",
+    "apps/web/src/app/o/[organizationId]/meetings/actions.ts": "30d48403e52c47b0d7532ce9a2b7ccc3dbeee2a621d230bf2a7200c8f39913bd",
+    "apps/web/src/app/o/[organizationId]/meetings/form-state.ts": "516b2429c7eeab3a670df65514c9ae34fb8baf71ada160e855359da6bd47e117",
+    "apps/web/src/app/o/[organizationId]/meetings/meeting-form.tsx": "14b8e30024e43387fa0513fec18c998d4a4afa1560b2705504ae6a8fce9c08f1",
+    "apps/web/src/app/o/[organizationId]/meetings/page.tsx": "601c2779afaf9e8bd9f815adbb6228f8492a2903bba7e3f3c093c09d8cc1e1b9",
+    "apps/web/src/components/navigation-model.ts": "1ff3f61aa8937062e40af0c7d3c40f86ab6891ee4c43f87a78ed2c4e2b5d20f0",
+    "apps/web/src/generated/guides.ts": "7f8590a3d496cafa81dd7f099c71624e877f6ef557a374dec2351270156732e9",
+    "apps/web/src/server/api.ts": "90461193c6f9f3037e0f4196991b5964a92f422b5dc44d11fc12cdd059148f07",
+    "apps/web/src/server/meeting-api.ts": "0f6b929a1388916bf5a71aec5355edbae6af4a1af7f36076becfb705c9c333df",
+    "docs/guides/index.json": "0544e8d3f459f278485e790d48fb5667b79c22258e73dd1e39d337c80157591c",
+    "docs/guides/user/meetings.md": "c757f958acfe57ade92e52b5ec25996868a03dee0a57b10c2004b2f439a447b8",
+    "docs/specifications/openapi.yaml": "6e87b20a8f5cf225c885734eca1dfb4925b045c6a43c167c213ff63b819fd1d4",
+    "packages/application/src/meeting-manual.ts": "7be760426c634fbc525fc305dd579230206fdc8ceaa7208fec900d075dbb1f10",
+    "packages/application/src/meetings.ts": "61215179c6b4da1920bef3b41962ff031fd9f14edb236c94a897fbd199c377d3",
+    "packages/application/src/tombstone-ledger.ts": "e0c499a7f866f44d38ce2320478c4867f768f3705abb53a31b210e9cea732d1b",
+    "packages/contracts/generated/openapi.d.ts": "5a2337fb8c5fc65f12d885e747dc58224581618457bd48678979d094fa8ef545",
+    "packages/database/migrations/0752_meeting_consent_administration.sql": "c50f4cea53984668f898d5e43da8ed699a145b67b45301cc783fb7eeed768434",
+    "packages/database/migrations/meta/_journal.json": "a7c073d42330bf69d3530ee724f248d39f1f2465ef5d3fd1c6c517a901952ead",
+    "packages/domain/src/product-policy.ts": "934ffef6b89bb3fd26458798ca3e002373293b3b5e0cdf727a687f7fb7ad27a1",
+    "tests/browser/specs/meeting-manual.spec.ts": "c8ff81db5c9a70ca671951d26001f808219d2e6b6ede0bf554e5134bc6423a07",
+    "tests/integration/legacy-checklist-upgrade.test.ts": "16c9e6e959625e33f74639f62231c0280fc4beb1e592b3a574467eb5cd162896",
+    "tests/integration/meeting-manual.test.ts": "7b1a032347459b48da38e73863cc982f957639506553ee9c39bba4d1dccc01f7",
+    "tests/stack/meeting-manual-api.test.ts": "cb8b660d66e561c7a7ad44d4293ab02dbbce7dd30afcaf34c55435277d8eaa64",
+    "tests/unit/navigation-model.test.ts": "65856f69b7d506f91384cce27bb02a1c9e3195abfc6f29cd715d6b0e9fc02373"
+  },
+  "localEvidenceSha256": {
+    ".local/meeting-native-qualified-20261123.log": "b19c7b7b64d335d444bbc95e220a8e90a8e3f8166d0020ce10c11d5f052b7546",
+    ".local/meeting-native-recovery-final-20261123.log": "e210d63241e251c4a57cf20de233af24e1db7f23afd839645473b00f2b3b0f57",
+    ".local/meeting-http-transport-qualified-20261123.log": "171c73f8a40ed4e6443596d58c0f6a9a6f7da166938e8d2ef851e18e854ac595",
+    ".local/meeting-browser-transport-qualified-20261123.log": "620adbf8277c2dad655c7fa7bee0717cd7f964a8eb4fefe0a0479a0fb015821c",
+    ".local/meeting-workspace-types-first-20261123.log": "052ba36df2de99006cc02cfe2f192fa7afcb254e193c2ade64d497b6d5da25bd",
+    ".local/meeting-tests-types-final-20261123.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".local/meeting-browser-types-final-20261123.log": "2eb9d0a10b6f1f7a5f9e048ff3bb78fcd03c48d3d01d7f79a43367991d1802ff",
+    ".local/meeting-production-build-recovery-20261123.log": "92983785f7c9a64bbe8bd29c1d45e72f48ac3e04ff7d0ca7435a800c428b0567",
+    ".local/meeting-workspace-lint-final-20261123.log": "43add56483e840c72325d81812bcb96949086335473ee03f2266a0b9654cd863",
+    ".local/meeting-recovery-final-lint-20261123.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".local/meeting-receipts-final-lint-20261123.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".local/meeting-release-format-check-20261123.log": "c9e4dabd0fe6fe454c6f2e0a5796d48bf059e032cc05b5df2c372df1ff3a282c",
+    ".local/meeting-policy-unit-20261123.log": "cea2c2f557a9a68392ff0f5ba7f9fa5cc8213e68dd6722311a687281cb6100fc",
+    ".local/meeting-workspace-unit-final-20261123.log": "285186cc871ec8e2d7fb6c0410ba2e539876a087a11211902f1983da0d941bb5",
+    ".local/meeting-remaining-release-gates-20261123.log": "e655e994c0b7b8dfbb4e538e55c0c2c82c9ddec92be9191b8b1e8e6b2a217500",
+    ".local/meeting-guide-final-20261123.log": "ffb2a3395080ff283e10b19ac1017bc272b22424fa7fd5d23e48c2ab2cced689"
+  },
+  "localScreenshotSha256": {
+    "output/playwright/meeting-desktop-20261123.png": "8a718e3da6ab4eb15722bfb638f109322bb290aca61b360dc4fe1331627066ee",
+    "output/playwright/meeting-mobile-20261123.png": "7f4c2c6029b971359631efae928603ac76049f061b5d7124847ccf9cf849593d"
+  }
+}

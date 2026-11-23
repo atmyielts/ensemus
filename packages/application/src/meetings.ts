@@ -1,3 +1,4 @@
+import * as manual from './meeting-manual';
 // Owned by the meetings-core slice (EXP-03). See docs/06-delivery/m11a-slices.md and ADR-033 D4 to D6. Settings,
 // meetings, who was there, consent, provider approvals, imported notes and the purge when consent goes.
 import type { AppDatabase, TenantContext, Tx } from '@ensemus/database';
@@ -67,7 +68,7 @@ export function getMeetingSettings(
   _database: AppDatabase,
   _context: TenantContext,
 ): Promise<MeetingSettingsView> {
-  throw new Error('NOT_IMPLEMENTED');
+  return manual.getMeetingSettings(_database, _context);
 }
 
 /** Owners and admins. Turning on needs a notice reference, and changing it asks everyone again. */
@@ -76,7 +77,7 @@ export function updateMeetingSettings(
   _context: TenantContext,
   _input: { expectedVersion: number; enabled: boolean; noticeRef: string | null },
 ): Promise<MeetingSettingsView> {
-  throw new Error('NOT_IMPLEMENTED');
+  return manual.updateMeetingSettings(_database, _context, _input);
 }
 
 /** MEETINGS_NOT_ENABLED until an administrator has turned them on. The organizer is listed at once. */
@@ -85,7 +86,7 @@ export function createMeeting(
   _context: TenantContext,
   _input: { title: string; occurredAt: Date; classification?: Classification },
 ): Promise<MeetingDetailView> {
-  throw new Error('NOT_IMPLEMENTED');
+  return manual.createMeeting(_database, _context, _input);
 }
 
 export function createMeetingFromResource(
@@ -107,7 +108,7 @@ export function listMeetings(
   _context: TenantContext,
   _input: { after?: string; limit?: number },
 ): Promise<{ items: readonly MeetingSummaryView[]; nextCursor: string | null }> {
-  throw new Error('NOT_IMPLEMENTED');
+  return manual.listMeetings(_database, _context, _input);
 }
 
 /** Not found for anyone canSeeMeeting says no to. An admin gets the metadata, with no title or notes. */
@@ -116,7 +117,7 @@ export function getMeeting(
   _context: TenantContext,
   _meetingId: string,
 ): Promise<MeetingDetailView> {
-  throw new Error('NOT_IMPLEMENTED');
+  return manual.getMeeting(_database, _context, _meetingId);
 }
 
 export function addMeetingParticipant(
@@ -128,7 +129,7 @@ export function addMeetingParticipant(
     participant: { kind: 'member'; membershipId: string } | { kind: 'external'; label: string };
   },
 ): Promise<MeetingParticipantView> {
-  throw new Error('NOT_IMPLEMENTED');
+  return manual.addMeetingParticipant(_database, _context, _input);
 }
 
 export function removeMeetingParticipant(
@@ -136,7 +137,7 @@ export function removeMeetingParticipant(
   _context: TenantContext,
   _input: { meetingId: string; participantId: string; expectedVersion: number },
 ): Promise<void> {
-  throw new Error('NOT_IMPLEMENTED');
+  return manual.removeMeetingParticipant(_database, _context, _input);
 }
 
 /**
@@ -153,7 +154,7 @@ export function recordMeetingConsent(
     noticeRef: string;
   },
 ): Promise<{ consent: ConsentState; status: MeetingStatus }> {
-  throw new Error('NOT_IMPLEMENTED');
+  return manual.recordMeetingConsent(_database, _context, _input);
 }
 
 /** Refuses until consent is complete (CONSENT_INCOMPLETE). A second import is a new version. */
@@ -162,7 +163,7 @@ export function importMeetingNotes(
   _context: TenantContext,
   _input: { meetingId: string; text: string },
 ): Promise<{ notesId: string; version: number }> {
-  throw new Error('NOT_IMPLEMENTED');
+  return manual.importMeetingNotes(_database, _context, _input);
 }
 
 export function approveMeetingProvider(
@@ -224,5 +225,5 @@ export function purgeMeetingContentInTx(
   _context: TenantContext,
   _input: { meetingId: string; reasonCode: 'CONSENT_WITHDRAWN' },
 ): Promise<void> {
-  throw new Error('NOT_IMPLEMENTED');
+  return manual.purgeMeetingContentInTx(_tx, _context, _input);
 }

@@ -302,7 +302,7 @@ describe('a checklist written before 0208, on work paused for review', () => {
     expect(await fileIds(owner, later.work.id)).toEqual([laterFile]);
   });
 
-  describe('is not requalified when its bytes are not its own Workâ€™s checklist', () => {
+  describe('is not requalified when its bytes are not its own Work’s checklist', () => {
     it('keeps a tampered checklist hidden, so the paused review stays refused', async () => {
       const owner = await newOrg();
       const reviewer = await join(owner, 'legacy-reviewer');
