@@ -2,13 +2,14 @@
 // web tier has no client and no network route. Delivery is at least once, so every action here is
 // idempotent, and a crash just repeats it.
 import { writeFileSync } from 'node:fs';
+import { setTimeout as sleep } from 'node:timers/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadTelemetryConfig, readSecret } from '@ensemus/config';
 import {
   dispatchDueEvents,
   eventBacklog,
-  listOrganizationIds,
+  listScheduleReconciliationTenants,
   openDispatcherDatabase,
   processWakeTargets,
   type DispatchableEvent,
@@ -127,7 +128,7 @@ import {
   simulationWorkflowIdFor,
 } from '@ensemus/workflows/product-schemas';
 import {
-  BILLING_SWEEP_INTERVAL,
+  BILLING_SWEEP_INTERVAL_SECONDS,
   billingScheduleIdFor,
   offboardingInputSchema,
   offboardingWorkflowIdFor,
@@ -137,7 +138,7 @@ import {
   checkoutWorkflowIdFor,
   paymentInputSchema,
   paymentWorkflowIdFor,
-  RETENTION_SWEEP_INTERVAL,
+  RETENTION_SWEEP_INTERVAL_SECONDS,
   retentionScheduleIdFor,
 } from '@ensemus/workflows/saas-schemas';
 import {
@@ -173,34 +174,32 @@ import {
   webhookWorkflowIdFor,
   workflowIdFor,
   workInputSchema,
-  type TenantInput,
   type WorkInput,
 } from '@ensemus/workflows/schemas';
 import {
   Client,
   ScheduleNotFoundError,
-  ScheduleOverlapPolicy,
   WorkflowExecutionAlreadyStartedError,
   WorkflowNotFoundError,
-  ScheduleAlreadyRunning,
 } from '@temporalio/client';
 import { classifyDeliveryError, needsOnlyTheStore } from './dispatch-errors';
 import { recordPurgeStartFor, startRecordPurge } from './record-purge-route';
 import { openDispatcherConnection } from './temporal-connection';
 import { createLedgerWriter } from './tombstone-ledger';
 import { createBackgroundReconciliation } from './background-reconciliation';
+import { ensureTenantSchedule } from './tenant-schedules';
 
 const log = createLogger('dispatcher');
 const here = path.dirname(fileURLToPath(import.meta.url));
 const IDLE_MS = 500;
-const REMINDER_INTERVAL = '15 minutes';
+const REMINDER_INTERVAL_SECONDS = 15 * 60;
 /** How often a tenant's connector content is looked at. A revoke does not wait for this (ADR-029 D1). */
-const KNOWLEDGE_SWEEP_INTERVAL = '15 minutes';
+const KNOWLEDGE_SWEEP_INTERVAL_SECONDS = 15 * 60;
 /**
  * How often a tenant's consent attempts and directories are looked after (ADR-038 D1, D4). Ending an
  * attempt does not wait for this, and a directory goes stale over a day, so this is well inside both.
  */
-const SUITE_UPKEEP_INTERVAL = '15 minutes';
+const SUITE_UPKEEP_INTERVAL_SECONDS = 15 * 60;
 /** One Temporal call may never hold up the signals behind it for longer than this. */
 const CALL_DEADLINE_MS = 10_000;
 /** How often to try checking the reminder schedules again if Temporal was down at startup. */
@@ -245,77 +244,25 @@ async function main() {
     }),
   );
 
-  const ensureReminderSchedule = async (organizationId: string) => {
-    const scheduleInput: TenantInput = { organizationId };
-    try {
-      await client.schedule.create({
+  const ensureReminderSchedules = async (organizationId: string, reconcile = false) => {
+    for (const target of [
+      {
         scheduleId: reminderScheduleIdFor(organizationId),
-        spec: { intervals: [{ every: REMINDER_INTERVAL }] },
-        policies: { overlap: ScheduleOverlapPolicy.SKIP },
-        action: {
-          type: 'startWorkflow',
-          workflowType: 'tenantRemindersWorkflow',
-          args: [scheduleInput],
-          taskQueue: PLATFORM_TASK_QUEUE,
-        },
-      });
-    } catch (error) {
-      if (!(error instanceof ScheduleAlreadyRunning)) throw error;
-    }
-    try {
-      await client.schedule.create({
+        workflowType: 'tenantRemindersWorkflow',
+        everySeconds: REMINDER_INTERVAL_SECONDS,
+      },
+      {
         scheduleId: knowledgeSweepScheduleIdFor(organizationId),
-        spec: { intervals: [{ every: KNOWLEDGE_SWEEP_INTERVAL }] },
-        policies: { overlap: ScheduleOverlapPolicy.SKIP },
-        action: {
-          type: 'startWorkflow',
-          workflowType: 'knowledgeSweepWorkflow',
-          args: [scheduleInput],
-          taskQueue: PLATFORM_TASK_QUEUE,
-        },
-      });
-    } catch (error) {
-      if (!(error instanceof ScheduleAlreadyRunning)) throw error;
-    }
-    try {
-      await client.schedule.create({
+        workflowType: 'knowledgeSweepWorkflow',
+        everySeconds: KNOWLEDGE_SWEEP_INTERVAL_SECONDS,
+      },
+      {
         scheduleId: suiteUpkeepScheduleIdFor(organizationId),
-        spec: { intervals: [{ every: SUITE_UPKEEP_INTERVAL }] },
-        policies: { overlap: ScheduleOverlapPolicy.SKIP },
-        action: {
-          type: 'startWorkflow',
-          workflowType: 'suiteUpkeepWorkflow',
-          args: [scheduleInput],
-          taskQueue: PLATFORM_TASK_QUEUE,
-        },
-      });
-    } catch (error) {
-      if (!(error instanceof ScheduleAlreadyRunning)) throw error;
-    }
-  };
-
-  /** A per-tenant schedule, carrying only the organization ID. Finding it there already is success. */
-  const ensureTenantSchedule = async (
-    organizationId: string,
-    scheduleId: string,
-    workflowType: string,
-    every: typeof BILLING_SWEEP_INTERVAL | typeof RETENTION_SWEEP_INTERVAL,
-  ) => {
-    const scheduleInput: TenantInput = { organizationId };
-    try {
-      await client.schedule.create({
-        scheduleId,
-        spec: { intervals: [{ every }] },
-        policies: { overlap: ScheduleOverlapPolicy.SKIP },
-        action: {
-          type: 'startWorkflow',
-          workflowType,
-          args: [scheduleInput],
-          taskQueue: PLATFORM_TASK_QUEUE,
-        },
-      });
-    } catch (error) {
-      if (!(error instanceof ScheduleAlreadyRunning)) throw error;
+        workflowType: 'suiteUpkeepWorkflow',
+        everySeconds: SUITE_UPKEEP_INTERVAL_SECONDS,
+      },
+    ]) {
+      await ensureTenantSchedule(client.schedule, { ...target, organizationId }, reconcile);
     }
   };
 
@@ -468,7 +415,7 @@ async function main() {
       }
 
       case 'organization.created':
-        await ensureReminderSchedule(event.organizationId);
+        await ensureReminderSchedules(event.organizationId);
         return;
 
       case TOMBSTONE_RECORDED:
@@ -690,21 +637,21 @@ async function main() {
 
       // M8 (ADR-032). Charging belongs to one run, ever, as an external action does (ADR-027 D2).
       case SUBSCRIPTION_STARTED:
-        await ensureTenantSchedule(
-          event.organizationId,
-          billingScheduleIdFor(event.organizationId),
-          'billingCycleWorkflow',
-          BILLING_SWEEP_INTERVAL,
-        );
+        await ensureTenantSchedule(client.schedule, {
+          organizationId: event.organizationId,
+          scheduleId: billingScheduleIdFor(event.organizationId),
+          workflowType: 'billingCycleWorkflow',
+          everySeconds: BILLING_SWEEP_INTERVAL_SECONDS,
+        });
         return;
 
       case RETENTION_RULE_SET:
-        await ensureTenantSchedule(
-          event.organizationId,
-          retentionScheduleIdFor(event.organizationId),
-          'retentionSweepWorkflow',
-          RETENTION_SWEEP_INTERVAL,
-        );
+        await ensureTenantSchedule(client.schedule, {
+          organizationId: event.organizationId,
+          scheduleId: retentionScheduleIdFor(event.organizationId),
+          workflowType: 'retentionSweepWorkflow',
+          everySeconds: RETENTION_SWEEP_INTERVAL_SECONDS,
+        });
         return;
 
       case PAYMENT_REQUESTED:
@@ -897,17 +844,24 @@ async function main() {
 
   const beat = () => writeFileSync('/tmp/worker-alive', String(Date.now()));
 
-  /** A tenant whose first event was lost before this existed still gets its reminders. */
+  let reconciledOrganizations = 0;
+  let organizationsToReconcile: string[] | undefined;
+  /** Existing tenants get their original schedules back or moved off the common interval boundary. */
   const reconcileReminderSchedules = async () => {
-    const organizations = await listOrganizationIds(db);
-    for (const organizationId of organizations) {
+    organizationsToReconcile ??= await listScheduleReconciliationTenants(db);
+    for (const organizationId of organizationsToReconcile.slice(reconciledOrganizations)) {
       if (!running) return false;
       beat();
       await connection.withDeadline(Date.now() + CALL_DEADLINE_MS, () =>
-        ensureReminderSchedule(organizationId),
+        ensureReminderSchedules(organizationId, true),
       );
+      // Resume after the last success on a temporary Temporal failure. Give the live outbox room
+      // between tenants, including when Temporal can answer every reconciliation call immediately.
+      reconciledOrganizations++;
+      await sleep(100);
     }
-    log.info('dispatcher.schedules_reconciled', { count: organizations.length });
+    log.info('dispatcher.schedules_reconciled', { count: reconciledOrganizations });
+    organizationsToReconcile = undefined;
     return true;
   };
 

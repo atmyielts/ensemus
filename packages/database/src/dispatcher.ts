@@ -1,6 +1,6 @@
 // For the outbox dispatcher only (lint blocks this elsewhere). Its role crosses tenants, and sees
 // event metadata and outbox state, never payloads or actors (ADR-024 D4).
-import { and, asc, eq, inArray, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, lte, notInArray, sql } from 'drizzle-orm';
 import { openDatabase, type EnsemusDrizzle } from './connection';
 import { domainEvents, outboxEvents } from './schema';
 import { assertRestoreAdmission, isRestoreAdmissionDenied } from './restore-authority';
@@ -275,6 +275,26 @@ export async function listOrganizationIds(db: EnsemusDrizzle): Promise<string[]>
     .selectDistinct({ organizationId: domainEvents.organizationId })
     .from(domainEvents)
     .where(eq(domainEvents.eventType, 'organization.created'));
+  return rows.map((row) => row.organizationId);
+}
+
+/** Startup only repairs schedules a tenant still needs, without reading its records or payloads. */
+export async function listScheduleReconciliationTenants(db: EnsemusDrizzle): Promise<string[]> {
+  await assertRestoreAdmission(db);
+  const ended = db
+    .select({ organizationId: domainEvents.organizationId })
+    .from(domainEvents)
+    .where(eq(domainEvents.eventType, 'tenant.schedules_ended'));
+  const rows = await db
+    .selectDistinct({ organizationId: domainEvents.organizationId })
+    .from(domainEvents)
+    .where(
+      and(
+        eq(domainEvents.eventType, 'organization.created'),
+        notInArray(domainEvents.organizationId, ended),
+      ),
+    )
+    .orderBy(domainEvents.organizationId);
   return rows.map((row) => row.organizationId);
 }
 

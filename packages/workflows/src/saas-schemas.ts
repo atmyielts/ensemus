@@ -7,7 +7,7 @@ export const billingCycleInputSchema = z.strictObject({ organizationId: z.uuid()
 export type BillingCycleInput = z.infer<typeof billingCycleInputSchema>;
 export const billingScheduleIdFor = (organizationId: string) => `billing-${organizationId}`;
 /** Operational, and not a commercial term: how often to look for what has fallen due. */
-export const BILLING_SWEEP_INTERVAL = '1 hour';
+export const BILLING_SWEEP_INTERVAL_SECONDS = 60 * 60;
 export type BillingCycleResult = {
   closedPeriods: number;
   issued: number;
@@ -45,7 +45,7 @@ export const retentionInputSchema = z.strictObject({ organizationId: z.uuid() })
 export type RetentionInput = z.infer<typeof retentionInputSchema>;
 export const retentionScheduleIdFor = (organizationId: string) => `retention-${organizationId}`;
 /** Operational: how often to look. How long anything is kept is a rule, and never this. */
-export const RETENTION_SWEEP_INTERVAL = '6 hours';
+export const RETENTION_SWEEP_INTERVAL_SECONDS = 6 * 60 * 60;
 export type RetentionResult = { categories: number; removed: number; held: number; more: boolean };
 
 export const offboardingInputSchema = z.strictObject({
