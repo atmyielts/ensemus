@@ -234,7 +234,7 @@ describe('frozen archives beside unfinished modules', () => {
       ),
     ).toBe(false);
   });
-  it('keeps unknown schemas refused and installs only fixed, forced-RLS probes with no new eraser grants', async () => {
+  it('keeps unknown schemas refused and pending probes isolated from the erasure allowlist', async () => {
     const person = await owner();
     const table = `pending_test_${randomUUID().replaceAll('-', '')}`;
     await su.query(`create table public.${table}(id uuid)`);
@@ -267,7 +267,22 @@ describe('frozen archives beside unfinished modules', () => {
       "select name from unnest($1::text[]) name where has_table_privilege('ensemus_eraser',name,'DELETE')",
       [PENDING_PORTABILITY_TABLES],
     );
-    expect(eraser.rows).toEqual([]);
+    // Erasure coverage and the frozen export format have independent admission rules.
+    expect(eraser.rows.map((row) => row.name).sort()).toEqual([
+      'integrations.business_record_actions',
+      'integrations.business_records',
+      'meetings.consent_records',
+      'meetings.derivation_runs',
+      'meetings.import_requests',
+      'meetings.meetings',
+      'meetings.notes',
+      'meetings.participants',
+      'meetings.proposed_items',
+      'meetings.provider_approvals',
+      'meetings.settings',
+      'meetings.summaries',
+      'tenancy.residency_requirements',
+    ]);
     for (const url of [urls.auth(), urls.dispatcher()]) {
       const client = new pg.Client({ connectionString: url });
       await client.connect();
