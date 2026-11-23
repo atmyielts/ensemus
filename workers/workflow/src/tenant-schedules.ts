@@ -7,7 +7,7 @@ import {
   ScheduleOverlapPolicy,
   type ScheduleClient,
 } from '@temporalio/client';
-import { google } from '@temporalio/proto';
+import temporalProto from '@temporalio/proto';
 
 type TenantSchedule = {
   scheduleId: string;
@@ -79,7 +79,7 @@ async function retimeExisting(client: ScheduleClient, target: TenantSchedule): P
           interval: [
             {
               ...interval,
-              phase: google.protobuf.Duration.fromObject({
+              phase: temporalProto.google.protobuf.Duration.fromObject({
                 seconds: tenantScheduleOffsetSeconds(scheduleId, everySeconds),
               }),
             },
