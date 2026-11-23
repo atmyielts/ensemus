@@ -1174,3 +1174,12 @@ administrator and outsider denials retain their assertions. All 34 cases passed 
 database. Affected lint and the test type check passed. These checks do not certify live provider
 delivery. CI at 0d67d05 still reported 57 planned methods and 30 missing portability inventory rows
 as its two unit release failures, plus failures in separate integration and acceptance jobs.
+
+
+### Temporal memory follow-up (2026-11-23)
+
+The local service restarted once under the 768 MiB ceiling. The WSL kernel recorded a
+container memory kill for Temporal during the qualification backlog. Compose now defaults to
+a 1 GiB ceiling while retaining the 512 MiB Go target and the two cache limits. The local
+container applied the new ceiling, reached healthy status and answered its namespace RPC.
+Eleven targeted tests passed. Stability across the recurring backlog still needs a longer run.

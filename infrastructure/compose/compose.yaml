@@ -814,7 +814,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${ENSEMUS_TEMPORAL_MEMORY_LIMIT:-768M}
+          memory: ${ENSEMUS_TEMPORAL_MEMORY_LIMIT:-1024M}
     volumes:
       - ./temporal/temporal-start.sh:/provision/temporal-start.sh:ro
       - ./temporal/dynamicconfig.yaml:/etc/temporal/config/dynamicconfig/docker.yaml:ro
