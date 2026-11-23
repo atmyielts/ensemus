@@ -1215,8 +1215,8 @@ qualification remains open.
 
 The meeting application now admits a derivation request only from the signed-in organizer. It
 binds one current notes version to one approved model and purpose, then atomically records the
-request and its outbox event. The privileged reader is the native platform worker. Run history is
-restricted to the organizer and participants. Withdrawals, new notes, provider revocations, and
+request and its outbox event. The derivation service only accepts the native platform worker for
+execution. Run history is restricted to the organizer and participants. Withdrawals, new notes, provider revocations, and
 an egress denial prevent a queued run from sending content.
 
 The Temporal workflow passes IDs and a terminal status. The activity validates model output before
@@ -1226,6 +1226,7 @@ code. Generated suggestions still require a person's decision before they can cr
 
 Eight native PostgreSQL tests exercised the lifecycle with a scripted, in-process model. They
 passed alongside the six meeting-proposal integration cases. The worker and workflow bundles
-built successfully. Meeting generation remains closed in the shipped worker until a governed
-model gateway and egress audit are wired. The public request endpoint and workspace controls
-remain pending, as do a captured Temporal replay and live-provider qualification.
+built successfully. Four captured histories replayed against the shipped workflow, covering
+completion, refusal, discarded output and cleanup after both activity attempts failed. Meetings
+still need a governed model gateway, egress audit, the public request endpoint and workspace
+controls before live-provider qualification.

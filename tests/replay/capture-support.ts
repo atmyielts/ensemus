@@ -35,7 +35,12 @@ export type CaptureRun = {
  * uses, with stub Activities and the corpus's own key. A recorded history is never rewritten.
  */
 export async function withCaptureWorkers(
-  options: { activities: object; queues: readonly string[]; heartbeatThrottleMs?: number },
+  options: {
+    activities: object;
+    queues: readonly string[];
+    heartbeatThrottleMs?: number;
+    identity?: string;
+  },
   body: (run: CaptureRun) => Promise<void>,
 ): Promise<void> {
   const connection = await NativeConnection.connect({ address: address() });
@@ -57,6 +62,7 @@ export async function withCaptureWorkers(
         taskQueue: queue,
         workflowBundle: { code },
         activities: options.activities,
+        ...(options.identity ? { identity: options.identity } : {}),
         dataConverter,
         ...(options.heartbeatThrottleMs === undefined
           ? {}
@@ -67,7 +73,12 @@ export async function withCaptureWorkers(
       }),
     ),
   );
-  const client = new Client({ connection: clientConnection, namespace: 'default', dataConverter });
+  const client = new Client({
+    connection: clientConnection,
+    namespace: 'default',
+    dataConverter,
+    ...(options.identity ? { identity: options.identity } : {}),
+  });
 
   const running = workers.map((worker) => worker.run());
   try {
