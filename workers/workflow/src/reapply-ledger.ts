@@ -3,30 +3,35 @@
 import { createObjectDeletionLifecycle } from '@ensemus/application/saas/object-deletion';
 import { readSecret } from '@ensemus/config';
 import { openAppDatabase } from '@ensemus/database';
+import { assertLoginRole } from '@ensemus/database/service';
 import { S3ObjectStore } from '@ensemus/storage';
 import { errorCode } from '@ensemus/telemetry';
 import { log, reapplyCommand } from './reapply-command';
 
 async function main() {
   const { db, close } = openAppDatabase(readSecret('DATABASE_URL_APP'));
-  const store = new S3ObjectStore({
-    endpoint: process.env.OBJECT_STORAGE_ENDPOINT ?? 'http://objects:8333',
-    bucket: process.env.OBJECT_STORAGE_BUCKET ?? 'ensemus',
-    accessKey: readSecret('OBJECT_STORAGE_ACCESS_KEY'),
-    secretKey: readSecret('OBJECT_STORAGE_SECRET_KEY'),
-  });
-  // The production generated-file lifecycle (0508), composed as the knowledge worker composes it: a
-  // restored generated deletion is proven by its own claim, DELETE and absence check, never here.
-  const code = await reapplyCommand(process.argv.slice(2), {
-    database: db,
-    store,
-    derivedArtifacts: createObjectDeletionLifecycle({ database: db, store }).derived,
-  });
-  await close();
-  process.exit(code);
+  try {
+    await assertLoginRole(db, 'ensemus_worker');
+    const store = new S3ObjectStore({
+      endpoint: process.env.OBJECT_STORAGE_ENDPOINT ?? 'http://objects:8333',
+      bucket: process.env.OBJECT_STORAGE_BUCKET ?? 'ensemus',
+      accessKey: readSecret('OBJECT_STORAGE_ACCESS_KEY'),
+      secretKey: readSecret('OBJECT_STORAGE_SECRET_KEY'),
+    });
+    // A restored generated deletion uses the same claim, delete and absence check as the knowledge worker.
+    return await reapplyCommand(process.argv.slice(2), {
+      database: db,
+      store,
+      derivedArtifacts: createObjectDeletionLifecycle({ database: db, store }).derived,
+    });
+  } finally {
+    await close();
+  }
 }
 
-main().catch((error: unknown) => {
-  log.error('tombstone_ledger.reapply_failed', { errorCode: errorCode(error) });
-  process.exit(1);
-});
+main()
+  .then((code) => process.exit(code))
+  .catch((error: unknown) => {
+    log.error('tombstone_ledger.reapply_failed', { errorCode: errorCode(error) });
+    process.exit(1);
+  });
