@@ -809,6 +809,12 @@ services:
       BIND_ON_IP: 0.0.0.0
       # Stops the server calling version-info.temporal.io. See temporal/dynamicconfig.yaml.
       TEMPORAL_VERSION_CHECK_DISABLED: '1'
+      # Leave headroom for stacks, native allocations and the other all-in-one services.
+      GOMEMLIMIT: ${ENSEMUS_TEMPORAL_GO_MEMORY_LIMIT:-512MiB}
+    deploy:
+      resources:
+        limits:
+          memory: ${ENSEMUS_TEMPORAL_MEMORY_LIMIT:-768M}
     volumes:
       - ./temporal/temporal-start.sh:/provision/temporal-start.sh:ro
       - ./temporal/dynamicconfig.yaml:/etc/temporal/config/dynamicconfig/docker.yaml:ro

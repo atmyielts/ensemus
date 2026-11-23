@@ -1057,8 +1057,8 @@
     },
     {
       "path": "06-delivery/release-candidate-2026-11-21.md",
-      "size_bytes": 89736,
-      "sha256": "b1b2ac92edaa46cc873dd12d1f507e383f6c2fcb5a65a5c812a7146d0029c70c"
+      "size_bytes": 91763,
+      "sha256": "8bf69e48e21f323a841f74cf071933440e8fb75e88445d51b9144c6d4ff64fd5"
     },
     {
       "path": "06-delivery/release-candidate-source-ledger.json",
@@ -1602,8 +1602,8 @@
     },
     {
       "path": "specifications/deployment/environment.example",
-      "size_bytes": 2193,
-      "sha256": "75aba0021525a7fa15fa27c705514699ba5aaa956831bae075211681d7c3f1e4"
+      "size_bytes": 2546,
+      "sha256": "380892aaac37cda4e9cd1362fe9386bcd010ce1015a4cec9d3222c5149c3ba39"
     },
     {
       "path": "specifications/deployment/release-manifest.example.json",

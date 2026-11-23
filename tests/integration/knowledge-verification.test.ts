@@ -81,13 +81,17 @@ async function bounded<T>(operation: Promise<T>): Promise<T> {
 }
 
 describe('artifact grounding and fresh human acceptance on real roles (0206)', () => {
-  let database: ReturnType<typeof openAppDatabase>, auth: pg.Client, su: pg.Client;
+  let database: ReturnType<typeof openAppDatabase>,
+    worker: ReturnType<typeof openAppDatabase>,
+    auth: pg.Client,
+    su: pg.Client;
   let owner: TenantContext, reviewer: TenantContext, member: TenantContext, other: TenantContext;
   const text = 'A generated claim attributed to a generated source.';
   const objective = 'Review this generated claim against its source.';
   const service = () => createServiceContext(owner.organizationId);
   beforeAll(async () => {
     database = openAppDatabase(urls.app(), { max: 5 });
+    worker = openAppDatabase(urls.worker(), { max: 5 });
     auth = new pg.Client({ connectionString: urls.auth() });
     su = new pg.Client({ connectionString: urls.superuser() });
     await auth.connect();
@@ -114,7 +118,7 @@ describe('artifact grounding and fresh human acceptance on real roles (0206)', (
     member = await resolveTenantContext(database.db, reader.userId, owner.organizationId);
   });
   afterAll(async () => {
-    await Promise.all([auth?.end(), su?.end(), database?.close()]);
+    await Promise.all([auth?.end(), su?.end(), database?.close(), worker?.close()]);
   });
 
   async function draft(
@@ -163,7 +167,7 @@ describe('artifact grounding and fresh human acceptance on real roles (0206)', (
       },
       ground: () =>
         checkArtifactGrounding(
-          database.db,
+          worker.db,
           objects.store,
           createServiceContext(context.organizationId),
           input,
@@ -200,6 +204,23 @@ describe('artifact grounding and fresh human acceptance on real roles (0206)', (
     expect(pgCode(failure)).toBe(code);
   }
 
+  it('refuses a web connection claiming service authority before reading artifact bytes', async () => {
+    const value = await draft();
+    await expect(
+      checkArtifactGrounding(database.db, value.store, service(), value.input),
+    ).rejects.toEqual(new AppError('NOT_FOUND'));
+    expect(value.control.reads).toBe(0);
+    const proofs = await withTenantTx(worker.db, service(), (tx) =>
+      tx
+        .select()
+        .from(knowledgeArtifactVerifications)
+        .where(eq(knowledgeArtifactVerifications.artifactId, value.input.artifactId)),
+    );
+    expect(proofs).toEqual([]);
+    // The very same input succeeds through the identity the platform worker actually holds.
+    expect(await value.ground()).toMatchObject({ verdict: 'passed' });
+  });
+
   it('checks actual bytes and citations, then accepts idempotently as a fresh authorized person', async () => {
     const value = await draft();
     expect(await value.ground()).toEqual({ verdict: 'passed', reasonCode: null, citations: 1 });
@@ -216,7 +237,7 @@ describe('artifact grounding and fresh human acceptance on real roles (0206)', (
       human: { verdict: 'accepted', by: reviewer.membershipId },
       citations: [{ available: true, excerpt: text }],
     });
-    const stored = await withTenantTx(database.db, service(), (tx) =>
+    const stored = await withTenantTx(worker.db, service(), (tx) =>
       tx
         .select()
         .from(knowledgeArtifactVerifications)
@@ -326,7 +347,7 @@ describe('artifact grounding and fresh human acceptance on real roles (0206)', (
     );
     expect(await value.ground()).toMatchObject({ verdict: 'passed' });
     await decideArtifact(database.db, owner, value.accept, { store: value.store });
-    const stored = await withTenantTx(database.db, service(), (tx) =>
+    const stored = await withTenantTx(worker.db, service(), (tx) =>
       tx
         .select()
         .from(knowledgeArtifactVerifications)
@@ -346,7 +367,7 @@ describe('artifact grounding and fresh human acceptance on real roles (0206)', (
       throw new Error('TEST_OBJECT_UNAVAILABLE');
     };
     await expect(value.ground()).rejects.toThrow('TEST_OBJECT_UNAVAILABLE');
-    const rows = await withTenantTx(database.db, service(), (tx) =>
+    const rows = await withTenantTx(worker.db, service(), (tx) =>
       tx
         .select()
         .from(knowledgeArtifactVerifications)
@@ -357,7 +378,7 @@ describe('artifact grounding and fresh human acceptance on real roles (0206)', (
 
   it('orders proofs by publication under the artifact lock, including an older-started failed transaction', async () => {
     const value = await draft();
-    const writer = new pg.Client({ connectionString: urls.app() });
+    const writer = new pg.Client({ connectionString: urls.worker() });
     await writer.connect();
     try {
       await writer.query('begin');
@@ -399,7 +420,7 @@ describe('artifact grounding and fresh human acceptance on real roles (0206)', (
         proofOrder: 999,
       });
       await refused(
-        withTenantTx(database.db, service(), (tx) =>
+        withTenantTx(worker.db, service(), (tx) =>
           tx.insert(knowledgeArtifactVerifications).values(forged),
         ),
         'EN113',
@@ -429,7 +450,7 @@ describe('artifact grounding and fresh human acceptance on real roles (0206)', (
       verdict: 'accepted',
       by: owner.membershipId,
     });
-    const rows = await withTenantTx(database.db, service(), (tx) =>
+    const rows = await withTenantTx(worker.db, service(), (tx) =>
       tx
         .select()
         .from(knowledgeArtifactVerifications)
@@ -468,7 +489,7 @@ describe('artifact grounding and fresh human acceptance on real roles (0206)', (
       decidedByMembershipId: null,
     });
     await refused(
-      withTenantTx(database.db, service(), (tx) =>
+      withTenantTx(worker.db, service(), (tx) =>
         tx.insert(knowledgeArtifactVerifications).values(forged),
       ),
       'EN114',
@@ -584,7 +605,7 @@ describe('artifact grounding and fresh human acceptance on real roles (0206)', (
     const value = await draft();
     value.control.beforeGet = async () => {
       await bounded(
-        withTenantTx(database.db, service(), (tx) =>
+        withTenantTx(worker.db, service(), (tx) =>
           tx
             .update(knowledgeSources)
             .set({ state: 'revoked' })
@@ -614,7 +635,7 @@ describe('artifact grounding and fresh human acceptance on real roles (0206)', (
     ).rejects.toEqual(new AppError('NOT_FOUND'));
     const stale = await draft();
     await stale.ground();
-    await withTenantTx(database.db, service(), (tx) =>
+    await withTenantTx(worker.db, service(), (tx) =>
       tx
         .update(knowledgeDocuments)
         .set({ supersededAt: new Date() })
@@ -642,9 +663,29 @@ describe('artifact grounding and fresh human acceptance on real roles (0206)', (
         withTenantTx(database.db, context, async (tx) =>
           tx.insert(knowledgeArtifactVerifications).values(await proofRow(value)),
         ),
-        'EN113',
+        // The web/delegated connection cannot even load the Work body for the proof guard.
+        'EN114',
       );
     }
+    // A genuine worker can load control metadata, but still cannot publish a human decision.
+    await refused(
+      withTenantTx(worker.db, service(), async (tx) =>
+        tx.insert(knowledgeArtifactVerifications).values(await proofRow(value)),
+      ),
+      'EN113',
+    );
+    const humanProofs = await withTenantTx(worker.db, service(), (tx) =>
+      tx
+        .select()
+        .from(knowledgeArtifactVerifications)
+        .where(
+          and(
+            eq(knowledgeArtifactVerifications.artifactId, value.input.artifactId),
+            eq(knowledgeArtifactVerifications.kind, 'human'),
+          ),
+        ),
+    );
+    expect(humanProofs).toEqual([]);
     await expect(
       decideArtifact(database.db, member, value.accept, { store: value.store }),
     ).rejects.toEqual(new AppError('FORBIDDEN'));
@@ -659,7 +700,8 @@ describe('artifact grounding and fresh human acceptance on real roles (0206)', (
         await tx.execute(sql`select set_config('app.actor_type','agent',true)`);
         return tx.insert(knowledgeArtifactVerifications).values(await proofRow(value));
       }),
-      'EN113',
+      // An actor label supplies no agent input capability, so Work serving is denied first.
+      'EN114',
     );
     await refused(
       withTenantTx(database.db, member, async (tx) =>
@@ -725,7 +767,7 @@ describe('artifact grounding and fresh human acceptance on real roles (0206)', (
   it('rejects artifact/source tombstones even if rows or object bytes remain', async () => {
     const value = await draft();
     await value.ground();
-    await withTenantTx(database.db, service(), (tx) =>
+    await withTenantTx(worker.db, service(), (tx) =>
       tx.insert(tombstones).values({
         organizationId: owner.organizationId,
         targetType: 'knowledge_source',
@@ -763,7 +805,7 @@ describe('artifact grounding and fresh human acceptance on real roles (0206)', (
     await expect(getArtifactVerification(database.db, owner, value.input)).rejects.toEqual(
       new AppError('NOT_FOUND'),
     );
-    const history = await withTenantTx(database.db, service(), (tx) =>
+    const history = await withTenantTx(worker.db, service(), (tx) =>
       tx
         .select()
         .from(knowledgeArtifactVerifications)

@@ -18,7 +18,6 @@ import {
   type TenantContext,
   type Tx,
 } from '@ensemus/database';
-import { createDelegatedContext } from '@ensemus/database/service';
 import type { Classification } from '@ensemus/domain/policy';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { objectKey, type ObjectStore } from '../artifacts';
@@ -440,9 +439,11 @@ export async function checkArtifactGrounding(
     let bytes: Buffer | null = null;
     if (viewer) {
       try {
-        const delegated = await createDelegatedContext(database, context.organizationId, viewer);
-        code = await withTenantTx(database, delegated, async (tx) => {
-          const current = await snapshot(tx, delegated, input);
+        // Keep the native worker identity. A delegated-person context is not a content grant.
+        // live() independently checks both named people against the current Work, full artifact
+        // lineage and source ACLs before any bytes are read; the final transaction repeats it.
+        code = await withTenantTx(database, context, async (tx) => {
+          const current = await snapshot(tx, context, input);
           same(first, current);
           return (await live(tx, current, viewer)).code;
         });

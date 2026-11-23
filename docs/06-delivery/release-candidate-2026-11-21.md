@@ -1115,3 +1115,30 @@ reported healthy; the background runtime therefore needs recovery and fresh proo
 receipts remain historical successes at their recorded times. No overall green CI, provider,
 production, portability, erasure or outside-review claim is made. Owner-requested local sample data
 and browser captures remain ignored, and none of their contents or account details are published.
+
+
+### Artifact grounding and local workflow recovery (2026-11-23)
+
+Artifact grounding now keeps the real platform worker's database context. It verifies the recorded
+viewer's active membership, Work access, complete artifact lineage and citation source access before
+reading the file, then repeats those checks in the proof transaction. The restore and access rules in
+SQL are unchanged. The real-role suite passed all 24 tests in a separate qualification database,
+including byte tampering, source closure during I/O, cross-tenant access and refusal to let a web
+connection publish a grounding proof or a worker publish a human decision. The affected application
+and test type checks, lint and 29 focused unit tests passed. Grounding still needs a runtime caller
+for the generated brief journey.
+
+The local Temporal process was killed for memory and Docker's controller hung during recovery.
+The owner approved restarting Docker. Windows WSL service recovery required elevation before Docker
+returned. The existing local data was verified after recovery through the authenticated browser, and
+a PostgreSQL dump was written locally and checked with pg_restore --list. The three sample documents
+were active and the queued checklist reached Checking with its generated file visible through HTTP.
+The other previously running projects returned, and the local model fixture was started separately.
+
+The Compose Temporal service now has a 768 MiB container limit and a 512 MiB Go memory target, with
+operator overrides. Its two history caches use host-wide byte limits. The settings match the pinned
+[Temporal 1.32.2 configuration](https://github.com/temporalio/temporal/blob/v1.32.2/common/dynamicconfig/constants.go).
+Compose resolved the expected limits, 45 focused tests passed, and the same local Temporal database
+served the namespace RPC after recreation. The process reported about 502 MiB in one post-recovery
+sample. Sustained load, the remaining integration failures and the full release gates still need
+qualification.
