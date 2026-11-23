@@ -7,6 +7,7 @@ import { eq, sql } from 'drizzle-orm';
 import {
   artifacts,
   invoices,
+  offboardings,
   openAppDatabase,
   sealedSecrets,
   ticketMessages,
@@ -26,7 +27,16 @@ import {
   inspectErasure,
 } from '@ensemus/application/saas/offboarding';
 import { placeLegalHold, releaseLegalHold } from '@ensemus/application/saas/legal-holds';
-import { createWorkUnit, purgeDueBlobs, updateWorkUnit } from '@ensemus/application';
+import {
+  createMeeting,
+  createWorkUnit,
+  getMeeting,
+  importMeetingNotes,
+  purgeDueBlobs,
+  recordMeetingConsent,
+  updateMeetingSettings,
+  updateWorkUnit,
+} from '@ensemus/application';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { asRole, seedTaxTreatment } from '../helpers/saas';
@@ -66,6 +76,65 @@ describe('restricted erasure independently verifies every tenant-content table',
     await auth.end();
     await database.close();
   });
+  it('registers meetings and business records for restricted erasure without granting body reads', async () => {
+    const tables = [
+      'integrations.business_record_actions',
+      'integrations.business_records',
+      'meetings.consent_records',
+      'meetings.derivation_runs',
+      'meetings.import_requests',
+      'meetings.meetings',
+      'meetings.notes',
+      'meetings.participants',
+      'meetings.proposed_items',
+      'meetings.provider_approvals',
+      'meetings.settings',
+      'meetings.summaries',
+      'tenancy.residency_requirements',
+    ];
+    await asRole('ensemus_eraser', async (client) => {
+      const { rows } = await client.query(
+        `select ref,
+            has_table_privilege(current_user, ref, 'DELETE') as deletable,
+            has_column_privilege(current_user, ref, 'organization_id', 'SELECT') as countable,
+            has_any_column_privilege(current_user, ref, 'INSERT,UPDATE') as writable,
+            exists (select 1 from pg_attribute a where a.attrelid=ref::regclass and a.attnum>0
+              and not a.attisdropped and a.attname<>'organization_id'
+              and has_column_privilege(current_user,ref::regclass,a.attnum,'SELECT')) as body_readable,
+            exists (select 1 from pg_trigger where tgrelid=ref::regclass
+              and tgname='lifecycle_erasure_birth_fence' and tgenabled='O') as birth_fenced,
+            exists (select 1 from pg_policy where polrelid=ref::regclass
+              and polname='auth_restore_0422_eraser' and not polpermissive) as restore_fenced,
+            strpos(pg_get_functiondef('lifecycle.erasure_table_rows(text,uuid)'::regprocedure),
+              quote_literal(ref))>0 as reportable
+         from unnest($1::text[]) as refs(ref) order by ref`,
+        [tables],
+      );
+      expect(rows).toEqual(
+        tables.map((ref) => ({
+          ref,
+          deletable: true,
+          countable: true,
+          writable: false,
+          body_readable: false,
+          birth_fenced: true,
+          restore_fenced: true,
+          reportable: true,
+        })),
+      );
+    });
+    await expect(
+      asRole('ensemus_eraser', (client) =>
+        client.query('delete from integrations.business_records where organization_id=$1', [
+          randomUUID(),
+        ]),
+      ),
+    ).rejects.toMatchObject({ code: '42501', message: 'ERASURE_NOT_OPEN' });
+    await expect(
+      asRole('ensemus_eraser', (client) => client.query('select body from meetings.notes')),
+    ).rejects.toMatchObject({ code: '42501' });
+  });
+
   it('classifies every tenant table as explicitly retained or actually reachable by the eraser role', async () => {
     const rows = await asRole('ensemus_eraser', (client) =>
       client.query<{ table_ref: string; retained: boolean; deletable: boolean }>(
@@ -83,6 +152,84 @@ describe('restricted erasure independently verifies every tenant-content table',
         .map((row) => row.table_ref)
         .sort(),
     );
+  });
+
+  it('erases a meeting and its consent history through the restricted role while preserving the other tenant', async () => {
+    const owner = await lifecycleTenant(database.db, auth);
+    const other = await lifecycleTenant(database.db, auth);
+    const notice = 'generated-erasure-notice';
+    const fixture = async (tenant: typeof owner) => {
+      await updateMeetingSettings(database.db, tenant, {
+        enabled: true,
+        noticeRef: notice,
+        expectedVersion: 1,
+      });
+      const meeting = await createMeeting(database.db, tenant, {
+        title: 'Generated erasure meeting',
+        occurredAt: new Date(),
+      });
+      await recordMeetingConsent(database.db, tenant, {
+        meetingId: meeting.id,
+        participantId: meeting.participants[0]!.id,
+        decision: 'granted',
+        noticeRef: notice,
+      });
+      await importMeetingNotes(database.db, tenant, {
+        meetingId: meeting.id,
+        text: 'Generated erasure notes',
+      });
+      return meeting.id;
+    };
+    await fixture(owner);
+    const otherMeeting = await fixture(other);
+    const ready = await readyToErase(database.db, owner);
+    const tables = ['consent_records', 'notes', 'participants', 'meetings', 'settings'] as const;
+    const counts = () =>
+      withAccountTx(database.db, ready.service, async (tx) => {
+        const result = await tx.execute<{ n: string }>(sql`
+        select lifecycle.erasure_table_rows('meetings.'||name, ${ready.offboardingId}::uuid)::text n
+        from unnest(array[${sql.join(
+          tables.map((table) => sql`${table}::text`),
+          sql`,`,
+        )}]) with ordinality as names(name, idx)
+        order by idx`);
+        return result.rows.map(({ n }) => Number(n));
+      });
+    expect(await counts()).toEqual([1, 1, 1, 1, 1]);
+    // Enter the native state machine to test this module's deletion. The complete operator
+    // command separately requires coverage of every module before opening erasure.
+    await withAccountTx(database.db, ready.service, (tx) =>
+      tx
+        .update(offboardings)
+        .set({
+          state: 'erasing',
+          erasureStartedAt: new Date(),
+          erasureStartedByRef: 'test-operator@example.invalid',
+          version: sql`${offboardings.version}+1`,
+          updatedAt: new Date(),
+        })
+        .where(eq(offboardings.id, ready.offboardingId)),
+    );
+    await eraserClient.query('begin');
+    try {
+      await eraserClient.query("select set_config('app.organization_id', $1, true)", [
+        owner.organizationId,
+      ]);
+      await eraserClient.query("select set_config('app.actor_type', 'service', true)");
+      for (const table of tables) {
+        const removed = await eraserClient.query(
+          `delete from meetings.${table} where organization_id in ($1,$2)`,
+          [owner.organizationId, other.organizationId],
+        );
+        expect(removed.rowCount).toBe(1);
+      }
+      await eraserClient.query('commit');
+    } catch (error) {
+      await eraserClient.query('rollback');
+      throw error;
+    }
+    expect(await counts()).toEqual([0, 0, 0, 0, 0]);
+    expect((await getMeeting(database.db, other, otherMeeting)).currentNotes).not.toBeNull();
   });
   it('cannot erase with no open request or read content, and cannot silently report a hold-filtered zero', async () => {
     const owner = await lifecycleTenant(database.db, auth);

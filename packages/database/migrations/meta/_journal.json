@@ -1156,6 +1156,13 @@
       "when": 1794201807637,
       "tag": "0755_presented_model_knowledge",
       "breakpoints": true
+    },
+    {
+      "idx": 165,
+      "version": "7",
+      "when": 1794201807638,
+      "tag": "0756_tenant_local_expansion_erasure",
+      "breakpoints": true
     }
   ]
 }
