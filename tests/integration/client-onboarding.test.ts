@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createMinimalContextCompiler } from '@ensemus/agent-runtime/context';
-import { AppError, getWorkDetail, listWorkOverview } from '@ensemus/application';
+import { AppError, getWorkDetail, listWorkOverview, type ObjectStore } from '@ensemus/application';
 import { publishAgentVersion } from '@ensemus/application/ai-agents';
 import { createContextSource } from '@ensemus/application/ai-context-source';
 import {
@@ -32,11 +32,9 @@ import { draftRunOutput, startRunning } from '../helpers/ai/run-output';
 import {
   startClientOnboarding,
   getClientOnboarding,
-  advanceClientOnboarding,
 } from '@ensemus/application/knowledge/onboarding';
 import {
   recordArtifactCitations,
-  checkArtifactGrounding,
   decideArtifact,
   getArtifactVerification,
 } from '@ensemus/application/knowledge/verification';
@@ -62,6 +60,8 @@ import { eq, sql } from 'drizzle-orm';
 import { seedMember, seedSearchableSource } from '../helpers/knowledge';
 import { nativeMfaOwner } from '../helpers/knowledge-native';
 import { urls } from '../helpers/stack';
+import { createClientOnboardingActivities } from '@ensemus/workflows/client-onboarding-activities';
+import { LifecycleMemoryStore } from './saas-lifecycle-fixture';
 
 describe('deal won to one verified onboarding', () => {
   let database: ReturnType<typeof openAppDatabase>, auth: pg.Client;
@@ -194,8 +194,13 @@ describe('deal won to one verified onboarding', () => {
       },
     };
   }
-  const advance = (id: string, port: AgentRuns) =>
-    advanceClientOnboarding(worker.db, service(), { agentRuns: port }, { onboardingId: id });
+  const noBriefStore = new LifecycleMemoryStore();
+  const advance = (id: string, port: AgentRuns, store: ObjectStore = noBriefStore) =>
+    createClientOnboardingActivities({
+      database: worker.db,
+      agentRuns: port,
+      store,
+    }).advanceOnboarding({ organizationId: owner.organizationId, onboardingId: id });
 
   /**
    * Everything a start writes in one tenant, all in its one transaction: the onboarding, its client and
@@ -437,11 +442,6 @@ describe('deal won to one verified onboarding', () => {
       name: 'Generated brief.txt',
       text,
     });
-    await recordArtifactCitations(database.db, owner, {
-      workUnitId: stored.briefWorkUnitId!,
-      artifactId: artifact.id,
-      citations: [{ chunkId: source.chunkIds[0]!, artifactStart: 0, artifactEnd: text.length }],
-    });
     gateway.state = {
       ...gateway.state!,
       status: 'completed',
@@ -449,7 +449,7 @@ describe('deal won to one verified onboarding', () => {
       artifactIds: [artifact.id],
       artifactState: 'ready',
     };
-    expect(await advance(created.onboardingId, gateway.port)).toMatchObject({
+    expect(await advance(created.onboardingId, gateway.port, store)).toMatchObject({
       state: 'waiting_for_acceptance',
       waitFor: 'person',
     });
@@ -458,8 +458,21 @@ describe('deal won to one verified onboarding', () => {
       (await getWorkDetail(database.db, owner, stored.briefWorkUnitId!)).evidence.artifactCount,
     ).toBe(0);
     const reviewInput = { workUnitId: stored.briefWorkUnitId!, artifactId: artifact.id };
-    await checkArtifactGrounding(worker.db, store, service(), reviewInput);
+    // The first worker check leaves an as-yet uncited brief open for its citation batch.
+    expect(
+      (await getArtifactVerification(database.db, reviewer, reviewInput)).grounding,
+    ).toBeNull();
+    await recordArtifactCitations(database.db, owner, {
+      workUnitId: stored.briefWorkUnitId!,
+      artifactId: artifact.id,
+      citations: [{ chunkId: source.chunkIds[0]!, artifactStart: 0, artifactEnd: text.length }],
+    });
+    expect(await advance(created.onboardingId, gateway.port, store)).toMatchObject({
+      state: 'waiting_for_acceptance',
+    });
     const proof = await getArtifactVerification(database.db, reviewer, reviewInput);
+    expect(proof.grounding?.verdict).toBe('passed');
+    expect(proof.human).toBeNull();
     await decideArtifact(
       database.db,
       reviewer,
@@ -472,7 +485,7 @@ describe('deal won to one verified onboarding', () => {
       },
       { store },
     );
-    expect(await advance(created.onboardingId, gateway.port)).toMatchObject({
+    expect(await advance(created.onboardingId, gateway.port, store)).toMatchObject({
       state: 'waiting_for_send',
       waitFor: 'external_action',
     });

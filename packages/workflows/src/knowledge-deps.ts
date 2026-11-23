@@ -43,4 +43,5 @@ export type KnowledgeTranscriptDeps = {
 export type OnboardingDeps = {
   database: AppDatabase;
   agentRuns: AgentRuns;
+  store: ObjectStore;
 };

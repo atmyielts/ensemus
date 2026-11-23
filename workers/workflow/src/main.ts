@@ -134,7 +134,11 @@ async function main() {
       ...createActivities({ database: db, store: generatedObjects, probeWorkflow }),
       // Only what reads PostgreSQL. Anything holding a credential is on the connector queue.
       ...createExternalActionPlatformActivities({ database: db }),
-      ...createClientOnboardingActivities({ database: db, agentRuns: createOnboardingAgentRuns() }),
+      ...createClientOnboardingActivities({
+        database: db,
+        agentRuns: createOnboardingAgentRuns(),
+        store: generatedObjects,
+      }),
       // M7 (ADR-031). None of these holds a credential, or calls anything outside PostgreSQL.
       ...createSimulationActivities({ database: db }),
       ...createProcessRunActivities({ database: db, ports: workerProductPorts(db) }),

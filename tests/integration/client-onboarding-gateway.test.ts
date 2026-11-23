@@ -76,8 +76,10 @@ import { createModelRouter } from '@ensemus/intelligence';
 import { createScriptedModelPort } from '@ensemus/knowledge/testing';
 import { createAgentContextAuthorizer } from '../../workers/workflow/src/agent-context-authorizer';
 import { urls } from '../helpers/stack';
+import { LifecycleMemoryStore } from './saas-lifecycle-fixture';
 
 const port = createOnboardingAgentRuns();
+const noBriefStore = new LifecycleMemoryStore();
 const refused = (code: string, action: Promise<unknown>) =>
   expect(action).rejects.toSatisfy(
     (error: unknown) => error instanceof AppError && error.code === code,
@@ -448,6 +450,7 @@ describe('onboarding uses one authorized actual M4 run', () => {
           worker.db,
           f.service,
           {
+            store: noBriefStore,
             agentRuns: {
               ...port,
               requestRun: async () => {
@@ -464,7 +467,7 @@ describe('onboarding uses one authorized actual M4 run', () => {
         await advanceClientOnboarding(
           worker.db,
           f.service,
-          { agentRuns: port },
+          { agentRuns: port, store: noBriefStore },
           { onboardingId: f.onboardingId },
         ),
       ).toMatchObject({ state: 'waiting_for_brief' });
@@ -478,6 +481,7 @@ describe('onboarding uses one authorized actual M4 run', () => {
         worker.db,
         f.service,
         {
+          store: noBriefStore,
           agentRuns: { ...port, requestRun: async () => ({ agentRunId: randomUUID() }) },
         },
         { onboardingId: f.onboardingId },
@@ -495,7 +499,7 @@ describe('onboarding uses one authorized actual M4 run', () => {
       await advanceClientOnboarding(
         worker.db,
         f.service,
-        { agentRuns: port },
+        { agentRuns: port, store: noBriefStore },
         { onboardingId: f.onboardingId },
       ),
     ).toMatchObject({ state: 'failed' });
@@ -590,7 +594,7 @@ describe('onboarding uses one authorized actual M4 run', () => {
     await advanceClientOnboarding(
       worker.db,
       f.service,
-      { agentRuns: port },
+      { agentRuns: port, store: noBriefStore },
       { onboardingId: f.onboardingId },
     );
     await unassign(app.db, f.owner, {
@@ -601,7 +605,7 @@ describe('onboarding uses one authorized actual M4 run', () => {
       await advanceClientOnboarding(
         worker.db,
         f.service,
-        { agentRuns: port },
+        { agentRuns: port, store: noBriefStore },
         { onboardingId: f.onboardingId },
       ),
     ).toMatchObject({ state: 'failed' });
@@ -888,6 +892,7 @@ describe('onboarding uses one authorized actual M4 run', () => {
         worker.db,
         f.service,
         {
+          store: noBriefStore,
           agentRuns: { ...port, statusOf: async () => legacy },
         },
         { onboardingId: f.onboardingId },
@@ -959,7 +964,7 @@ describe('onboarding uses one authorized actual M4 run', () => {
       await advanceClientOnboarding(
         worker.db,
         f.service,
-        { agentRuns: port },
+        { agentRuns: port, store: noBriefStore },
         { onboardingId: f.onboardingId },
       ),
     ).toMatchObject({ state: 'failed' });

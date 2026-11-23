@@ -39,6 +39,7 @@ import type { OnboardingState } from '@ensemus/domain/knowledge';
 import { can } from '@ensemus/domain/policy';
 import { startClientOnboardingSchema } from '@ensemus/contracts/knowledge';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import type { ObjectStore } from '../artifacts';
 import { AppError, pgCode } from '../errors';
 import { emit } from '../events';
 import { idSchema } from '../ids';
@@ -46,6 +47,7 @@ import { idFromRequest } from '../request-id';
 import { proposeExternalActionInTx } from '../external-actions';
 import { applyTransition, createWorkUnitInTx, loadReadable, type WorkRow } from '../work';
 import type { AgentRuns } from './ports';
+import { groundArtifactForReview } from './verification';
 
 export type StartOnboardingInput = {
   dealRef: string;
@@ -524,7 +526,7 @@ export function withOnboardingTx<T>(
 export async function advanceClientOnboarding(
   database: AppDatabase,
   context: TenantContext,
-  deps: { agentRuns: AgentRuns },
+  deps: { agentRuns: AgentRuns; store: ObjectStore },
   input: { onboardingId: string },
 ): Promise<OnboardingStep> {
   if (context.actorType !== 'service') throw new AppError('FORBIDDEN');
@@ -561,6 +563,23 @@ export async function advanceClientOnboarding(
         if (!status.artifactIds || status.artifactIds.length !== 1)
           throw new OnboardingFailure('BRIEF_MISSING');
         candidate = id(status.artifactIds[0]!);
+      }
+    }
+    if (
+      candidate &&
+      snapshot.briefWorkUnitId &&
+      ['waiting_for_brief', 'waiting_for_acceptance'].includes(snapshot.state)
+    ) {
+      try {
+        await groundArtifactForReview(database, deps.store, context, {
+          artifactId: candidate,
+          workUnitId: snapshot.briefWorkUnitId,
+        });
+      } catch (error) {
+        // Source or artifact access can change between selecting the draft and checking it. The
+        // locked onboarding transaction below revalidates the binding before advancing.
+        if (!(error instanceof AppError) || !['NOT_FOUND', 'FORBIDDEN'].includes(error.code))
+          throw error;
       }
     }
     return await withOnboardingTx(database, actor, onboardingId, async (tx) => {
