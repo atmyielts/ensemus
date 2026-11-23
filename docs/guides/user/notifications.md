@@ -5,7 +5,7 @@ area: work
 tickets: [UX-17]
 modes: [cloud, byom, sovereign]
 status: written_untested
-sources: [apps/web/src/app/o/[organizationId]/inbox/page.tsx, apps/web/src/app/o/[organizationId]/layout.tsx, apps/web/src/server/work-actions.ts, packages/application/src/inbox.ts, packages/application/src/approvals.ts, packages/application/src/work.ts, workers/workflow/src/dispatcher.ts, tests/stack/pages.test.ts]
+sources: [apps/web/src/app/o/[organizationId]/inbox/page.tsx, apps/web/src/app/o/[organizationId]/notifications/page.tsx, apps/web/src/app/o/[organizationId]/layout.tsx, apps/web/src/server/work-actions.ts, packages/application/src/inbox.ts, packages/application/src/approvals.ts, packages/application/src/work.ts, workers/workflow/src/dispatcher.ts, workers/workflow/src/mail/plan.ts, tests/stack/pages.test.ts]
 tests: []
 ---
 
@@ -44,14 +44,17 @@ Only an approval waiting for a decision gets reminders. The first comes about 4 
 
 A reminder brings the line back to the top, unread, with **Reminder** on it. Opening the request is not answering it, so having opened it does not stop the reminders. Deciding it does. So does the approval closing or running out.
 
+## Email notifications
+
+Open **Email settings** from **Inbox** to choose which topics reach you by email. Delivery requires email to be set up for your deployment and a confirmed email address. Your choices apply to this workspace, and your notifications still appear in **Inbox**.
+
 ## When there are many
 
 The inbox shows 50 lines at most. If you have more unopened than that, it says **You have** and the number, then **unopened items, and this shows 50 of them. Each one you open brings the next one up.**
 
 ## What it will not do
 
-- **Reminders appear here, and nothing is sent by email yet.** You see them when you next open Ensemus. No other channel is used.
-- It has no settings. You cannot mute a kind of line, or mark everything as opened at once.
+- You open Inbox items one at a time.
 - It has no way to delete a line.
 - A line holds no content of its own. It points to the work or approval, and that page decides whether you may still see it.
 - An inbox belongs to one organization. Switch organization to see the other one.

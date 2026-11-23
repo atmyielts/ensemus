@@ -7446,6 +7446,49 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
         "inline": [
           {
             "t": "text",
+            "v": "Email notifications"
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Open "
+          },
+          {
+            "t": "strong",
+            "v": "Email settings"
+          },
+          {
+            "t": "text",
+            "v": " from "
+          },
+          {
+            "t": "strong",
+            "v": "Inbox"
+          },
+          {
+            "t": "text",
+            "v": " to choose which topics reach you by email. Delivery requires email to be set up for your deployment and a confirmed email address. Your choices apply to this workspace, and your notifications still appear in "
+          },
+          {
+            "t": "strong",
+            "v": "Inbox"
+          },
+          {
+            "t": "text",
+            "v": "."
+          }
+        ]
+      },
+      {
+        "b": "h",
+        "level": 2,
+        "inline": [
+          {
+            "t": "text",
             "v": "When there are many"
           }
         ]
@@ -7486,18 +7529,8 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
         "items": [
           [
             {
-              "t": "strong",
-              "v": "Reminders appear here, and nothing is sent by email yet."
-            },
-            {
               "t": "text",
-              "v": " You see them when you next open Ensemus. No other channel is used."
-            }
-          ],
-          [
-            {
-              "t": "text",
-              "v": "It has no settings. You cannot mute a kind of line, or mark everything as opened at once."
+              "v": "You open Inbox items one at a time."
             }
           ],
           [

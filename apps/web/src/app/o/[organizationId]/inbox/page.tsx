@@ -74,6 +74,11 @@ export default async function InboxPage({
       <PageHead
         title="Inbox"
         description="Review requests and work updates. Reminders come first, followed by unread items."
+        actions={
+          <ActionLink href={`${base}/notifications`} variant="secondary">
+            Email settings
+          </ActionLink>
+        }
       />
       <ErrorNotice code={error} />
       {unread > INBOX_SIZE && (
