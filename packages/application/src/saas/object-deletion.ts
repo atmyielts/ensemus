@@ -26,7 +26,7 @@ export function refuseUnadmittedDeletes<T extends ObjectStore>(store: T): T {
 export type DeletionTarget =
   | { kind: 'derived'; artifactId: string; writeId: string; generation: number }
   | { kind: 'ordinary'; artifactId: string }
-  | { kind: 'skill_upload'; uploadId: string }
+  | { kind: 'skill_upload'; uploadId: string; offboardingId?: string }
   | {
       kind: 'raw_source';
       sourceId: string;
@@ -139,7 +139,9 @@ export function createSqlObjectDeletionAuthority(database: AppDatabase): ObjectD
           object_key: string | null;
         }>(
           target.kind === 'skill_upload'
-            ? sql`select * from lifecycle.begin_skill_upload_deletion(${target.uploadId}::uuid)`
+            ? target.offboardingId
+              ? sql`select * from lifecycle.begin_skill_offboarding_deletion(${target.offboardingId}::uuid,${target.uploadId}::uuid)`
+              : sql`select * from lifecycle.begin_skill_upload_deletion(${target.uploadId}::uuid)`
             : sql`select * from lifecycle.begin_object_deletion(${JSON.stringify(target)}::jsonb)`,
         );
         const row = result.rows[0];

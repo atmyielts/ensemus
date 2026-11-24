@@ -3,7 +3,11 @@ import { sql } from 'drizzle-orm';
 import { purgeDueBlobs, type ObjectStore } from '../artifacts';
 import { createImportedArchivePurge } from '../portability-archive-files';
 import { AppError } from '../errors';
-import { createObjectDeletionLifecycle } from './object-deletion';
+import {
+  createObjectDeletionExecutor,
+  createObjectDeletionLifecycle,
+  createSqlObjectDeletionAuthority,
+} from './object-deletion';
 
 export type ErasureObjectStore = ObjectStore & {
   listPages(prefix: string): AsyncIterable<readonly string[]>;
@@ -21,6 +25,10 @@ export function createTenantObjectErasure(deps: {
 }) {
   const lifecycle = createObjectDeletionLifecycle(deps);
   const archive = createImportedArchivePurge({ ...deps, lifecycle: lifecycle.archive });
+  const eraseObject = createObjectDeletionExecutor({
+    authority: createSqlObjectDeletionAuthority(deps.database),
+    store: deps.store,
+  });
   const assertIntent = async (context: TenantContext, offboardingId: string) => {
     if (context.actorType !== 'service') throw new AppError('FORBIDDEN');
     await withTenantTx(deps.database, context, async (tx) => {
@@ -36,16 +44,32 @@ export function createTenantObjectErasure(deps: {
       const limit = input.limit ?? 25;
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 25)
         throw new AppError('INVALID_INPUT');
-      // Fair bounded allocation: at most25 ordinary/generated +25 inert archive files per call.
+      // Each material class gets its own bounded page.
       const files = await purgeDueBlobs(deps.database, deps.store, context, new Date(), limit);
       const archives = await archive.purgeTenant(context, { limit });
+      const uploads = await withTenantTx(deps.database, context, async (tx) => {
+        const result = await tx.execute<{ upload_id: string }>(
+          sql`select upload_id from lifecycle.list_skill_offboarding_uploads(${input.offboardingId}::uuid,${limit})`,
+        );
+        return result.rows;
+      });
+      let skillBundlesRemoved = 0;
+      for (const upload of uploads) {
+        const deletion = await eraseObject(context, {
+          kind: 'skill_upload',
+          uploadId: upload.upload_id,
+          offboardingId: input.offboardingId,
+        });
+        if (deletion.state === 'purged') skillBundlesRemoved += 1;
+        else break;
+      }
       const counters = await withTenantTx(deps.database, context, async (tx) => {
         const result = await tx.execute<{ unconfirmed: number }>(
           sql`select unconfirmed from lifecycle.object_delete_counts()`,
         );
         return count(result.rows[0]?.unconfirmed);
       });
-      return { files, archives, unconfirmedDeletes: counters };
+      return { files, archives, skillBundlesRemoved, unconfirmedDeletes: counters };
     },
     async confirm(context: TenantContext, input: { offboardingId: string }) {
       await assertIntent(context, input.offboardingId);

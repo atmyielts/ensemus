@@ -82,8 +82,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-034-skills-sandbox-marketplace.md",
-      "size_bytes": 31354,
-      "sha256": "7b79354f273df207c7b51ffde8462ac27d6bcecef8d4b893d7bd2c0f45f39701"
+      "size_bytes": 31820,
+      "sha256": "5cf9c1bebedae9c407bdd200e83ec0a5af35a7118b6538b0ec78133968920d2d"
     },
     {
       "path": "00-foundation/adr/ADR-035-cross-org-tenants-regions.md",
@@ -1057,8 +1057,8 @@
     },
     {
       "path": "06-delivery/release-candidate-2026-11-21.md",
-      "size_bytes": 107320,
-      "sha256": "01e249cecb47720de41da1cb30a90848d3c0c960bae551740ca2c63f8a955f0a"
+      "size_bytes": 108318,
+      "sha256": "55af935efc299c5f89456c5ff78d2927f83323a9fe31788b7f91c88eceb55254"
     },
     {
       "path": "06-delivery/release-candidate-source-ledger.json",

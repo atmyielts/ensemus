@@ -96,7 +96,10 @@ describe('restricted erasure independently verifies every tenant-content table',
       'meetings.provider_approvals',
       'meetings.settings',
       'meetings.summaries',
+      'skills.bundle_uploads',
+      'skills.package_versions',
       'skills.packages',
+      'skills.test_runs',
       'skills.trusted_signers',
       'tenancy.residency_requirements',
     ];
@@ -115,7 +118,7 @@ describe('restricted erasure independently verifies every tenant-content table',
               and polname='auth_restore_0422_eraser' and not polpermissive) as restore_fenced,
             strpos(pg_get_functiondef('lifecycle.erasure_table_rows(text,uuid)'::regprocedure),
               quote_literal(ref))>0 as reportable
-         from unnest($1::text[]) as refs(ref) order by ref`,
+         from unnest($1::text[]) as refs(ref) order by ref collate "C"`,
         [tables],
       );
       expect(rows).toEqual(
@@ -148,10 +151,18 @@ describe('restricted erasure independently verifies every tenant-content table',
     ).rejects.toMatchObject({ code: '42501' });
     await asRole('ensemus_eraser', async (client) => {
       const { rows } = await client.query(
-        `select has_table_privilege(current_user, 'skills.package_versions', 'DELETE') as bundles,
-                has_table_privilege(current_user, 'skills.test_runs', 'DELETE') as tests`,
+        `select n.nspname as schema_name, has_table_privilege(current_user,c.oid,'DELETE') as deletable
+         from pg_class c join pg_namespace n on c.relnamespace=n.oid
+         where (n.nspname,c.relname) in (
+           ('federation','outbound_items'),('marketplace','installations'),('sandbox','runs')
+         ) order by n.nspname`,
       );
-      expect(rows[0]).toEqual({ bundles: false, tests: false });
+      expect(rows).toEqual(
+        ['federation', 'marketplace', 'sandbox'].map((schema_name) => ({
+          schema_name,
+          deletable: false,
+        })),
+      );
     });
   });
 

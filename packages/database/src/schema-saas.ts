@@ -1650,6 +1650,7 @@ export const objectDeletionClaims = lifecycleSchema.table(
     rawDocumentId: uuid(),
     materialRestoreGeneration: uuid(),
     authRestoreGeneration: uuid(),
+    skillOffboardingId: uuid(),
     writerToken: uuid().notNull(),
     generation: bigint({ mode: 'number' }).notNull(),
     objectKey: text().notNull(),
@@ -1668,6 +1669,15 @@ export const objectDeletionClaims = lifecycleSchema.table(
       foreignColumns: [organizations.id],
     }),
     primaryKey({ name: 'object_deletion_claims_pkey', columns: [t.organizationId, t.id] }),
+    foreignKey({
+      name: 'skill_delete_offboarding_admission_fk',
+      columns: [t.organizationId, t.skillOffboardingId],
+      foreignColumns: [offboardingAdmissions.organizationId, offboardingAdmissions.offboardingId],
+    }),
+    check(
+      'skill_delete_offboarding_kind',
+      sql`${t.skillOffboardingId} is null or ${t.kind}='skill_upload'`,
+    ),
     uniqueIndex('object_deletion_unresolved_key')
       .on(t.organizationId, t.objectKey)
       .where(sql`${t.state}<>'proven'`),

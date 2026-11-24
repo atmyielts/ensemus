@@ -218,9 +218,9 @@ export async function eraseCommand(
     let blobsRemoved = 0;
     for (let page = 0; page < 20; page++) {
       const purge = await objectErasure.purge(context, { ...input, limit: 25 });
-      blobsRemoved += purge.files.purged;
+      blobsRemoved += purge.files.purged + purge.skillBundlesRemoved;
       if (
-        !purge.files.purged ||
+        !(purge.files.purged || purge.skillBundlesRemoved) ||
         purge.files.failed ||
         purge.unconfirmedDeletes ||
         purge.archives.held

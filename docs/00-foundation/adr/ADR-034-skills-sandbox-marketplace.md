@@ -22,8 +22,14 @@ superseded key with a positive storage write receipt. An unattached key with suc
 becomes eligible after one hour. The reservation is fenced before deletion and the common
 legal-hold and deletion authority admits the canonical key. A terminal DELETE and physical
 absence are separate observations. An unknown PUT, an ambiguous DELETE, or a receipt from a
-different restore generation remains in the inventory. Tenant erasure for attached bundles
-and requalification after a restore remain open.
+different restore generation remains in the inventory.
+
+**Bundle offboarding update, 2026-11-24.** The operator's physical erasure step can remove
+attached bundles with current-generation write receipts under an admitted tenant intent. The
+exact canonical key is claimed, deleted once, and checked for physical absence. The restricted
+eraser removes test runs and versions before their upload records. The report counts proven
+deletions made under its intent. Older or ambiguous writes with insufficient proof remain
+blockers. Restore requalification and the complete tenant erasure inventory remain open.
 
 **Version release update, 2026-11-24.** A second workspace administrator can publish a verified
 version when the package is active and the catalog is enabled. Publication and withdrawal use

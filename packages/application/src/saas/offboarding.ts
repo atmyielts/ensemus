@@ -877,6 +877,9 @@ export async function finishErasure(
       )
       .limit(1);
     if (!blobBaseline || !row.erasureStartedAt) throw new AppError('PREREQUISITES_INCOMPLETE');
+    const skillReceipts = await tx.execute<{ n: string }>(
+      sql`select lifecycle.skill_offboarding_bundles_removed(${id}::uuid)::text as n`,
+    );
     const report: ErasureReport = {
       schemaVersion: 1,
       offboardingId: id,
@@ -891,7 +894,9 @@ export async function finishErasure(
             ? 'BACKUP_EXPIRY_REQUIRES_OPERATOR_VERIFICATION'
             : 'RETAINED_BY_RULE',
       })),
-      blobsRemoved: Math.max(0, count(evidence.blobs_purged) - blobBaseline.rowsLeft),
+      blobsRemoved:
+        Math.max(0, count(evidence.blobs_purged) - blobBaseline.rowsLeft) +
+        count(skillReceipts.rows[0]?.n),
       backups: 'expire_on_schedule',
       startedAt: row.erasureStartedAt.toISOString(),
       finishedAt: new Date().toISOString(),

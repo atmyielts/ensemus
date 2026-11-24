@@ -20,6 +20,7 @@ const ports = vi.hoisted(() => ({
   erase: vi.fn(),
   finish: vi.fn(),
   physical: vi.fn(),
+  purge: vi.fn(),
   begin: vi.fn(),
   appClose: vi.fn(),
   eraserClose: vi.fn(),
@@ -54,11 +55,7 @@ vi.mock('@ensemus/application/saas/offboarding', async (original) => ({
 }));
 vi.mock('@ensemus/application/saas/tenant-object-erasure', () => ({
   createTenantObjectErasure: () => ({
-    purge: async () => ({
-      files: { purged: 0, failed: 0 },
-      archives: { held: 0 },
-      unconfirmedDeletes: 0,
-    }),
+    purge: ports.purge,
     confirm: ports.physical,
   }),
 }));
@@ -94,6 +91,12 @@ beforeEach(() => {
   });
   ports.begin.mockResolvedValue({ more: false });
   ports.physical.mockResolvedValue({ confirmed: true, objectsRemaining: 0 });
+  ports.purge.mockResolvedValue({
+    files: { purged: 0, failed: 0 },
+    archives: { held: 0 },
+    skillBundlesRemoved: 0,
+    unconfirmedDeletes: 0,
+  });
   ports.seal.mockImplementation(async () => {
     ports.order.push('seal');
     return true;
@@ -142,6 +145,17 @@ async function run(
   };
 }
 describe('operator erasure material-witness composition', () => {
+  it('continues paging when a batch only removed skill bundles', async () => {
+    ports.purge.mockResolvedValueOnce({
+      files: { purged: 0, failed: 0 },
+      archives: { held: 0 },
+      skillBundlesRemoved: 1,
+      unconfirmedDeletes: 0,
+    });
+    expect((await run()).code).toBe(0);
+    expect(ports.purge).toHaveBeenCalledTimes(2);
+    expect(ports.finish.mock.calls[0]?.[2]).toMatchObject({ blobsRemoved: 1 });
+  });
   it('commits the exact offboarding seal before row erasure', async () => {
     const result = await run();
     expect(result.code).toBe(0);

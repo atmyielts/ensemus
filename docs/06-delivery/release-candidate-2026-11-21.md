@@ -1376,5 +1376,20 @@ DELETE and a prior-generation receipt remain in the inventory.
 A generated bundle in a separate local S3-compatible bucket was removed through the actual
 worker upkeep activity, and PostgreSQL retained a proven deletion receipt. Integration coverage
 includes hold placement, unknown storage responses, foreign tenants, and refusal to attach a
-fenced key. The migration is awaiting human security review. Attached bundle erasure, unknown
-operation recovery, and restore requalification remain open.
+fenced key. The migration is awaiting human security review. Unknown operation recovery and
+restore requalification remain open.
+
+### Skill bundles in tenant offboarding (LIFE-04, EXP-04)
+
+Migration 0770 admits attached skill keys for physical deletion under an active offboarding
+intent with no legal hold. PostgreSQL requires the original write receipt from the current
+restore generation and a matching version. The operator records one terminal DELETE and
+verifies physical absence before restricted SQL can remove the test runs, versions, and upload
+records. Its aggregate report counts the proven deletions made under that intent, including
+across reruns. Missing or ambiguous evidence retains the data and keeps verification closed.
+
+A generated tenant's attached bundle was erased from a separate local S3-compatible bucket.
+The native eraser then removed the three skill records and left the second tenant's bundle intact.
+This exercised the admitted module path. The complete operator command still stops on seven
+uncovered tables across federation, marketplace, and sandbox. Migration security review and
+restore requalification remain open.
