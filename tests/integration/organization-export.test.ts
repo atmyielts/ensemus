@@ -92,10 +92,11 @@ class MemoryStore implements ObjectStore {
     this.puts.push(key);
     this.objects.set(key, body);
   }
-  async get(key: string) {
+  async get(key: string, maxBytes?: number) {
     this.gets.push(key);
     const body = this.objects.get(key);
     if (!body) throw new Error('missing');
+    if (maxBytes !== undefined && body.length > maxBytes) throw new Error('OBJECT_TOO_LARGE');
     return body;
   }
   async delete(key: string) {
