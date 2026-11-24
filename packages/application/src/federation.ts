@@ -542,7 +542,7 @@ async function endOpenGrants(tx: Tx, context: TenantContext, reason: 'expired' |
     OR ${federationGrants.expiresAt} <= now()
   )`
       : undefined;
-  const rows = await tx
+  const query = tx
     .select()
     .from(federationGrants)
     .where(
@@ -550,6 +550,7 @@ async function endOpenGrants(tx: Tx, context: TenantContext, reason: 'expired' |
     )
     .orderBy(asc(federationGrants.id))
     .for('update');
+  const rows = await (reason === 'expired' ? query.limit(100) : query);
   for (const grant of rows) await finishGrant(tx, context, grant, reason);
   return rows.length;
 }

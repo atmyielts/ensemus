@@ -92,8 +92,15 @@ verification policy to turn it on. When billing is enabled, the plan must includ
 The sharing owner defines the scope and copies the one-time invitation token to the other owner.
 The recipient reviews the scope and fingerprint before accepting. The sharing owner checks the
 recipient's fingerprint, then confirms the grant. Both parties can see the resulting grant.
+The sharing workspace's active owners receive an Inbox item when an acceptance is awaiting
+confirmation. Opening it takes the owner to the grant. If the owner has already confirmed when
+the notice runs, the worker skips it. Repeated delivery never creates duplicate items. The
+notice holds only a grant reference.
+
 An owner or administrator on either side can revoke an active grant. Turning off the workspace
 switch ends all open grants and records each ending in the outbox in the same transaction.
+The existing tenant upkeep sweep records expirations. Offboarding ends remaining grants before
+the tenant finishes winding down its work. Both use the same ending event as manual revocation.
 
 The grant API is under `/api/v1/organizations/{organization_id}/federation`. A repeated proposal
 with the same request key returns a conflict because the invitation token is issued once. The

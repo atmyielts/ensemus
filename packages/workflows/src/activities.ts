@@ -6,9 +6,11 @@ import {
   createApprovalInTx,
   currentReviewAction,
   expireApprovalStatus,
+  expireDueGrants,
   expireOverdueApprovals,
   failRun,
   listHeldRuns,
+  notifyFederationGrantAccepted,
   loadChangeable,
   purgeDueBlobs,
   purgeExpiredExports,
@@ -30,6 +32,7 @@ import { createLogger, errorCode } from '@ensemus/telemetry';
 import { ApplicationFailure } from '@temporalio/common';
 import { and, eq } from 'drizzle-orm';
 import type {
+  FederationGrantAcceptedInput,
   PreparedWork,
   ProbeStep,
   ReviewRequest,
@@ -252,6 +255,10 @@ export function createActivities(deps: {
       });
     },
 
+    async notifyFederationGrantAccepted(input: FederationGrantAcceptedInput): Promise<number> {
+      return notifyFederationGrantAccepted(database, input);
+    },
+
     /**
      * One tenant's periodic upkeep, which is why this one Activity does several jobs. Adding Activities
      * to a scheduled workflow would need a patch for no gain: nothing here depends on their order. One
@@ -285,6 +292,7 @@ export function createActivities(deps: {
       });
       if (blobs.failed > 0) log.warn('blobs.purge_failed', { count: blobs.failed });
       await attempt(() => purgeExpiredWebhookDeliveries(database, ctx, now), 0);
+      await attempt(() => expireDueGrants(database, ctx), 0);
       await attempt(() => purgeExpiredExports(database, store, ctx, now), 0);
       await attempt(() => purgeRevokedBusinessRecords(database, ctx), 0);
       if (failures.length > 0) throw failures[0];

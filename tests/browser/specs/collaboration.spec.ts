@@ -1,7 +1,10 @@
+import { notifyFederationGrantAccepted } from '@ensemus/application';
+import { openAppDatabase } from '@ensemus/database';
 import { randomUUID } from 'node:crypto';
 import { BASE, createOrganization, signUp } from '../../helpers/forms';
 import { clearDeploymentProfile, setDeploymentProfile } from '../../helpers/federation';
 import { contractProblems } from '../../helpers/openapi';
+import { urls } from '../../helpers/stack';
 import { expect, test } from '../support/fixtures';
 import { axeFindings, sidewaysOverflow } from '../support/look';
 
@@ -79,7 +82,23 @@ for (const javaScriptEnabled of [true, false]) {
         expect(await sidewaysOverflow(recipient)).toBeLessThanOrEqual(1);
         expect(await axeFindings(recipient)).toEqual([]);
 
-        await sender.goto(pagePath(sharingId));
+        const acceptedList = await recipient.request.get(apiBase(receivingId) + '/grants');
+        const acceptedId = (await acceptedList.json()).items[0].id as string;
+        const worker = openAppDatabase(urls.worker());
+        try {
+          await notifyFederationGrantAccepted(worker.db, {
+            organizationId: receivingId,
+            grantId: acceptedId,
+          });
+        } finally {
+          await worker.close();
+        }
+        await sender.goto('/o/' + sharingId + '/inbox');
+        await sender
+          .getByRole('button', { name: 'A collaboration invitation was accepted' })
+          .click();
+        await expect(sender).toHaveURL(pagePath(sharingId) + '#grant-' + acceptedId);
+        await expect(sender.locator('#grant-' + acceptedId)).toBeVisible();
         await expect(tokenField).toHaveCount(0);
         const confirmation = sender
           .locator('details.confirm')

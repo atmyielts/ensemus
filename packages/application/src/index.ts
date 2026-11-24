@@ -9,6 +9,7 @@ export * from './events';
 export * from './expansion-ports';
 export * from './external-actions';
 export * from './federation';
+export { notifyFederationGrantAccepted } from './federation-notices';
 export * from './federation-items';
 export * from './federation-ports';
 export * from './idempotency';

@@ -17,6 +17,7 @@ import {
 import type { Activities, PlatformActivities } from './activities';
 import { reviewWaitStep, reviewWaitOutcome } from './review-wait';
 import type {
+  FederationGrantAcceptedInput,
   ProbeInput,
   ProbeResult,
   ReviewState,
@@ -156,6 +157,11 @@ export { oauthExchangeWorkflow } from './oauth-exchange-workflow';
 export { suiteUpkeepWorkflow } from './suite-upkeep-workflow';
 export { externalActionWorkflow } from './external-action-workflow';
 // M11C (ADR-035 D3).
+export async function federationGrantAcceptedWorkflow(
+  input: FederationGrantAcceptedInput,
+): Promise<void> {
+  await activities.notifyFederationGrantAccepted(input);
+}
 export { federationDeliveryWorkflow, federationPurgeWorkflow } from './federation-workflow';
 export { webhookDeliveryWorkflow } from './webhook-workflow';
 

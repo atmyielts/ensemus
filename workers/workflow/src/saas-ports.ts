@@ -5,6 +5,7 @@ import {
   type RetentionSource,
   type UsageLedgerPort,
 } from '@ensemus/application/saas/ports';
+import { federationWindDown } from '@ensemus/application';
 import { createUsageLedgerReader } from '@ensemus/application/saas/usage-reader';
 import { createStandingAgentHaltPort } from '@ensemus/application/saas/standing-agent-port';
 import { createRawFilesRetentionSource } from '@ensemus/application/saas/retention';
@@ -36,7 +37,7 @@ export function createSaasPorts(_store: unknown): {
       // revoke does, so the connector worker then revokes their sealed secrets (LIFE-04).
       connections: createOffboardingConnectionsPort(),
       // M7: live automations asked to stop. Temporal schedules end on tenant.schedules_ended.
-      windDowns: [createProcessRunWindDown()],
+      windDowns: [federationWindDown, createProcessRunWindDown()],
     },
   };
 }

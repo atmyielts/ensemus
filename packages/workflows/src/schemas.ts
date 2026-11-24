@@ -202,10 +202,16 @@ export const federationWithdrawalWorkflowIdFor = (input: FederationItemInput) =>
 export type FederationDeliveryOutcome = 'delivered' | 'closed' | 'refused' | 'withdrawn';
 export type FederationDeliveryResult = { itemId: string; outcome: FederationDeliveryOutcome };
 
-export const federationGrantEndedInputSchema = z.strictObject({
+const federationGrantInputSchema = z.strictObject({
   organizationId: z.uuid(),
   grantId: z.uuid(),
 });
+export const federationGrantAcceptedInputSchema = federationGrantInputSchema;
+export type FederationGrantAcceptedInput = z.infer<typeof federationGrantAcceptedInputSchema>;
+export const federationGrantAcceptedWorkflowIdFor = (input: FederationGrantAcceptedInput) =>
+  `federation-grant-accepted-${input.grantId}`;
+
+export const federationGrantEndedInputSchema = federationGrantInputSchema;
 export type FederationGrantEndedInput = z.infer<typeof federationGrantEndedInputSchema>;
 export const federationPurgeWorkflowIdFor = (input: FederationGrantEndedInput) =>
   `federation-purge-${input.grantId}`;

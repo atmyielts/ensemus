@@ -23,6 +23,7 @@ import {
 import {
   AGGREGATE_FEDERATION_GRANT,
   AGGREGATE_FEDERATION_ITEM,
+  FEDERATION_GRANT_ACCEPTED,
   FEDERATION_GRANT_ENDED,
   FEDERATION_ITEM_PUBLISHED,
   FEDERATION_ITEM_WITHDRAWN,
@@ -156,6 +157,8 @@ import {
   meetingImportInputSchema,
   meetingImportWorkflowIdFor,
   federationDeliveryWorkflowIdFor,
+  federationGrantAcceptedInputSchema,
+  federationGrantAcceptedWorkflowIdFor,
   federationGrantEndedInputSchema,
   federationItemInputSchema,
   federationPurgeWorkflowIdFor,
@@ -808,6 +811,17 @@ async function main() {
             itemId: event.aggregateId,
           }),
           workflowIdFor: federationWithdrawalWorkflowIdFor,
+        });
+        return;
+
+      case FEDERATION_GRANT_ACCEPTED:
+        if (event.aggregateType !== AGGREGATE_FEDERATION_GRANT) return;
+        await startOnce('federationGrantAcceptedWorkflow', {
+          input: federationGrantAcceptedInputSchema.parse({
+            organizationId: event.organizationId,
+            grantId: event.aggregateId,
+          }),
+          workflowIdFor: federationGrantAcceptedWorkflowIdFor,
         });
         return;
 

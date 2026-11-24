@@ -137,7 +137,7 @@ export default async function CollaborationPage({
                     </>
                   );
                   return (
-                    <li key={grant.id} className="grid min-w-0 gap-3 py-4">
+                    <li key={grant.id} id={'grant-' + grant.id} className="grid min-w-0 gap-3 py-4">
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <h3 className="m-0 wrap-anywhere">
                           {grant.counterpartyName ?? 'Awaiting recipient'}
