@@ -2,7 +2,6 @@
 // not in the journal until the final merge, and this project needs a container.
 import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import pg from 'pg';
 import {
   createOrganization,
   deploymentProfile,
@@ -10,41 +9,31 @@ import {
   memberships,
   openAppDatabase,
   residencyRequirements,
-  resolveTenantContext,
   withTenantTx,
   type TenantContext,
 } from '@ensemus/database';
 import { clearDeploymentProfile, client, setDeploymentProfile } from '../helpers/federation';
 import { urls } from '../helpers/stack';
+import { makePerson, nativePersonContext, proveSecondFactor } from '../helpers/product';
 
 const sqlState = (code: string) =>
   expect.objectContaining({ cause: expect.objectContaining({ code }) });
 
 describe('deployment profile and residency rules in the database', () => {
   let database: ReturnType<typeof openAppDatabase>;
-  let auth: pg.Client;
   let ownerA: TenantContext;
   let ownerB: TenantContext;
   let memberA: TenantContext;
 
-  const makeUser = async (label: string) => {
-    const id = randomUUID();
-    await auth.query('insert into identity.users (id, name, email) values ($1, $2, $3)', [
-      id,
-      label,
-      `${label}-${id}@example.invalid`,
-    ]);
-    return id;
-  };
-
   const newOwner = async (label: string) => {
-    const user = await makeUser(label);
+    const person = await makePerson(label);
     const { organizationId } = await createOrganization(database.db, {
-      userId: user,
+      userId: person.userId,
       name: 'Same Name Ltd',
       commercialMode: 'byom',
     });
-    return resolveTenantContext(database.db, user, organizationId);
+    await proveSecondFactor(person);
+    return nativePersonContext(database.db, person, organizationId);
   };
 
   const setRequirement = (context: TenantContext, region: string, scope = 'all') =>
@@ -59,18 +48,17 @@ describe('deployment profile and residency rules in the database', () => {
 
   beforeAll(async () => {
     database = openAppDatabase(urls.app());
-    auth = await client(urls.auth());
     ownerA = await newOwner('owner-a');
     ownerB = await newOwner('owner-b');
-    const memberUser = await makeUser('member-a');
+    const memberPerson = await makePerson('member-a');
     await withTenantTx(database.db, ownerA, (tx) =>
       tx.insert(memberships).values({
         organizationId: ownerA.organizationId,
-        userId: memberUser,
+        userId: memberPerson.userId,
         role: 'member',
       }),
     );
-    memberA = await resolveTenantContext(database.db, memberUser, ownerA.organizationId);
+    memberA = await nativePersonContext(database.db, memberPerson, ownerA.organizationId);
   });
 
   afterEach(clearDeploymentProfile);
@@ -78,7 +66,6 @@ describe('deployment profile and residency rules in the database', () => {
   afterAll(async () => {
     await clearDeploymentProfile();
     await database?.close();
-    await auth?.end();
   });
 
   it('behaves as it always has with no profile', async () => {
@@ -128,10 +115,10 @@ describe('deployment profile and residency rules in the database', () => {
   describe('a dedicated deployment', () => {
     it('admits only its pinned organization, whatever asks', async () => {
       await setDeploymentProfile({ tier: 'dedicated', pinnedOrganizationId: randomUUID() });
-      const user = await makeUser('second-org');
+      const person = await makePerson('second-org');
       await expect(
         createOrganization(database.db, {
-          userId: user,
+          userId: person.userId,
           name: 'Another',
           commercialMode: 'byom',
         }),

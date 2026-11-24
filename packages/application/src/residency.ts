@@ -3,11 +3,15 @@
 import {
   actorOf,
   auditEvents,
+  deploymentProfile,
+  interactiveSessionOf,
+  memberships,
   modelProfiles,
   residencyRequirements,
   withTenantTx,
   type AppDatabase,
   type TenantContext,
+  type Tx,
 } from '@ensemus/database';
 import {
   checkResidency,
@@ -21,8 +25,16 @@ import {
   type ResidencyScope,
   type ResidencySurface,
 } from '@ensemus/domain/residency';
-import { and, eq, sql } from 'drizzle-orm';
-import { AUDIT_RESIDENCY_DENIED } from '@ensemus/domain/federation-events';
+import { and, asc, eq, sql } from 'drizzle-orm';
+import {
+  AUDIT_RESIDENCY_DENIED,
+  AUDIT_RESIDENCY_REQUIREMENT_REMOVED,
+  AUDIT_RESIDENCY_REQUIREMENT_SET,
+} from '@ensemus/domain/federation-events';
+import { can } from '@ensemus/domain/policy';
+import { AppError, pgCode } from './errors';
+import { assertInteractivePrivilege, withPrivilegeTx } from './product/privileged';
+import { auditAction } from './work';
 import { requireTenancyViewer } from './tenancy';
 import type { ProcessingLocationSource, ResidencyGate } from './tenancy-ports';
 
@@ -33,23 +45,135 @@ export type ResidencyRequirementView = {
   updatedAt: Date;
 };
 
-export function listResidencyRequirements(
-  _database: AppDatabase,
-  _context: TenantContext,
-): Promise<readonly ResidencyRequirementView[]> {
-  throw new Error('NOT_IMPLEMENTED');
+function requirementsFor(tx: Tx, organizationId: string) {
+  return tx
+    .select({
+      scope: residencyRequirements.scope,
+      region: residencyRequirements.region,
+      version: residencyRequirements.version,
+      updatedAt: residencyRequirements.updatedAt,
+    })
+    .from(residencyRequirements)
+    .where(eq(residencyRequirements.organizationId, organizationId))
+    .orderBy(asc(residencyRequirements.scope))
+    .then((rows) =>
+      rows.map((row): ResidencyRequirementView => ({ ...row, scope: row.scope as ResidencyScope })),
+    );
 }
 
-/**
- * Sets one scope, or removes it with a null region, as an owner, with an audit row. A region this deployment
- * is not in is refused with RESIDENCY_REGION_NOT_OFFERED, by the trigger and by this.
- */
-export function setResidencyRequirement(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: { scope: ResidencyScope; region: string | null; expectedVersion: number },
+export function listResidencyRequirements(
+  database: AppDatabase,
+  context: TenantContext,
 ): Promise<readonly ResidencyRequirementView[]> {
-  throw new Error('NOT_IMPLEMENTED');
+  return withTenantTx(database, context, async (tx) => {
+    await requireTenancyViewer(tx, context);
+    return requirementsFor(tx, context.organizationId);
+  });
+}
+
+/** Saves a home-region requirement, or removes it, using the current owner's native session. */
+export function setResidencyRequirement(
+  database: AppDatabase,
+  context: TenantContext,
+  input: { scope: ResidencyScope; region: string | null; expectedVersion: number },
+): Promise<readonly ResidencyRequirementView[]> {
+  if (context.actorType !== 'user' || !interactiveSessionOf(context))
+    throw new AppError('FORBIDDEN');
+  const { scope, region, expectedVersion } = input;
+  if (
+    !RESIDENCY_SCOPES.includes(scope) ||
+    !Number.isSafeInteger(expectedVersion) ||
+    expectedVersion < 0 ||
+    (region !== null && !REGION_PATTERN.test(region))
+  )
+    throw new AppError('INVALID_INPUT');
+
+  return withPrivilegeTx(database, context, async (tx) => {
+    const org = context.organizationId;
+    await requireTenancyViewer(tx, context);
+    const [owner] = await tx
+      .select({ role: memberships.role })
+      .from(memberships)
+      .where(
+        and(
+          eq(memberships.organizationId, org),
+          eq(memberships.id, context.membershipId),
+          eq(memberships.userId, context.userId),
+          eq(memberships.status, 'active'),
+        ),
+      );
+    if (!owner || !can(owner.role, 'organization.manage')) throw new AppError('FORBIDDEN');
+    await assertInteractivePrivilege(tx, context, 'organization.manage');
+
+    const target = and(
+      eq(residencyRequirements.organizationId, org),
+      eq(residencyRequirements.scope, scope),
+    );
+    const [current] = await tx
+      .select({ version: residencyRequirements.version, region: residencyRequirements.region })
+      .from(residencyRequirements)
+      .where(target);
+    if (expectedVersion !== (current?.version ?? 0)) throw new AppError('VERSION_CONFLICT');
+    if (region !== null) {
+      const [profile] = await tx
+        .select({ homeRegion: deploymentProfile.homeRegion })
+        .from(deploymentProfile);
+      if (!profile?.homeRegion || region !== profile.homeRegion)
+        throw new AppError('RESIDENCY_REGION_NOT_OFFERED');
+    }
+    if (region === (current?.region ?? null)) return requirementsFor(tx, org);
+
+    const versioned = and(target, eq(residencyRequirements.version, expectedVersion));
+    if (region === null) {
+      const [removed] = await tx
+        .delete(residencyRequirements)
+        .where(versioned)
+        .returning({ scope: residencyRequirements.scope });
+      if (!removed) throw new AppError('VERSION_CONFLICT');
+    } else if (current) {
+      const [changed] = await tx
+        .update(residencyRequirements)
+        .set({
+          region,
+          version: current.version + 1,
+          setByMembershipId: context.membershipId,
+          updatedAt: new Date(),
+        })
+        .where(versioned)
+        .returning({ scope: residencyRequirements.scope });
+      if (!changed) throw new AppError('VERSION_CONFLICT');
+    } else {
+      const [created] = await tx
+        .insert(residencyRequirements)
+        .values({
+          organizationId: org,
+          scope,
+          region,
+          setByMembershipId: context.membershipId,
+        })
+        .onConflictDoNothing()
+        .returning({ scope: residencyRequirements.scope });
+      if (!created) throw new AppError('VERSION_CONFLICT');
+    }
+    await auditAction(
+      tx,
+      context,
+      region === null ? AUDIT_RESIDENCY_REQUIREMENT_REMOVED : AUDIT_RESIDENCY_REQUIREMENT_SET,
+      `residency:${scope}`,
+    );
+    return requirementsFor(tx, org);
+  }).catch((error: unknown) => {
+    switch (pgCode(error)) {
+      case 'EN702':
+        throw new AppError('RESIDENCY_REGION_NOT_OFFERED');
+      case 'EN703':
+        throw new AppError('VERSION_CONFLICT');
+      case 'EN704':
+        throw new AppError('FORBIDDEN');
+      default:
+        throw error;
+    }
+  });
 }
 
 /**

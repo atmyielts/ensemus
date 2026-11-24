@@ -1,4 +1,6 @@
-import { AppError } from '@ensemus/application';
+import { AppError, listResidencyRequirements } from '@ensemus/application';
+import { hasRecentMfa } from '@ensemus/application/privileged';
+import { interactiveSessionOf } from '@ensemus/database';
 import type { IsolationAspect, IsolationAspectPosture } from '@ensemus/domain/tenancy';
 import type { ResidencySurface, SurfacePosture } from '@ensemus/domain/residency';
 import { notFound } from 'next/navigation';
@@ -7,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { readDeploymentPosture } from '@/server/deployment-posture';
 import { requireTenant } from '@/server/tenant';
+import { ResidencyRequirements } from './residency-requirements';
 
 export const metadata = { title: 'Deployment posture | Ensemus' };
 
@@ -44,8 +47,10 @@ const RESIDENCY_LABELS: Record<SurfacePosture['state'], string> = {
 
 export default async function DeploymentPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ organizationId: string }>;
+  searchParams: Promise<{ residencyError?: string; residencySaved?: string }>;
 }) {
   const { organizationId } = await params;
   const { database, context } = await requireTenant(organizationId);
@@ -55,6 +60,15 @@ export default async function DeploymentPage({
       throw error;
     },
   );
+  const [requirements, query] = await Promise.all([
+    listResidencyRequirements(database, context),
+    searchParams,
+  ]);
+  const owner = context.role === 'owner';
+  const ready =
+    owner && (residency.homeRegion !== null || requirements.length > 0)
+      ? await hasRecentMfa(database, context, 'organization.manage', interactiveSessionOf(context))
+      : false;
   return (
     <>
       <PageHead
@@ -130,6 +144,15 @@ export default async function DeploymentPage({
             </ul>
           </section>
         </Card>
+        <ResidencyRequirements
+          organizationId={organizationId}
+          homeRegion={residency.homeRegion}
+          requirements={requirements}
+          owner={owner}
+          ready={ready}
+          error={query.residencyError}
+          saved={query.residencySaved === '1'}
+        />
       </div>
     </>
   );

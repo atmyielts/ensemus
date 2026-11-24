@@ -59,9 +59,10 @@ Owners and administrators can open **Administration → Deployment posture**. Th
 isolation findings for the running release, and the operator's data-region declarations. Without a
 profile the view starts with a shared deployment and an unconfirmed home region.
 
-The deployment job writes the profile under the migrator login. Set the same `ENSEMUS_HOME_REGION`
-for the web process and mount its `ENSEMUS_RESIDENCY_POLICY_FILE` read-only when making a regional
-statement. The view withholds the overall in-region statement if the profile and configuration differ,
+Use `infrastructure/compose/compose.residency.yaml` with the core Compose file when configuring a
+home region. Set `ENSEMUS_HOME_REGION` and the path to the existing declaration JSON in
+`ENSEMUS_RESIDENCY_POLICY_HOST_FILE`. The one-shot profile job runs after migration under the migrator
+login. The web process and agent worker wait for it and mount the same declaration file read-only. The view withholds the overall in-region statement if the profile and configuration differ,
 a surface lacks a matching declaration, or this organization's active models have outside or unknown
 regions. Model endpoints and credentials are excluded from the response. Reading this view changes
 no routing and makes no outbound requests.
@@ -71,3 +72,11 @@ The worker checks tenant residency requirements before agent model calls, their 
 fallbacks, Knowledge model calls, and connectivity checks. It rechecks requirements before
 dispatch and records denials with a reason code and surface. These checks cover inference and
 embeddings. The posture page also reports operator declarations for the remaining surfaces.
+
+Under **Residency requirements**, an owner can set the home region for all data or one classification,
+or remove a saved requirement. Administrators can read the requirements. Changes use the native
+owner's current session, apply the deployment's administrative verification policy, and create an
+audit entry. The form offers the home region when the deployment profile and web configuration agree.
+The corresponding API is `GET` and `PUT /api/v1/organizations/{organization_id}/tenancy/residency-requirements`.
+A requirement continues to apply until an owner removes it. An absent surface declaration or an
+unknown model region blocks a covered request.

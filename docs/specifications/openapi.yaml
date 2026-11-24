@@ -11127,7 +11127,6 @@ paths:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
     get:
-      x-ensemus-status: planned
       tags:
         - tenancy
       summary: Where this organization requires its data to stay
@@ -11159,7 +11158,6 @@ paths:
         "503":
           $ref: "#/components/responses/RestorePending"
     put:
-      x-ensemus-status: planned
       tags:
         - tenancy
       summary: An owner sets or removes one requirement. A region this deployment is
