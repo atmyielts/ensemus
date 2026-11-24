@@ -61,7 +61,8 @@ chown postgres:postgres "$data/postgresql.auto.conf" "$data/recovery.signal"
 # The reconcile reaches it over the data network only when the drill holds it open for that.
 listen=''
 if [ "${ENSEMUS_DRILL_HOLD:-0}" = 1 ]; then listen='*'; fi
-gosu postgres postgres -D "$data" -c archive_mode=off -c "listen_addresses=$listen" \
+# Recovery requires at least the primary's lock capacity while it replays WAL.
+gosu postgres postgres -D "$data" -c max_locks_per_transaction=256 -c archive_mode=off -c "listen_addresses=$listen" \
   -c unix_socket_directories=/var/run/postgresql >/dev/null 2>&1 &
 server=$!
 

@@ -817,6 +817,8 @@ services:
   postgres:
     <<: *restart
     image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
+    # The logical restore holds locks for the full schema until its single transaction completes.
+    command: ['postgres', '-c', 'max_locks_per_transaction=256']
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD_FILE: /run/secrets/db_superuser_password

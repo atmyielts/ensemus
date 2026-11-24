@@ -362,8 +362,8 @@
     },
     {
       "path": "05-operations/sovereign/backup-and-restore.md",
-      "size_bytes": 28648,
-      "sha256": "96585d82ae7d2e75dda5b2a8056179a0ffa999910344941f34ca40a69cd973b3"
+      "size_bytes": 29255,
+      "sha256": "d98a570792e23fc73da6feb4489468369f201b9a5c2025d40cc62f96cfa7bd95"
     },
     {
       "path": "05-operations/sovereign/diagnostics.md",

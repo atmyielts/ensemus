@@ -64,6 +64,8 @@ The reverse order would make different gaps, and worse ones. Objects taken befor
 
 ## Restore, in this order
 
+Ensemus restores each PostgreSQL dump in a single transaction. The shipped Compose configuration starts PostgreSQL with `max_locks_per_transaction=256` so the transaction has room to lock the full schema. Existing deployments pick up the setting when the PostgreSQL service is recreated with the updated Compose files. On a custom deployment, check `SHOW max_locks_per_transaction` before the restore and set at least the shipped value. Use the same or higher setting on a standby or point-in-time recovery server. [PostgreSQL lock management](https://www.postgresql.org/docs/17/runtime-config-locks.html)
+
 Do this with every reader/worker stopped, including overlay replicas, and keep the connector worker
 stopped throughout. The 0422/0515 auth/material restore additions below are in the migration journal,
 and what has run of them is stated at the top of this page. Earlier backup/restore evidence does not

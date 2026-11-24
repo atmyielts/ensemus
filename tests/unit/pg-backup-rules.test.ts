@@ -2,7 +2,7 @@
 // Docker, a database or a store. infrastructure/scripts/pg-backup-rules.mjs holds them.
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { parse } from 'yaml';
+import { parse, parseDocument } from 'yaml';
 import {
   drillEventsFrom,
   drillOutcome,
@@ -313,6 +313,25 @@ describe('the overlay', () => {
       expect(String(overlay.services[name]?.image)).toMatch(/@sha256:[0-9a-f]{64}$/);
     const base = readFileSync(`${repoRoot}/infrastructure/compose/compose.yaml`, 'utf8');
     expect(base).toContain(String(overlay.services['pg-backup']?.image));
+  });
+
+  it('preserves the PostgreSQL lock capacity for atomic restores with either overlay', () => {
+    for (const file of ['compose.yaml', 'compose.test.yaml', 'compose.backup.yaml']) {
+      const document = parseDocument(
+        readFileSync(`${repoRoot}/infrastructure/compose/${file}`, 'utf8'),
+      );
+      expect(document.errors).toEqual([]);
+      expect(document.getIn(['services', 'postgres', 'command'])).toMatchObject({
+        items: expect.arrayContaining([
+          expect.objectContaining({ value: 'max_locks_per_transaction=256' }),
+        ]),
+      });
+    }
+    const drill = readFileSync(
+      `${repoRoot}/infrastructure/compose/postgres/backup/restore-drill.sh`,
+      'utf8',
+    );
+    expect(drill).toContain('-c max_locks_per_transaction=256');
   });
 
   it('gives the scratch server and its report the drill profile, and only reads the live archive', () => {
