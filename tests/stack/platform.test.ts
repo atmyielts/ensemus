@@ -632,7 +632,7 @@ describe('database in the deployed stack', () => {
     await client.connect();
     try {
       const { rows: roles } = await client.query<{ rolname: string; parents: string[] }>(
-        `select r.rolname, array(select p.rolname from pg_auth_members m join pg_roles p on p.oid = m.roleid
+        `select r.rolname, array(select p.rolname::text from pg_auth_members m join pg_roles p on p.oid = m.roleid
                                   where m.member = r.oid order by 1) as parents
            from pg_roles r where r.rolname in ('ensemus_worker','ensemus_connector','ensemus_knowledge')
           order by 1`,
