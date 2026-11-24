@@ -10489,7 +10489,6 @@ paths:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
     get:
-      x-ensemus-status: planned
       tags:
         - federation
       summary: Whether this organization works with other organizations, which is off
@@ -10514,7 +10513,6 @@ paths:
         "503":
           $ref: "#/components/responses/RestorePending"
     put:
-      x-ensemus-status: planned
       tags:
         - federation
       summary: Turn it on or off. Turning it off ends everything shared first
@@ -10553,7 +10551,6 @@ paths:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
     get:
-      x-ensemus-status: planned
       tags:
         - federation
       summary: Arrangements this organization is a party to
@@ -10585,7 +10582,6 @@ paths:
         "503":
           $ref: "#/components/responses/RestorePending"
     post:
-      x-ensemus-status: planned
       tags:
         - federation
       summary: An owner offers an arrangement. The invitation token is shown once, and
@@ -10628,7 +10624,6 @@ paths:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
     post:
-      x-ensemus-status: planned
       tags:
         - federation
       summary: What an invitation offers, for an owner deciding. The token goes in the
@@ -10668,7 +10663,6 @@ paths:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
     post:
-      x-ensemus-status: planned
       tags:
         - federation
       summary: An owner accepts the exact terms they read. This reveals this
@@ -10711,7 +10705,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/FederationGrantID"
     get:
-      x-ensemus-status: planned
       tags:
         - federation
       summary: One arrangement. Not found unless this organization is a party to it
@@ -10739,7 +10732,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/FederationGrantID"
     post:
-      x-ensemus-status: planned
       tags:
         - federation
       summary: The sharing owner has seen who accepted, and says that is who they
@@ -10780,7 +10772,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/FederationGrantID"
     post:
-      x-ensemus-status: planned
       tags:
         - federation
       summary: Either side ends it, for good. What arrived stops being readable at

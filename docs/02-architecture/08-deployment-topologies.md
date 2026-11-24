@@ -80,3 +80,26 @@ audit entry. The form offers the home region when the deployment profile and web
 The corresponding API is `GET` and `PUT /api/v1/organizations/{organization_id}/tenancy/residency-requirements`.
 A requirement continues to apply until an owner removes it. An absent surface declaration or an
 unknown model region blocks a covered request.
+
+## 8. Cross-organization collaboration
+
+On a shared deployment with federation enabled in the runtime configuration and database profile,
+owners and administrators can open **Administration → Collaboration**. Each organization starts
+with collaboration off. The owner uses the current session and the deployment's administrative
+verification policy to turn it on. When billing is enabled, the plan must include
+`federation.cross_org`.
+
+The sharing owner defines the scope and copies the one-time invitation token to the other owner.
+The recipient reviews the scope and fingerprint before accepting. The sharing owner checks the
+recipient's fingerprint, then confirms the grant. Both parties can see the resulting grant.
+An owner or administrator on either side can revoke an active grant. Turning off the workspace
+switch ends all open grants and records each ending in the outbox in the same transaction.
+
+The grant API is under `/api/v1/organizations/{organization_id}/federation`. A repeated proposal
+with the same request key returns a conflict because the invitation token is issued once. The
+original grant remains available in the list. The persisted request receipt contains only the
+grant ID.
+
+Keep federation off on customer deployments until the separate item delivery, copy purge,
+operator setup and outside security review are complete. This grant flow issues consent records
+and uses generated workspaces during qualification.

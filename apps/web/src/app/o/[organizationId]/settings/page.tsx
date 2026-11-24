@@ -1,3 +1,6 @@
+import { getFederationSettings } from '@ensemus/application';
+import { loadTenancyConfig } from '@ensemus/config';
+import { can } from '@ensemus/domain/policy';
 import { notFound } from 'next/navigation';
 import { visibleSettings } from '@/components/navigation-model';
 import { DestinationList, PageHead } from '@/components/ui';
@@ -11,9 +14,13 @@ export default async function AdministrationPage({
   params: Promise<{ organizationId: string }>;
 }) {
   const { organizationId } = await params;
-  const { context } = await requireTenant(organizationId);
+  const { context, database } = await requireTenant(organizationId);
   const destinations = visibleSettings(context.role);
   if (destinations.length === 0) notFound();
+  const collaboration =
+    loadTenancyConfig().crossOrgEnabled &&
+    can(context.role, 'federation.view') &&
+    (await getFederationSettings(database, context)).available;
   const base = `/o/${organizationId}`;
   return (
     <>
@@ -28,12 +35,24 @@ export default async function AdministrationPage({
         </div>
         <DestinationList
           label="Organization controls"
-          items={destinations.map((item) => ({
-            href: `${base}/${item.path}`,
-            label: item.label,
-            description: item.description,
-            icon: item.icon,
-          }))}
+          items={[
+            ...destinations.map((item) => ({
+              href: base + '/' + item.path,
+              label: item.label,
+              description: item.description,
+              icon: item.icon,
+            })),
+            ...(collaboration
+              ? [
+                  {
+                    href: base + '/collaboration',
+                    label: 'Collaboration',
+                    description: 'Review invitations and manage grants with other organizations',
+                    icon: 'connections' as const,
+                  },
+                ]
+              : []),
+          ]}
         />
       </section>
     </>

@@ -298,15 +298,10 @@ export async function withGrantInvitationTx<T>(
   tokenHash: string,
   fn: (tx: Tx) => Promise<T>,
 ): Promise<T> {
-  if (context[brand] !== true) throw new TenantAccessDenied();
-  return database.transaction(
-    {
-      'app.organization_id': context.organizationId,
-      'app.user_id': context.userId,
-      'app.federation_token_hash': tokenHash,
-    },
-    fn,
-  );
+  return withTenantTx(database, context, async (tx) => {
+    await tx.execute(sql`select set_config('app.federation_token_hash', ${tokenHash}, true)`);
+    return fn(tx);
+  });
 }
 
 export type WebhookEndpointRow = typeof webhookEndpoints.$inferSelect;

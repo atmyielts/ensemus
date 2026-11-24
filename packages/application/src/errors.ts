@@ -157,6 +157,7 @@ export type ErrorCode =
   | 'FEDERATION_NOT_AVAILABLE'
   | 'FEDERATION_DISABLED'
   | 'FEDERATION_OPEN_GRANTS'
+  | 'FEDERATION_INVITATION_ALREADY_ISSUED'
   | 'FEDERATION_INVITATION_INVALID'
   | 'FEDERATION_TERMS_CHANGED'
   | 'FEDERATION_GRANT_NOT_OPEN'
@@ -355,6 +356,7 @@ const MESSAGES: Record<ErrorCode, string> = {
   FEDERATION_NOT_AVAILABLE: 'Working with other organizations is not available on this deployment.',
   FEDERATION_DISABLED: 'Your organization has not turned on working with other organizations.',
   FEDERATION_OPEN_GRANTS: 'End what is shared with other organizations before turning this off.',
+  FEDERATION_INVITATION_ALREADY_ISSUED: 'This request already created an invitation.',
   FEDERATION_INVITATION_INVALID: 'This invitation is not valid. Ask for a new one.',
   FEDERATION_TERMS_CHANGED: 'What was shared for review changed. Read it again before agreeing.',
   FEDERATION_GRANT_NOT_OPEN: 'This arrangement with the other organization is not open.',
@@ -541,6 +543,7 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   FEDERATION_NOT_AVAILABLE: 404,
   FEDERATION_DISABLED: 409,
   FEDERATION_OPEN_GRANTS: 409,
+  FEDERATION_INVITATION_ALREADY_ISSUED: 409,
   FEDERATION_INVITATION_INVALID: 400,
   FEDERATION_TERMS_CHANGED: 409,
   FEDERATION_GRANT_NOT_OPEN: 409,
