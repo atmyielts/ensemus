@@ -28,6 +28,15 @@ const signIn = async (page: Page, person: Person) => {
   await page.getByRole('button', { name: 'Sign in' }).click();
 };
 
+async function openWorkFromList(page: Page, organization: string, id: string, title: string) {
+  await page.getByRole('link', { name: 'Work', exact: true }).click();
+  // Home also shows a link with this title, but it opens an inline preview.
+  await expect(page.getByRole('heading', { level: 1, name: 'Work', exact: true })).toBeVisible();
+  await page.getByRole('table').getByRole('link', { name: title, exact: true }).click();
+  await expect(page).toHaveURL(workPath(organization, id));
+  await expect(page.getByRole('heading', { level: 1, name: title, exact: true })).toBeVisible();
+}
+
 /** People of its own, because signing out ends a session that the shared world's people depend on. */
 async function twoPeople() {
   const first = await signUp('Dana First');
@@ -52,9 +61,7 @@ test.describe('the next person in the same tab', () => {
     await page.getByRole('button', { name: 'Sign out' }).click();
     await expect(page.getByRole('heading', { name: 'Sign in to Ensemus' })).toBeVisible();
     await signIn(page, next);
-    await page.getByRole('link', { name: 'Work', exact: true }).click();
-    await page.getByRole('link', { name: title }).click();
-    await expect(page.getByRole('heading', { name: title })).toBeVisible();
+    await openWorkFromList(page, organization, id, title);
 
     await page.locator('summary', { hasText: 'Stop this work' }).click();
     await expect(page.getByLabel('Why is this being stopped?')).toHaveValue('');
@@ -74,8 +81,7 @@ test.describe('the next person in the same tab', () => {
 
     await page.getByRole('button', { name: 'Sign out' }).click();
     await signIn(page, first);
-    await page.getByRole('link', { name: 'Work', exact: true }).click();
-    await page.getByRole('link', { name: title }).click();
+    await openWorkFromList(page, organization, id, title);
     await page.locator('summary', { hasText: 'Stop this work' }).click();
     await expect(page.getByLabel('Why is this being stopped?')).toHaveValue('');
     expect(await sameDocument(page)).toBe(true);

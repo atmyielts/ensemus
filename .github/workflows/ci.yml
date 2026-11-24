@@ -10,7 +10,8 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Let the release candidate finish browser and stack checks while its newest push waits.
+  cancel-in-progress: ${{ github.head_ref != 'codex/release-candidate' || github.event.pull_request.head.repo.full_name != github.repository }}
 
 env:
   NEXT_TELEMETRY_DISABLED: '1'
