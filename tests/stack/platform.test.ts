@@ -352,10 +352,11 @@ describe('web tier isolation (ADR-024 D3, D5)', () => {
         postgres: addressOn('postgres'),
         temporal: addressOn('temporal'),
         ...Object.fromEntries(GATEWAYS.map((gateway) => [gateway, addressOn(gateway)])),
-        // Optional business relays retain pins even when absent, so their names cannot leave the network.
+        // Optional adapter relays retain pins even when absent, so their names cannot leave the network.
         'egress-crm': `${process.env.ENSEMUS_NETWORK_PREFIX ?? '172.30'}.5.21`,
         'egress-ticketing': `${process.env.ENSEMUS_NETWORK_PREFIX ?? '172.30'}.5.22`,
         'egress-accounting': `${process.env.ENSEMUS_NETWORK_PREFIX ?? '172.30'}.5.23`,
+        'egress-meeting-notes': `${process.env.ENSEMUS_NETWORK_PREFIX ?? '172.30'}.5.24`,
       });
       const secrets = (config.services['connector-worker']?.secrets ?? []) as { source: string }[];
       expect(secrets.map(({ source }) => source).sort()).toEqual([
