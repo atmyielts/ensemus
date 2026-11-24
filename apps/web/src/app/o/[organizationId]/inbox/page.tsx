@@ -4,6 +4,11 @@ import {
   NOTIFY_FEDERATION_ITEM_RECEIVED,
 } from '@ensemus/domain/federation-events';
 import {
+  NOTIFY_SKILL_VERSION_REJECTED,
+  NOTIFY_SKILL_VERSION_VERIFIED,
+  NOTIFY_SKILL_VERSION_YANKED,
+} from '@ensemus/domain/skill-events';
+import {
   countUnread,
   INBOX_SIZE,
   listMyNotifications,
@@ -19,6 +24,9 @@ import { openNotificationAction } from '@/server/work-actions';
 export const metadata = { title: 'Inbox | Ensemus' };
 
 const KIND_WORDS: Record<string, string> = {
+  [NOTIFY_SKILL_VERSION_VERIFIED]: 'Your skill bundle passed verification',
+  [NOTIFY_SKILL_VERSION_REJECTED]: 'Your skill bundle did not pass verification',
+  [NOTIFY_SKILL_VERSION_YANKED]: 'Your skill version was withdrawn',
   [NOTIFY_FEDERATION_GRANT_ACCEPTED]: 'A collaboration invitation was accepted',
   [NOTIFY_FEDERATION_ITEM_RECEIVED]: 'An organization shared an item with you',
   'approval.requested': 'An approval needs your decision',
@@ -52,6 +60,7 @@ function targetPath(base: string, targetRef: string) {
   if (separator > 0 && type === 'invitation') return `${base}/people`;
   if (separator > 0 && type === 'federation_grant') return `${base}/collaboration#grant-${id}`;
   if (separator > 0 && type === 'federation_item') return `${base}/collaboration/received/${id}`;
+  if (separator > 0 && type === 'skill_version') return `${base}/skills/versions/${id}`;
   if (separator > 0 && type === 'external_action') return `${base}/external-actions/${id}`;
   return `${base}/inbox`;
 }

@@ -9708,7 +9708,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/SkillPackageID"
     get:
-      x-ensemus-status: planned
       tags:
         - skills
       summary: A package's versions, newest upload first
@@ -9789,7 +9788,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/SkillVersionID"
     get:
-      x-ensemus-status: planned
       tags:
         - skills
       summary: One version, with what it declares it can reach and its latest test

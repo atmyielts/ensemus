@@ -1303,3 +1303,22 @@ inventory check in place.
 The migration applied on a fresh PostgreSQL database and on an upgrade from 0764. Thirteen focused
 catalog, signer, and restricted eraser cases passed. The broader restore file passed 11 cases and
 still failed the two full-erasure witness cases at the incomplete coverage gate.
+
+### Signed skill verification and version reads (EXP-04)
+
+The native workflow worker can verify a staged declarative bundle. It checks the tenant's
+canonical storage key, size, digest, manifest signature, current signer trust, dependency
+policy, and contract fixtures. Verification requires a passing receipt for the exact digest.
+The terminal state commits with the audit and outbox events and the uploader notification.
+An unavailable bundle is rejected after three storage read attempts.
+
+Migration 0766 restricts verification state transitions and test receipts to the native
+worker. The release applied it to generated qualification databases. Human security review
+is pending. The workspace lists versions, shows the receipt summary, and links to the result
+from Inbox. Two active GET endpoints expose member-scoped metadata. The OpenAPI contract
+has 18 planned operations remaining.
+
+Fifty PostgreSQL cases, two live Temporal runs, both captured history replays, and the workflow
+worker build passed. The live runs used generated bundles and an in-memory object store.
+Durable bundle upload, two-person publishing, and live object storage qualification remain open.
+Executable bundles are rejected until the sandbox is qualified.

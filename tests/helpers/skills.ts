@@ -1,10 +1,11 @@
 // Test seeds for ADR-034 tables, shared by every M11B slice. They walk a version or a run to a state through the
-// real transitions and triggers, as the application role, so a seed can never reach a state the rules forbid.
+// real transitions and triggers, using the role responsible for each transition.
 // Keys are generated on the spot, and hashes and signatures in here are random, because the database checks
 // that they agree and cannot check that they verify. @ensemus/skills/testing builds bundles that really do.
 import { generateKeyPairSync, randomBytes, randomUUID, createHash } from 'node:crypto';
 import pg from 'pg';
 import {
+  openAppDatabase,
   sandboxRuns,
   skillPackages,
   skillTestRuns,
@@ -13,7 +14,9 @@ import {
   withTenantTx,
   type AppDatabase,
   type TenantContext,
+  type Tx,
 } from '@ensemus/database';
+import { createServiceContext } from '@ensemus/database/service';
 import {
   SANDBOX_DEFAULT_CEILINGS,
   sandboxPolicyHash,
@@ -128,6 +131,18 @@ export type SeededVersion = {
   sizeBytes: number;
 };
 
+export async function withFixtureSkillVerifier<T>(
+  organizationId: string,
+  run: (tx: Tx) => Promise<T>,
+) {
+  const worker = openAppDatabase(urls.worker(), { max: 1 });
+  try {
+    return await withTenantTx(worker.db, createServiceContext(organizationId), run);
+  } finally {
+    await worker.close();
+  }
+}
+
 /**
  * Walks a version to `state`. `publisher` has to be a different person from `context` for `published`,
  * because the table says so. The signer has to be on file for anything past `verifying`.
@@ -179,7 +194,7 @@ export async function seedVersion(
   );
   if (options.state === 'uploaded') return seeded;
   if (options.state === 'rejected') {
-    await withTenantTx(database, context, (tx) =>
+    await withFixtureSkillVerifier(organizationId, (tx) =>
       tx
         .update(skillVersions)
         .set({ state: 'rejected', rejectCode: 'MANIFEST_INVALID', version: sql`version + 1` })
@@ -187,14 +202,14 @@ export async function seedVersion(
     );
     return seeded;
   }
-  await withTenantTx(database, context, (tx) =>
+  await withFixtureSkillVerifier(organizationId, (tx) =>
     tx
       .update(skillVersions)
       .set({ state: 'verifying', version: sql`version + 1` })
       .where(where),
   );
   if (options.state === 'verifying') return seeded;
-  await withTenantTx(database, context, async (tx) => {
+  await withFixtureSkillVerifier(organizationId, async (tx) => {
     await tx.insert(skillTestRuns).values({
       organizationId,
       skillVersionId: id,
@@ -315,7 +330,10 @@ export async function provisionMarketplaceRole() {
     } else {
       await su.query(`alter role ensemus_marketplace password '${OPERATOR_PASSWORD}'`);
     }
-    await su.query('grant connect on database ensemus to ensemus_marketplace');
+    const grant = await su.query<{ command: string }>(
+      "select format('GRANT CONNECT ON DATABASE %I TO ensemus_marketplace', current_database()) as command",
+    );
+    await su.query(grant.rows[0]!.command);
     await su.query('set role ensemus_migrator');
     await su.query('select marketplace.grant_operator_role()');
     await su.query('reset role');

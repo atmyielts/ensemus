@@ -1226,6 +1226,13 @@
       "when": 1794201807647,
       "tag": "0765_skill_catalog_metadata_erasure",
       "breakpoints": true
+    },
+    {
+      "idx": 175,
+      "version": "7",
+      "when": 1794201807648,
+      "tag": "0766_native_skill_verifier",
+      "breakpoints": true
     }
   ]
 }

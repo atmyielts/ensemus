@@ -23,6 +23,7 @@ import {
   trustedSigners,
   withTenantTx,
   type TenantContext,
+  type Tx,
 } from '@ensemus/database';
 import { REVIEW_CHECKS } from '@ensemus/domain/marketplace';
 import { and, eq, sql } from 'drizzle-orm';
@@ -35,6 +36,7 @@ import {
   seedSigner,
   seedVersion,
   testPolicy,
+  withFixtureSkillVerifier,
   type SeededVersion,
   type TestSigner,
 } from '../helpers/skills';
@@ -317,15 +319,18 @@ describe('skill, sandbox and marketplace rules in the database', () => {
       ).rejects.toThrow(sqlState('ES001'));
     });
 
-    const move = (id: string, set: Record<string, unknown>, context: TenantContext = ctxA) =>
-      withTenantTx(database.db, context, (tx) =>
+    const move = (id: string, set: Record<string, unknown>, context: TenantContext = ctxA) => {
+      const write = (tx: Tx) =>
         tx
           .update(skillVersions)
           .set({ ...set, version: sql`version + 1` })
           .where(
             and(eq(skillVersions.organizationId, context.organizationId), eq(skillVersions.id, id)),
-          ),
-      );
+          );
+      return set.state === 'verified'
+        ? withFixtureSkillVerifier(context.organizationId, write)
+        : withTenantTx(database.db, context, write);
+    };
 
     it('cannot skip being checked', async () => {
       const pkg = await seedPackage(database.db, ctxA);

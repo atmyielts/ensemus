@@ -9,6 +9,7 @@ export {
   listSkillPackages,
   updateSkillPackage,
 } from './skill-packages';
+export { listSkillVersions, getSkillVersion } from './skill-version-reads';
 // Owned by the skill-catalog slice (EXP-04). See docs/06-delivery/m11b-slices.md and ADR-034 D1, D2, D4.
 // Managing skills needs skill.manage, publishing needs skill.publish, and reading needs only membership.
 import type { AppDatabase, TenantContext } from '@ensemus/database';
@@ -125,22 +126,6 @@ export function uploadSkillBundle(
   _context: TenantContext,
   _gate: SkillFeatureGate,
   _input: { packageId: string; bytes: Buffer },
-): Promise<SkillVersionView> {
-  throw new Error('NOT_IMPLEMENTED');
-}
-
-export function listSkillVersions(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _packageId: string,
-): Promise<readonly SkillVersionView[]> {
-  throw new Error('NOT_IMPLEMENTED');
-}
-
-export function getSkillVersion(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _skillVersionId: string,
 ): Promise<SkillVersionView> {
   throw new Error('NOT_IMPLEMENTED');
 }

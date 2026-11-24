@@ -16,7 +16,12 @@ import {
 import { eq, sql } from 'drizzle-orm';
 import { urls } from '../helpers/stack';
 import { inFixtureTenant } from '../helpers/fixture-tenant';
-import { seedPackage, seedVersion, generateTestSigner } from '../helpers/skills';
+import {
+  seedPackage,
+  seedVersion,
+  generateTestSigner,
+  withFixtureSkillVerifier,
+} from '../helpers/skills';
 
 const code = (code: string) => expect.objectContaining({ code });
 const on = { isEnabled: async () => true };
@@ -178,7 +183,7 @@ describe('trusted publisher administration', () => {
     });
     let verifierPid = 0,
       verificationError: unknown;
-    const verifying = withTenantTx(app.db, ownerA, async (tx) => {
+    const verifying = withFixtureSkillVerifier(ownerA.organizationId, async (tx) => {
       const pid = await tx.execute<{ pid: number }>(sql`select pg_backend_pid() as pid`);
       verifierPid = pid.rows[0]!.pid;
       await tx.insert(skillTestRuns).values({
