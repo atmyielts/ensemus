@@ -74,6 +74,8 @@ async function killCgroup(cgroup: string): Promise<void> {
 export function createOciCliRuntime(config: {
   binary: string;
   stateDir: string;
+  /** Only the synthetic native fixture supplies this callback. */
+  onBootError?: (error: unknown, runtimeLog: string) => void;
 }): ContainerRuntime {
   let initialization: Promise<string> | undefined;
   let unavailable = false;
@@ -182,6 +184,7 @@ export function createOciCliRuntime(config: {
       const cgroup = containerPath(id);
       const pidFile = join(bundleDir, 'runtime.pid');
       const configPath = join(bundleDir, 'config.json');
+      const diagnosticLog = config.onBootError ? join(bundleDir, 'runtime.log') : null;
       // An existing directory must never be reused, including after a caller retries a job ID.
       await mkdir(cgroup, { mode: 0o700 });
       try {
@@ -201,7 +204,19 @@ export function createOciCliRuntime(config: {
         const started = performance.now();
         const child = spawn(
           config.binary,
-          runcArgs('run', '--bundle', bundleDir, '--keep', '--pid-file', pidFile, id),
+          [
+            '--root',
+            config.stateDir,
+            '--log',
+            diagnosticLog ?? '/dev/null',
+            'run',
+            '--bundle',
+            bundleDir,
+            '--keep',
+            '--pid-file',
+            pidFile,
+            id,
+          ],
           {
             env: {},
             cwd: bundleDir,
@@ -303,6 +318,12 @@ export function createOciCliRuntime(config: {
           stdoutBytes,
           stderrBytes,
         };
+      } catch (error) {
+        if (diagnosticLog && config.onBootError) {
+          const log = await readFile(diagnosticLog, 'utf8').catch(() => '');
+          config.onBootError(error, log.slice(0, CONTROL_FILE_MAX_BYTES));
+        }
+        throw error;
       } finally {
         await cleanup(id).catch((error: unknown) => {
           unavailable = true;

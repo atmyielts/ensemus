@@ -12,6 +12,7 @@ import {
 import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createRunnerClient } from './client';
+import { prepareWorkRoot, runWithBundle } from './job-bundle';
 import { createOciCliRuntime, createSandboxRunnerServer } from './runner';
 
 const enabled = process.env.ENSEMUS_NATIVE_SANDBOX_CHECK === '1';
@@ -52,9 +53,35 @@ describe.skipIf(!enabled)('native Linux runc Sandbox', () => {
     const rootfs = setting('ENSEMUS_NATIVE_ROOTFS');
     workspace = await mkdtemp(join(tmpdir(), 'ensemus-native-sandbox-'));
     const token = randomUUID();
+    const bootFailures: string[] = [];
+    const runtime = createOciCliRuntime({
+      binary,
+      stateDir: join(workspace, 'state'),
+      onBootError(error, log) {
+        bootFailures.push([String(error), log].filter(Boolean).join('\n'));
+      },
+    });
+    const workRoot = await prepareWorkRoot(join(workspace, 'jobs'));
+    const smoke = job("process.stdout.write('fixture ready');");
+    try {
+      const result = await runWithBundle({
+        runtime,
+        rootfs,
+        workRoot,
+        jobId: smoke.jobId,
+        policy: smoke.policy,
+        files: smoke.files.map(({ path, content }) => ({ path, bytes: content })),
+        stdin: smoke.stdin,
+        signal: AbortSignal.timeout(5000),
+      });
+      expect(result).toMatchObject({ ending: 'exited', exitCode: 0 });
+      expect(result.stdout.toString()).toBe('fixture ready');
+    } catch (error) {
+      throw new Error(bootFailures.join('\n') || 'Native fixture could not boot', { cause: error });
+    }
     server = createSandboxRunnerServer({
-      runtime: createOciCliRuntime({ binary, stateDir: join(workspace, 'state') }),
-      workRoot: join(workspace, 'jobs'),
+      runtime,
+      workRoot,
       rootfs,
       token,
       maxConcurrentJobs: 2,

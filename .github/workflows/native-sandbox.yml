@@ -38,8 +38,9 @@ jobs:
           container=$(docker create "$image")
           trap 'docker rm "$container"' EXIT
           docker export "$container" | sudo --non-interactive tar -xpf - -C "$rootfs"
+          sudo --non-interactive chmod 0755 "$rootfs"
           sudo --non-interactive mkdir -p "$rootfs/dev" "$rootfs/proc" "$rootfs/skill" "$rootfs/tmp"
-          printf 'ENSEMUS_NATIVE_ROOTFS=%s\nENSEMUS_NATIVE_RUNC=%s\n' "$rootfs" "$(command -v runc)" >> "$GITHUB_ENV"
+          printf 'ENSEMUS_NATIVE_ROOTFS=%s\nENSEMUS_NATIVE_RUNC=%s\n' "$rootfs" "$(realpath "$(command -v runc)")" >> "$GITHUB_ENV"
       - name: Run the probes on the Linux host
         env:
           ENSEMUS_NATIVE_SANDBOX_CHECK: '1'
