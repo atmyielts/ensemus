@@ -461,6 +461,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    margin: 0;
     padding: 8px 12px;
     background: var(--secondary);
     font-size: var(--text-small);
