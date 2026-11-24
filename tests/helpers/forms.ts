@@ -215,18 +215,28 @@ export const tokenIn = (html: string) => /\/invite\/([A-Za-z0-9_-]{43})/.exec(ht
  * Brings someone new into an organization: invited on the people page, asking on the invitation, and
  * confirmed on the people page, because nothing has proven the address on a new password account.
  */
-export async function join(inviter: Person, organization: string, name: string): Promise<Person> {
+export async function join(
+  inviter: Person,
+  organization: string,
+  name: string,
+  role: 'member' | 'admin' = 'member',
+): Promise<Person> {
   const person = await signUp(name);
-  await bringIn(inviter, organization, person);
+  await bringIn(inviter, organization, person, role);
   return person;
 }
 
 /** The same, for someone who already has an account, and so can belong to several organizations. */
-export async function bringIn(inviter: Person, organization: string, person: Person) {
+export async function bringIn(
+  inviter: Person,
+  organization: string,
+  person: Person,
+  role: 'member' | 'admin' = 'member',
+) {
   const people = `/o/${organization}/people`;
   const invited = await submit(people, inviter.jar, /name="email"/, {
     email: person.email,
-    role: 'member',
+    role,
   });
   const token = tokenIn(await invited.text());
   if (!token) throw new Error(`No invitation link (status ${invited.status})`);

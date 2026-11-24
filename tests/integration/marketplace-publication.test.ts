@@ -31,6 +31,7 @@ import {
   withdrawSubmission,
   type ObjectStore,
 } from '@ensemus/application';
+import { updateSecurityPolicy } from '@ensemus/application/security-policy';
 import {
   createOrganization,
   marketplaceInstallations,
@@ -670,6 +671,33 @@ describe('marketplace tenant actions and signed offline publication', () => {
         expectedVersion: 3,
       }),
     ).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+    const buyerIdentity = tenants.b.owner;
+    await proveSecondFactor(buyerIdentity);
+    await updateSecurityPolicy(
+      web.db,
+      buyer,
+      { sessionId: buyerIdentity.sessionId },
+      {
+        expectedVersion: 1,
+        mfaForAdministration: true,
+        mfaMaxAgeSeconds: 900,
+        ssoEnforcement: 'optional',
+      },
+    );
+    await proveSecondFactor(buyerIdentity, new Date(Date.now() - 3_600_000));
+    await expect(
+      removeInstallation(web.db, buyer, {
+        installationId: queued.id,
+        expectedVersion: 4,
+      }),
+    ).rejects.toMatchObject({ code: 'MFA_REQUIRED' });
+    expect(
+      (await listInstallations(web.db, buyer)).find((row) => row.id === queued.id),
+    ).toMatchObject({
+      state: 'installed',
+      version: 4,
+    });
+    await proveSecondFactor(buyerIdentity);
     await expect(
       removeInstallation(web.db, buyer, {
         installationId: queued.id,

@@ -26,7 +26,7 @@ import { keyIdOf } from '@ensemus/skills/signature';
 import { buildTestBundle, generateTestKey } from '@ensemus/skills/testing';
 import { S3ObjectStore } from '@ensemus/storage';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { BASE, createOrganization, join, signUp, type Person } from '../helpers/forms';
+import { BASE, createOrganization, join, signUp, submit, type Person } from '../helpers/forms';
 import { enrollAuthenticator, nativeStackContext } from '../helpers/native-mfa';
 import { contractProblems } from '../helpers/openapi';
 import { provisionMarketplaceRole } from '../helpers/skills';
@@ -357,16 +357,34 @@ describe('Marketplace HTTP contract', () => {
             })
           ).status,
         ).toBe(404);
-        const unverified = await call(buyer, buyerOrg, 'DELETE', installPath, {
+        const buyerAdmin = await join(
+          buyer,
+          buyerOrg,
+          'Generated Marketplace buyer admin',
+          'admin',
+        );
+        await enrollAuthenticator(buyer, buyerOrg);
+        const security = `/o/${buyerOrg}/security`;
+        const policySaved = await submit(security, buyer.jar, /name="mfaForAdministration"/, {
+          mfaForAdministration: 'on',
+          mfaMaxAgeSeconds: '900',
+        });
+        expect(policySaved.status).toBe(303);
+        expect(policySaved.headers.get('location')).toBe(`${security}?notice=saved`);
+        const unverified = await call(buyerAdmin, buyerOrg, 'DELETE', installPath, {
           version: installed.version,
         });
         expect(unverified.status).toBe(403);
         expect(unverified.body.code).toBe('MFA_REQUIRED');
-        await enrollAuthenticator(buyer, buyerOrg);
-        expect((await call(buyer, buyerOrg, 'DELETE', installPath, { version: 1 })).body.code).toBe(
-          'VERSION_CONFLICT',
-        );
-        const removed = await call(buyer, buyerOrg, 'DELETE', installPath, {
+        expect(await loadInstallation(buyer)).toMatchObject({
+          state: 'installed',
+          version: installed.version,
+        });
+        await enrollAuthenticator(buyerAdmin, buyerOrg);
+        expect(
+          (await call(buyerAdmin, buyerOrg, 'DELETE', installPath, { version: 1 })).body.code,
+        ).toBe('VERSION_CONFLICT');
+        const removed = await call(buyerAdmin, buyerOrg, 'DELETE', installPath, {
           version: installed.version,
         });
         expect(removed.status).toBe(204);
