@@ -72,37 +72,43 @@ export default async function ApprovalsPage({
           would change.
         </Empty>
       ) : (
-        <Card asChild className="gap-2">
-          <section className="card" aria-labelledby="waiting-heading">
-            <h2 id="waiting-heading">Waiting for you</h2>
-            <ul className="approval-rows" role="list">
+        <Card asChild className="block bg-transparent">
+          <section className="activity-list" aria-labelledby="waiting-heading">
+            <h2 className="activity-heading" id="waiting-heading">
+              Waiting for you <span className="count">{pending.length}</span>
+            </h2>
+            <ul className="activity-rows" role="list">
               {pending.map((approval, index) => {
                 const who = askedBy(index);
+                const id = `approval-${approval.id}`;
                 return (
-                  <li key={approval.id} className="approval-row">
-                    <div className="approval-subject">
-                      <Link
-                        className="approval-title"
-                        href={`${base}/approvals/${approval.id}`}
-                        aria-describedby={`approval-${approval.id}-source approval-${approval.id}-deadline`}
-                      >
-                        {approval.workTitle}
-                      </Link>
-                      <small id={`approval-${approval.id}-source`}>
-                        {TOOL_WORDS[approval.toolName] ?? 'A proposed action'}
-                        {' · '}
-                        {approval.toolName === 'work.review'
-                          ? `Asked by ${who}`
-                          : `An assistant asked, for ${who}`}
-                      </small>
-                    </div>
-                    <div className="approval-meta">
-                      <small id={`approval-${approval.id}-deadline`}>
-                        Decide by {formatDateTime(approval.expiresAt)}
-                      </small>
-                      <StatusBadge status="pending" />
-                    </div>
-                    <ChevronRightIcon className="approval-chevron" aria-hidden="true" />
+                  <li key={approval.id}>
+                    <Link
+                      className="activity-row"
+                      href={`${base}/approvals/${approval.id}`}
+                      aria-labelledby={`${id}-title`}
+                      aria-describedby={`${id}-source ${id}-deadline`}
+                    >
+                      <span className="activity-subject">
+                        <span className="activity-title" id={`${id}-title`}>
+                          {approval.workTitle}
+                        </span>
+                        <small id={`${id}-source`}>
+                          {TOOL_WORDS[approval.toolName] ?? 'A proposed action'}
+                          {' · '}
+                          {approval.toolName === 'work.review'
+                            ? `Asked by ${who}`
+                            : `An assistant asked, for ${who}`}
+                        </small>
+                      </span>
+                      <span className="activity-meta">
+                        <small id={`${id}-deadline`}>
+                          Decide by {formatDateTime(approval.expiresAt)}
+                        </small>
+                        <StatusBadge status="pending" />
+                      </span>
+                      <ChevronRightIcon className="activity-chevron" aria-hidden="true" />
+                    </Link>
                   </li>
                 );
               })}

@@ -1055,11 +1055,6 @@
   .form-section > h2 {
     margin: 0;
   }
-  .inbox-item {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    justify-items: start;
-  }
   .due-word {
     position: absolute;
     width: 1px;

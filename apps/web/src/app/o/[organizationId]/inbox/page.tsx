@@ -9,7 +9,9 @@ import {
   listMyNotifications,
   listMyPendingApprovals,
 } from '@ensemus/application';
+import { ChevronRightIcon } from 'lucide-react';
 import { SubmitButton } from '@/components/submit-button';
+import { Badge } from '@/components/ui/badge';
 import { ActionLink, Empty, ErrorNotice, formatDateTime, PageHead } from '@/components/ui';
 import { requireTenant } from '@/server/tenant';
 import { openNotificationAction } from '@/server/work-actions';
@@ -107,37 +109,51 @@ export default async function InboxPage({
           Nothing here. When a decision needs you, or something you own changes, it appears here.
         </Empty>
       ) : (
-        <Card asChild>
-          <div className="card">
-            <ul className="list">
-              {ordered.map((notification) => (
-                <li key={notification.id}>
-                  <form className="inbox-item" action={openNotificationAction}>
-                    <input type="hidden" name="organizationId" value={organizationId} />
-                    <input type="hidden" name="id" value={notification.id} />
-                    <input
-                      type="hidden"
-                      name="target"
-                      value={targetPath(base, notification.targetRef)}
-                    />
-                    <SubmitButton className="link h-auto min-h-8 max-w-full py-2 text-start leading-snug wrap-anywhere whitespace-normal">
-                      {KIND_WORDS[notification.kind] ?? 'Something needs your attention'}
-                    </SubmitButton>
-                    {titleOf.has(notification.targetRef) && (
-                      <small>{titleOf.get(notification.targetRef)}</small>
-                    )}
-                  </form>
-                  <span className="row">
-                    <small>
-                      {formatDateTime(notification.lastRemindedAt ?? notification.createdAt)}
-                    </small>
-                    {notification.remindersSent > 0 && !notification.readAt && (
-                      <span className="badge attention">Reminder</span>
-                    )}
-                    {!notification.readAt && <span className="badge active">New</span>}
-                  </span>
-                </li>
-              ))}
+        <Card asChild className="block bg-transparent">
+          <div className="activity-list">
+            <ul className="activity-rows" role="list">
+              {ordered.map((notification) => {
+                const workTitle = titleOf.get(notification.targetRef);
+                const message = KIND_WORDS[notification.kind] ?? 'Something needs your attention';
+                return (
+                  <li key={notification.id}>
+                    <form action={openNotificationAction}>
+                      <input type="hidden" name="organizationId" value={organizationId} />
+                      <input type="hidden" name="id" value={notification.id} />
+                      <input
+                        type="hidden"
+                        name="target"
+                        value={targetPath(base, notification.targetRef)}
+                      />
+                      <SubmitButton
+                        className="quiet activity-row grid h-auto w-full grid-cols-[var(--activity-columns)] gap-x-3 gap-y-1 rounded-none border-0 px-3 py-2.5 text-start whitespace-normal hover:bg-accent dark:hover:bg-accent"
+                        working="Opening notification"
+                      >
+                        <span className="activity-subject">
+                          <span className="activity-title">{workTitle ?? message}</span>
+                          {workTitle && <small>{message}</small>}
+                        </span>
+                        <span className="activity-meta">
+                          <small>
+                            {formatDateTime(notification.lastRemindedAt ?? notification.createdAt)}
+                          </small>
+                          {notification.remindersSent > 0 && !notification.readAt && (
+                            <Badge variant="outline" className="badge attention border-transparent">
+                              Reminder
+                            </Badge>
+                          )}
+                          {!notification.readAt && (
+                            <Badge variant="outline" className="badge active border-transparent">
+                              New
+                            </Badge>
+                          )}
+                        </span>
+                        <ChevronRightIcon className="activity-chevron" aria-hidden="true" />
+                      </SubmitButton>
+                    </form>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         </Card>

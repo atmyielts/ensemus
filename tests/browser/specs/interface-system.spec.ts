@@ -15,6 +15,7 @@ for (const theme of ['light', 'dark'] as const)
         ['long-work-detail', `${base}/work/${world.work.long}`],
         ['approvals', `${base}/approvals`],
         ['approval', `${base}/approvals/${world.approvals.holding}`],
+        ['inbox', `${base}/inbox`],
         ['administration', `${base}/settings`],
         ['model-connections', `${base}/settings/models`],
         ['usage-and-budgets', `${base}/settings/budgets`],
