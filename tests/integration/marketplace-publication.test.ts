@@ -7,17 +7,27 @@ import {
   createPublisher,
   createSkillPackage,
   getListing,
+  getMarketplaceListingReview,
   getPublisher,
   listInstallations,
   listListings,
   listSubmissions,
+  publishSkillVersion,
+  removeInstallation,
+  requestInstallation,
+  resolveSkillVersionForUse,
   requestDelisting,
   submitToMarketplace,
   uploadSkillBundle,
   withdrawSubmission,
   type ObjectStore,
 } from '@ensemus/application';
-import { openAppDatabase } from '@ensemus/database';
+import {
+  marketplaceInstallations,
+  marketplaceReviews,
+  openAppDatabase,
+  withTenantTx,
+} from '@ensemus/database';
 import {
   openMarketplaceOperatorDatabase,
   reserveListingObject,
@@ -25,7 +35,10 @@ import {
 import { createServiceContext } from '@ensemus/database/service';
 import { listingObjectKey, REVIEW_CHECKS } from '@ensemus/domain/marketplace';
 import { SANDBOX_DEFAULT_CEILINGS } from '@ensemus/domain/sandbox';
+import { skillBundleObjectKey } from '@ensemus/domain/skill';
 import { buildTestBundle, generateTestKey } from '@ensemus/skills/testing';
+import { createMarketplaceInstallActivities } from '@ensemus/workflows/marketplace-install-activities';
+import { eq } from 'drizzle-orm';
 import { createSkillVerificationActivities } from '@ensemus/workflows/skill-verification-activities';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { marketplaceCommand } from '../../workers/workflow/src/marketplace-command';
@@ -214,7 +227,7 @@ describe('marketplace tenant actions and signed offline publication', () => {
     ).resolves.toMatchObject({ state: 'withdrawn', version: 2 });
   });
 
-  it('verifies an independent review and signed bytes before listing, then limits a delisted listing to its publisher', async () => {
+  it('binds reviewed bytes to a tenant copy, recovers an ambiguous write, then enforces takedown and removal', async () => {
     const owner = tenants.a.owner.context;
     const other = tenants.b.member.context;
     await createPublisher(web.db, owner, enabled, { displayName: 'Generated publisher' });
@@ -240,6 +253,7 @@ describe('marketplace tenant actions and signed offline publication', () => {
     const payload = join(folder.path, 'payload');
     const attestation = join(folder.path, 'attestation.json');
     const signature = join(folder.path, 'signature.base64');
+    const decidedAt = new Date();
     await writeFile(
       decision,
       JSON.stringify({
@@ -247,7 +261,7 @@ describe('marketplace tenant actions and signed offline publication', () => {
         checks: Object.fromEntries(REVIEW_CHECKS.map((name) => [name, 'pass'])),
         findingCodes: [],
         reviewerKeyId: review.keyId,
-        decidedAt: new Date().toISOString(),
+        decidedAt: decidedAt.toISOString(),
       }),
     );
     await expect(run('review-payload', ...tx, decision, payload)).resolves.toBe(0);
@@ -297,13 +311,32 @@ describe('marketplace tenant actions and signed offline publication', () => {
     expect(printed.at(-1)).toBe(first);
     const { listingId } = JSON.parse(first) as { listingId: string };
     expect(await store.get(key)).toEqual(built.bytes);
-    await expect(getListing(web.db, other, enabled, listingId)).resolves.toMatchObject({
+    const listing = await getListing(web.db, other, enabled, listingId);
+    expect(listing).toMatchObject({
       id: listingId,
       digest: built.digest,
       signerKeyId: built.bundle.signature.key_id,
       reviewerKeyId: review.keyId,
       state: 'listed',
     });
+    const reviewReceipt = {
+      reviewerLabel: 'Generated reviewer',
+      decidedAt,
+    };
+    await expect(getMarketplaceListingReview(web.db, other, listingId)).resolves.toEqual(
+      reviewReceipt,
+    );
+    await expect(getMarketplaceListingReview(web.db, other, randomUUID())).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+    await expect(
+      withTenantTx(web.db, other, (native) =>
+        native
+          .select({ id: marketplaceReviews.id })
+          .from(marketplaceReviews)
+          .where(eq(marketplaceReviews.submissionId, subject.id)),
+      ),
+    ).resolves.toEqual([]);
     const listings = await listListings(web.db, other, enabled, { limit: 1 });
     expect(listings.items).toHaveLength(1);
     if (listings.nextCursor) {
@@ -318,6 +351,147 @@ describe('marketplace tenant actions and signed offline publication', () => {
     ).rejects.toMatchObject({
       code: 'INVALID_INPUT',
     });
+    const buyer = tenants.b.owner.context;
+    const buyerStore = {
+      ...store,
+      async putSingleAttempt(key: string, body: Buffer) {
+        copyWrites++;
+        await store.put(key, body, 'application/json');
+        return { transport: 'unknown' } as const;
+      },
+      async get(key: string) {
+        if (key === tenantKey && unreadableCopy) throw new Error('TEST_COPY_REPLY_LOST');
+        return store.get(key);
+      },
+    };
+    let copyWrites = 0;
+    let unreadableCopy = true;
+    let tenantKey: string | null = null;
+    const workerDeps = {
+      database: worker.db,
+      store: buyerStore,
+      ceilings: SANDBOX_DEFAULT_CEILINGS,
+    };
+    const installActivities = createMarketplaceInstallActivities({
+      ...workerDeps,
+      reviewKeys: deps.reviewKeys,
+      gate: enabled,
+    });
+    const unknownReviewer = createMarketplaceInstallActivities({
+      ...workerDeps,
+      reviewKeys: new Map(),
+      gate: enabled,
+    });
+    const revokeEntitlement = createMarketplaceInstallActivities({
+      ...workerDeps,
+      reviewKeys: deps.reviewKeys,
+      gate: disabled,
+    });
+    await expect(requestInstallation(web.db, other, enabled, { listingId })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+    await expect(requestInstallation(web.db, buyer, disabled, { listingId })).rejects.toMatchObject(
+      {
+        code: 'FEATURE_NOT_ENABLED',
+      },
+    );
+    const request = () => requestInstallation(web.db, buyer, enabled, { listingId });
+    const installInput = (installationId: string) => ({
+      organizationId: buyer.organizationId,
+      installationId,
+    });
+    const firstRequest = await request();
+    await expect(request()).rejects.toMatchObject({ code: 'MARKETPLACE_ALREADY_INSTALLED' });
+    await expect(listInstallations(web.db, owner)).resolves.toEqual([]);
+    await expect(
+      withTenantTx(web.db, buyer, (db) =>
+        db
+          .update(marketplaceInstallations)
+          .set({ state: 'installing', version: 2 })
+          .where(eq(marketplaceInstallations.id, firstRequest.id)),
+      ),
+    ).rejects.toMatchObject({ cause: { code: '42501' } });
+    const untrusted = installInput(firstRequest.id);
+    await expect(unknownReviewer.materializeListing(untrusted)).resolves.toEqual({
+      step: 'failed',
+      code: 'ATTESTATION_INVALID',
+    });
+    await expect(
+      unknownReviewer.finishListingInstall({
+        ...untrusted,
+        outcome: { ok: false, code: 'ATTESTATION_INVALID' },
+      }),
+    ).resolves.toBe('failed');
+    const denied = installInput((await request()).id);
+    await expect(revokeEntitlement.materializeListing(denied)).resolves.toEqual({
+      step: 'failed',
+      code: 'LISTING_NOT_AVAILABLE',
+    });
+    await expect(
+      revokeEntitlement.finishListingInstall({
+        ...denied,
+        outcome: { ok: false, code: 'LISTING_NOT_AVAILABLE' },
+      }),
+    ).resolves.toBe('failed');
+
+    const queued = await request();
+    const install = installInput(queued.id);
+    tenantKey = skillBundleObjectKey(buyer.organizationId, queued.id);
+    await expect(installActivities.materializeListing(install)).rejects.toMatchObject({
+      type: 'MARKETPLACE_BUNDLE_PENDING',
+    });
+    expect(copyWrites).toBe(1);
+    expect(await store.get(tenantKey)).toEqual(built.bytes);
+    expect(
+      (await listInstallations(web.db, buyer)).find((row) => row.id === queued.id),
+    ).toMatchObject({
+      state: 'installing',
+      packageId: null,
+      skillVersionId: null,
+    });
+    unreadableCopy = false;
+    const copy = { step: 'verify', skillVersionId: queued.id };
+    await expect(installActivities.materializeListing(install)).resolves.toEqual(copy);
+    await expect(installActivities.materializeListing(install)).resolves.toEqual(copy);
+    expect(copyWrites).toBe(1);
+    expect(await store.get(tenantKey)).toEqual(built.bytes);
+    await expect(resolveSkillVersionForUse(web.db, buyer, queued.id)).resolves.toMatchObject({
+      ok: false,
+      denial: 'NOT_PUBLISHED',
+    });
+    const verify = createSkillVerificationActivities({
+      ...workerDeps,
+      reviewKeys: deps.reviewKeys,
+    });
+    await expect(
+      verify.checkSkillBundle({
+        organizationId: buyer.organizationId,
+        skillVersionId: queued.id,
+      }),
+    ).resolves.toEqual({ step: 'finished', outcome: 'verified' });
+    const publish = () =>
+      publishSkillVersion(web.db, buyer, enabled, {
+        skillVersionId: queued.id,
+        expectedVersion: 3,
+      });
+    await expect(publish()).rejects.toMatchObject({ code: 'SKILL_VERSION_NOT_PUBLISHABLE' });
+    const finish = () =>
+      installActivities.finishListingInstall({ ...install, outcome: { ok: true } });
+    await expect(finish()).resolves.toBe('installed');
+    await expect(finish()).resolves.toBe('installed');
+    await expect(installActivities.materializeListing(install)).resolves.toEqual({
+      step: 'settled',
+      outcome: 'installed',
+    });
+    await expect(resolveSkillVersionForUse(web.db, buyer, queued.id)).resolves.toMatchObject({
+      ok: false,
+      denial: 'NOT_PUBLISHED',
+    });
+    await expect(publish()).resolves.toMatchObject({ state: 'published', version: 4 });
+    await expect(resolveSkillVersionForUse(web.db, buyer, queued.id)).resolves.toMatchObject({
+      ok: true,
+    });
+
     await expect(
       withdrawSubmission(web.db, owner, { submissionId: subject.id, expectedVersion: 3 }),
     ).rejects.toMatchObject({ code: 'MARKETPLACE_SUBMISSION_NOT_WITHDRAWABLE' });
@@ -325,12 +499,64 @@ describe('marketplace tenant actions and signed offline publication', () => {
       requestDelisting(web.db, owner, { submissionId: subject.id, expectedVersion: 3 }),
     ).resolves.toMatchObject({ delistRequestedAt: expect.any(Date), version: 4 });
     await expect(run('delist', listingId, 'stop_new', 'PUBLISHER_REQUEST', '1')).resolves.toBe(0);
-    await expect(getListing(web.db, other, enabled, listingId)).rejects.toMatchObject({
+    const outsider = (await makeTwoTenants(web.db)).a.member.context;
+    await expect(getListing(web.db, outsider, enabled, listingId)).rejects.toMatchObject({
       code: 'NOT_FOUND',
+    });
+    await expect(getMarketplaceListingReview(web.db, outsider, listingId)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+    await expect(getMarketplaceListingReview(web.db, other, listingId)).resolves.toEqual(
+      reviewReceipt,
+    );
+    await expect(getListing(web.db, other, enabled, listingId)).resolves.toMatchObject({
+      state: 'delisted',
+      delistMode: 'stop_new',
+    });
+    await expect(resolveSkillVersionForUse(web.db, buyer, queued.id)).resolves.toMatchObject({
+      ok: true,
+    });
+    await expect(run('delist', listingId, 'revoke', 'PUBLISHER_REQUEST', '2')).resolves.toBe(0);
+    await expect(resolveSkillVersionForUse(web.db, buyer, queued.id)).resolves.toMatchObject({
+      ok: false,
+    });
+    const installed = (await listInstallations(web.db, buyer)).find((row) => row.id === queued.id);
+    expect(installed).toMatchObject({
+      listingDisplayName: listing.displayName,
+      state: 'installed',
+      version: 4,
+    });
+    await expect(
+      removeInstallation(web.db, owner, {
+        installationId: queued.id,
+        expectedVersion: 4,
+      }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    await expect(
+      removeInstallation(web.db, buyer, {
+        installationId: queued.id,
+        expectedVersion: 3,
+      }),
+    ).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+    await expect(
+      removeInstallation(web.db, buyer, {
+        installationId: queued.id,
+        expectedVersion: 4,
+      }),
+    ).resolves.toBeUndefined();
+    expect(
+      (await listInstallations(web.db, buyer)).find((row) => row.id === queued.id),
+    ).toMatchObject({
+      state: 'removed',
+      version: 5,
+    });
+    await expect(resolveSkillVersionForUse(web.db, buyer, queued.id)).resolves.toMatchObject({
+      ok: false,
+      denial: 'NOT_PUBLISHED',
     });
     await expect(getListing(web.db, owner, enabled, listingId)).resolves.toMatchObject({
       state: 'delisted',
-      delistMode: 'stop_new',
+      delistMode: 'revoke',
     });
   });
 });

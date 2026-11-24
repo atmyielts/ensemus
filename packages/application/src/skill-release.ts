@@ -7,6 +7,7 @@ import {
   withTenantTx,
   type AppDatabase,
   type TenantContext,
+  type Tx,
 } from '@ensemus/database';
 import { can } from '@ensemus/domain/policy';
 import {
@@ -68,90 +69,114 @@ async function changeRelease(
   if (!id.success || !Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1)
     throw new AppError('INVALID_INPUT');
   try {
-    return await withPrivilegeTx(database, context, async (tx) => {
-      const role = await requireSkillMember(tx, context, true);
-      if (yank === null && !can(role, 'skill.publish')) throw new AppError('FORBIDDEN');
-      await tx.execute(sql`select skills.lock_trust()`);
-      const scope = and(
-        eq(skillVersions.organizationId, context.organizationId),
-        eq(skillVersions.id, id.data),
-      );
-      const [row] = await tx
-        .select({
-          version: skillVersions,
-          packageState: skillPackages.state,
-          classification: skillPackages.contentClassification,
-        })
-        .from(skillVersions)
-        .innerJoin(
-          skillPackages,
-          and(
-            eq(skillPackages.organizationId, skillVersions.organizationId),
-            eq(skillPackages.id, skillVersions.packageId),
-          ),
-        )
-        .where(scope)
-        .for('update');
-      if (!row) throw new AppError('NOT_FOUND');
-      const { version } = row;
-      if (version.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT');
-      if (yank === null) {
-        if (version.state !== 'verified' || row.packageState !== 'active')
-          throw new AppError('SKILL_VERSION_NOT_PUBLISHABLE');
-        if (version.uploadedByMembershipId === context.membershipId)
-          throw new AppError('SKILL_PUBLISH_SAME_PERSON');
-      } else if (version.state !== 'verified' && version.state !== 'published') {
-        throw new AppError('INVALID_STATE');
-      }
-      const next = version.version + 1;
-      const [changed] = await tx
-        .update(skillVersions)
-        .set({
-          ...(yank === null
-            ? {
-                state: 'published',
-                publishedByMembershipId: context.membershipId,
-                publishedAt: sql`statement_timestamp()`,
-              }
-            : {
-                state: 'yanked',
-                yankCode: yank,
-                yankedByMembershipId: context.membershipId,
-                yankedAt: sql`statement_timestamp()`,
-              }),
-          version: next,
-          updatedAt: sql`statement_timestamp()`,
-        })
-        .where(scope)
-        .returning({ id: skillVersions.id });
-      if (!changed) throw new AppError('VERSION_CONFLICT');
-      const eventType = yank === null ? SKILL_VERSION_PUBLISHED : SKILL_VERSION_YANKED;
-      const target = skillVersionTargetRef(id.data);
-      await auditAction(tx, context, eventType, target, yank ?? undefined);
-      await emit(tx, context, {
-        eventType,
-        aggregateType: AGGREGATE_SKILL_VERSION,
-        aggregateId: id.data,
-        aggregateVersion: next,
-        classification: row.classification,
-        payload: { skill_version_id: id.data, ...(yank !== null ? { code: yank } : {}) },
-      });
-      if (yank !== null)
-        await notify(
-          tx,
-          context,
-          [version.uploadedByMembershipId],
-          NOTIFY_SKILL_VERSION_YANKED,
-          target,
-        );
-      return (await readSkillVersionReviewInTx(tx, context, id.data)).version;
-    });
+    return await withPrivilegeTx(database, context, (tx) =>
+      changeReleaseInTx(tx, context, { ...input, skillVersionId: id.data }, yank),
+    );
   } catch (error) {
     const code = pgCode(error);
-    if (yank === null && (code === SKILL_SQLSTATE.NOT_USABLE || code === '23514'))
+    if (
+      yank === null &&
+      (code === SKILL_SQLSTATE.NOT_USABLE ||
+        code === SKILL_SQLSTATE.COPY_MISMATCH ||
+        code === '23514')
+    )
       throw new AppError('SKILL_VERSION_NOT_PUBLISHABLE');
     throw error;
   }
+}
+
+/** Used by composite releases that already own the privileged transaction. */
+export function yankSkillVersionInTx(
+  tx: Tx,
+  context: TenantContext,
+  input: VersionChange & YankSkillVersionBody,
+) {
+  return changeReleaseInTx(tx, context, input, input.code);
+}
+
+async function changeReleaseInTx(
+  tx: Tx,
+  context: TenantContext,
+  input: VersionChange,
+  yank: YankSkillVersionBody['code'] | null,
+) {
+  if (context.actorType !== 'user') throw new AppError('FORBIDDEN');
+  const role = await requireSkillMember(tx, context, true);
+  if (yank === null && !can(role, 'skill.publish')) throw new AppError('FORBIDDEN');
+  await tx.execute(sql`select skills.lock_trust()`);
+  const scope = and(
+    eq(skillVersions.organizationId, context.organizationId),
+    eq(skillVersions.id, input.skillVersionId),
+  );
+  const [row] = await tx
+    .select({
+      version: skillVersions,
+      packageState: skillPackages.state,
+      classification: skillPackages.contentClassification,
+    })
+    .from(skillVersions)
+    .innerJoin(
+      skillPackages,
+      and(
+        eq(skillPackages.organizationId, skillVersions.organizationId),
+        eq(skillPackages.id, skillVersions.packageId),
+      ),
+    )
+    .where(scope)
+    .for('update');
+  if (!row) throw new AppError('NOT_FOUND');
+  const { version } = row;
+  if (version.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT');
+  if (yank === null) {
+    if (version.state !== 'verified' || row.packageState !== 'active')
+      throw new AppError('SKILL_VERSION_NOT_PUBLISHABLE');
+    if (version.uploadedByMembershipId === context.membershipId)
+      throw new AppError('SKILL_PUBLISH_SAME_PERSON');
+  } else if (version.state !== 'verified' && version.state !== 'published') {
+    throw new AppError('INVALID_STATE');
+  }
+  const next = version.version + 1;
+  const [changed] = await tx
+    .update(skillVersions)
+    .set({
+      ...(yank === null
+        ? {
+            state: 'published',
+            publishedByMembershipId: context.membershipId,
+            publishedAt: sql`statement_timestamp()`,
+          }
+        : {
+            state: 'yanked',
+            yankCode: yank,
+            yankedByMembershipId: context.membershipId,
+            yankedAt: sql`statement_timestamp()`,
+          }),
+      version: next,
+      updatedAt: sql`statement_timestamp()`,
+    })
+    .where(scope)
+    .returning({ id: skillVersions.id });
+  if (!changed) throw new AppError('VERSION_CONFLICT');
+  const eventType = yank === null ? SKILL_VERSION_PUBLISHED : SKILL_VERSION_YANKED;
+  const target = skillVersionTargetRef(input.skillVersionId);
+  await auditAction(tx, context, eventType, target, yank ?? undefined);
+  await emit(tx, context, {
+    eventType,
+    aggregateType: AGGREGATE_SKILL_VERSION,
+    aggregateId: input.skillVersionId,
+    aggregateVersion: next,
+    classification: row.classification,
+    payload: { skill_version_id: input.skillVersionId, ...(yank !== null ? { code: yank } : {}) },
+  });
+  if (yank !== null)
+    await notify(
+      tx,
+      context,
+      [version.uploadedByMembershipId],
+      NOTIFY_SKILL_VERSION_YANKED,
+      target,
+    );
+  return (await readSkillVersionReviewInTx(tx, context, input.skillVersionId)).version;
 }
 
 /** Admission for internal callers. A lookup returns facts, and callers still enforce their own tool policy. */

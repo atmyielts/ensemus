@@ -118,7 +118,7 @@ describe('abandoned skill bundle cleanup', () => {
         throw error;
       }
     };
-    return { a, b, files, store, owner, record, key, sweep, claims, age };
+    return { a, b, files, store, owner, record, key, sweep, claims, age, packageId: pkg.id };
   }
 
   it('admits only an aged tenant-local orphan and retries only a read after a known DELETE', async () => {
@@ -151,7 +151,7 @@ describe('abandoned skill bundle cleanup', () => {
         tx.insert(skillVersions).values({
           organizationId: fixture.a.organizationId,
           id: fixture.record.id,
-          packageId: fixture.record.packageId,
+          packageId: fixture.packageId,
           uploadedByMembershipId: fixture.owner.membershipId,
           bundleObjectKey: fixture.key,
           bundleSha256: fixture.record.bundleSha256,

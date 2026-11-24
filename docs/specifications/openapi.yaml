@@ -10389,7 +10389,6 @@ paths:
         "503":
           $ref: "#/components/responses/RestorePending"
     post:
-      x-ensemus-status: planned
       tags:
         - marketplace
       summary: Take a listing. This copies it and grants nothing, and someone still
@@ -10442,7 +10441,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/InstallationID"
     delete:
-      x-ensemus-status: planned
       tags:
         - marketplace
       summary: Remove an installed package, and stop its versions being used here

@@ -30,6 +30,7 @@ export * from './meeting-proposals';
 export * from './meetings';
 export * from './marketplace';
 export * from './marketplace-install';
+export * from './marketplace-review';
 export * from './people';
 export * from './portability-export';
 export * from './portability-epoch';

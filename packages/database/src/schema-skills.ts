@@ -243,7 +243,7 @@ export const skillBundleUploads = skillsSchema.table(
   {
     organizationId: tenantId(),
     id: uuid().notNull(),
-    packageId: uuid().notNull(),
+    packageId: uuid(),
     membershipId: uuid().notNull(),
     bundleSha256: text().notNull(),
     sizeBytes: integer().notNull(),
@@ -254,6 +254,9 @@ export const skillBundleUploads = skillsSchema.table(
     putFinishedAt: timestamp({ withTimezone: true }),
     putMaterialGeneration: uuid(),
     putAuthGeneration: uuid(),
+    marketplaceCopy: boolean().notNull().default(false),
+    copyMaterialGeneration: uuid(),
+    copyAuthGeneration: uuid(),
   },
   (t) => [
     primaryKey({ columns: [t.organizationId, t.id] }),
@@ -275,6 +278,14 @@ export const skillBundleUploads = skillsSchema.table(
       'skill_upload_put_receipt',
       sql`(${t.putFinishedAt} is null and ${t.putMaterialGeneration} is null and ${t.putAuthGeneration} is null)
         or (${t.putFinishedAt} is not null and ${t.putMaterialGeneration} is not null and ${t.putAuthGeneration} is not null)`,
+    ),
+    check(
+      'skill_upload_marketplace_target',
+      sql`(${t.marketplaceCopy} and ${t.copyMaterialGeneration} is not null and ${t.copyAuthGeneration} is not null
+        and (${t.packageId} is null or ${t.packageId}=${t.id})
+        and (${t.state}<>'attached' or ${t.packageId} is not null))
+        or (not ${t.marketplaceCopy} and ${t.packageId} is not null
+          and ${t.copyMaterialGeneration} is null and ${t.copyAuthGeneration} is null)`,
     ),
     check('bundle_uploads_bundle_sha256_check', sql`${t.bundleSha256} ~ '^[0-9a-f]{64}$'`),
     check('bundle_uploads_size_bytes_check', sql`${t.sizeBytes} between 1 and 8388608`),

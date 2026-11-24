@@ -1,4 +1,10 @@
-import { getSkillPackage, getSkillVersionReview, idSchema } from '@ensemus/application';
+import {
+  getPublisher,
+  getSkillPackage,
+  getSkillVersionReview,
+  idSchema,
+  listSubmissions,
+} from '@ensemus/application';
 import { can } from '@ensemus/domain/policy';
 import { notFound } from 'next/navigation';
 import {
@@ -11,6 +17,7 @@ import {
 import { verificationError } from '@/lib/skill-version-copy';
 import { orNotFound, requireTenant } from '@/server/tenant';
 import { getSkillFeatureGate } from '@/server/skill-runtime';
+import { MarketplaceChangeForm } from '../../../marketplace/forms';
 import { SkillReleaseForm } from './release-form';
 
 export const metadata = { title: 'Skill version | Ensemus' };
@@ -29,13 +36,33 @@ export default async function SkillVersionPage({
   );
   const pkg = await orNotFound(getSkillPackage(database, context, version.packageId));
   const test = version.latestTest;
+  const root = `/o/${organizationId}`;
+  const gate = getSkillFeatureGate();
   const canReview = version.state === 'verified' && can(context.role, 'skill.publish');
-  const catalogEnabled =
-    canReview && (await getSkillFeatureGate().isEnabled(context, 'skill_catalog'));
+  const catalogEnabled = canReview && (await gate.isEnabled(context, 'skill_catalog'));
   const canPublish = catalogEnabled && !uploadedByViewer && pkg.state === 'active';
   const canYank =
     (version.state === 'verified' || version.state === 'published') &&
     can(context.role, 'skill.manage');
+  const maySubmit =
+    can(context.role, 'marketplace.publish') &&
+    pkg.origin === 'tenant' &&
+    pkg.state === 'active' &&
+    pkg.contentClassification === 'public' &&
+    (version.state === 'verified' || version.state === 'published') &&
+    !!version.license &&
+    version.license !== 'LicenseRef-Proprietary-Tenant' &&
+    (await gate.isEnabled(context, 'marketplace'));
+  const [publisher, submissions] = maySubmit
+    ? await Promise.all([getPublisher(database, context), listSubmissions(database, context)])
+    : [null, []];
+  const existing = submissions.find(
+    (submission) =>
+      submission.skillVersionId === version.id &&
+      (submission.state === 'submitted' ||
+        submission.state === 'in_review' ||
+        submission.state === 'approved'),
+  );
   return (
     <>
       <BackLink href={`/o/${organizationId}/skills/${pkg.id}`}>{pkg.displayName}</BackLink>
@@ -99,6 +126,31 @@ export default async function SkillVersionPage({
             canPublish={canPublish}
             canYank={canYank}
           />
+        </section>
+      )}
+      {maySubmit && (
+        <section className="card" aria-labelledby="skill-marketplace">
+          <h2 id="skill-marketplace">Marketplace</h2>
+          {existing ? (
+            <div className="row">
+              <StatusBadge status={existing.state} />
+              <a href={`${root}/marketplace/publishing`}>View submissions</a>
+            </div>
+          ) : publisher?.state === 'active' ? (
+            <MarketplaceChangeForm
+              organizationId={organizationId}
+              href={`${root}/skills/versions/${version.id}`}
+              operation="submit"
+              targetId={version.id}
+              confirmation="Other organizations on this deployment will be able to see this package if it is listed."
+              label="Submit for review"
+              working="Submitting for review"
+            />
+          ) : (
+            <a href={`${root}/marketplace/publishing`}>
+              {publisher ? 'View publisher status' : 'Set up your publisher profile'}
+            </a>
+          )}
         </section>
       )}
     </>

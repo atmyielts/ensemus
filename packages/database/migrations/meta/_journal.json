@@ -1303,6 +1303,20 @@
       "when": 1794201807658,
       "tag": "0776_marketplace_listing_object_reservation",
       "breakpoints": true
+    },
+    {
+      "idx": 186,
+      "version": "7",
+      "when": 1794201807659,
+      "tag": "0778_marketplace_tenant_installation_receipts",
+      "breakpoints": true
+    },
+    {
+      "idx": 187,
+      "version": "7",
+      "when": 1794201807660,
+      "tag": "0780_marketplace_listing_review_summary",
+      "breakpoints": true
     }
   ]
 }

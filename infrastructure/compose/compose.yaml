@@ -163,6 +163,8 @@ services:
       OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
       DATABASE_URL_SECRETS_FILE: /run/secrets/db_secrets_url
       SECRET_SEALING_PRIVATE_KEY_FILE: /run/secrets/sealing_private_key.pem
+      ENSEMUS_MARKETPLACE_ENABLED: ${ENSEMUS_MARKETPLACE_ENABLED:-false}
+      ENSEMUS_MARKETPLACE_REVIEW_KEYS: ${ENSEMUS_MARKETPLACE_REVIEW_KEYS:-}
       # The same mode and billing setting as web, so loadSaasConfig refuses billing on Sovereign here too.
       ENSEMUS_MODE: ${ENSEMUS_MODE:-sovereign}
       ENSEMUS_BILLING_ENABLED: ${ENSEMUS_BILLING_ENABLED:-false}

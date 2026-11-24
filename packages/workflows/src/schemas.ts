@@ -1,3 +1,4 @@
+import type { InstallationFailureCode } from '@ensemus/domain/marketplace';
 import { z } from 'zod';
 
 // ADR-024 D2: only identifiers, enums and counters cross Temporal. Strict objects reject any extra
@@ -186,7 +187,12 @@ export const marketplaceInstallWorkflowIdFor = (input: MarketplaceInstallInput) 
   `marketplace-install-${input.organizationId}-${input.installationId}`;
 export type MarketplaceInstallOutcome = 'installed' | 'failed';
 export type MarketplaceInstallStep =
-  { step: 'failed' } | { step: 'verify'; skillVersionId: string };
+  | { step: 'failed'; code: InstallationFailureCode }
+  | { step: 'settled'; outcome: MarketplaceInstallOutcome }
+  | { step: 'verify'; skillVersionId: string };
+export type MarketplaceInstallFinish = MarketplaceInstallInput & {
+  outcome: { ok: true } | { ok: false; code: InstallationFailureCode };
+};
 // --- M11C (ADR-035 D3). The same rule again: which item, under which grant, and what became of it. No
 // title, no body, no organization name and no token ever goes through here.
 

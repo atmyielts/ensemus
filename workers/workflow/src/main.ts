@@ -3,9 +3,14 @@ import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createOnboardingAgentRuns } from '@ensemus/application/knowledge/onboarding-run-port';
-import { loadSaasConfig, readSecret } from '@ensemus/config';
+import { loadSaasConfig, loadSkillFeatures, readSecret } from '@ensemus/config';
+import { createEntitlementChecker } from '@ensemus/application/saas/entitlements';
 import { loadSovereignConfig } from '@ensemus/config/sovereign';
-import { denyAllMeetingEgress, noMeetingModel } from '@ensemus/application';
+import {
+  denyAllMeetingEgress,
+  entitledSkillFeatureGate,
+  noMeetingModel,
+} from '@ensemus/application';
 import { loadSkillWorkerConfig } from '@ensemus/config';
 import { loadTelemetryConfig } from '@ensemus/config';
 import { openAppDatabase } from '@ensemus/database';
@@ -191,7 +196,13 @@ async function main() {
       ...createMeetingImportPlatformActivities({ database: db }),
       ...createSkillVerificationActivities(skillDeps),
       ...createSandboxRunPlatformActivities(skillDeps),
-      ...createMarketplaceInstallActivities(skillDeps),
+      ...createMarketplaceInstallActivities({
+        ...skillDeps,
+        gate: entitledSkillFeatureGate(
+          loadSkillFeatures(),
+          createEntitlementChecker(db, billingEnabled),
+        ),
+      }),
     },
     dataConverter: {
       payloadCodecs: [new AesGcmPayloadCodec(readSecret('TEMPORAL_CODEC_KEY'))],

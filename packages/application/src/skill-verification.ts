@@ -34,6 +34,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { AppError, pgCode } from './errors';
 import { emit } from './events';
 import { idSchema } from './ids';
+import { readInstallingListing, type InstallationSubject } from './marketplace-install';
 import { SKILL_SQLSTATE } from './skill-ports';
 import { auditAction, notify } from './work';
 
@@ -50,18 +51,7 @@ export type VerificationSubject = {
   /** The keys this tenant trusts, for a tenant package. Empty for a marketplace copy. */
   trustedSigners: ReadonlyArray<{ keyId: string; publicKey: Buffer; state: 'active' | 'revoked' }>;
   /** What the listing attests, for a marketplace copy. Null for a tenant package. */
-  listing: {
-    id: string;
-    digest: string;
-    signerKeyId: string;
-    signerPublicKey: Buffer;
-    signature: Buffer;
-    delistMode: 'stop_new' | 'revoke' | null;
-    /** The signed review, to check again here. Trusting the row alone would trust the database. */
-    attestation: unknown;
-    reviewerKeyId: string;
-    attestationSignature: Buffer;
-  } | null;
+  listing: InstallationSubject | null;
 };
 
 const forVersion = (context: TenantContext, id: string) =>
@@ -192,8 +182,7 @@ export async function beginSkillVerification(
         ...signer,
         state: signer.state === 'active' ? 'active' : 'revoked',
       })),
-      // Global review admission will be supplied with marketplace installation.
-      listing: null,
+      listing: row.origin === 'marketplace' ? await readInstallingListing(tx, context, id) : null,
     };
   });
 }
@@ -301,6 +290,8 @@ export async function markSkillVersionVerified(
         .select({
           state: skillVersions.state,
           origin: skillPackages.origin,
+          listingId: skillPackages.listingId,
+          bundleSha256: skillVersions.bundleSha256,
         })
         .from(skillVersions)
         .innerJoin(
@@ -313,21 +304,12 @@ export async function markSkillVersionVerified(
         .where(forVersion(context, id));
       if (!current || current.state !== 'verifying')
         return current ? settledOutcome(current) : 'rejected';
-      if (current.origin !== 'tenant') {
-        await rejectInTx(tx, context, id, 'LISTING_NOT_AVAILABLE');
-        return 'rejected';
-      }
-      const [signer] = await tx
-        .select({ state: trustedSigners.state })
-        .from(trustedSigners)
-        .where(
-          and(
-            eq(trustedSigners.organizationId, context.organizationId),
-            eq(trustedSigners.keyId, input.facts.signerKeyId),
-          ),
-        );
-      if (signer?.state !== 'active') {
-        await rejectInTx(tx, context, id, signer ? 'SIGNER_REVOKED' : 'SIGNER_UNTRUSTED');
+      const denial =
+        current.origin === 'marketplace'
+          ? await marketplaceVerificationDenial(tx, context, id, current, input.facts)
+          : await tenantSignatureDenial(tx, context, input.facts.signerKeyId);
+      if (denial) {
+        await rejectInTx(tx, context, id, denial);
         return 'rejected';
       }
       const [row] = await tx
@@ -384,4 +366,44 @@ export function loadFixtureRunResults(
   ReadonlyArray<{ position: number; sandboxRunId: string; status: string; output: unknown }>
 > {
   throw new Error('NOT_IMPLEMENTED');
+}
+
+async function marketplaceVerificationDenial(
+  tx: Tx,
+  context: TenantContext,
+  id: string,
+  version: { listingId: string | null; bundleSha256: string },
+  facts: CheckedBundleFacts,
+): Promise<SkillRejectCode | null> {
+  if (!version.listingId) return 'LISTING_NOT_AVAILABLE';
+  await tx.execute(sql`select marketplace.lock_install_listing(${version.listingId}::uuid)`);
+  const listing = await readInstallingListing(tx, context, id);
+  if (!listing || listing.id !== version.listingId || listing.state !== 'listed')
+    return 'LISTING_NOT_AVAILABLE';
+  if (listing.bundleSha256 !== version.bundleSha256 || facts.digest !== listing.digest)
+    return 'BUNDLE_HASH_MISMATCH';
+  if (
+    facts.semver !== listing.semver ||
+    facts.signerKeyId !== listing.signerKeyId ||
+    !facts.signature.equals(listing.signature)
+  )
+    return 'SIGNATURE_INVALID';
+  return null;
+}
+
+async function tenantSignatureDenial(
+  tx: Tx,
+  context: TenantContext,
+  keyId: string,
+): Promise<SkillRejectCode | null> {
+  const [signer] = await tx
+    .select({ state: trustedSigners.state })
+    .from(trustedSigners)
+    .where(
+      and(
+        eq(trustedSigners.organizationId, context.organizationId),
+        eq(trustedSigners.keyId, keyId),
+      ),
+    );
+  return signer?.state === 'active' ? null : signer ? 'SIGNER_REVOKED' : 'SIGNER_UNTRUSTED';
 }

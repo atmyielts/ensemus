@@ -16,6 +16,11 @@ import { parseSkillBundle, runContractTests } from '@ensemus/skills/bundle';
 import { checkTenantSignature } from '@ensemus/skills/signature';
 import { checkManifestSupplyChain, policyForManifest } from '@ensemus/skills/supply-chain';
 import { ApplicationFailure } from '@temporalio/common';
+import {
+  hasMarketplaceBundleSignature,
+  hasMarketplaceReview,
+  matchesMarketplaceBundle,
+} from './marketplace-install-step';
 import type { SkillCheckStep, SkillVerificationInput, SkillVerificationOutcome } from './schemas';
 import type { SkillActivityDeps } from './skill-deps';
 
@@ -23,6 +28,7 @@ export function createSkillVerificationActivities({
   database,
   store,
   ceilings,
+  reviewKeys,
 }: SkillActivityDeps) {
   async function settleRejection(
     input: SkillVerificationInput,
@@ -60,7 +66,6 @@ export function createSkillVerificationActivities({
         step: 'finished',
         outcome: await skillVerificationOutcome(database, context, skillVersionId),
       };
-    if (subject.origin !== 'tenant') return reject('LISTING_NOT_AVAILABLE');
     const key = skillBundleObjectKey(organizationId, skillVersionId);
     if (subject.bundleObjectKey !== key) return reject('BUNDLE_HASH_MISMATCH');
 
@@ -82,13 +87,26 @@ export function createSkillVerificationActivities({
     const supplyChain = checkManifestSupplyChain(manifest);
     if (supplyChain !== 'ok') return reject(supplyChain);
     const signature = Buffer.from(bundle.signature.value_base64, 'base64');
-    const trust = checkTenantSignature({
-      digest,
-      keyId: bundle.signature.key_id,
-      signature,
-      lookup: (keyId) => subject.trustedSigners.find((key) => key.keyId === keyId) ?? null,
-    });
-    if (trust !== 'ok') return reject(trust);
+    if (subject.origin === 'marketplace') {
+      const listing = subject.listing;
+      if (!listing || listing.state !== 'listed') return reject('LISTING_NOT_AVAILABLE');
+      if (!hasMarketplaceReview(listing, reviewKeys)) return reject('ATTESTATION_INVALID');
+      if (
+        listing.bundleSha256 !== subject.bundleSha256 ||
+        !matchesMarketplaceBundle(result.parsed, listing)
+      )
+        return reject('BUNDLE_HASH_MISMATCH');
+      if (!hasMarketplaceBundleSignature(result.parsed, listing))
+        return reject('SIGNATURE_INVALID');
+    } else {
+      const trust = checkTenantSignature({
+        digest,
+        keyId: bundle.signature.key_id,
+        signature,
+        lookup: (keyId) => subject.trustedSigners.find((key) => key.keyId === keyId) ?? null,
+      });
+      if (trust !== 'ok') return reject(trust);
+    }
     const startedAt = new Date();
     const contract = runContractTests(result.parsed);
     const failed = contract.firstFailed !== null;

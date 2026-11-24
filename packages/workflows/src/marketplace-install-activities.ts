@@ -1,27 +1,107 @@
-// Owned by the marketplace-install slice (EXP-06). See docs/06-delivery/m11b-slices.md and ADR-034 D7.
+import { createHash } from 'node:crypto';
+import {
+  AppError,
+  beginInstallation,
+  finishInstallation,
+  materializeInstallation,
+  type SkillFeatureGate,
+} from '@ensemus/application';
+import { createServiceContext } from '@ensemus/database/service';
+import { listingObjectKey } from '@ensemus/domain/marketplace';
+import { SKILL_BUNDLE_MAX_BYTES } from '@ensemus/domain/skill';
+import { parseSkillBundle } from '@ensemus/skills/bundle';
+import { ApplicationFailure } from '@temporalio/common';
+import {
+  hasMarketplaceBundleSignature,
+  hasMarketplaceReview,
+  matchesMarketplaceBundle,
+} from './marketplace-install-step';
 import type {
+  MarketplaceInstallFinish,
   MarketplaceInstallInput,
-  MarketplaceInstallOutcome,
   MarketplaceInstallStep,
 } from './schemas';
 import type { SkillActivityDeps } from './skill-deps';
 
-/** On the platform queue. Holds the review keys, which are public, and no secret. */
-export function createMarketplaceInstallActivities(_deps: SkillActivityDeps) {
+export function createMarketplaceInstallActivities({
+  database,
+  store,
+  reviewKeys,
+  gate,
+}: SkillActivityDeps & { gate: SkillFeatureGate }) {
+  async function materialize(input: MarketplaceInstallInput): Promise<MarketplaceInstallStep> {
+    const context = createServiceContext(input.organizationId);
+    const started = await beginInstallation(database, context, input);
+    if (started.step === 'settled') return started;
+    if (started.step === 'unavailable' || !(await gate.isEnabled(context, 'marketplace')))
+      return { step: 'failed', code: 'LISTING_NOT_AVAILABLE' };
+    const { subject, skillVersionId } = started;
+    if (!hasMarketplaceReview(subject, reviewKeys))
+      return { step: 'failed', code: 'ATTESTATION_INVALID' };
+    if (skillVersionId) return { step: 'verify', skillVersionId };
+    if (subject.objectKey !== listingObjectKey(subject.digest) || !subject.bundleSha256)
+      return { step: 'failed', code: 'BUNDLE_HASH_MISMATCH' };
+
+    const bytes = await store.get(subject.objectKey, SKILL_BUNDLE_MAX_BYTES).catch(() => {
+      throw ApplicationFailure.retryable(
+        'Marketplace source bundle could not be read',
+        'MARKETPLACE_BUNDLE_PENDING',
+      );
+    });
+    if (
+      bytes.length !== subject.sizeBytes ||
+      createHash('sha256').update(bytes).digest('hex') !== subject.bundleSha256
+    )
+      return { step: 'failed', code: 'BUNDLE_HASH_MISMATCH' };
+    const parsed = parseSkillBundle(bytes);
+    if (!parsed.ok || !matchesMarketplaceBundle(parsed.parsed, subject))
+      return { step: 'failed', code: 'BUNDLE_HASH_MISMATCH' };
+    if (!hasMarketplaceBundleSignature(parsed.parsed, subject))
+      return { step: 'failed', code: 'SIGNATURE_INVALID' };
+    if (!(await gate.isEnabled(context, 'marketplace')))
+      return { step: 'failed', code: 'LISTING_NOT_AVAILABLE' };
+    const result = await materializeInstallation(database, store, context, {
+      ...input,
+      subject,
+      bytes,
+    });
+    return result.ok
+      ? { step: 'verify', skillVersionId: result.skillVersionId }
+      : { step: 'failed', code: result.code };
+  }
+
   return {
-    /**
-     * Checks the listing's attestation against this deployment's review keys, its publisher signature and
-     * the bytes against the digest, and only then copies them in. A delisted listing, an unknown reviewer
-     * or a changed byte fails here, with a fixed code, whatever the row says.
-     */
-    async materializeListing(_input: MarketplaceInstallInput): Promise<MarketplaceInstallStep> {
-      throw new Error('NOT_IMPLEMENTED');
+    async materializeListing(input: MarketplaceInstallInput): Promise<MarketplaceInstallStep> {
+      try {
+        return await materialize(input);
+      } catch (error) {
+        if (error instanceof ApplicationFailure && error.type === 'MARKETPLACE_BUNDLE_PENDING')
+          throw error;
+        if (error instanceof AppError && error.code === 'SKILL_UPLOAD_PENDING')
+          throw ApplicationFailure.retryable(
+            'Marketplace tenant copy is pending',
+            'MARKETPLACE_BUNDLE_PENDING',
+          );
+        throw ApplicationFailure.retryable(
+          'Marketplace copy could not advance',
+          'MARKETPLACE_INSTALL_RETRY',
+        );
+      }
     },
-    /** Settles the installation, from what the child verification ended on. */
-    async finishListingInstall(
-      _input: MarketplaceInstallInput & { verified: boolean },
-    ): Promise<MarketplaceInstallOutcome> {
-      throw new Error('NOT_IMPLEMENTED');
+    async finishListingInstall(input: MarketplaceInstallFinish) {
+      try {
+        const context = createServiceContext(input.organizationId);
+        const outcome =
+          input.outcome.ok && !(await gate.isEnabled(context, 'marketplace'))
+            ? ({ ok: false, code: 'LISTING_NOT_AVAILABLE' } as const)
+            : input.outcome;
+        return await finishInstallation(database, context, { ...input, outcome });
+      } catch {
+        throw ApplicationFailure.retryable(
+          'Marketplace installation could not settle',
+          'MARKETPLACE_INSTALL_RETRY',
+        );
+      }
     },
   };
 }

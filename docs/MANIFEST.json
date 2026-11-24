@@ -1687,8 +1687,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 564262,
-      "sha256": "5e262806d79cde1b676329c51386bf7b9f373bf288f37bf09ff3be63283bb52b"
+      "size_bytes": 583822,
+      "sha256": "24727e929476ab739d550e09910d87efdd16e48b503ccdb636e5012857bb2f06"
     },
     {
       "path": "specifications/qa-scenarios.csv",

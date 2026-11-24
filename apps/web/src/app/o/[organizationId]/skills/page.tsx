@@ -20,14 +20,16 @@ export default async function SkillsPage({
   const { database, context } = await requireTenant(organizationId);
   const base = `/o/${organizationId}`;
   const manage = can(context.role, 'skill.manage');
-  const [page, canCreate] = await Promise.all([
+  const gate = getSkillFeatureGate();
+  const [page, canCreate, marketplaceEnabled] = await Promise.all([
     listSkillPackages(database, context, cursor === undefined ? {} : { after: cursor }).catch(
       (error) => {
         if (error instanceof AppError && error.code === 'INVALID_INPUT') notFound();
         throw error;
       },
     ),
-    manage && getSkillFeatureGate().isEnabled(context, 'skill_catalog'),
+    manage && gate.isEnabled(context, 'skill_catalog'),
+    gate.isEnabled(context, 'marketplace'),
   ]);
   return (
     <>
@@ -35,6 +37,11 @@ export default async function SkillsPage({
         title="Skill catalog"
         actions={
           <>
+            {marketplaceEnabled && (
+              <ActionLink href={`${base}/marketplace`} variant="secondary">
+                Marketplace
+              </ActionLink>
+            )}
             {manage && (
               <ActionLink href={`${base}/settings/skills/signers`} variant="secondary">
                 Publisher keys
