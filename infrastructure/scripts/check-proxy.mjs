@@ -371,7 +371,7 @@ await withProxy(
 
 // A setting Caddy cannot read stops the proxy, rather than leaving it to run with a different list.
 function accepts(trusted) {
-  const proxy = resolvedProxy('', trusted);
+  const { proxy } = resolvedServices('', trusted);
   const validated = spawnSync(
     'docker',
     [
