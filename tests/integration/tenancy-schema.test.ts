@@ -1,17 +1,19 @@
-// ADR-035 D5 and D6's database rules on their own. Real PostgreSQL, real roles. NOT RUN YET: the migrations are
-// not in the journal until the final merge, and this project needs a container.
+// ADR-035 D5 and D6: deployment profile and residency rules on real PostgreSQL with native roles.
 import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import {
   createOrganization,
+  DedicatedOrganizationClaimRefused,
   deploymentProfile,
   isolationEvidence,
   memberships,
   openAppDatabase,
   residencyRequirements,
+  resolveTenantContext,
   withTenantTx,
   type TenantContext,
 } from '@ensemus/database';
+import { applyDeploymentProfile, PinChangeRefused } from '@ensemus/database/deployment';
 import { clearDeploymentProfile, client, setDeploymentProfile } from '../helpers/federation';
 import { urls } from '../helpers/stack';
 import { makePerson, nativePersonContext, proveSecondFactor } from '../helpers/product';
@@ -112,7 +114,80 @@ describe('deployment profile and residency rules in the database', () => {
     });
   });
 
+  it('keeps the first committed pin when setup jobs start on an empty profile', async () => {
+    const first = randomUUID();
+    const competing = randomUUID();
+    const config = (pinnedOrganizationId: string) => ({
+      tier: 'dedicated' as const,
+      pinnedOrganizationId,
+      homeRegion: null,
+      crossOrgEnabled: false,
+      profileSha256: '0'.repeat(64),
+    });
+    const holder = await client(urls.migrator());
+    const observer = await client(urls.superuser());
+    let attempt: Promise<unknown> | undefined;
+    try {
+      await holder.query('begin');
+      await holder.query(
+        "insert into tenancy.deployment_profile(tier, pinned_organization_id, profile_sha256) values ('dedicated',$1,$2)",
+        [first, config(first).profileSha256],
+      );
+      attempt = applyDeploymentProfile(urls.migrator(), config(competing)).then(
+        () => null,
+        (error: unknown) => error,
+      );
+      await expect
+        .poll(
+          async () => {
+            const { rowCount } = await observer.query(
+              "select 1 from pg_stat_activity where datname = current_database() and application_name='ensemus-deploy' and wait_event_type='Lock'",
+            );
+            return rowCount;
+          },
+          { timeout: 5_000, interval: 50 },
+        )
+        .toBe(1);
+      await holder.query('commit');
+      expect(await attempt).toBeInstanceOf(PinChangeRefused);
+      await expect(applyDeploymentProfile(urls.migrator(), config(first))).resolves.toBeUndefined();
+      const { rows } = await observer.query(
+        'select pinned_organization_id from tenancy.deployment_profile',
+      );
+      expect(rows).toEqual([{ pinned_organization_id: first }]);
+    } finally {
+      await holder.end();
+      await attempt;
+      await observer.end();
+    }
+  });
+
   describe('a dedicated deployment', () => {
+    it('sets up the pinned organization once and gives a competing account no membership', async () => {
+      const person = await makePerson('dedicated-owner');
+      const other = await makePerson('dedicated-other');
+      const pinnedOrganizationId = randomUUID();
+      const input = {
+        userId: person.userId,
+        name: 'Pinned workspace',
+        commercialMode: 'byom' as const,
+        pinnedOrganizationId,
+      };
+      await expect(createOrganization(database.db, input)).rejects.toBeInstanceOf(
+        DedicatedOrganizationClaimRefused,
+      );
+      await setDeploymentProfile({ tier: 'dedicated', pinnedOrganizationId });
+      const created = await createOrganization(database.db, input);
+      expect(created.organizationId).toBe(pinnedOrganizationId);
+      await expect(createOrganization(database.db, input)).resolves.toEqual(created);
+      await expect(
+        createOrganization(database.db, { ...input, userId: other.userId }),
+      ).rejects.toBeInstanceOf(DedicatedOrganizationClaimRefused);
+      await expect(
+        resolveTenantContext(database.db, other.userId, pinnedOrganizationId),
+      ).rejects.toThrow();
+    });
+
     it('admits only its pinned organization, whatever asks', async () => {
       await setDeploymentProfile({ tier: 'dedicated', pinnedOrganizationId: randomUUID() });
       const person = await makePerson('second-org');

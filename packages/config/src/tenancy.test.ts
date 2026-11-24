@@ -6,6 +6,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import {
   ConfigError,
   deploymentProfileHash,
+  loadExplicitTenancyConfig,
   loadResidencyPolicy,
   loadTenancyConfig,
 } from './index';
@@ -20,6 +21,29 @@ describe('tenancy configuration', () => {
       homeRegion: null,
       crossOrgEnabled: false,
     });
+  });
+
+  it('applies a configured pin or region without enabling federation', () => {
+    expect(loadExplicitTenancyConfig({ ENSEMUS_CROSS_ORG_ENABLED: '' })).toBeUndefined();
+    expect(
+      loadExplicitTenancyConfig({
+        ENSEMUS_TENANCY_TIER: 'dedicated',
+        ENSEMUS_DEDICATED_ORGANIZATION_ID: ORG,
+        ENSEMUS_CROSS_ORG_ENABLED: '',
+      }),
+    ).toMatchObject({
+      tier: 'dedicated',
+      pinnedOrganizationId: ORG.toLowerCase(),
+      crossOrgEnabled: false,
+    });
+    expect(loadExplicitTenancyConfig({ ENSEMUS_HOME_REGION: 'test-region-a' })).toMatchObject({
+      tier: 'shared',
+      homeRegion: 'test-region-a',
+      crossOrgEnabled: false,
+    });
+    expect(() => loadExplicitTenancyConfig({ ENSEMUS_TENANCY_TIER: 'dedicated' })).toThrow(
+      ConfigError,
+    );
   });
 
   it('turns on only when told exactly', () => {

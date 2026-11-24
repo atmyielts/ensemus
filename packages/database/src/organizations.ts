@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { and, asc, eq, ne, sql } from 'drizzle-orm';
 import { appendAudit } from './audit';
+import { deploymentProfile } from './schema-tenancy';
 import {
   auditEvents,
   domainEvents,
@@ -20,6 +21,10 @@ import {
 
 export type CommercialMode = 'cloud' | 'byom' | 'sovereign';
 
+export class DedicatedOrganizationClaimRefused extends Error {
+  override name = 'DedicatedOrganizationClaimRefused';
+}
+
 /** An ID only this person and this form can arrive at, so nobody else can aim at an organization. */
 function organizationIdFor(userId: string, requestKey: string, name: string) {
   const hex = createHash('sha256').update(`${userId}:${requestKey}:${name}`).digest('hex');
@@ -34,13 +39,36 @@ function organizationIdFor(userId: string, requestKey: string, name: string) {
  */
 export async function createOrganization(
   database: AppDatabase,
-  input: { userId: string; name: string; commercialMode: CommercialMode; requestKey?: string },
+  input: {
+    userId: string;
+    name: string;
+    commercialMode: CommercialMode;
+    requestKey?: string;
+    pinnedOrganizationId?: string;
+  },
 ) {
-  const organizationId = input.requestKey
-    ? organizationIdFor(input.userId, input.requestKey, input.name)
-    : randomUUID();
+  const organizationId =
+    input.pinnedOrganizationId ??
+    (input.requestKey
+      ? organizationIdFor(input.userId, input.requestKey, input.name)
+      : randomUUID());
   const membershipId = randomUUID();
   return withNewTenantTx(database, organizationId, input.userId, async (tx) => {
+    if (input.pinnedOrganizationId) {
+      const [profile] = await tx
+        .select({ id: deploymentProfile.pinnedOrganizationId })
+        .from(deploymentProfile)
+        .where(
+          and(
+            eq(deploymentProfile.tier, 'dedicated'),
+            eq(deploymentProfile.pinnedOrganizationId, organizationId),
+          ),
+        );
+      if (!profile)
+        throw new DedicatedOrganizationClaimRefused(
+          'The dedicated pin is not configured in the database.',
+        );
+    }
     const created = await tx
       .insert(organizations)
       .values({
@@ -52,11 +80,14 @@ export async function createOrganization(
       .returning({ id: organizations.id });
     if (created.length === 0) {
       const [existing] = await tx
-        .select({ id: memberships.id })
+        .select({ id: memberships.id, status: memberships.status })
         .from(memberships)
         .where(
           and(eq(memberships.organizationId, organizationId), eq(memberships.userId, input.userId)),
         );
+      if (input.pinnedOrganizationId && existing?.status !== 'active') {
+        throw new DedicatedOrganizationClaimRefused('The dedicated organization already exists.');
+      }
       return { organizationId, membershipId: existing?.id ?? membershipId };
     }
     await tx.insert(memberships).values({

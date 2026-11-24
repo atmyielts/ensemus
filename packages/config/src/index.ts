@@ -90,6 +90,7 @@ export function loadSaasConfig(env: NodeJS.ProcessEnv = process.env) {
 }
 export {
   deploymentProfileHash,
+  loadExplicitTenancyConfig,
   loadResidencyPolicy,
   loadTenancyConfig,
   type TenancyConfig,

@@ -8,6 +8,7 @@ export {
 } from './audit';
 export {
   createOrganization,
+  DedicatedOrganizationClaimRefused,
   getOrganization,
   hasOtherAccessibleOrganization,
   listAuditEvents,

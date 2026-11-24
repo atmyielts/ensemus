@@ -14,6 +14,7 @@ import {
   tokenIn,
   visit,
 } from '../helpers/forms';
+import { clearDeploymentProfile } from '../helpers/federation';
 import { compose, composeWith, urls } from '../helpers/stack';
 
 const RECREATE_TIMEOUT = 180_000;
@@ -319,6 +320,34 @@ describe('a first owner on a default install (ID-01)', () => {
     });
   });
 });
+
+it(
+  'creates the operator-pinned workspace on a dedicated install and refuses a second claim',
+  async () => {
+    const pin = randomUUID();
+    const settings = {
+      ENSEMUS_TENANCY_TIER: 'dedicated',
+      ENSEMUS_DEDICATED_ORGANIZATION_ID: pin,
+      ENSEMUS_ALLOW_SIGNUP: 'false',
+    };
+    try {
+      composeWith(settings, 'run', '--rm', '--no-deps', '-T', 'migrate');
+      recreateWeb(settings);
+      const first = await useCode(issueCode());
+      expect(await createOrganization(first.person, 'Pinned workspace')).toBe(pin);
+      const second = await useCode(issueCode());
+      const refusal = await submit('/', second.person.jar, /Create organization/, {
+        name: 'Another',
+      });
+      expect(refusal.headers.get('location')).toBe('/?error=TENANCY_SINGLE_ORGANIZATION');
+      expect((await read(`/o/${pin}`, second.person.jar)).status).toBe(404);
+    } finally {
+      await clearDeploymentProfile();
+      recreateWeb({});
+    }
+  },
+  RECREATE_TIMEOUT,
+);
 
 describe('with sign-up on', () => {
   it('needs no code, and a code still works', async () => {

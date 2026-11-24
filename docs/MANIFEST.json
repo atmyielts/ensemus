@@ -1177,8 +1177,8 @@
     },
     {
       "path": "guides/operator/first-owner.md",
-      "size_bytes": 6458,
-      "sha256": "6d069dcaecc7b7e3efdd408dfe0043aa0ce6857be9871f4f526be2221fd34833"
+      "size_bytes": 6901,
+      "sha256": "405a40d867e0b7bc324022e09d2b0a04c0a10b896ae2ff4bddeea48d5000071d"
     },
     {
       "path": "guides/operator/hosted-environments.md",

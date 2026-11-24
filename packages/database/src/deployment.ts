@@ -1,7 +1,7 @@
 // For one-shot deploy jobs only, which connect as the migrator (ADR-035 D5). Lint keeps this out of the web tier
 // and out of Activities. No request can reach it, so no tenant can change what tier or region it is in.
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { eq } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import pg from 'pg';
 import { deploymentProfile, isolationEvidence } from './schema-tenancy';
 
@@ -37,23 +37,23 @@ export function applyDeploymentProfile(
     profileSha256: string;
   },
 ): Promise<void> {
-  return withMigrator(migratorUrl, (db) =>
-    db.transaction(async (tx) => {
-      const [existing] = await tx
-        .select({ pinned: deploymentProfile.pinnedOrganizationId })
-        .from(deploymentProfile)
-        .where(eq(deploymentProfile.singleton, true))
-        .for('update');
-      if (existing?.pinned && existing.pinned !== profile.pinnedOrganizationId) {
-        throw new PinChangeRefused('This deployment is already dedicated to one organization.');
-      }
-      const values = { ...profile, appliedAt: new Date() };
-      await tx
-        .insert(deploymentProfile)
-        .values({ singleton: true, ...values })
-        .onConflictDoUpdate({ target: deploymentProfile.singleton, set: values });
-    }),
-  );
+  return withMigrator(migratorUrl, async (db) => {
+    const values = { ...profile, appliedAt: new Date() };
+    const [written] = await db
+      .insert(deploymentProfile)
+      .values({ singleton: true, ...values })
+      .onConflictDoUpdate({
+        target: deploymentProfile.singleton,
+        set: values,
+        // Check the winning row when two setup jobs arrive together on an empty database.
+        setWhere: sql`${deploymentProfile.pinnedOrganizationId} is null
+          or ${deploymentProfile.pinnedOrganizationId} = excluded.pinned_organization_id`,
+      })
+      .returning({ singleton: deploymentProfile.singleton });
+    if (!written) {
+      throw new PinChangeRefused('This deployment is already dedicated to one organization.');
+    }
+  });
 }
 
 /** Adds what one run of the isolation report found. These are never changed afterwards. */

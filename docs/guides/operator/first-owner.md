@@ -5,7 +5,7 @@ area: op-install
 tickets: [ID-01]
 modes: [cloud, byom, sovereign]
 status: written_untested
-sources: [workers/workflow/src/setup-token.ts, packages/database/src/setup-token.ts, packages/auth/src/index.ts, apps/web/src/app/setup/page.tsx, apps/web/src/app/sign-in/page.tsx, apps/web/src/app/page.tsx, apps/web/src/app/invite/[token]/page.tsx, packages/application/src/people.ts, packages/config/src/index.ts, tests/stack/first-owner.test.ts, docs/05-operations/05-container-deployment-runbook.md]
+sources: [workers/workflow/src/setup-token.ts, workers/workflow/src/migrate.ts, packages/database/src/setup-token.ts, packages/database/src/deployment.ts, packages/database/src/organizations.ts, packages/auth/src/index.ts, apps/web/src/app/setup/page.tsx, apps/web/src/app/sign-in/page.tsx, apps/web/src/app/page.tsx, apps/web/src/app/invite/[token]/page.tsx, packages/application/src/people.ts, packages/config/src/index.ts, tests/stack/first-owner.test.ts, docs/05-operations/05-container-deployment-runbook.md]
 tests: []
 ---
 
@@ -62,6 +62,8 @@ They are signed in and land on `Set up your organization`. Under `Who is respons
 **Check this says what you intend.** If it names the wrong mode, stop and fix `ENSEMUS_MODE`, because the organization records the mode it was created in.
 
 They enter a name and choose `Create organization`. They become its `Owner`, and can invite people.
+
+For a fresh dedicated installation, set `ENSEMUS_TENANCY_TIER=dedicated` and `ENSEMUS_DEDICATED_ORGANIZATION_ID` to the chosen UUID in the Compose settings before running migrations. Keep public sign-up off while you set it up. The first owner creates the organization with that UUID. Give later coworkers an invitation to join it.
 
 ## How to tell it worked
 

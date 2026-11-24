@@ -1,7 +1,7 @@
 // The one setup job. Replicas never migrate themselves (see ADR-024 D4 and the deployment doc).
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { deploymentProfileHash, loadTenancyConfig, readSecret } from '@ensemus/config';
+import { deploymentProfileHash, loadExplicitTenancyConfig, readSecret } from '@ensemus/config';
 import { applyDeploymentProfile } from '@ensemus/database/deployment';
 import { runMigrations } from '@ensemus/database/migrate';
 import { S3ObjectStore } from '@ensemus/storage';
@@ -11,8 +11,7 @@ const log = createLogger('migrate');
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 async function main() {
-  // Preserve the default upgrade path when no operator chose a federation setting.
-  const profile = process.env.ENSEMUS_CROSS_ORG_ENABLED ? loadTenancyConfig() : undefined;
+  const profile = loadExplicitTenancyConfig();
   const migrator = readSecret('DATABASE_URL_MIGRATOR');
   await runMigrations(migrator, path.join(here, '..', 'migrations'), {
     requireFederationRole: profile?.crossOrgEnabled === true,

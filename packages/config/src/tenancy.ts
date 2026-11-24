@@ -49,6 +49,23 @@ export function loadTenancyConfig(env: NodeJS.ProcessEnv = process.env): Tenancy
   };
 }
 
+/** Leave an existing profile alone when the operator supplied no deployment settings. */
+export function loadExplicitTenancyConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): TenancyConfig | undefined {
+  const federation = env.ENSEMUS_CROSS_ORG_ENABLED || undefined;
+  if (
+    env.ENSEMUS_TENANCY_TIER === undefined &&
+    env.ENSEMUS_DEDICATED_ORGANIZATION_ID === undefined &&
+    env.ENSEMUS_HOME_REGION === undefined &&
+    federation === undefined
+  ) {
+    return undefined;
+  }
+  // The base Compose file passes an empty federation value when the setting was omitted.
+  return loadTenancyConfig({ ...env, ENSEMUS_CROSS_ORG_ENABLED: federation });
+}
+
 /** Goes on the profile's row, so it can be seen which statement a deployment is running under. */
 export function deploymentProfileHash(config: TenancyConfig): string {
   const canonical = JSON.stringify([

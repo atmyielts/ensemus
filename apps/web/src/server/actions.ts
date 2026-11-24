@@ -1,9 +1,14 @@
 'use server';
 
-import { idSchema } from '@ensemus/application';
+import { idSchema, pgCode } from '@ensemus/application';
 import type { CredentialForm } from '@ensemus/auth';
+import { loadTenancyConfig } from '@ensemus/config';
 import { organizationNameSchema } from '@ensemus/contracts';
-import { createOrganization, isRestoreAdmissionDenied } from '@ensemus/database';
+import {
+  createOrganization,
+  DedicatedOrganizationClaimRefused,
+  isRestoreAdmissionDenied,
+} from '@ensemus/database';
 import { errorCode } from '@ensemus/telemetry';
 import { parseSetCookieHeader, toCookieOptions } from 'better-auth/cookies';
 import { cookies, headers } from 'next/headers';
@@ -166,16 +171,22 @@ export async function createOrganizationAction(form: FormData) {
   const requestKey = idSchema.safeParse(field(form, 'requestKey'));
   let target = '/?error=UNEXPECTED';
   try {
+    const { pinnedOrganizationId } = loadTenancyConfig();
     const { organizationId } = await createOrganization(app, {
       userId: actor.userId,
       name: name.data,
       commercialMode: config.mode,
+      ...(pinnedOrganizationId ? { pinnedOrganizationId } : {}),
       ...(requestKey.success ? { requestKey: requestKey.data } : {}),
     });
     log.info('organization.created', { organizationId, userId: actor.userId });
     target = `/o/${organizationId}`;
   } catch (error) {
-    log.error('organization.create_failed', { errorCode: errorCode(error) });
+    if (error instanceof DedicatedOrganizationClaimRefused || pgCode(error) === 'EN701') {
+      target = '/?error=TENANCY_SINGLE_ORGANIZATION';
+    } else {
+      log.error('organization.create_failed', { errorCode: errorCode(error) });
+    }
   }
   redirect(target);
 }
