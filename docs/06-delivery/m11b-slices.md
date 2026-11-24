@@ -196,7 +196,7 @@ updateSkillPackage(database, context, { packageId, expectedVersion, displayName?
 uploadSkillBundle(database, store, context, gate, { packageId, bytes }): Promise<SkillVersionView>
 listSkillVersions(database, context, packageId): Promise<readonly SkillVersionView[]>
 getSkillVersion(database, context, skillVersionId): Promise<SkillVersionView>
-publishSkillVersion(database, context, { skillVersionId, expectedVersion }): Promise<SkillVersionView>
+publishSkillVersion(database, context, gate, { skillVersionId, expectedVersion }): Promise<SkillVersionView>
 yankSkillVersion(database, context, { skillVersionId, expectedVersion, code }): Promise<SkillVersionView>
 resolveSkillVersionForUse(database, context, skillVersionId): Promise<UsableSkillVersion | { ok: false; denial: SkillUseDenial }>
 ```

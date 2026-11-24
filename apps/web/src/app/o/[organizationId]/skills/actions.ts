@@ -4,11 +4,17 @@ import {
   AppError,
   createSkillPackage,
   idSchema,
+  publishSkillVersion,
   refusalFromDatabase,
   updateSkillPackage,
   uploadSkillBundle,
+  yankSkillVersion,
 } from '@ensemus/application';
-import { createSkillPackageSchema, updateSkillPackageSchema } from '@ensemus/contracts/skills';
+import {
+  createSkillPackageSchema,
+  updateSkillPackageSchema,
+  yankSkillVersionSchema,
+} from '@ensemus/contracts/skills';
 import { SKILL_BUNDLE_MAX_BYTES } from '@ensemus/domain/skill';
 import { errorCode } from '@ensemus/telemetry';
 import { revalidatePath } from 'next/cache';
@@ -22,6 +28,7 @@ import { requireTenant } from '@/server/tenant';
 type FormValues = { name: string; displayName: string; classification: string; state: string };
 export type PackageFormState = { code?: string; values?: FormValues; stepUp?: string };
 export type UploadFormState = { code?: string; stepUp?: string };
+export type ReleaseFormState = UploadFormState & { operation?: 'publish' | 'yank' };
 
 function text(form: FormData, name: string): string | undefined {
   const value = form.get(name);
@@ -135,4 +142,43 @@ export async function uploadSkillBundleAction(
   }
   revalidatePath(path);
   redirect(`${base}/versions/${versionId}`);
+}
+
+export async function changeSkillReleaseAction(
+  _previous: ReleaseFormState,
+  form: FormData,
+): Promise<ReleaseFormState> {
+  const organization = idSchema.safeParse(text(form, 'organizationId'));
+  const id = idSchema.safeParse(text(form, 'skillVersionId'));
+  if (!organization.success || !id.success) notFound();
+  const { database, context } = await requireTenant(organization.data);
+  const operation = text(form, 'operation');
+  if (operation !== 'publish' && operation !== 'yank') return { code: 'INVALID_INPUT' };
+  const path = `/o/${organization.data}/skills/versions/${id.data}`;
+  const input = { skillVersionId: id.data, expectedVersion: Number(text(form, 'version')) };
+  let packageId: string;
+  try {
+    if (operation === 'publish') {
+      packageId = (await publishSkillVersion(database, context, getSkillFeatureGate(), input))
+        .packageId;
+    } else {
+      const body = yankSkillVersionSchema.safeParse({ code: text(form, 'code') });
+      if (!body.success || text(form, 'confirm') !== 'yes') throw new AppError('INVALID_INPUT');
+      packageId = (await yankSkillVersion(database, context, { ...input, code: body.data.code }))
+        .packageId;
+    }
+  } catch (error) {
+    redirectForSsoRefusal(error);
+    const failure = error instanceof AppError ? error : refusalFromDatabase(error);
+    if (failure?.code === 'NOT_FOUND') notFound();
+    if (failure?.code === 'RESTORE_PENDING') redirect('/restoring');
+    if (failure?.code === 'MFA_REQUIRED')
+      return { code: failure.code, operation, stepUp: stepUpPath(organization.data, path) };
+    if (failure) return { code: failure.code, operation };
+    getRuntime().log.error('skill_version.release_failed', { errorCode: errorCode(error) });
+    return { code: 'UNEXPECTED', operation };
+  }
+  revalidatePath(`/o/${organization.data}/skills/${packageId}`);
+  revalidatePath(path);
+  redirect(path);
 }

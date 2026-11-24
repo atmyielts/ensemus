@@ -10,7 +10,7 @@ import {
 import { can } from '@ensemus/domain/policy';
 import {
   SKILL_BUNDLE_MAX_BYTES,
-  SKILL_BUNDLE_CONTENT_TYPE,
+  SKILL_BUNDLE_MEDIA_TYPE,
   skillBundleObjectKey,
 } from '@ensemus/domain/skill';
 import {
@@ -183,7 +183,7 @@ export async function uploadSkillBundle(
   if (write.kind === 'existing') return getSkillVersion(database, context, write.id);
   if (write.kind !== 'reserved') throw new AppError('SKILL_UPLOAD_PENDING');
   const result = await store
-    .putSingleAttempt(key(write.id), bytes, SKILL_BUNDLE_CONTENT_TYPE)
+    .putSingleAttempt(key(write.id), bytes, SKILL_BUNDLE_MEDIA_TYPE)
     .catch(() => null);
   if (result?.transport !== 'written') throw new AppError('SKILL_UPLOAD_PENDING');
   return finish(write.id);

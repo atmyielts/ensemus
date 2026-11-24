@@ -1,5 +1,5 @@
 import { idSchema, listSkillVersions, uploadSkillBundle } from '@ensemus/application';
-import { SKILL_BUNDLE_CONTENT_TYPE, SKILL_BUNDLE_MAX_BYTES } from '@ensemus/domain/skill';
+import { SKILL_BUNDLE_MEDIA_TYPE, SKILL_BUNDLE_MAX_BYTES } from '@ensemus/domain/skill';
 import { apiRoute, etag, organizationParams, readSkillBundleBody } from '@/server/api';
 import { getStore } from '@/server/runtime';
 import { skillVersionDto } from '@/server/skill-dto';
@@ -20,7 +20,7 @@ export const POST = apiRoute(
   async ({ database, context, params, request }) => {
     const bytes = await readSkillBundleBody(
       request,
-      SKILL_BUNDLE_CONTENT_TYPE,
+      SKILL_BUNDLE_MEDIA_TYPE,
       SKILL_BUNDLE_MAX_BYTES,
     );
     const version = await uploadSkillBundle(database, getStore(), context, getSkillFeatureGate(), {

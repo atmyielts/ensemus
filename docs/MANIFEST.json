@@ -82,8 +82,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-034-skills-sandbox-marketplace.md",
-      "size_bytes": 30335,
-      "sha256": "ba95f6878f17e2fa381f9236a6127f2ad195110fc73ebc672b4e99d83fb8aed2"
+      "size_bytes": 30856,
+      "sha256": "81c3d9cc1a04d3360330a178b91debc8d62f625883ef6ac58865121f194ff935"
     },
     {
       "path": "00-foundation/adr/ADR-035-cross-org-tenants-regions.md",
@@ -1007,8 +1007,8 @@
     },
     {
       "path": "06-delivery/m11b-slices.md",
-      "size_bytes": 53005,
-      "sha256": "3b21aeb6ef6bbdb671c68ee3a1d9468d897a2374abc439eb5dd4fa092e004a34"
+      "size_bytes": 53011,
+      "sha256": "2fb84625585f60a0ddd1591b43e86534374b387cb885b8ca65e68f39e79a4b76"
     },
     {
       "path": "06-delivery/m11c-slices.md",
@@ -1057,8 +1057,8 @@
     },
     {
       "path": "06-delivery/release-candidate-2026-11-21.md",
-      "size_bytes": 104871,
-      "sha256": "4dcc407325fd11dd6d0a50773a38c252f470e0469f02a9541d201ee9b3421e76"
+      "size_bytes": 106205,
+      "sha256": "6d1dbc8628e045c2c84168b8a6225a0e0a225aebf94c4e1219df85b04d608f89"
     },
     {
       "path": "06-delivery/release-candidate-source-ledger.json",
@@ -1687,8 +1687,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 564614,
-      "sha256": "e0383ff99d77da9fee2519adc4e76b6329e492413a39bf95b317e4997c56b3cf"
+      "size_bytes": 564550,
+      "sha256": "997dd6f0aab2eafa9105b94c2c13789ff8aad5d804da8b0b11995a0f8093aca4"
     },
     {
       "path": "specifications/qa-scenarios.csv",

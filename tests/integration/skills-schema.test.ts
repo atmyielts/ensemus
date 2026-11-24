@@ -426,6 +426,7 @@ describe('skill, sandbox and marketplace rules in the database', () => {
       await move(version.id, {
         state: 'yanked',
         yankCode: 'SECURITY_ISSUE',
+        yankedByMembershipId: ctxA.membershipId,
         yankedAt: new Date(),
       });
       await expect(

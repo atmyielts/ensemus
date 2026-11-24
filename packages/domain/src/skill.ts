@@ -102,7 +102,6 @@ export type SkillUseDenial = (typeof SKILL_USE_DENIALS)[number];
  * database checks the same limit, and the web tier counts as it reads.
  */
 export const SKILL_BUNDLE_MAX_BYTES = 8_388_608;
-export const SKILL_BUNDLE_CONTENT_TYPE = 'application/vnd.ensemus.skill-bundle+json';
 export const SKILL_BUNDLE_MAX_FILES = 500;
 export const SKILL_MAX_FIXTURES = 50;
 export const SKILL_BUNDLE_MEDIA_TYPE = 'application/vnd.ensemus.skill-bundle+json';

@@ -15,8 +15,15 @@ attempt. The version, audit event, and outbox event become visible in one transa
 successful write. The uploader can recover a lost response by resending the same file. Recovery
 matches the stored bytes against the file before attaching that reservation. An unresolved
 attempt older than two minutes can be replaced with a new key. The superseded key stays recorded
-for physical cleanup. The artifact sweep handles artifact keys. Skill bundle cleanup and
-two-person publication remain separate release gates.
+for physical cleanup. The artifact sweep handles artifact keys. Skill bundle cleanup remains a
+separate release gate.
+
+**Version release update, 2026-11-24.** A second workspace administrator can publish a verified
+version when the package is active and the catalog is enabled. Publication and withdrawal use
+version checks. The native database actor must match the receipt, and the receipt is immutable
+after the transition. Publication serializes with signer revocation. The internal lookup for use
+reads the current package, signer or listing and version together. Runtime callers still enforce
+their own permissions. The release path does not run bundle code.
 
 **Date:** 2026-11-06
 **Deciders:** Project owner; security owner for D2, D3, D5 and D6.

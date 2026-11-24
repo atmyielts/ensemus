@@ -1343,3 +1343,22 @@ the upload without creating another version, and verified the stored bytes with 
 worker. Authenticated HTTP checks accepted a generated upload and its replay, and rejected an
 unapproved origin, the wrong media type, and an oversized body. The API contract has 17 planned
 operations remaining.
+
+### Skill version publication and withdrawal (EXP-04)
+
+Versions now have a release section and versioned HTTP operations for publication and
+withdrawal. When the catalog is enabled, an authorized administrator can publish an active
+package's verified version if another person uploaded it. On the detail page, the uploader
+is directed to another administrator. Withdrawal remains available to authorized administrators
+when the catalog is switched off. It records a reason and alerts the uploader.
+
+Migration 0768 binds the release receipt to the native interactive member and prevents later
+edits to that receipt. Publication and signer revocation share the same tenant trust lock. The
+internal use lookup refuses missing or foreign versions and rechecks the current package and
+its trusted signer or marketplace listing. This change does not invoke the sandbox or wire a
+new tool into the agent runtime. The two implemented routes leave 15 planned operations.
+
+Native PostgreSQL tests exercised a generated upload, worker verification, a second-person
+publication, a withdrawal, and use denied after disabling the package or revoking trust. They
+also covered a stale publish, a foreign version, an ordinary member, and raw SQL attempts to
+forge or rewrite publication receipts. The new migration is awaiting human security review.

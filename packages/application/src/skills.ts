@@ -9,8 +9,9 @@ export {
   listSkillPackages,
   updateSkillPackage,
 } from './skill-packages';
-export { listSkillVersions, getSkillVersion } from './skill-version-reads';
+export { listSkillVersions, getSkillVersion, getSkillVersionReview } from './skill-version-reads';
 export { uploadSkillBundle } from './skill-bundle-upload';
+export { publishSkillVersion, yankSkillVersion, resolveSkillVersionForUse } from './skill-release';
 // Owned by the skill-catalog slice (EXP-04). See docs/06-delivery/m11b-slices.md and ADR-034 D1, D2, D4.
 // Managing skills needs skill.manage, publishing needs skill.publish, and reading needs only membership.
 import type { AppDatabase, TenantContext } from '@ensemus/database';
@@ -20,9 +21,7 @@ import type {
   SkillPackageState,
   SkillTestMode,
   SkillTestOutcome,
-  SkillUseDenial,
   SkillVersionState,
-  SkillYankCode,
   TrustedSignerState,
 } from '@ensemus/domain/skill';
 import type { SkillFeatureGate } from './skill-ports';
@@ -112,31 +111,6 @@ export function revokeTrustedSigner(
   return revokeSigner(database, context, input);
 }
 
-/**
- * A person's decision, so a service context is refused. Someone other than the uploader has to do it
- * (SKILL_PUBLISH_SAME_PERSON), and the table holds that too. A version that lost its signer or tests
- * since it was verified is refused by the trigger, and answers SKILL_VERSION_NOT_PUBLISHABLE.
- */
-export function publishSkillVersion(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: { skillVersionId: string; expectedVersion: number },
-): Promise<SkillVersionView> {
-  throw new Error('NOT_IMPLEMENTED');
-}
-
-export function yankSkillVersion(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: {
-    skillVersionId: string;
-    expectedVersion: number;
-    code: Extract<SkillYankCode, 'WITHDRAWN_BY_OWNER' | 'SECURITY_ISSUE'>;
-  },
-): Promise<SkillVersionView> {
-  throw new Error('NOT_IMPLEMENTED');
-}
-
 /** What M4's agent runtime and the sandbox slice read before any use. Pinned by ID, never by "latest". */
 export type UsableSkillVersion = {
   ok: true;
@@ -154,17 +128,3 @@ export type UsableSkillVersion = {
   signerKeyId: string;
   signature: Buffer;
 };
-
-/**
- * The one answer to "may this version be used now". Reads the version, package, signer and listing in one
- * transaction, and puts them through skillUseDenial. Called fresh before every use, so a revoke or a yank
- * takes effect for anything not already past this point (ADR-034 D1). A version in another tenant is
- * NOT_PUBLISHED, the same as one that does not exist.
- */
-export function resolveSkillVersionForUse(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _skillVersionId: string,
-): Promise<UsableSkillVersion | { ok: false; denial: SkillUseDenial }> {
-  throw new Error('NOT_IMPLEMENTED');
-}

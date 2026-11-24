@@ -9818,7 +9818,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/SkillVersionID"
     post:
-      x-ensemus-status: planned
       tags:
         - skills
       summary: Publish a verified version. Someone other than whoever uploaded it has
@@ -9856,7 +9855,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/SkillVersionID"
     post:
-      x-ensemus-status: planned
       tags:
         - skills
       summary: Stop a version being used, for good. A fix is a new version

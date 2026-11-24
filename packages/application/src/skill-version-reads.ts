@@ -82,7 +82,10 @@ async function versions(tx: Tx, context: TenantContext, scope: SQL) {
     .where(matched)
     .orderBy(skillTestRuns.skillVersionId, desc(skillTestRuns.finishedAt), desc(skillTestRuns.id));
   const byVersion = new Map(latest.map(({ test }) => [test.skillVersionId, test]));
-  return rows.map((version) => versionView(version, byVersion.get(version.id) ?? null));
+  return rows.map((row) => ({
+    version: versionView(row, byVersion.get(row.id) ?? null),
+    uploadedByViewer: row.uploadedByMembershipId === context.membershipId,
+  }));
 }
 
 export async function listSkillVersions(
@@ -100,7 +103,9 @@ export async function listSkillVersions(
         and(eq(skillPackages.organizationId, context.organizationId), eq(skillPackages.id, id)),
       );
     if (!pkg) throw new AppError('NOT_FOUND');
-    return versions(tx, context, eq(skillVersions.packageId, id));
+    return (await versions(tx, context, eq(skillVersions.packageId, id))).map(
+      ({ version }) => version,
+    );
   });
 }
 
@@ -109,11 +114,23 @@ export async function getSkillVersion(
   context: TenantContext,
   skillVersionId: string,
 ): Promise<SkillVersionView> {
+  return (await getSkillVersionReview(database, context, skillVersionId)).version;
+}
+
+export async function getSkillVersionReview(
+  database: AppDatabase,
+  context: TenantContext,
+  skillVersionId: string,
+) {
   const id = parseId(skillVersionId);
   return withTenantTx(database, context, async (tx) => {
     await requireSkillMember(tx, context);
-    const [row] = await versions(tx, context, eq(skillVersions.id, id));
-    if (!row) throw new AppError('NOT_FOUND');
-    return row;
+    return readSkillVersionReviewInTx(tx, context, id);
   });
+}
+
+export async function readSkillVersionReviewInTx(tx: Tx, context: TenantContext, id: string) {
+  const [row] = await versions(tx, context, eq(skillVersions.id, id));
+  if (!row) throw new AppError('NOT_FOUND');
+  return row;
 }

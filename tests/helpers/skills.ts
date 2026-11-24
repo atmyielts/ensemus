@@ -260,6 +260,7 @@ export async function seedVersion(
       .set({
         state: 'yanked',
         yankCode: 'WITHDRAWN_BY_OWNER',
+        yankedByMembershipId: context.membershipId,
         yankedAt: new Date(),
         version: sql`version + 1`,
       })
