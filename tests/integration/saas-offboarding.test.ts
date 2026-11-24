@@ -34,12 +34,14 @@ import { proveSecondFactor } from '../helpers/product';
 import { urls } from '../helpers/stack';
 describe('owner-authorized offboarding preserves independent restrictions and uncertain effects', () => {
   const database = openAppDatabase(urls.app()),
+    worker = openAppDatabase(urls.worker()),
     auth = new pg.Client({ connectionString: urls.auth() });
   beforeAll(async () => {
     await auth.connect();
   });
   afterAll(async () => {
     await auth.end();
+    await worker.close();
     await database.close();
   });
   it('denies admins, members and cross-tenant IDs before changing standing', async () => {
@@ -261,7 +263,7 @@ describe('owner-authorized offboarding preserves independent restrictions and un
     expect((await getOffboarding(database.db, owner))!.state).toBe('ready_for_erasure');
     expect(
       (
-        await withAccountTx(database.db, ready.service, (tx) =>
+        await withAccountTx(worker.db, ready.service, (tx) =>
           tx.select().from(workUnits).where(eq(workUnits.id, file.workUnitId)),
         )
       )[0]!.status,

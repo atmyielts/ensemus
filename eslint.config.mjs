@@ -603,6 +603,17 @@ export default tseslint.config(
     serviceContext,
     testDoubles,
   ]),
+  // The offline restore command can assert its platform login while agent bindings stay isolated.
+  restrict(
+    ['workers/workflow/src/restore-reconcile.ts'],
+    [
+      rawDatabase,
+      authDatabase,
+      vendorIssuer,
+      { ...serviceContext, allowImportNames: ['assertLoginRole'] },
+      testDoubles,
+    ],
+  ),
   // Fixed terminal metadata/effect adapter only: it constructs no AgentContext and exposes no
   // service context/callback. Its SQL RPC independently requires the actual agent login and an
   // exact terminal run/Work/fence/Temporal/version. Ordinary agent logic stays service-forbidden.

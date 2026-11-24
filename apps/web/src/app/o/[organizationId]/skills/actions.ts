@@ -35,19 +35,20 @@ function text(form: FormData, name: string): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
+function idOf(form: FormData, name: string): string {
+  const parsed = idSchema.safeParse(form.get(name));
+  if (!parsed.success) notFound();
+  return parsed.data;
+}
+
 export async function saveSkillPackageAction(
   _previous: PackageFormState,
   form: FormData,
 ): Promise<PackageFormState> {
-  const organization = idSchema.safeParse(text(form, 'organizationId'));
-  if (!organization.success) notFound();
-  const organizationId = organization.data;
+  const organizationId = idOf(form, 'organizationId');
   const { database, context } = await requireTenant(organizationId);
-  const packageId = text(form, 'packageId');
+  const id = form.has('packageId') ? idOf(form, 'packageId') : undefined;
   const base = `/o/${organizationId}/skills`;
-  const parsedId = packageId === undefined ? undefined : idSchema.safeParse(packageId);
-  if (parsedId && !parsedId.success) notFound();
-  const id = parsedId?.data;
   const values: FormValues = {
     name: (text(form, 'name') ?? '').slice(0, 64),
     displayName: (text(form, 'displayName') ?? '').slice(0, 120),
@@ -113,19 +114,18 @@ export async function uploadSkillBundleAction(
   _previous: UploadFormState,
   form: FormData,
 ): Promise<UploadFormState> {
-  const organization = idSchema.safeParse(text(form, 'organizationId'));
-  const packageId = idSchema.safeParse(text(form, 'packageId'));
-  if (!organization.success || !packageId.success) notFound();
-  const { database, context } = await requireTenant(organization.data);
-  const base = `/o/${organization.data}/skills`;
-  const path = `${base}/${packageId.data}`;
+  const organizationId = idOf(form, 'organizationId');
+  const packageId = idOf(form, 'packageId');
+  const { database, context } = await requireTenant(organizationId);
+  const base = `/o/${organizationId}/skills`;
+  const path = `${base}/${packageId}`;
   const bundle = form.get('bundle');
   if (!(bundle instanceof File) || bundle.size === 0) return { code: 'INVALID_INPUT' };
   if (bundle.size > SKILL_BUNDLE_MAX_BYTES) return { code: 'SKILL_BUNDLE_TOO_LARGE' };
   let versionId: string;
   try {
     const version = await uploadSkillBundle(database, getStore(), context, getSkillFeatureGate(), {
-      packageId: packageId.data,
+      packageId: packageId,
       bytes: Buffer.from(await bundle.arrayBuffer()),
     });
     versionId = version.id;
@@ -135,7 +135,7 @@ export async function uploadSkillBundleAction(
     if (failure?.code === 'NOT_FOUND') notFound();
     if (failure?.code === 'RESTORE_PENDING') redirect('/restoring');
     if (failure?.code === 'MFA_REQUIRED')
-      return { code: failure.code, stepUp: stepUpPath(organization.data, path) };
+      return { code: failure.code, stepUp: stepUpPath(organizationId, path) };
     if (failure) return { code: failure.code };
     getRuntime().log.error('skill_version.upload_failed', { errorCode: errorCode(error) });
     return { code: 'UNEXPECTED' };
@@ -148,14 +148,13 @@ export async function changeSkillReleaseAction(
   _previous: ReleaseFormState,
   form: FormData,
 ): Promise<ReleaseFormState> {
-  const organization = idSchema.safeParse(text(form, 'organizationId'));
-  const id = idSchema.safeParse(text(form, 'skillVersionId'));
-  if (!organization.success || !id.success) notFound();
-  const { database, context } = await requireTenant(organization.data);
+  const organizationId = idOf(form, 'organizationId');
+  const id = idOf(form, 'skillVersionId');
+  const { database, context } = await requireTenant(organizationId);
   const operation = text(form, 'operation');
   if (operation !== 'publish' && operation !== 'yank') return { code: 'INVALID_INPUT' };
-  const path = `/o/${organization.data}/skills/versions/${id.data}`;
-  const input = { skillVersionId: id.data, expectedVersion: Number(text(form, 'version')) };
+  const path = `/o/${organizationId}/skills/versions/${id}`;
+  const input = { skillVersionId: id, expectedVersion: Number(text(form, 'version')) };
   let packageId: string;
   try {
     if (operation === 'publish') {
@@ -173,12 +172,12 @@ export async function changeSkillReleaseAction(
     if (failure?.code === 'NOT_FOUND') notFound();
     if (failure?.code === 'RESTORE_PENDING') redirect('/restoring');
     if (failure?.code === 'MFA_REQUIRED')
-      return { code: failure.code, operation, stepUp: stepUpPath(organization.data, path) };
+      return { code: failure.code, operation, stepUp: stepUpPath(organizationId, path) };
     if (failure) return { code: failure.code, operation };
     getRuntime().log.error('skill_version.release_failed', { errorCode: errorCode(error) });
     return { code: 'UNEXPECTED', operation };
   }
-  revalidatePath(`/o/${organization.data}/skills/${packageId}`);
+  revalidatePath(`/o/${organizationId}/skills/${packageId}`);
   revalidatePath(path);
   redirect(path);
 }

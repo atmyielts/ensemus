@@ -47,6 +47,7 @@ const notFound = expect.objectContaining({ code: 'NOT_FOUND' });
 
 describe('with no Temporal record of the first run', () => {
   let database: ReturnType<typeof openAppDatabase>;
+  let connector: ReturnType<typeof openAppDatabase>;
   let auth: pg.Client;
   let ctxA: TenantContext;
   let ctxB: TenantContext;
@@ -67,6 +68,7 @@ describe('with no Temporal record of the first run', () => {
 
   beforeAll(async () => {
     database = openAppDatabase(urls.app());
+    connector = openAppDatabase(urls.connector());
     auth = new pg.Client({ connectionString: urls.auth() });
     await auth.connect();
     const alice = await makeUser('alice');
@@ -98,6 +100,7 @@ describe('with no Temporal record of the first run', () => {
   });
 
   afterAll(async () => {
+    await connector?.close();
     await database?.close();
     await auth?.end();
   });
@@ -136,7 +139,7 @@ describe('with no Temporal record of the first run', () => {
         const before = await recordOf(action.id);
         expect(before.attempts).toHaveLength(1);
 
-        const again = await beginAttempt(database.db, serviceA, {
+        const again = await beginAttempt(connector.db, serviceA, {
           externalActionId: action.id,
           runId: SECOND_RUN,
         });
@@ -154,7 +157,7 @@ describe('with no Temporal record of the first run', () => {
         const before = await recordOf(action.id);
         const runs = await Promise.all(
           ['one', 'two', 'three'].map((run) =>
-            beginAttempt(database.db, serviceA, {
+            beginAttempt(connector.db, serviceA, {
               externalActionId: action.id,
               runId: `${SECOND_RUN}-${run}`,
             }),
@@ -170,7 +173,7 @@ describe('with no Temporal record of the first run', () => {
       const before = await recordOf(action.id);
       expect(before.attempts).toHaveLength(0);
       expect(
-        await beginAttempt(database.db, serviceA, {
+        await beginAttempt(connector.db, serviceA, {
           externalActionId: action.id,
           runId: SECOND_RUN,
         }),
@@ -183,7 +186,7 @@ describe('with no Temporal record of the first run', () => {
       async (status) => {
         const action = await seed(status);
         const before = await recordOf(action.id);
-        const again = await beginAttempt(database.db, serviceA, {
+        const again = await beginAttempt(connector.db, serviceA, {
           externalActionId: action.id,
           runId: SECOND_RUN,
         });
@@ -198,7 +201,7 @@ describe('with no Temporal record of the first run', () => {
         const action = await seed(status);
         const before = await recordOf(action.id);
         expect(
-          await beginReconcile(database.db, serviceA, {
+          await beginReconcile(connector.db, serviceA, {
             externalActionId: action.id,
             code: 'WORKER_INTERRUPTED',
           }),
@@ -213,13 +216,13 @@ describe('with no Temporal record of the first run', () => {
         const action = await seed(status);
         const before = await recordOf(action.id);
         await expect(
-          beginAttempt(database.db, serviceB, { externalActionId: action.id, runId: SECOND_RUN }),
+          beginAttempt(connector.db, serviceB, { externalActionId: action.id, runId: SECOND_RUN }),
         ).rejects.toEqual(notFound);
         await expect(
           beginAttempt(database.db, ctxB, { externalActionId: action.id, runId: SECOND_RUN }),
         ).rejects.toEqual(notFound);
         await expect(
-          beginReconcile(database.db, serviceB, {
+          beginReconcile(connector.db, serviceB, {
             externalActionId: action.id,
             code: 'WORKER_INTERRUPTED',
           }),

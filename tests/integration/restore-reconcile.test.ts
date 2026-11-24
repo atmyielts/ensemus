@@ -77,6 +77,7 @@ type RequiredContributor = (typeof REQUIRED_RESTORE_CONTRIBUTORS)[number];
 
 describe('reconciling after a restore', () => {
   let app: ReturnType<typeof openAppDatabase>;
+  let worker: ReturnType<typeof openAppDatabase>;
   let dispatcher: ReturnType<typeof openDispatcherDatabase>;
   let su: pg.Client;
   let auth: pg.Client;
@@ -84,6 +85,7 @@ describe('reconciling after a restore', () => {
 
   beforeAll(async () => {
     app = openAppDatabase(urls.app());
+    worker = openAppDatabase(urls.worker());
     dispatcher = openDispatcherDatabase(urls.dispatcher());
     su = new pg.Client({ connectionString: urls.superuser() });
     await su.connect();
@@ -92,6 +94,7 @@ describe('reconciling after a restore', () => {
   });
 
   afterAll(async () => {
+    await worker?.close();
     await app?.close();
     await dispatcher?.close();
     await su?.end();
@@ -198,7 +201,7 @@ describe('reconciling after a restore', () => {
       findings?: RestoreFinding[];
     } = {},
   ) =>
-    reconcileAfterRestore(db(), store, {
+    reconcileAfterRestore(worker.db, store, {
       organizationIds,
       contextFor: createServiceContext,
       probeRun: extra.probeRun ?? (async () => 'open'),
@@ -369,7 +372,7 @@ describe('reconciling after a restore', () => {
       });
       await requestExecution(db(), context, work.id);
       const runId = randomUUID();
-      await createActivities({ database: db(), store }).prepareWork({
+      await createActivities({ database: worker.db, store }).prepareWork({
         organizationId: context.organizationId,
         workUnitId: work.id,
         runId,
@@ -848,7 +851,7 @@ describe('reconciling after a restore', () => {
       const run = async (...args: string[]) => {
         const lines: string[] = [];
         const code = await restoreReconcileCommand(args, {
-          database: db(),
+          database: worker.db,
           store,
           // The dispatcher's real listing, narrowed to this test's tenant: the suite shares one
           // database, and every other file's tenants would otherwise be reconciled here too.

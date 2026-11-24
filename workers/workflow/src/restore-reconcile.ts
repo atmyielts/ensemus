@@ -6,6 +6,7 @@ import { ConfigError, readSecret } from '@ensemus/config';
 import { openAppDatabase } from '@ensemus/database';
 import { openAgentDatabase } from '@ensemus/database/agent';
 import { listOrganizationIds, openDispatcherDatabase } from '@ensemus/database/dispatcher';
+import { assertLoginRole } from '@ensemus/database/service';
 import { S3ObjectStore } from '@ensemus/storage';
 import { errorCode } from '@ensemus/telemetry';
 import { workflowIdFor } from '@ensemus/workflows/schemas';
@@ -33,6 +34,9 @@ function openAgentRoleIfGiven() {
 
 async function main() {
   const { db, close } = openAppDatabase(readSecret('DATABASE_URL_APP'));
+  // A web-tier login sees an empty material inventory under RLS. Refuse that configuration
+  // before an operator can mistake an empty report for a reconciled restore.
+  await assertLoginRole(db, 'ensemus_worker');
   // Only for the list of tenants, which event metadata alone can answer.
   const dispatcher = openDispatcherDatabase(readSecret('DATABASE_URL_DISPATCHER'));
   const store = new S3ObjectStore({

@@ -2,6 +2,7 @@
 // connection guard admitting this revoke only for a tenant at that step, is in
 // tests/integration/offboarding-connections.test.ts.
 import { randomUUID } from 'node:crypto';
+import { federationWindDown } from '@ensemus/application';
 import {
   createOffboardingConnectionsPort,
   createProcessRunWindDown,
@@ -31,10 +32,10 @@ function recordingTx(answer: Answer) {
 const userContext = { organizationId: randomUUID(), actorType: 'user' } as TenantContext;
 
 describe('offboarding connections port (LIFE-04)', () => {
-  it('is wired into the worker, with the automation wind-down', () => {
+  it('is wired into the worker, with the federation and automation wind-downs', () => {
     const ports = createSaasPorts({}).offboarding;
     expect(typeof ports.connections?.revokeAllInTx).toBe('function');
-    expect(ports.windDowns).toHaveLength(1);
+    expect(ports.windDowns).toEqual([federationWindDown, expect.any(Function)]);
   });
 
   it('refuses anything but a service context before it sends anything', async () => {

@@ -73,9 +73,9 @@ import { SIGNATURE_SCHEMES } from '@ensemus/domain/webhook';
 import { storeSecret } from '@ensemus/secrets/seal';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import { z } from 'zod';
+import { readBoundedBody } from '../lib/webhook-limiter';
 import { noteClientAddress } from './client-address';
 import { getRestoreGate, getRuntime } from './runtime';
-import { readBoundedBody } from '@/lib/webhook-limiter';
 
 // The shared wrapper for /api/v1 (API-10). Every route gets the same order of checks: who is this,
 // did the browser send this from our own origin, is the input well formed, and are they in this

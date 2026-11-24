@@ -54,6 +54,7 @@ class MemoryStore implements ObjectStore {
 
 describe('the record a Work Unit keeps', () => {
   let app: ReturnType<typeof openAppDatabase>;
+  let worker: ReturnType<typeof openAppDatabase>;
   let su: pg.Client;
   let auth: pg.Client;
   const db = () => app.db;
@@ -116,7 +117,7 @@ describe('the record a Work Unit keeps', () => {
   const kindsFor = async (context: TenantContext) =>
     (await listMyNotifications(db(), context)).map((n) => n.kind);
 
-  const activities = () => createActivities({ database: db(), store: new MemoryStore() });
+  const activities = () => createActivities({ database: worker.db, store: new MemoryStore() });
   const runOf = (context: TenantContext, workUnitId: string, runId = randomUUID()) => ({
     organizationId: context.organizationId,
     workUnitId,
@@ -139,6 +140,7 @@ describe('the record a Work Unit keeps', () => {
 
   beforeAll(async () => {
     app = openAppDatabase(urls.app());
+    worker = openAppDatabase(urls.worker());
     su = new pg.Client({ connectionString: urls.superuser() });
     await su.connect();
     auth = new pg.Client({ connectionString: urls.auth() });
@@ -146,6 +148,7 @@ describe('the record a Work Unit keeps', () => {
   });
 
   afterAll(async () => {
+    await worker?.close();
     await app?.close();
     await su?.end();
     await auth?.end();

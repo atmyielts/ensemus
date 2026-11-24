@@ -2,7 +2,7 @@
 // worker logs in as itself, reads as ensemus_app to every rule that names ensemus_app, and cannot slip past
 // a rule meant for some other trusted role. The suite read and consent rules only the connector passes are
 // in suite-tools.test.ts, and the offboarding revoke in offboarding-connections.test.ts.
-// Generated values only. Written, not yet run: owed to the first stack run.
+// Generated values only.
 import { randomUUID } from 'node:crypto';
 import { pgCode } from '@ensemus/application';
 import { createOrganization, openAppDatabase, resolveTenantContext } from '@ensemus/database';
@@ -78,7 +78,8 @@ describe('worker login roles (ADR-039)', () => {
           and (coalesce(pg_get_expr(polqual, polrelid), '') || ' ' || coalesce(pg_get_expr(polwithcheck, polrelid), '')) ~* '\\m(session_user|current_user)\\M'`,
     );
     // A body can mention a mapped app check and a distinct native connector check. Match the actual
-    // comparison, not the mere presence of both names. Mail invitations deliberately remain web-only.
+    // comparison, not the mere presence of both names. Mail invitations and interactive skill
+    // administration and uploads retain explicit web-login boundaries.
     const rawTierCheck =
       /\b(?:session_user|current_user)\s*(?:=|<>|!=|(?:NOT\s+)?IN\s*\()\s*'ensemus_app'/i;
     expect(
@@ -90,6 +91,8 @@ describe('worker login roles (ADR-039)', () => {
       [
         'platform.check_new_tenant_mail()',
         'skills.guard_signer_administration()',
+        'skills.check_bundle_upload()',
+        'skills.guard_interactive_release()',
         'app.is_web_login()',
       ].sort(),
     );

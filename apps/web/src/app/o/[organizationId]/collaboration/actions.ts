@@ -2,6 +2,7 @@
 
 import {
   AppError,
+  canonicalId,
   confirmGrant,
   disposeInboundItem,
   publishItem,
@@ -48,6 +49,7 @@ function errorFor(error: unknown): string {
   return 'UNEXPECTED';
 }
 const text = (form: FormData, key: string) => String(form.get(key) ?? '');
+const idOf = (form: FormData, key: string) => canonicalId(text(form, key));
 const integer = (form: FormData, key: string) => {
   const raw = text(form, key);
   return /^\d+$/.test(raw) ? Number(raw) : undefined;
@@ -55,7 +57,7 @@ const integer = (form: FormData, key: string) => {
 
 export type ProposalState = { error?: string; token?: string };
 export async function proposeAction(_state: ProposalState, form: FormData): Promise<ProposalState> {
-  const { database, context } = await scope(text(form, 'organizationId'));
+  const { database, context } = await scope(idOf(form, 'organizationId'));
   try {
     const body = proposeGrantSchema.safeParse({
       purpose: form.get('purpose'),
@@ -87,7 +89,7 @@ export async function previewAction(
   _state: InvitationState,
   form: FormData,
 ): Promise<InvitationState> {
-  const { database, context } = await scope(text(form, 'organizationId'));
+  const { database, context } = await scope(idOf(form, 'organizationId'));
   try {
     const body = redeemInvitationSchema.safeParse({ token: text(form, 'invitation').trim() });
     if (!body.success) throw new AppError('FEDERATION_INVITATION_INVALID');

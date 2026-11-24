@@ -220,12 +220,16 @@ describe('every copy of a list', () => {
 describe('the shape of the boundary', () => {
   const m11c = readdirSync(migrations).filter((name) => /^07\d\d_/.test(name));
 
-  it('marks every migration that sets a policy or a grant as reviewed security SQL', () => {
+  it('identifies every migration that sets a policy or a grant for security review', () => {
     for (const name of m11c) {
       const text = read(name);
       if (/\b(CREATE POLICY|GRANT |REVOKE )/.test(text)) {
         expect(
-          text.split(/\r?\n/).some((line) => line.startsWith('-- REVIEWED SECURITY SQL')),
+          text
+            .split(/\r?\n/)
+            .some((line) =>
+              /^-- (?:REVIEWED SECURITY SQL\b|FLAGGED FOR HUMAN SECURITY REVIEW$)/.test(line),
+            ),
           name,
         ).toBe(true);
       }

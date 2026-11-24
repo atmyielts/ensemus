@@ -20,7 +20,10 @@ describe('working workspace navigation', () => {
       'Organization',
       'Account',
     ]);
-    expect(groups.flatMap((group) => group.items)).toHaveLength(16);
+    expect(groups.flatMap((group) => group.items)).toHaveLength(17);
+    expect(groups.flatMap((group) => group.items)).toContainEqual(
+      expect.objectContaining({ href: base + '/skills', label: 'Skill catalog' }),
+    );
     expect(groups.flatMap((group) => group.items)).toContainEqual(
       expect.objectContaining({ href: `${base}/meetings`, label: 'Meetings' }),
     );

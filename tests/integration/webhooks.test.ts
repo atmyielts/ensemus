@@ -71,6 +71,7 @@ type Endpoint = {
 
 describe('webhooks', () => {
   let app: ReturnType<typeof openAppDatabase>;
+  let connector: ReturnType<typeof openAppDatabase>;
   let secretsDb: ReturnType<typeof openSecretsDatabase>;
   let superuser: pg.Client;
   let auth: pg.Client;
@@ -283,6 +284,7 @@ describe('webhooks', () => {
 
   beforeAll(async () => {
     app = openAppDatabase(urls.app());
+    connector = openAppDatabase(urls.connector());
     secretsDb = openSecretsDatabase(urls.secrets());
     superuser = new pg.Client({ connectionString: urls.superuser() });
     auth = new pg.Client({ connectionString: urls.auth() });
@@ -311,7 +313,7 @@ describe('webhooks', () => {
     );
     memberA = await resolveTenantContext(app.db, member, orgA.organizationId);
     deps = {
-      database: app.db,
+      database: connector.db,
       registry: createConnectorRegistry([createInboundConnector()]),
       secrets: new SecretBroker(
         secretsDb.db,
@@ -327,6 +329,7 @@ describe('webhooks', () => {
   });
 
   afterAll(async () => {
+    await connector?.close();
     await app?.close();
     await secretsDb?.close();
     await superuser?.end();

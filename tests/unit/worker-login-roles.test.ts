@@ -86,22 +86,24 @@ describe('migrations 0700 and 0701', () => {
         .split(/\r?\n/)
         .filter((line) => !line.trimStart().startsWith('--'))
         .join('\n');
-      if (
-        file === '0733_skill_signer_administration.sql' ||
-        file === '0737_object_native_actors.sql' ||
-        file === '0738_native_human_readers.sql'
-      ) {
-        // These human-only paths are deliberately narrower than the shared application tier.
-        // Native-role cases prove workers and agents cannot impersonate the person with SET ROLE.
-        const nativeBoundary =
-          file === '0733_skill_signer_administration.sql'
-            ? "session_user<>'ensemus_app' OR current_user<>'ensemus_app'"
-            : "session_user='ensemus_app'";
-        expect(text.split(nativeBoundary)).toHaveLength(2);
-        expect(RAW_TIER_CHECK.test(text.replace(nativeBoundary, 'false')), file).toBe(false);
-      } else {
-        expect(RAW_TIER_CHECK.test(text), file).toBe(false);
-      }
+      const nativeBoundary: Readonly<Record<string, string>> = {
+        '0733_skill_signer_administration.sql':
+          "session_user<>'ensemus_app' OR current_user<>'ensemus_app'",
+        '0737_object_native_actors.sql': "session_user='ensemus_app'",
+        '0738_native_human_readers.sql': "session_user='ensemus_app'",
+        '0767_skill_bundle_uploads.sql':
+          "session_user<>'ensemus_app' OR current_user<>session_user",
+        '0768_skill_version_release_authority.sql':
+          "session_user<>'ensemus_app' OR current_user<>session_user",
+        '0769_skill_bundle_upload_cleanup.sql':
+          "session_user<>'ensemus_app' OR current_user<>session_user",
+      };
+      const boundary = nativeBoundary[file];
+      // These calls require the native web login, including when a worker can SET ROLE.
+      if (boundary) expect(text.split(boundary), file).toHaveLength(2);
+      expect(RAW_TIER_CHECK.test(boundary ? text.replace(boundary, 'false') : text), file).toBe(
+        false,
+      );
     }
   });
 
