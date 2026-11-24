@@ -36,7 +36,7 @@ export function SkillBundleForm({
         accept={`.json,${SKILL_BUNDLE_CONTENT_TYPE}`}
         aria-describedby="skill-bundle-limit"
         required
-        className="w-full min-w-0 max-w-sm"
+        className="h-auto max-w-sm px-0 py-0 file:mr-2.5 file:h-9 file:items-center file:rounded-none file:border-r file:border-input file:bg-muted file:px-3 file:py-0 file:align-middle"
       />
       <small id="skill-bundle-limit">Up to 8 MiB. Verification starts after upload.</small>
       <div className="row">

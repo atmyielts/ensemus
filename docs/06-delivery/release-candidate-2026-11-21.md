@@ -1340,4 +1340,6 @@ Fifty-five native PostgreSQL skill cases passed. Coverage included a late writer
 storage response, a concurrent repeat, a disable during upload, and a denied cross-tenant
 upload. A separate proof stored a generated bundle in the local S3-compatible service, replayed
 the upload without creating another version, and verified the stored bytes with the native
-worker. The API contract has 17 planned operations remaining.
+worker. Authenticated HTTP checks accepted a generated upload and its replay, and rejected an
+unapproved origin, the wrong media type, and an oversized body. The API contract has 17 planned
+operations remaining.
