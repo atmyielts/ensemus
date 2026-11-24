@@ -2,21 +2,14 @@
 import { useEffect, useState } from 'react';
 import { MoonIcon, SunIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-const KEY = 'ensemus.ui.theme';
+import { THEME_STORAGE_KEY } from '@/lib/workspace-preferences';
 const read = () => {
   try {
-    return localStorage.getItem(KEY);
+    return localStorage.getItem(THEME_STORAGE_KEY);
   } catch {
     return null;
   }
 };
-/** A display preference only; no theme value or cookie participates in authorization. */
-export function ThemePreference() {
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', read() === 'dark');
-  }, []);
-  return null;
-}
 export function ThemeToggle() {
   const [dark, setDark] = useState(false);
   useEffect(() => {
@@ -36,7 +29,7 @@ export function ThemeToggle() {
         setDark(next);
         document.documentElement.classList.toggle('dark', next);
         try {
-          localStorage.setItem(KEY, next ? 'dark' : 'light');
+          localStorage.setItem(THEME_STORAGE_KEY, next ? 'dark' : 'light');
         } catch {
           /* The current page still changes if storage is disabled. */
         }

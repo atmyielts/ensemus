@@ -1,8 +1,8 @@
 import localFont from 'next/font/local';
 import type { ReactNode } from 'react';
 import { RevealOpenedPanels } from '@/components/reveal-opened-panels';
-import { ThemePreference } from '@/components/theme-toggle';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { THEME_STORAGE_KEY } from '@/lib/workspace-preferences';
 import './globals.css';
 export const metadata = { title: 'Ensemus' };
 export const dynamic = 'force-dynamic';
@@ -28,11 +28,21 @@ const mono = localFont({
   variable: '--font-tech-mono',
   fallback: ['Consolas', 'monospace'],
 });
+// Apply the display preference before painting. The key is a source constant and no stored
+// value is interpolated into the script.
+const initializeTheme = `try{if(localStorage.getItem(${JSON.stringify(THEME_STORAGE_KEY)})==='dark')document.documentElement.classList.add('dark')}catch{}`;
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={`${display.variable} ${sans.variable} ${mono.variable}`}>
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`${display.variable} ${sans.variable} ${mono.variable}`}
+    >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: initializeTheme }} />
+      </head>
       <body>
-        <ThemePreference />
         <TooltipProvider>{children}</TooltipProvider>
         <RevealOpenedPanels />
       </body>

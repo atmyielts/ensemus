@@ -4,6 +4,13 @@ import { expect, test } from '../support/fixtures';
 import { axeFindings, saveLook, sidewaysOverflow } from '../support/look';
 import { createOrganization, signUp } from '../../helpers/forms';
 
+test('saved dark mode applies before workspace scripts hydrate', async ({ open }) => {
+  const page = await open(null, { colorScheme: 'dark', width: 390 });
+  await page.route('**/_next/static/**/*.js', (route) => route.abort());
+  expect((await page.goto('/sign-in'))?.status()).toBe(200);
+  await expect(page.locator('html')).toHaveClass(/\bdark\b/);
+});
+
 for (const theme of ['light', 'dark'] as const)
   for (const width of [320, 768, 1024, 1440]) {
     test(`shared interface ${theme} at ${width}px`, async ({ open, world }) => {
