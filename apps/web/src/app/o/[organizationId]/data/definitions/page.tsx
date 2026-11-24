@@ -43,10 +43,12 @@ export default async function ImportedDefinitionsPage({
           ) : (
             rows.map((row) => (
               <details key={`${row.record_kind}:${row.source_id}`}>
-                <summary>
-                  {row.record_kind.replaceAll('_', ' ')} · {row.source_id}
+                <summary className="[overflow-wrap:anywhere]">
+                  {row.record.kind === 'marketplace_publisher_history'
+                    ? `Marketplace publisher · ${row.record.display_name}`
+                    : `${row.record_kind.replaceAll('_', ' ')} · ${row.source_id}`}
                 </summary>
-                <pre>{JSON.stringify(row.record, null, 2)}</pre>
+                <pre className="record-text">{JSON.stringify(row.record, null, 2)}</pre>
               </details>
             ))
           )}

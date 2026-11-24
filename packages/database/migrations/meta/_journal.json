@@ -1338,6 +1338,13 @@
       "when": 1794201807663,
       "tag": "0783_skill_catalog_portability",
       "breakpoints": true
+    },
+    {
+      "idx": 191,
+      "version": "7",
+      "when": 1794201807664,
+      "tag": "0784_marketplace_publisher_portability",
+      "breakpoints": true
     }
   ]
 }

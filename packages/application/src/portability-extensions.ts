@@ -6,10 +6,12 @@ import {
   EXTENSION_SECTION_KINDS,
   M7_PORTABLE_RECORD_KINDS,
   SKILL_METADATA_RECORD_KINDS,
+  carriesPortableSkillMetadata,
   type ExtensionRecord,
 } from '@ensemus/contracts/portability-records';
 import {
-  SKILL_METADATA_PORTABILITY_INVENTORY,
+  MARKETPLACE_PUBLISHER_PORTABILITY_INVENTORY,
+  MARKETPLACE_PUBLISHER_PORTABILITY_VERSION,
   SKILL_METADATA_PORTABILITY_VERSION,
   PORTABILITY_INVENTORY_PROFILES,
   PORTABILITY_INVENTORY_VERSION,
@@ -80,6 +82,23 @@ const catalogReaders: readonly PortableReader[] = [
     },
   },
 ];
+const publisherHistoryReader: PortableReader = {
+  table: 'marketplace.publishers',
+  kind: 'marketplace_publisher_history',
+  fields: {
+    id: 't.id',
+    display_name: 't.display_name',
+    state: 't.state',
+    version: 't.version::text',
+    created_at: instant('t.created_at'),
+    updated_at: instant('t.updated_at'),
+  },
+};
+const skillReadersByProfile: Partial<Record<JoinedPortabilityVersion, readonly PortableReader[]>> =
+  {
+    [SKILL_METADATA_PORTABILITY_VERSION]: catalogReaders,
+    [MARKETPLACE_PUBLISHER_PORTABILITY_VERSION]: [...catalogReaders, publisherHistoryReader],
+  };
 const readableSource = (column: string) => `${column} IN (SELECT s.id FROM knowledge.sources s
   WHERE s.organization_id=app.current_organization_id() AND s.state='active' AND s.classification<>'restricted'
   AND s.id IN (SELECT knowledge.readable_source_ids(${viewer})))`;
@@ -455,7 +474,7 @@ export async function assertJoinedPortabilitySchema(
       AND schemaname NOT IN ('information_schema','drizzle')`,
   );
   const known = new Set<string>([
-    ...SKILL_METADATA_PORTABILITY_INVENTORY.map((entry) => entry.table),
+    ...MARKETPLACE_PUBLISHER_PORTABILITY_INVENTORY.map((entry) => entry.table),
     ...PENDING_PORTABILITY_TABLES,
   ]);
   if (present.some((row) => !known.has(row.table_name))) throw new RecordRefused();
@@ -480,9 +499,7 @@ function exporter(section: ExportSection): PortabilitySection['exportPage'] {
     await assertExportViewer(tx);
     const list =
       section === 'skills'
-        ? inventoryVersion === SKILL_METADATA_PORTABILITY_VERSION
-          ? catalogReaders
-          : []
+        ? (skillReadersByProfile[inventoryVersion ?? PORTABILITY_INVENTORY_VERSION] ?? [])
         : [...(readers[section] ?? []), ...(M7_PORTABLE_READERS[section] ?? [])];
     if (section === 'skills' && !list.length)
       return { recordKind: 'skills', records: [], nextCursor: null };
@@ -592,7 +609,12 @@ export async function quarantinePortableRecord(
     throw new RecordRefused();
   if (
     (SKILL_METADATA_RECORD_KINDS as readonly string[]).includes(checked.kind) &&
-    scope.inventoryVersion !== SKILL_METADATA_PORTABILITY_VERSION
+    !carriesPortableSkillMetadata(scope.inventoryVersion)
+  )
+    throw new RecordRefused();
+  if (
+    checked.kind === 'marketplace_publisher_history' &&
+    scope.inventoryVersion !== MARKETPLACE_PUBLISHER_PORTABILITY_VERSION
   )
     throw new RecordRefused();
   assertPortableDefinitionIntegrity(checked);

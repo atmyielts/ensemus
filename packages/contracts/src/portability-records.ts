@@ -30,10 +30,14 @@ const EXPORT_SECTIONS = [
 
 const FEDERATION_PROFILE = 'ensemus.m3-m7-federation/4';
 const SKILL_METADATA_PORTABILITY_VERSION = 'ensemus.skill-metadata/5';
+const MARKETPLACE_PUBLISHER_PORTABILITY_VERSION = 'ensemus.marketplace-publisher/6';
+export const carriesPortableSkillMetadata = (version: unknown) =>
+  version === SKILL_METADATA_PORTABILITY_VERSION ||
+  version === MARKETPLACE_PUBLISHER_PORTABILITY_VERSION;
 const isJoinedInventory = (value: string) =>
   value === 'ensemus.m3-m7/3' ||
   value === FEDERATION_PROFILE ||
-  value === SKILL_METADATA_PORTABILITY_VERSION;
+  carriesPortableSkillMetadata(value);
 
 const id = z.uuid().refine((value) => value === value.toLowerCase());
 const moment = z.iso.datetime({ offset: true });
@@ -403,6 +407,19 @@ export const SKILL_METADATA_RECORD_KINDS = [
 
 export const extensionRecordSchema = z.discriminatedUnion('kind', [
   z.strictObject({
+    kind: z.literal('marketplace_publisher_history'),
+    id,
+    display_name: z
+      .string()
+      .min(1)
+      .max(240)
+      .refine((name) => Array.from(name).length <= 120),
+    state: z.enum(['active', 'suspended']),
+    version: z.string().regex(/^[1-9][0-9]{0,18}$/),
+    created_at: moment,
+    updated_at: moment,
+  }),
+  z.strictObject({
     kind: z.literal('skill_package_metadata'),
     id,
     name: z.string().regex(/^[a-z][a-z0-9-]{1,63}$/),
@@ -726,7 +743,7 @@ export const EXTENSION_SECTION_KINDS = {
     'pack_item',
   ],
   policy: ['budget', 'usage_entry', 'policy_definition', 'security_settings'],
-  skills: SKILL_METADATA_RECORD_KINDS,
+  skills: [...SKILL_METADATA_RECORD_KINDS, 'marketplace_publisher_history'],
   'custom-objects': [
     'custom_object_type',
     'custom_object_version',
@@ -763,7 +780,12 @@ export function validatePortableRecord(
     throw new Error('RECORD_REFUSED');
   if (
     (SKILL_METADATA_RECORD_KINDS as readonly string[]).includes(extension.kind) &&
-    inventoryVersion !== SKILL_METADATA_PORTABILITY_VERSION
+    !carriesPortableSkillMetadata(inventoryVersion)
+  )
+    throw new Error('RECORD_REFUSED');
+  if (
+    extension.kind === 'marketplace_publisher_history' &&
+    inventoryVersion !== MARKETPLACE_PUBLISHER_PORTABILITY_VERSION
   )
     throw new Error('RECORD_REFUSED');
   const allowed = EXTENSION_SECTION_KINDS[section as keyof typeof EXTENSION_SECTION_KINDS] as
@@ -818,6 +840,7 @@ const manifestV2Schema = manifestV1Schema.extend({
     'ensemus.m3-m7/3',
     FEDERATION_PROFILE,
     SKILL_METADATA_PORTABILITY_VERSION,
+    MARKETPLACE_PUBLISHER_PORTABILITY_VERSION,
   ]),
   record_max_bytes: z.literal(4 * 1024 * 1024).optional(),
   generated_bodies_excluded: z.int().min(0),
@@ -877,8 +900,7 @@ export const exportManifestSchema = z
       ctx.addIssue({ code: 'custom', message: 'Record bound differs from inventory profile' });
     if (
       (!joined && value.sections['custom-objects']?.parts !== 0) ||
-      ((value.schema_version !== 2 ||
-        value.inventory_version !== SKILL_METADATA_PORTABILITY_VERSION) &&
+      ((value.schema_version !== 2 || !carriesPortableSkillMetadata(value.inventory_version)) &&
         value.sections.skills?.parts !== 0)
     )
       ctx.addIssue({ code: 'custom', message: 'Section absent from this inventory profile' });

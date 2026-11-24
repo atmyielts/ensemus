@@ -10,6 +10,7 @@ import {
   FEDERATION_PORTABILITY_VERSION,
   SKILL_METADATA_PORTABILITY_INVENTORY,
   SKILL_METADATA_PORTABILITY_VERSION,
+  MARKETPLACE_PUBLISHER_PORTABILITY_INVENTORY,
   matchesPortabilityInventory,
   portableRecordByteLimit,
   PORTABILITY_INVENTORY,
@@ -173,7 +174,7 @@ describe('the joined inventory names every migrated table', () => {
       ),
     ).toBe(false);
   });
-  const named = new Set(SKILL_METADATA_PORTABILITY_INVENTORY.map((entry) => entry.table));
+  const named = new Set(MARKETPLACE_PUBLISHER_PORTABILITY_INVENTORY.map((entry) => entry.table));
   it('has a reviewed line for each table a migration creates, and none for a table that is gone', () => {
     const tables = migratedTables();
     expect(tables.size).toBeGreaterThan(200);

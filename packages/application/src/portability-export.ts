@@ -31,6 +31,7 @@ import {
   assertPortabilitySections,
   FEDERATION_PORTABILITY_VERSION,
   SKILL_METADATA_PORTABILITY_VERSION,
+  MARKETPLACE_PUBLISHER_PORTABILITY_VERSION,
   isJoinedPortabilityVersion,
   PORTABILITY_INVENTORY_PROFILES,
   PORTABILITY_INVENTORY_VERSION,
@@ -524,6 +525,7 @@ export async function beginExport(
         when sovereign.portable_profile_clear(${PORTABILITY_INVENTORY_VERSION}) then ${PORTABILITY_INVENTORY_VERSION}
         when sovereign.portable_profile_clear(${FEDERATION_PORTABILITY_VERSION}) then ${FEDERATION_PORTABILITY_VERSION}
         when sovereign.portable_profile_clear(${SKILL_METADATA_PORTABILITY_VERSION}) then ${SKILL_METADATA_PORTABILITY_VERSION}
+        when sovereign.portable_profile_clear(${MARKETPLACE_PUBLISHER_PORTABILITY_VERSION}) then ${MARKETPLACE_PUBLISHER_PORTABILITY_VERSION}
         else null end as profile`,
     );
     const profile = admitted?.profile;

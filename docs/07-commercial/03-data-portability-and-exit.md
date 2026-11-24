@@ -10,6 +10,8 @@ Archive contains manifest with schema version, organization ID, export date and 
 
 Data formats: JSON/JSONL for typed records and events, CSV optionally for familiar tables, original file blobs with hashes, and YAML/JSON for agent/skill/workflow definitions. Provide mapping to restore cross-entity IDs and source versions. Exclude vendor-held IP, third-party platform proprietary data not licensed for export, plain secrets, and internal diagnostic raw traces not owned/authorized for export.
 
+The Marketplace publisher archive profile includes the source workspace's publisher name, status, version, and timestamps as a review record. The receiving workspace registers its publisher through its own Marketplace enrollment. Source listings, submissions, and reviews require separate archive coverage before an export can proceed.
+
 ## 3. Credentials and connectors
 
 Never export bearer keys, OAuth refresh tokens, or shared Ensemus service credentials in plaintext. Include connector identities and required scopes; on import, authorized customer re-binds new credentials. Imported external resource IDs must be reconciled rather than blindly using source account IDs in another organization.

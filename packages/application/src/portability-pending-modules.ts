@@ -16,7 +16,6 @@ export const PENDING_PORTABILITY_TABLES = [
   'meetings.meetings',
   'marketplace.installations',
   'marketplace.listings',
-  'marketplace.publishers',
   'marketplace.security_reviews',
   'marketplace.submissions',
   'sandbox.runs',

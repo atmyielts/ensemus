@@ -15,6 +15,7 @@ import {
   SOURCE_PORTABILITY_SECTIONS,
   createClient,
   createInvitation,
+  createPublisher,
   createProject,
   createTeam,
   createWorkUnit,
@@ -24,8 +25,10 @@ import {
   failExport,
   finishExport,
   getOrganizationExport,
+  getPublisher,
   getWorkUnit,
   listOrganizationExports,
+  listImportedDefinitions,
   openExportArchive,
   purgeExpiredExports,
   requestOrganizationExport,
@@ -38,7 +41,11 @@ import {
   type ObjectStore,
   type PortabilitySection,
 } from '@ensemus/application';
-import { exportManifestSchema, type ExportManifest } from '@ensemus/contracts/portability-records';
+import {
+  exportManifestSchema,
+  validatePortableRecord,
+  type ExportManifest,
+} from '@ensemus/contracts/portability-records';
 import {
   connections,
   createOrganization,
@@ -62,6 +69,8 @@ import {
   EXPORT_OBJECT_PREFIX,
   FEDERATION_PORTABILITY_INVENTORY,
   FEDERATION_PORTABILITY_VERSION,
+  MARKETPLACE_PUBLISHER_PORTABILITY_INVENTORY,
+  MARKETPLACE_PUBLISHER_PORTABILITY_VERSION,
   SKILL_METADATA_PORTABILITY_INVENTORY,
   SKILL_METADATA_PORTABILITY_VERSION,
   isArchivePath,
@@ -400,6 +409,69 @@ describe('organization export', () => {
     expect(await beginExport(workerDb(), worker(source), { exportId: refused }, deps)).toEqual({
       state: 'failed',
       code: 'RECORD_REFUSED',
+    });
+  });
+
+  it('carries only the source publisher profile and imports it without publisher authority', async () => {
+    const source = await newOrg();
+    const unrelated = await newOrg();
+    const target = await newOrg();
+    const feature = { isEnabled: async () => true };
+    const displayName = `Release publisher ${randomUUID()}`;
+    const privateName = `Unrelated publisher ${randomUUID()}`;
+    const store = new MemoryStore();
+    const priorExport = await request(source);
+    expect(await drive(source, store, priorExport)).toMatchObject({ state: 'finished' });
+
+    const publisher = await createPublisher(db(), source, feature, { displayName });
+    await createPublisher(db(), unrelated, feature, { displayName: privateName });
+    await expect(openExportArchive(db(), store, source, priorExport)).rejects.toMatchObject({
+      code: 'EXPORT_SUPERSEDED',
+    });
+
+    const exportId = await request(source);
+    expect(await drive(source, store, exportId)).toMatchObject({ state: 'finished' });
+    const opened = await downloadAndOpen(source, store, exportId);
+    expect(opened.manifest).toMatchObject({
+      inventory_version: MARKETPLACE_PUBLISHER_PORTABILITY_VERSION,
+      inventory: MARKETPLACE_PUBLISHER_PORTABILITY_INVENTORY,
+    });
+    const records = recordsOf(opened, 'marketplace_publisher_history');
+    expect(records).toMatchObject([
+      { id: publisher.id, display_name: displayName, state: 'active', version: '1' },
+    ]);
+    expect(opened.text).not.toContain(privateName);
+    expect(() =>
+      validatePortableRecord('skills', records[0], SKILL_METADATA_PORTABILITY_VERSION),
+    ).toThrow('RECORD_REFUSED');
+    expect(() =>
+      validatePortableRecord(
+        'skills',
+        { ...records[0], reviewer_key_id: randomUUID() },
+        MARKETPLACE_PUBLISHER_PORTABILITY_VERSION,
+      ),
+    ).toThrow();
+
+    const targetStore = new MemoryStore();
+    const bound = await requestOrganizationImport(db(), target);
+    const result = await runOrganizationImport(
+      workerDb(),
+      worker(target),
+      {
+        importId: bound.id,
+        archive: archiveReader(opened.bytes),
+        recipientPrivateKeyPem: recipient.privateKeyPem,
+      },
+      { sections: SOURCE_PORTABILITY_SECTIONS, ledger: targetStore, store: targetStore },
+    );
+    expect(result.status).toBe('completed_with_warnings');
+    expect(result.appliedCounts.marketplace_publisher_history).toBe(1);
+    expect(await getPublisher(db(), target)).toBeNull();
+    expect(await listImportedDefinitions(db(), target)).toContainEqual({
+      section: 'skills',
+      record_kind: 'marketplace_publisher_history',
+      source_id: publisher.id,
+      record: records[0],
     });
   });
 
