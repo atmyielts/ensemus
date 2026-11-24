@@ -9521,7 +9521,6 @@ paths:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
     get:
-      x-ensemus-status: planned
       tags:
         - skills
       summary: Skill packages in this organization
@@ -9565,7 +9564,6 @@ paths:
         "503":
           $ref: "#/components/responses/RestorePending"
     post:
-      x-ensemus-status: planned
       tags:
         - skills
       summary: Name a new package. Its versions are uploaded separately
@@ -9624,7 +9622,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/SkillPackageID"
     get:
-      x-ensemus-status: planned
       tags:
         - skills
       summary: One package
@@ -9651,7 +9648,6 @@ paths:
         "503":
           $ref: "#/components/responses/RestorePending"
     patch:
-      x-ensemus-status: planned
       tags:
         - skills
       summary: Rename, disable, or change how sensitive a package's own content is

@@ -2,16 +2,13 @@
 import { createHash, createPublicKey } from 'node:crypto';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import {
-  memberships,
   trustedSigners,
   skillVersions,
   skillPackages,
   withTenantTx,
   type AppDatabase,
   type TenantContext,
-  type Tx,
 } from '@ensemus/database';
-import { can } from '@ensemus/domain/policy';
 import {
   AGGREGATE_SKILL_SIGNER,
   AGGREGATE_SKILL_VERSION,
@@ -25,32 +22,11 @@ import { AppError, pgCode } from './errors';
 import { idSchema } from './ids';
 import { auditAction, notify } from './work';
 import { emit } from './events';
-import {
-  assertInteractivePrivilege,
-  lockInteractivePolicy,
-  withPrivilegeTx,
-} from './product/privileged';
+import { withPrivilegeTx } from './product/privileged';
+import { requireSkillMember } from './skill-access';
 import type { SkillSignerView } from './skills';
 import type { SkillFeatureGate } from './skill-ports';
 
-async function signerPerson(tx: Tx, context: TenantContext, manage: boolean) {
-  if (context.actorType !== 'user') throw new AppError('FORBIDDEN');
-  if (manage) await lockInteractivePolicy(tx, context);
-  const query = tx
-    .select({ role: memberships.role })
-    .from(memberships)
-    .where(
-      and(
-        eq(memberships.organizationId, context.organizationId),
-        eq(memberships.id, context.membershipId),
-        eq(memberships.userId, context.userId),
-        eq(memberships.status, 'active'),
-      ),
-    );
-  const [member] = await (manage ? query.for('share') : query);
-  if (!member || (manage && !can(member.role, 'skill.manage'))) throw new AppError('FORBIDDEN');
-  if (manage) await assertInteractivePrivilege(tx, context, 'skill.manage');
-}
 function keyFingerprint(publicKey: Buffer): string {
   try {
     if (!Buffer.isBuffer(publicKey) || publicKey.length !== 32) throw new Error('INVALID_KEY');
@@ -90,7 +66,7 @@ export async function addTrustedSigner(
   if (!(await gate.isEnabled(context, 'skill_catalog'))) throw new AppError('FEATURE_NOT_ENABLED');
   try {
     return await withPrivilegeTx(database, context, async (tx) => {
-      await signerPerson(tx, context, true);
+      await requireSkillMember(tx, context, true);
       await tx.execute(sql`select skills.lock_trust()`);
       const [row] = await tx
         .insert(trustedSigners)
@@ -124,7 +100,7 @@ export async function listTrustedSigners(
   context: TenantContext,
 ): Promise<readonly SkillSignerView[]> {
   return withTenantTx(database, context, async (tx) => {
-    await signerPerson(tx, context, false);
+    await requireSkillMember(tx, context);
     return (
       await tx
         .select()
@@ -144,7 +120,7 @@ export async function revokeTrustedSigner(
   if (!id.success || !Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1)
     throw new AppError('INVALID_INPUT');
   return withPrivilegeTx(database, context, async (tx) => {
-    await signerPerson(tx, context, true);
+    await requireSkillMember(tx, context, true);
     await tx.execute(sql`select skills.lock_trust()`);
     const [signer] = await tx
       .select()

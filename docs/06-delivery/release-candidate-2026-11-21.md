@@ -1274,3 +1274,17 @@ including a stale submission, a successful queue request and manual status refre
 320px check with JavaScript disabled invoked the native agent Activity directly with a local
 fake provider and verified that the resulting model-generated summary appeared after refresh.
 Live-provider validation and connected notes import remain pending.
+
+### Skill package catalog metadata (EXP-04)
+
+Workspace members can open the catalog and browse package metadata. Owners and administrators
+can create a package when enabled, rename it, change its own content classification, and disable
+or reenable it. The catalog uses tenant-bound reads, an indexed name cursor, and versioned writes.
+HTTP creation can replay a request without creating a second package. A stale update leaves the
+current record intact.
+
+Ten live PostgreSQL catalog and signer tests passed. Local HTTP checks covered all four catalog
+operations, idempotent retries, and conflict responses. A signed-in Chromium journey created and
+edited a package on a 320px screen and checked the detail layout up to 1440px. The OpenAPI contract
+now has 20 planned operations. Signed bundle upload, verification, publication, and marketplace
+release gates remain open.

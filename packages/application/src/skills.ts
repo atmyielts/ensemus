@@ -3,6 +3,12 @@ import {
   listTrustedSigners as listSigners,
   revokeTrustedSigner as revokeSigner,
 } from './skill-signers';
+export {
+  createSkillPackage,
+  getSkillPackage,
+  listSkillPackages,
+  updateSkillPackage,
+} from './skill-packages';
 // Owned by the skill-catalog slice (EXP-04). See docs/06-delivery/m11b-slices.md and ADR-034 D1, D2, D4.
 // Managing skills needs skill.manage, publishing needs skill.publish, and reading needs only membership.
 import type { AppDatabase, TenantContext } from '@ensemus/database';
@@ -103,53 +109,6 @@ export function revokeTrustedSigner(
   input: { signerId: string; expectedVersion: number },
 ): Promise<void> {
   return revokeSigner(database, context, input);
-}
-
-export function createSkillPackage(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _gate: SkillFeatureGate,
-  _input: {
-    name: string;
-    displayName: string;
-    contentClassification?: SkillPackageView['contentClassification'];
-  },
-): Promise<SkillPackageView> {
-  throw new Error('NOT_IMPLEMENTED');
-}
-
-export function listSkillPackages(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: { after?: string; limit?: number },
-): Promise<SkillPackagePage> {
-  throw new Error('NOT_IMPLEMENTED');
-}
-
-export function getSkillPackage(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _packageId: string,
-): Promise<SkillPackageView> {
-  throw new Error('NOT_IMPLEMENTED');
-}
-
-/**
- * A marketplace copy's classification cannot be changed here, because its content is not this tenant's.
- * Disabling takes effect at once, because every use rereads the row.
- */
-export function updateSkillPackage(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: {
-    packageId: string;
-    expectedVersion: number;
-    displayName?: string;
-    state?: SkillPackageState;
-    contentClassification?: SkillPackageView['contentClassification'];
-  },
-): Promise<SkillPackageView> {
-  throw new Error('NOT_IMPLEMENTED');
 }
 
 /**

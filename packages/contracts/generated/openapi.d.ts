@@ -12897,7 +12897,10 @@ export interface paths {
             };
         };
         put?: never;
-        /** Send a copy of one thing. Only what the arrangement covers, and never restricted data */
+        /**
+         * Queue a work summary, status update, or file covered by the grant
+         * @description Tenant and grant rules determine which sources and classifications can be shared. The delivery worker verifies file bytes before making them available to the recipient.
+         */
         post: {
             parameters: {
                 query?: never;
@@ -12987,8 +12990,8 @@ export interface paths {
                 403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
                 409: components["responses"]["Conflict"];
-                413: components["responses"]["PayloadTooLarge"];
                 415: components["responses"]["UnsupportedMediaType"];
+                428: components["responses"]["PreconditionRequired"];
                 500: components["responses"]["InternalError"];
                 503: components["responses"]["RestorePending"];
             };
@@ -13012,7 +13015,9 @@ export interface paths {
         /** What has arrived and is still shared */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    disposition?: components["schemas"]["FederationDisposition"];
+                };
                 header?: never;
                 path: {
                     /** @description Requires authenticated organization membership; UUID alone is never authorization. */
@@ -13219,7 +13224,11 @@ export interface paths {
         /** Everything that went over either way, and everything removed since. Hashes and kinds, with no content */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    grant_id?: string;
+                    cursor?: string;
+                    limit?: number;
+                };
                 header?: never;
                 path: {
                     /** @description Requires authenticated organization membership; UUID alone is never authorization. */
@@ -13237,6 +13246,7 @@ export interface paths {
                     content: {
                         "application/json": {
                             items: components["schemas"]["FederationCrossing"][];
+                            next_cursor: string | null;
                         };
                     };
                 };
