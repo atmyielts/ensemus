@@ -1373,6 +1373,13 @@
       "when": 1794201807668,
       "tag": "0788_skill_upload_cleanup_portability",
       "breakpoints": true
+    },
+    {
+      "idx": 196,
+      "version": "7",
+      "when": 1794201807669,
+      "tag": "0789_residency_portability",
+      "breakpoints": true
     }
   ]
 }

@@ -24,6 +24,8 @@ Never export bearer keys, OAuth refresh tokens, or shared Ensemus service creden
 
 The business-record profile preserves connection, resource, and action references for review. The requesting owner must have a current source grant for each record and be able to read each linked Work Unit. The archive leaves out cached connector fields and fingerprints. The owner who authorized the import can review the references, then reconnect and sync the source under fresh credentials and grants. Importing the archive does not create live business records or replay actions.
 
+The residency archive profile includes the source workspace’s configured region and data classes as settings for the importing owner to review. The source deployment’s declared archive storage region must match every source residency requirement. The receiving owner reviews where the new deployment stores and processes data before configuring its residency settings.
+
 ## 4. Cloud/BYOM ↔ Sovereign
 
 Cloud-to-BYOM switches provider profiles within the same business database; rerun capability checks and re-embed if model dimensionality changes. SaaS-to-Sovereign exports require tenant data snapshot, blobs, policy/auth mapping, work/event history, agent version specs, compatible local models, index rebuild or conversion, migration logs, and verified import. Privacy/data residency obligations govern transfer channel and erasure after acceptance.

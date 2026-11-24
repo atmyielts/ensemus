@@ -8,6 +8,7 @@
 import { z } from 'zod';
 import { objectFieldSchema, objectRelationSchema } from './custom-objects';
 import { agentDraftAnswersSchema, processGraphSchema } from './studio';
+import { residencyScopeSchema } from './tenancy';
 
 const EXPORT_SECTIONS = [
   'organizations',
@@ -35,9 +36,11 @@ const MEETING_CONFIGURATION_PORTABILITY_VERSION = 'ensemus.meeting-config/7';
 const MEETING_HISTORY_PORTABILITY_VERSION = 'ensemus.meeting-history/8';
 const BUSINESS_RECORD_PORTABILITY_VERSION = 'ensemus.business-records/9';
 const SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION = 'ensemus.skill-upload-cleanup/10';
+const RESIDENCY_PORTABILITY_VERSION = 'ensemus.residency/11';
+const carriesUploadCleanup = (version: unknown) =>
+  version === SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION || version === RESIDENCY_PORTABILITY_VERSION;
 const carriesBusinessReferences = (version: unknown) =>
-  version === BUSINESS_RECORD_PORTABILITY_VERSION ||
-  version === SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION;
+  version === BUSINESS_RECORD_PORTABILITY_VERSION || carriesUploadCleanup(version);
 const carriesMeetingHistory = (version: unknown) =>
   version === MEETING_HISTORY_PORTABILITY_VERSION || carriesBusinessReferences(version);
 const carriesMeetingConfiguration = (version: unknown) =>
@@ -443,6 +446,16 @@ const BUSINESS_RECORD_KINDS = [
 ] as const;
 
 export const extensionRecordSchema = z.discriminatedUnion('kind', [
+  z.strictObject({
+    kind: z.literal('residency_requirement'),
+    id,
+    scope: residencyScopeSchema,
+    region: z.string().regex(/^[a-z][a-z0-9-]{1,31}$/),
+    version: z.string().regex(/^[1-9][0-9]{0,18}$/),
+    set_by_membership_id: id,
+    created_at: moment,
+    updated_at: moment,
+  }),
   z.strictObject({
     kind: z.literal('skill_upload_cleanup_history'),
     id,
@@ -943,6 +956,7 @@ export const EXTENSION_SECTION_KINDS = {
     'security_settings',
     ...MEETING_CONFIGURATION_RECORD_KINDS,
     ...MEETING_HISTORY_RECORD_KINDS,
+    'residency_requirement',
   ],
   skills: [
     ...SKILL_METADATA_RECORD_KINDS,
@@ -1001,10 +1015,9 @@ export function assertPortableExtensionProfile(
     !carriesBusinessReferences(inventoryVersion)
   )
     throw new Error('RECORD_REFUSED');
-  if (
-    kind === 'skill_upload_cleanup_history' &&
-    inventoryVersion !== SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION
-  )
+  if (kind === 'skill_upload_cleanup_history' && !carriesUploadCleanup(inventoryVersion))
+    throw new Error('RECORD_REFUSED');
+  if (kind === 'residency_requirement' && inventoryVersion !== RESIDENCY_PORTABILITY_VERSION)
     throw new Error('RECORD_REFUSED');
 }
 
@@ -1074,6 +1087,7 @@ const manifestV2Schema = manifestV1Schema.extend({
     MEETING_HISTORY_PORTABILITY_VERSION,
     BUSINESS_RECORD_PORTABILITY_VERSION,
     SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION,
+    RESIDENCY_PORTABILITY_VERSION,
   ]),
   record_max_bytes: z.literal(4 * 1024 * 1024).optional(),
   generated_bodies_excluded: z.int().min(0),

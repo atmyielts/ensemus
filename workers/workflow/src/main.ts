@@ -3,7 +3,12 @@ import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createOnboardingAgentRuns } from '@ensemus/application/knowledge/onboarding-run-port';
-import { loadSaasConfig, loadSkillFeatures, readSecret } from '@ensemus/config';
+import {
+  loadResidencyPolicy,
+  loadSaasConfig,
+  loadSkillFeatures,
+  readSecret,
+} from '@ensemus/config';
 import { createEntitlementChecker } from '@ensemus/application/saas/entitlements';
 import { loadSovereignConfig } from '@ensemus/config/sovereign';
 import {
@@ -165,6 +170,7 @@ async function main() {
           sections: PORTABILITY_SECTIONS,
           sourceRelease: sovereign.release,
           retentionHours: sovereign.exportRetentionHours,
+          residencyPolicy: loadResidencyPolicy(),
         },
       }),
       // M8 (ADR-032). Its ports refuse until sibling milestones are wired in, in saas-ports.ts.

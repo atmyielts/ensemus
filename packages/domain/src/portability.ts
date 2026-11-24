@@ -57,6 +57,7 @@ export const MEETING_CONFIGURATION_PORTABILITY_VERSION = 'ensemus.meeting-config
 export const MEETING_HISTORY_PORTABILITY_VERSION = 'ensemus.meeting-history/8' as const;
 export const BUSINESS_RECORD_PORTABILITY_VERSION = 'ensemus.business-records/9' as const;
 export const SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION = 'ensemus.skill-upload-cleanup/10' as const;
+export const RESIDENCY_PORTABILITY_VERSION = 'ensemus.residency/11' as const;
 export type JoinedPortabilityVersion =
   | typeof PORTABILITY_INVENTORY_VERSION
   | typeof FEDERATION_PORTABILITY_VERSION
@@ -65,7 +66,8 @@ export type JoinedPortabilityVersion =
   | typeof MEETING_CONFIGURATION_PORTABILITY_VERSION
   | typeof MEETING_HISTORY_PORTABILITY_VERSION
   | typeof BUSINESS_RECORD_PORTABILITY_VERSION
-  | typeof SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION;
+  | typeof SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION
+  | typeof RESIDENCY_PORTABILITY_VERSION;
 export function isJoinedPortabilityVersion(profile: unknown): profile is JoinedPortabilityVersion {
   return (
     profile === PORTABILITY_INVENTORY_VERSION ||
@@ -75,7 +77,8 @@ export function isJoinedPortabilityVersion(profile: unknown): profile is JoinedP
     profile === MEETING_CONFIGURATION_PORTABILITY_VERSION ||
     profile === MEETING_HISTORY_PORTABILITY_VERSION ||
     profile === BUSINESS_RECORD_PORTABILITY_VERSION ||
-    profile === SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION
+    profile === SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION ||
+    profile === RESIDENCY_PORTABILITY_VERSION
   );
 }
 export const PORTABLE_SOURCE_SECTIONS = [
@@ -434,6 +437,11 @@ export const SKILL_UPLOAD_CLEANUP_PORTABILITY_INVENTORY = [
   inventory('skills.bundle_uploads', 'skills', 'quarantined'),
 ] as const;
 
+export const RESIDENCY_PORTABILITY_INVENTORY = [
+  ...SKILL_UPLOAD_CLEANUP_PORTABILITY_INVENTORY,
+  inventory('tenancy.residency_requirements', 'policy', 'quarantined'),
+] as const;
+
 export const PORTABILITY_INVENTORY_PROFILES = {
   [LEGACY_PORTABILITY_INVENTORY_VERSION]: PORTABILITY_INVENTORY_V1,
   [PORTABILITY_INVENTORY_V2_VERSION]: PORTABILITY_INVENTORY_V2,
@@ -445,6 +453,7 @@ export const PORTABILITY_INVENTORY_PROFILES = {
   [MEETING_HISTORY_PORTABILITY_VERSION]: MEETING_HISTORY_PORTABILITY_INVENTORY,
   [BUSINESS_RECORD_PORTABILITY_VERSION]: BUSINESS_RECORD_PORTABILITY_INVENTORY,
   [SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION]: SKILL_UPLOAD_CLEANUP_PORTABILITY_INVENTORY,
+  [RESIDENCY_PORTABILITY_VERSION]: RESIDENCY_PORTABILITY_INVENTORY,
 } as const;
 
 export function matchesPortabilityInventory(

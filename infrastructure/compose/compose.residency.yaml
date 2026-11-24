@@ -41,6 +41,15 @@ services:
     depends_on:
       residency-profile: { condition: service_completed_successfully }
 
+  worker:
+    environment:
+      <<: *residency-profile
+      ENSEMUS_RESIDENCY_POLICY_FILE: /run/ensemus/residency-policy.json
+    volumes:
+      - *residency-policy
+    depends_on:
+      residency-profile: { condition: service_completed_successfully }
+
   agent-worker:
     environment:
       <<: *residency-profile

@@ -5,6 +5,16 @@ import { notFound } from 'next/navigation';
 import { PageHead } from '@/components/ui';
 import { requireTenant } from '@/server/tenant';
 
+function definitionLabel(row: Awaited<ReturnType<typeof listImportedDefinitions>>[number]) {
+  if (row.record.kind === 'marketplace_publisher_history')
+    return `Marketplace publisher · ${row.record.display_name}`;
+  if (row.record.kind === 'residency_requirement') {
+    const scope = row.record.scope === 'all' ? 'All data' : row.record.scope;
+    return `Residency · ${scope} · ${row.record.region}`;
+  }
+  return `${row.record_kind.replaceAll('_', ' ')} · ${row.source_id}`;
+}
+
 export const metadata = { title: 'Imported definitions | Ensemus' };
 export default async function ImportedDefinitionsPage({
   params,
@@ -43,11 +53,14 @@ export default async function ImportedDefinitionsPage({
           ) : (
             rows.map((row) => (
               <details key={`${row.record_kind}:${row.source_id}`}>
-                <summary className="[overflow-wrap:anywhere]">
-                  {row.record.kind === 'marketplace_publisher_history'
-                    ? `Marketplace publisher · ${row.record.display_name}`
-                    : `${row.record_kind.replaceAll('_', ' ')} · ${row.source_id}`}
-                </summary>
+                <summary className="[overflow-wrap:anywhere]">{definitionLabel(row)}</summary>
+                {row.record.kind === 'residency_requirement' && (
+                  <p>
+                    <Link href={`/o/${organizationId}/deployment`}>
+                      Review deployment residency
+                    </Link>
+                  </p>
+                )}
                 <pre className="record-text">{JSON.stringify(row.record, null, 2)}</pre>
               </details>
             ))

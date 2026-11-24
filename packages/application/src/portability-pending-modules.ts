@@ -11,7 +11,6 @@ export const PENDING_PORTABILITY_TABLES = [
   'skills.test_runs',
   'skills.package_versions',
   'skills.trusted_signers',
-  'tenancy.residency_requirements',
   'federation.org_settings',
   'federation.grants',
   'federation.outbound_items',

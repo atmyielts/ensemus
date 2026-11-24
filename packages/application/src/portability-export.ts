@@ -35,6 +35,7 @@ import {
   MEETING_CONFIGURATION_PORTABILITY_VERSION,
   MEETING_HISTORY_PORTABILITY_VERSION,
   BUSINESS_RECORD_PORTABILITY_VERSION,
+  RESIDENCY_PORTABILITY_VERSION,
   SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION,
   isJoinedPortabilityVersion,
   PORTABILITY_INVENTORY_PROFILES,
@@ -83,6 +84,7 @@ import {
 } from './portability-extensions';
 import { RecordRefused } from './portability-sections-import';
 import { queryRows } from './portability-sql';
+import type { ResidencyPolicy } from '@ensemus/domain/residency';
 import { assertExportEpoch, isExportEpochCurrent } from './portability-epoch';
 import type { ExportPage, PortabilitySection } from './sovereign-ports';
 import { auditAction, notify } from './work';
@@ -110,6 +112,7 @@ export type ExportDeps = {
   sourceRelease: string;
   /** Hours an archive stays in the store. Configuration: `ENSEMUS_EXPORT_RETENTION_HOURS`. */
   retentionHours: number;
+  residencyPolicy?: ResidencyPolicy;
   now?: () => Date;
 };
 
@@ -514,6 +517,17 @@ function settledStep(row: ExportRow): ExportStep | null {
 const stepOf = (row: ExportRow): ExportStep =>
   settledStep(row) ?? { state: 'continue', ...counters(row) };
 
+async function archiveStorageMatchesResidency(tx: Tx, policy: ResidencyPolicy | undefined) {
+  const regions = policy?.surfaces.storage?.regions;
+  const region = policy?.homeRegion;
+  if (!region || !regions?.length || regions.some((declared) => declared !== region)) return false;
+  const [proof] = await queryRows<{ allowed: boolean }>(
+    tx,
+    sql`select sovereign.portable_residency_storage_matches(${region}) as allowed`,
+  );
+  return proof?.allowed === true;
+}
+
 /** Moves it to `running` and records `snapshot_at`. On a row already finished, answers `finished`. */
 export async function beginExport(
   database: AppDatabase,
@@ -538,16 +552,22 @@ export async function beginExport(
         when sovereign.portable_profile_clear(${MEETING_HISTORY_PORTABILITY_VERSION}) then ${MEETING_HISTORY_PORTABILITY_VERSION}
         when sovereign.portable_profile_clear(${BUSINESS_RECORD_PORTABILITY_VERSION}) then ${BUSINESS_RECORD_PORTABILITY_VERSION}
         when sovereign.portable_profile_clear(${SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION}) then ${SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION}
+        when sovereign.portable_profile_clear(${RESIDENCY_PORTABILITY_VERSION}) then ${RESIDENCY_PORTABILITY_VERSION}
         else null end as profile`,
     );
     const profile = admitted?.profile;
-    if (!profile) {
+    if (
+      !profile ||
+      (profile === RESIDENCY_PORTABILITY_VERSION &&
+        !(await archiveStorageMatchesResidency(tx, deps.residencyPolicy)))
+    ) {
       await recordFailure(tx, context, row, 'RECORD_REFUSED');
       return { state: 'failed', code: 'RECORD_REFUSED' };
     }
     const includesBusinessReferences =
       profile === BUSINESS_RECORD_PORTABILITY_VERSION ||
-      profile === SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION;
+      profile === SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION ||
+      profile === RESIDENCY_PORTABILITY_VERSION;
     try {
       await assertJoinedPortabilitySchema(tx, profile);
       if (profile === MEETING_HISTORY_PORTABILITY_VERSION || includesBusinessReferences)
@@ -1269,21 +1289,33 @@ async function readRun(
   exportId: string,
   deps: ExportDeps,
 ): Promise<Run | ExportStep> {
-  const row = await withTenantTx(database, context, (tx) => findExport(tx, context, exportId));
-  const settled = settledStep(row);
-  if (settled) return settled;
-  // Nothing has claimed it, so nothing has a snapshot to read against. A workflow always begins first.
-  if (row.status === 'requested') throw new AppError('INVALID_STATE');
-  await withTenantTx(database, context, (tx) => assertExportEpoch(tx, context, row.id));
-  return {
-    database,
-    store,
-    context,
-    row,
-    progress: readProgress(row),
-    deps,
-    startedAtMs: Date.now(),
-  };
+  return withTenantTx(database, context, async (tx) => {
+    const row = await findExport(tx, context, exportId);
+    const settled = settledStep(row);
+    if (settled) return settled;
+    // A workflow must first claim the export and pin its snapshot.
+    if (row.status === 'requested') throw new AppError('INVALID_STATE');
+    await assertExportEpoch(tx, context, row.id);
+    if (
+      row.inventoryVersion === RESIDENCY_PORTABILITY_VERSION &&
+      !(await archiveStorageMatchesResidency(tx, deps.residencyPolicy))
+    ) {
+      const latest = await findExport(tx, context, exportId, true);
+      const settled = settledStep(latest);
+      if (settled) return settled;
+      await recordFailure(tx, context, latest, 'RECORD_REFUSED');
+      return { state: 'failed', code: 'RECORD_REFUSED' };
+    }
+    return {
+      database,
+      store,
+      context,
+      row,
+      progress: readProgress(row),
+      deps,
+      startedAtMs: Date.now(),
+    };
+  });
 }
 
 const isRun = (value: Run | ExportStep): value is Run => 'row' in value;

@@ -13,7 +13,8 @@ import {
   MEETING_HISTORY_PORTABILITY_VERSION,
   MARKETPLACE_PUBLISHER_PORTABILITY_VERSION,
   SKILL_METADATA_PORTABILITY_VERSION,
-  SKILL_UPLOAD_CLEANUP_PORTABILITY_INVENTORY,
+  RESIDENCY_PORTABILITY_INVENTORY,
+  RESIDENCY_PORTABILITY_VERSION,
   SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION,
   PORTABILITY_INVENTORY_PROFILES,
   PORTABILITY_INVENTORY_VERSION,
@@ -105,7 +106,21 @@ const skillReadersByProfile: Partial<Record<JoinedPortabilityVersion, readonly P
     [MEETING_HISTORY_PORTABILITY_VERSION]: publisherReaders,
     [BUSINESS_RECORD_PORTABILITY_VERSION]: publisherReaders,
     [SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION]: publisherReaders,
+    [RESIDENCY_PORTABILITY_VERSION]: publisherReaders,
   };
+const residencyRequirementReader: PortableReader = {
+  table: 'sovereign.portable_residency_requirements',
+  kind: 'residency_requirement',
+  key: "t.organization_id::text||':'||t.scope",
+  fields: {
+    scope: 't.scope',
+    region: 't.region',
+    version: 't.version::text',
+    set_by_membership_id: 't.set_by_membership_id',
+    created_at: instant('t.created_at'),
+    updated_at: instant('t.updated_at'),
+  },
+};
 const meetingConfigurationReaders: readonly PortableReader[] = [
   {
     table: 'meetings.settings',
@@ -512,7 +527,7 @@ export async function assertJoinedPortabilitySchema(
       AND schemaname NOT IN ('information_schema','drizzle')`,
   );
   const known = new Set<string>([
-    ...SKILL_UPLOAD_CLEANUP_PORTABILITY_INVENTORY.map((entry) => entry.table),
+    ...RESIDENCY_PORTABILITY_INVENTORY.map((entry) => entry.table),
     ...PENDING_PORTABILITY_TABLES,
   ]);
   if (present.some((row) => !known.has(row.table_name))) throw new RecordRefused();
@@ -566,9 +581,11 @@ function exporter(section: ExportSection): PortabilitySection['exportPage'] {
   return async (tx, context, { cursor, limit, inventoryVersion }): Promise<ExportPage> => {
     await assertJoinedPortabilitySchema(tx, inventoryVersion);
     const exportViewer = await assertExportViewer(tx);
+    const includesResidency = inventoryVersion === RESIDENCY_PORTABILITY_VERSION;
+    const includesUploadCleanup =
+      inventoryVersion === SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION || includesResidency;
     const includesBusinessReferences =
-      inventoryVersion === BUSINESS_RECORD_PORTABILITY_VERSION ||
-      inventoryVersion === SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION;
+      inventoryVersion === BUSINESS_RECORD_PORTABILITY_VERSION || includesUploadCleanup;
     const includesMeetingHistory =
       inventoryVersion === MEETING_HISTORY_PORTABILITY_VERSION || includesBusinessReferences;
     if (section === 'policy' && includesMeetingHistory)
@@ -585,6 +602,7 @@ function exporter(section: ExportSection): PortabilitySection['exportPage'] {
               ? meetingConfigurationReaders
               : []),
             ...(section === 'policy' && includesMeetingHistory ? MEETING_HISTORY_READERS : []),
+            ...(section === 'policy' && includesResidency ? [residencyRequirementReader] : []),
           ];
     if (section === 'skills' && !list.length)
       return { recordKind: 'skills', records: [], nextCursor: null };
@@ -598,7 +616,7 @@ function exporter(section: ExportSection): PortabilitySection['exportPage'] {
             { mode: 'record', kind: 'business_record_reference' },
             { mode: 'action', kind: 'business_record_action_reference' },
           ] as const)
-        : section === 'skills' && inventoryVersion === SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION
+        : section === 'skills' && includesUploadCleanup
           ? ([{ mode: 'cleanup', kind: 'skill_upload_cleanup_history' }] as const)
           : [];
     const totalReaders = list.length + nativeReaders.length;

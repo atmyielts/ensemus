@@ -33,6 +33,7 @@ import {
   getWorkUnit,
   listOrganizationExports,
   listImportedDefinitions,
+  listResidencyRequirements,
   listMeetings,
   listMeetingProviderApprovals,
   openExportArchive,
@@ -44,6 +45,7 @@ import {
   requestOrganizationExport,
   requestOrganizationImport,
   runOrganizationImport,
+  setResidencyRequirement,
   requestWorkReview,
   revokeMeetingProvider,
   transitionWorkUnit,
@@ -66,6 +68,7 @@ import {
   domainEvents,
   externalResourceAcl,
   externalResources,
+  interactiveSessionOf,
   notifications,
   openAppDatabase,
   organizationExportParts,
@@ -98,6 +101,8 @@ import {
   MEETING_HISTORY_PORTABILITY_VERSION,
   SKILL_METADATA_PORTABILITY_INVENTORY,
   SKILL_METADATA_PORTABILITY_VERSION,
+  RESIDENCY_PORTABILITY_INVENTORY,
+  RESIDENCY_PORTABILITY_VERSION,
   SKILL_UPLOAD_CLEANUP_PORTABILITY_INVENTORY,
   SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION,
   isArchivePath,
@@ -132,6 +137,7 @@ import {
   setDeploymentProfile,
 } from '../helpers/federation';
 import { seedConnection, seedExternalAction } from '../helpers/integrations';
+import { proveSecondFactor } from '../helpers/product';
 import { seedPackage, seedSigner } from '../helpers/skills';
 import { secret, urls } from '../helpers/stack';
 import { archiveReader } from './fixtures/archive-builder';
@@ -950,6 +956,131 @@ describe('organization export', () => {
     expect(await withTenantTx(db(), target, (tx) => tx.select().from(skillBundleUploads))).toEqual(
       [],
     );
+  });
+
+  it('archives residency rules only when export storage matches the source requirements', async () => {
+    const source = await newOrg();
+    const target = await newOrg();
+    const identity = interactiveSessionOf(source);
+    if (!identity) throw new Error('MISSING_RESIDENCY_TEST_SESSION');
+    const region = 'test-region-a';
+    const archiveStore = new MemoryStore();
+    const scopedDeps: ExportDeps = {
+      ...deps,
+      residencyPolicy: {
+        homeRegion: region,
+        surfaces: { storage: { regions: [region], evidenceRef: 'generated storage declaration' } },
+      },
+    };
+    await setDeploymentProfile({ homeRegion: region });
+    try {
+      await proveSecondFactor(identity);
+      await setResidencyRequirement(db(), source, { scope: 'all', region, expectedVersion: 0 });
+      await setResidencyRequirement(db(), source, {
+        scope: 'confidential',
+        region,
+        expectedVersion: 0,
+      });
+      const refused = { state: 'failed', code: 'RECORD_REFUSED' };
+      await expect(drive(source, archiveStore, await request(source))).resolves.toEqual(refused);
+      await expect(
+        drive(source, archiveStore, await request(source), {
+          ...deps,
+          residencyPolicy: {
+            homeRegion: region,
+            surfaces: { storage: { regions: [region, 'test-region-b'], evidenceRef: 'generated' } },
+          },
+        }),
+      ).resolves.toEqual(refused);
+      const changedWorker = await request(source);
+      await expect(
+        beginExport(workerDb(), worker(source), { exportId: changedWorker }, scopedDeps),
+      ).resolves.toMatchObject({ state: 'continue' });
+      await expect(
+        exportNextBatch(
+          workerDb(),
+          archiveStore,
+          worker(source),
+          {
+            exportId: changedWorker,
+          },
+          deps,
+        ),
+      ).resolves.toEqual(refused);
+      expect(archiveStore.puts).toEqual([]);
+
+      const exportId = await request(source);
+      await expect(drive(source, archiveStore, exportId, scopedDeps)).resolves.toMatchObject({
+        state: 'finished',
+      });
+      const opened = await downloadAndOpen(source, archiveStore, exportId);
+      expect(opened.manifest).toMatchObject({
+        inventory_version: RESIDENCY_PORTABILITY_VERSION,
+        inventory: RESIDENCY_PORTABILITY_INVENTORY,
+      });
+      const records = recordsOf(opened, 'residency_requirement');
+      expect(records).toEqual(
+        ['all', 'confidential'].map((scope) => ({
+          kind: 'residency_requirement',
+          id: expect.any(String),
+          scope,
+          region,
+          version: '1',
+          set_by_membership_id: source.membershipId,
+          created_at: expect.any(String),
+          updated_at: expect.any(String),
+        })),
+      );
+      expect(() =>
+        validatePortableRecord('policy', records[0], SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION),
+      ).toThrow('RECORD_REFUSED');
+      await expect(
+        withTenantTx(db(), source, (tx) =>
+          tx.execute(sql`select region from sovereign.portable_residency_requirements`),
+        ),
+      ).rejects.toMatchObject({ cause: { code: '42501' } });
+
+      const targetStore = new MemoryStore();
+      const bound = await requestOrganizationImport(db(), target);
+      const result = await runOrganizationImport(
+        workerDb(),
+        worker(target),
+        {
+          importId: bound.id,
+          archive: archiveReader(opened.bytes),
+          recipientPrivateKeyPem: recipient.privateKeyPem,
+        },
+        { sections: SOURCE_PORTABILITY_SECTIONS, ledger: targetStore, store: targetStore },
+      );
+      expect(result.status).toBe('completed_with_warnings');
+      expect(result.appliedCounts.residency_requirement).toBe(2);
+      expect(await listResidencyRequirements(db(), target)).toEqual([]);
+      const targetAdmin = await join(target, 'residency-admin', 'admin');
+      const imported = await listImportedDefinitions(db(), target);
+      for (const record of records) {
+        expect(imported).toContainEqual(
+          expect.objectContaining({
+            section: 'policy',
+            record_kind: 'residency_requirement',
+            record,
+          }),
+        );
+      }
+      expect(await listImportedDefinitions(db(), targetAdmin)).not.toContainEqual(
+        expect.objectContaining({ record_kind: 'residency_requirement' }),
+      );
+
+      await setResidencyRequirement(db(), source, {
+        scope: 'all',
+        region: null,
+        expectedVersion: 1,
+      });
+      await expect(openExportArchive(db(), archiveStore, source, exportId)).rejects.toMatchObject({
+        code: 'EXPORT_SUPERSEDED',
+      });
+    } finally {
+      await clearDeploymentProfile();
+    }
   });
 
   it('carries meeting settings and provider decisions as review records without activating them', async () => {
