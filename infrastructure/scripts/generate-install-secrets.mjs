@@ -4,6 +4,11 @@ import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 
+const bucket = process.env.OBJECT_STORAGE_BUCKET ?? 'ensemus';
+if (!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(bucket)) {
+  console.error('Invalid OBJECT_STORAGE_BUCKET. Use a 3–63 character lowercase bucket name.');
+  process.exit(1);
+}
 const dir = fileURLToPath(new URL('../../.local/secrets', import.meta.url));
 mkdirSync(dirname(dir), { recursive: true, mode: 0o700 });
 try {
@@ -49,8 +54,8 @@ files['objects_identity.json'] = JSON.stringify({
   identities: [
     objectIdentity('ensemus', 'objects', ['Admin', 'Read', 'Write', 'List', 'Tagging']),
     objectIdentity('ensemus-ledger', 'objects_ledger', [
-      'Read:ensemus/tombstone-ledger/*',
-      'Write:ensemus/tombstone-ledger/*',
+      `Read:${bucket}/tombstone-ledger/*`,
+      `Write:${bucket}/tombstone-ledger/*`,
     ]),
     objectIdentity('ensemus-backup', 'objects_backup', [
       'Read:ensemus-backups',

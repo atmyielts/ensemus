@@ -9,6 +9,10 @@ export TEMPORAL_ADDRESS=passthrough:///temporal:7233
 
 # Not ":-": a setting that is there and empty is a mistake to report, not a request for the default.
 retention=${ENSEMUS_TEMPORAL_RETENTION-72h}
+namespace=${TEMPORAL_NAMESPACE-default}
+case $namespace in
+  '' | *[!a-zA-Z0-9_-]*) echo 'Invalid TEMPORAL_NAMESPACE' >&2; exit 1 ;;
+esac
 
 # Only names the setting, because a value that failed this is not known to be fit to print. Patterns, not
 # a numeric test, so that no length of digits can make the shell complain and repeat it.
@@ -34,8 +38,8 @@ until temporal operator cluster health >/dev/null 2>&1; do
   fi
   sleep 2
 done
-if temporal operator namespace describe --namespace default >/dev/null 2>&1; then
-  temporal operator namespace update --namespace default --retention "$retention"
+if temporal operator namespace describe --namespace "$namespace" >/dev/null 2>&1; then
+  temporal operator namespace update --namespace "$namespace" --retention "$retention"
 else
-  temporal operator namespace create --namespace default --retention "$retention"
+  temporal operator namespace create --namespace "$namespace" --retention "$retention"
 fi

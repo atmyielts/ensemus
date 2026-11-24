@@ -56,6 +56,13 @@ export function applyDeploymentProfile(
   });
 }
 
+export function readAppliedDeploymentProfile(migratorUrl: string) {
+  return withMigrator(migratorUrl, async (db) => {
+    const [profile] = await db.select().from(deploymentProfile).limit(1);
+    return profile;
+  });
+}
+
 /** Adds what one run of the isolation report found. These are never changed afterwards. */
 export async function recordIsolationEvidence(
   migratorUrl: string,

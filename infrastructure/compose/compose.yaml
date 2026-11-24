@@ -69,6 +69,7 @@ services:
       ENSEMUS_OTEL_METRIC_INTERVAL_SECONDS: ${ENSEMUS_OTEL_METRIC_INTERVAL_SECONDS:-}
       ENSEMUS_MODE: ${ENSEMUS_MODE:-sovereign}
       ENSEMUS_PUBLIC_URL: ${ENSEMUS_PUBLIC_URL:-https://localhost:8443}
+      ENSEMUS_RELEASE:
       ENSEMUS_TENANCY_TIER:
       ENSEMUS_DEDICATED_ORGANIZATION_ID:
       ENSEMUS_HOME_REGION:
@@ -114,7 +115,7 @@ services:
       ENSEMUS_CHECKOUT_REPLY_WAIT_MS: ${ENSEMUS_CHECKOUT_REPLY_WAIT_MS:-8000}
       DATABASE_URL_APP_FILE: /run/secrets/db_app_url
       OBJECT_STORAGE_ENDPOINT: http://objects:8333
-      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-ensemus}
       OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
       OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
       DATABASE_URL_AUTH_FILE: /run/secrets/db_auth_url
@@ -154,12 +155,12 @@ services:
       ENSEMUS_OTEL_SAMPLE_RATIO: ${ENSEMUS_OTEL_SAMPLE_RATIO:-}
       ENSEMUS_OTEL_METRIC_INTERVAL_SECONDS: ${ENSEMUS_OTEL_METRIC_INTERVAL_SECONDS:-}
       TEMPORAL_ADDRESS: temporal:7233
-      TEMPORAL_NAMESPACE: default
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
       TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
       # Its own login, a member of ensemus_app (ADR-039). The name keeps the code unchanged.
       DATABASE_URL_APP_FILE: /run/secrets/db_worker_url
       OBJECT_STORAGE_ENDPOINT: http://objects:8333
-      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-ensemus}
       OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
       OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
       DATABASE_URL_SECRETS_FILE: /run/secrets/db_secrets_url
@@ -202,12 +203,12 @@ services:
       ENSEMUS_CROSS_ORG_ENABLED: ${ENSEMUS_CROSS_ORG_ENABLED:-false}
       ENSEMUS_TENANCY_TIER:
       TEMPORAL_ADDRESS: temporal:7233
-      TEMPORAL_NAMESPACE: default
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
       TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
       DATABASE_URL_APP_FILE: /run/secrets/db_worker_url
       DATABASE_URL_FEDERATION_FILE: /run/secrets/db_federation_url
       OBJECT_STORAGE_ENDPOINT: http://objects:8333
-      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-ensemus}
       OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
       OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
     secrets:
@@ -247,12 +248,12 @@ services:
       - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10
     environment:
       TEMPORAL_ADDRESS: temporal:7233
-      TEMPORAL_NAMESPACE: default
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
       TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
       # Its own login, a member of ensemus_app (ADR-039). The name keeps the code unchanged.
       DATABASE_URL_APP_FILE: /run/secrets/db_knowledge_url
       OBJECT_STORAGE_ENDPOINT: http://objects:8333
-      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-ensemus}
       OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
       OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
     secrets:
@@ -282,13 +283,13 @@ services:
       - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.7.12
     environment:
       TEMPORAL_ADDRESS: temporal:7233
-      TEMPORAL_NAMESPACE: default
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
       TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
       DATABASE_URL_AGENT_FILE: /run/secrets/db_agent_url
       DATABASE_URL_SECRETS_FILE: /run/secrets/db_secrets_url
       SECRET_SEALING_PRIVATE_KEY_FILE: /run/secrets/sealing_private_key.pem
       OBJECT_STORAGE_ENDPOINT: http://objects:8333
-      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-ensemus}
       OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
       OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
       ENSEMUS_PRIVATE_MODEL_ENDPOINTS: ${ENSEMUS_PRIVATE_MODEL_ENDPOINTS:-}
@@ -332,12 +333,12 @@ services:
       ENSEMUS_OTEL_SAMPLE_RATIO: ${ENSEMUS_OTEL_SAMPLE_RATIO:-}
       ENSEMUS_OTEL_METRIC_INTERVAL_SECONDS: ${ENSEMUS_OTEL_METRIC_INTERVAL_SECONDS:-}
       TEMPORAL_ADDRESS: temporal:7233
-      TEMPORAL_NAMESPACE: default
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
       TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
       DATABASE_URL_DISPATCHER_FILE: /run/secrets/db_dispatcher_url
       # Writes the tombstone ledger (ADR-026). This identity reaches that prefix and nothing else.
       OBJECT_STORAGE_ENDPOINT: http://objects:8333
-      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-ensemus}
       OBJECT_STORAGE_LEDGER_ACCESS_KEY_FILE: /run/secrets/objects_ledger_access_key
       OBJECT_STORAGE_LEDGER_SECRET_KEY_FILE: /run/secrets/objects_ledger_secret_key
     secrets:
@@ -382,7 +383,7 @@ services:
       - egress-meeting-notes:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.24
     environment:
       TEMPORAL_ADDRESS: temporal:7233
-      TEMPORAL_NAMESPACE: default
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
       TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
       # Its own login (ADR-039). Only this login answers a suite read or exchanges a consent (0701).
       DATABASE_URL_APP_FILE: /run/secrets/db_connector_url
@@ -755,7 +756,7 @@ services:
       - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.12
     environment:
       OBJECT_STORAGE_ENDPOINT: http://objects:8333
-      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-ensemus}
       OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
       OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
       DATABASE_URL_MIGRATOR_FILE: /run/secrets/db_migrator_url
@@ -770,6 +771,37 @@ services:
       objects: { condition: service_healthy }
       provision-roles: { condition: service_completed_successfully }
       provision-federation: { condition: service_completed_successfully, required: false }
+
+  # Operator-run report for an already pinned installation.
+  isolation-report:
+    profiles: ['isolation']
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/isolation-report.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks: [data, temporal]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.10
+      - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.12
+      - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10
+    environment:
+      DATABASE_URL_DISPATCHER_FILE: /run/secrets/db_dispatcher_url
+      DATABASE_URL_MIGRATOR_FILE: /run/secrets/db_migrator_url
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+      OBJECT_STORAGE_ENDPOINT: http://objects:8333
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-ensemus}
+      OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
+      OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
+      ENSEMUS_RELEASE:
+      ENSEMUS_ISOLATION_FOREIGN_ENDPOINTS:
+      ENSEMUS_ISOLATION_FOREIGN_NAMESPACES:
+      ENSEMUS_ISOLATION_FOREIGN_BUCKETS:
+      ENSEMUS_ISOLATION_DECLARATIONS:
+    secrets: [db_dispatcher_url, db_migrator_url, objects_access_key, objects_secret_key]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      temporal-namespace: { condition: service_completed_successfully }
 
   # One-shot offline invalidation only. Ordinary workers never receive the native auth DB/key.
   # Run only after migrator begin has closed admission. No Temporal, object, vault or provider key.
@@ -811,7 +843,7 @@ services:
       - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10
     environment:
       TEMPORAL_ADDRESS: temporal:7233
-      TEMPORAL_NAMESPACE: default
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
       # Its own login, a member of ensemus_app (ADR-039). The name keeps the code unchanged.
       DATABASE_URL_APP_FILE: /run/secrets/db_worker_url
       DATABASE_URL_DISPATCHER_FILE: /run/secrets/db_dispatcher_url
@@ -819,7 +851,7 @@ services:
       # (ADR-026, ADR-028). Without it they stay unbound and report attention, so nobody is admitted.
       DATABASE_URL_AGENT_FILE: /run/secrets/db_agent_url
       OBJECT_STORAGE_ENDPOINT: http://objects:8333
-      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-ensemus}
       OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
       OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
     secrets:
@@ -929,6 +961,7 @@ services:
       # job applies it to an existing namespace too, and refuses anything else before touching Temporal.
       # A technical default, not a promise: no safety property depends on it.
       ENSEMUS_TEMPORAL_RETENTION: ${ENSEMUS_TEMPORAL_RETENTION:-72h}
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
     extra_hosts:
       - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10
     volumes:

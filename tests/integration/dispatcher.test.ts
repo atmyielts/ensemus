@@ -14,6 +14,7 @@ import {
 } from '@ensemus/database';
 import {
   dispatchDueEvents,
+  listIsolationOrganizationIds,
   listOrganizationIds,
   nextAttemptDelayMs,
   openDispatcherDatabase,
@@ -513,6 +514,18 @@ describe('outbox dispatch', () => {
 
     it('can list every tenant from event metadata, to check their schedules', async () => {
       expect(await listOrganizationIds(dispatcher.db)).toContain(context.organizationId);
+    });
+
+    it('requires the dispatcher login for an isolation inventory', async () => {
+      expect(await listIsolationOrganizationIds(dispatcher.db)).toContain(context.organizationId);
+      const scoped = openDispatcherDatabase(urls.app());
+      try {
+        await expect(listIsolationOrganizationIds(scoped.db)).rejects.toThrow(
+          'DISPATCHER_LOGIN_REQUIRED',
+        );
+      } finally {
+        await scoped.close();
+      }
     });
   });
 

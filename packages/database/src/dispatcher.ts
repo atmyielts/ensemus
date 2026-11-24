@@ -285,6 +285,13 @@ export async function listOrganizationIds(db: EnsemusDrizzle): Promise<string[]>
   return rows.map((row) => row.organizationId);
 }
 
+/** Isolation uses the native metadata reader, since another login can see a partial inventory under RLS. */
+export async function listIsolationOrganizationIds(db: EnsemusDrizzle): Promise<string[]> {
+  const result = await db.execute<{ role: string }>(sql`select session_user::text as role`);
+  if (result.rows[0]?.role !== 'ensemus_dispatcher') throw new Error('DISPATCHER_LOGIN_REQUIRED');
+  return listOrganizationIds(db);
+}
+
 /** Startup only repairs schedules a tenant still needs, without reading its records or payloads. */
 export async function listScheduleReconciliationTenants(db: EnsemusDrizzle): Promise<string[]> {
   await assertRestoreAdmission(db);

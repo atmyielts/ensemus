@@ -88,6 +88,7 @@ export function loadSaasConfig(env: NodeJS.ProcessEnv = process.env) {
         : { enabled: false as const },
   };
 }
+export { loadIsolationConfig, type IsolationConfig } from './isolation';
 export {
   deploymentProfileHash,
   loadExplicitTenancyConfig,

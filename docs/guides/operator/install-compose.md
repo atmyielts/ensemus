@@ -2,10 +2,10 @@
 title: Installing with Docker Compose
 audience: operator
 area: op-install
-tickets: [PLAT-15, PLAT-11]
+tickets: [PLAT-15, PLAT-11, EXP-08]
 modes: [cloud, byom, sovereign]
 status: written_untested
-sources: [infrastructure/compose/compose.yaml, infrastructure/compose/compose.public.yaml, infrastructure/compose/proxy/Caddyfile, infrastructure/compose/postgres/10-provision.sh, infrastructure/compose/postgres/provision.sql, infrastructure/compose/temporal/setup-schema.sh, infrastructure/compose/temporal/setup-namespace.sh, infrastructure/containers/Dockerfile.web, infrastructure/containers/Dockerfile.worker, infrastructure/scripts/generate-install-secrets.mjs, infrastructure/scripts/check-compose-secrets.mjs, infrastructure/scripts/generate-test-secrets.mjs, packages/config/src/index.ts, packages/telemetry/src/console-guard.ts, apps/web/start.mjs, apps/web/src/app/api/health/ready/route.ts, apps/web/src/app/api/health/live/route.ts, apps/web/src/app/sign-in/page.tsx, workers/workflow/src/migrate.ts, docs/05-operations/05-container-deployment-runbook.md, docs/00-foundation/adr/ADR-025-m1-implementation-decisions.md, tests/stack/platform.test.ts]
+sources: [infrastructure/compose/compose.yaml, infrastructure/compose/compose.public.yaml, workers/workflow/src/isolation-report.ts, infrastructure/compose/proxy/Caddyfile, infrastructure/compose/postgres/10-provision.sh, infrastructure/compose/postgres/provision.sql, infrastructure/compose/temporal/setup-schema.sh, infrastructure/compose/temporal/setup-namespace.sh, infrastructure/containers/Dockerfile.web, infrastructure/containers/Dockerfile.worker, infrastructure/scripts/generate-install-secrets.mjs, infrastructure/scripts/check-compose-secrets.mjs, infrastructure/scripts/generate-test-secrets.mjs, packages/config/src/index.ts, packages/telemetry/src/console-guard.ts, apps/web/start.mjs, apps/web/src/app/api/health/ready/route.ts, apps/web/src/app/api/health/live/route.ts, apps/web/src/app/sign-in/page.tsx, workers/workflow/src/migrate.ts, docs/05-operations/05-container-deployment-runbook.md, docs/00-foundation/adr/ADR-025-m1-implementation-decisions.md, tests/stack/platform.test.ts]
 tests: []
 needs_walkthrough: true
 ---
@@ -138,6 +138,24 @@ Before sharing the address, open the sign-in page on another network and confirm
 ## Step 7: Let the first person in
 
 Sign-up is off by default, so nobody can get an account until you issue a code. See [The first owner and setup token](first-owner.md).
+
+### Check a dedicated installation
+
+Before the first start, give each dedicated installation its own Compose project, network prefix, database and volumes. Choose distinct `TEMPORAL_NAMESPACE` and `OBJECT_STORAGE_BUCKET` values. When generating install secrets, pass the same `OBJECT_STORAGE_BUCKET` to the generator so the ledger identity is scoped to the right bucket. Keep these names for the life of the installation.
+
+After the first owner sets up the pinned organization and the platform, agent and Knowledge workers are running, set `ENSEMUS_RELEASE` to the running release identifier and supply the peer inventory from the other installations. Enter the following as JSON values in the Compose settings file:
+
+- `ENSEMUS_ISOLATION_FOREIGN_ENDPOINTS` holds `database`, `temporal` and `objects` arrays. Each contains the other installation endpoints as objects with `host` and `port`. Use IP literals for `host`.
+- `ENSEMUS_ISOLATION_FOREIGN_NAMESPACES` and `ENSEMUS_ISOLATION_FOREIGN_BUCKETS` hold arrays of the other installations’ namespace and bucket names.
+- `ENSEMUS_ISOLATION_DECLARATIONS` holds reference strings for `backups`, `embeddings`, `telemetry` and `key_encryption_key`. Ensemus stores a digest of each reference. These checks are operator declarations.
+
+Run the report against the running stack:
+
+```sh
+compose run --rm -T --no-deps isolation-report
+```
+
+The report checks only the peer endpoints supplied. Check those endpoints are live from their own installations before running it. A missing peer list, a reachable peer, a shared name or a failed local check prevents an all-passing report. Owners and admins can see the last result for each aspect on **Deployment posture**. Run the report again after an upgrade or changes to the deployment layout.
 
 ## Step 8: Write down what you installed
 
