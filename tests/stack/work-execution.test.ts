@@ -312,16 +312,18 @@ describe('durable work execution', () => {
     // Held back until the outage has begun, so the run meets it on its first step.
     compose('stop', 'dispatcher');
     let id: string;
+    let loginDisabled = false;
     try {
-      id = await startWork([{ kind: 'artifact_exists' }]);
-      await su.query('alter role ensemus_app nologin');
-      await su.query(
-        `select pg_terminate_backend(pid) from pg_stat_activity where usename = 'ensemus_app'`,
-      );
-    } finally {
-      compose('start', 'dispatcher');
-    }
-    try {
+      try {
+        id = await startWork([{ kind: 'artifact_exists' }]);
+        await su.query('alter role ensemus_worker nologin');
+        loginDisabled = true;
+        await su.query(
+          `select pg_terminate_backend(pid) from pg_stat_activity where usename = 'ensemus_worker'`,
+        );
+      } finally {
+        compose('start', 'dispatcher');
+      }
       await withTemporal(async (client) => {
         // Past the 5 attempts that would otherwise have ended this run within about 15 seconds.
         await expect
@@ -336,7 +338,7 @@ describe('durable work execution', () => {
           .toBeGreaterThan(5);
       });
     } finally {
-      await su.query('alter role ensemus_app login');
+      if (loginDisabled) await su.query('alter role ensemus_worker login');
     }
     await waitForStatus(id, 'verifying');
   });
