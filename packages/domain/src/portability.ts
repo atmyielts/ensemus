@@ -60,6 +60,7 @@ export const SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION = 'ensemus.skill-upload-cl
 export const RESIDENCY_PORTABILITY_VERSION = 'ensemus.residency/11' as const;
 export const SKILL_BUNDLE_PORTABILITY_VERSION = 'ensemus.skill-bundles/12' as const;
 export const SANDBOX_HISTORY_PORTABILITY_VERSION = 'ensemus.sandbox-history/13' as const;
+export const MARKETPLACE_HISTORY_PORTABILITY_VERSION = 'ensemus.marketplace-history/14' as const;
 export type JoinedPortabilityVersion =
   | typeof PORTABILITY_INVENTORY_VERSION
   | typeof FEDERATION_PORTABILITY_VERSION
@@ -71,7 +72,8 @@ export type JoinedPortabilityVersion =
   | typeof SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION
   | typeof RESIDENCY_PORTABILITY_VERSION
   | typeof SKILL_BUNDLE_PORTABILITY_VERSION
-  | typeof SANDBOX_HISTORY_PORTABILITY_VERSION;
+  | typeof SANDBOX_HISTORY_PORTABILITY_VERSION
+  | typeof MARKETPLACE_HISTORY_PORTABILITY_VERSION;
 export function isJoinedPortabilityVersion(profile: unknown): profile is JoinedPortabilityVersion {
   return (
     profile === PORTABILITY_INVENTORY_VERSION ||
@@ -84,7 +86,7 @@ export function isJoinedPortabilityVersion(profile: unknown): profile is JoinedP
     profile === SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION ||
     profile === RESIDENCY_PORTABILITY_VERSION ||
     profile === SKILL_BUNDLE_PORTABILITY_VERSION ||
-    profile === SANDBOX_HISTORY_PORTABILITY_VERSION
+    carriesSandboxHistory(profile)
   );
 }
 export const PORTABLE_SOURCE_SECTIONS = [
@@ -460,10 +462,22 @@ export const SANDBOX_HISTORY_PORTABILITY_INVENTORY = [
 ] as const;
 
 export function carriesSkillBundleOriginals(profile: unknown) {
+  return profile === SKILL_BUNDLE_PORTABILITY_VERSION || carriesSandboxHistory(profile);
+}
+
+export function carriesSandboxHistory(profile: unknown) {
   return (
-    profile === SKILL_BUNDLE_PORTABILITY_VERSION || profile === SANDBOX_HISTORY_PORTABILITY_VERSION
+    profile === SANDBOX_HISTORY_PORTABILITY_VERSION ||
+    profile === MARKETPLACE_HISTORY_PORTABILITY_VERSION
   );
 }
+
+export const MARKETPLACE_HISTORY_PORTABILITY_INVENTORY = [
+  ...SANDBOX_HISTORY_PORTABILITY_INVENTORY,
+  inventory('marketplace.listings', 'skills', 'quarantined'),
+  inventory('marketplace.security_reviews', 'skills', 'quarantined'),
+  inventory('marketplace.submissions', 'skills', 'quarantined'),
+] as const;
 
 export const PORTABILITY_INVENTORY_PROFILES = {
   [LEGACY_PORTABILITY_INVENTORY_VERSION]: PORTABILITY_INVENTORY_V1,
@@ -479,6 +493,7 @@ export const PORTABILITY_INVENTORY_PROFILES = {
   [RESIDENCY_PORTABILITY_VERSION]: RESIDENCY_PORTABILITY_INVENTORY,
   [SKILL_BUNDLE_PORTABILITY_VERSION]: SKILL_BUNDLE_PORTABILITY_INVENTORY,
   [SANDBOX_HISTORY_PORTABILITY_VERSION]: SANDBOX_HISTORY_PORTABILITY_INVENTORY,
+  [MARKETPLACE_HISTORY_PORTABILITY_VERSION]: MARKETPLACE_HISTORY_PORTABILITY_INVENTORY,
 } as const;
 
 export function matchesPortabilityInventory(

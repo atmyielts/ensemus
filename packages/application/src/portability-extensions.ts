@@ -13,7 +13,8 @@ import {
   MEETING_HISTORY_PORTABILITY_VERSION,
   MARKETPLACE_PUBLISHER_PORTABILITY_VERSION,
   SKILL_METADATA_PORTABILITY_VERSION,
-  SANDBOX_HISTORY_PORTABILITY_INVENTORY,
+  MARKETPLACE_HISTORY_PORTABILITY_INVENTORY,
+  MARKETPLACE_HISTORY_PORTABILITY_VERSION,
   SANDBOX_HISTORY_PORTABILITY_VERSION,
   SKILL_BUNDLE_PORTABILITY_VERSION,
   carriesSkillBundleOriginals,
@@ -50,6 +51,7 @@ const catalogReaders: readonly PortableReader[] = [
   {
     table: 'skills.packages',
     kind: 'skill_package_metadata',
+    where: "t.origin='tenant'",
     fields: {
       id: 't.id',
       name: 't.name',
@@ -75,20 +77,21 @@ const catalogReaders: readonly PortableReader[] = [
       revoked_at: nullableInstant('t.revoked_at'),
     },
   },
-  {
-    table: 'marketplace.installations',
-    kind: 'marketplace_failed_installation',
-    fields: {
-      id: 't.id',
-      listing_id: 't.listing_id',
-      requested_by_membership_id: 't.requested_by_membership_id',
-      failure_code: 't.failure_code',
-      state: 't.state',
-      created_at: instant('t.created_at'),
-      updated_at: instant('t.updated_at'),
-    },
-  },
 ];
+const failedInstallationReader: PortableReader = {
+  table: 'marketplace.installations',
+  kind: 'marketplace_failed_installation',
+  fields: {
+    id: 't.id',
+    listing_id: 't.listing_id',
+    requested_by_membership_id: 't.requested_by_membership_id',
+    failure_code: 't.failure_code',
+    state: 't.state',
+    created_at: instant('t.created_at'),
+    updated_at: instant('t.updated_at'),
+  },
+};
+const legacyCatalogReaders = [...catalogReaders, failedInstallationReader];
 const publisherHistoryReader: PortableReader = {
   table: 'marketplace.publishers',
   kind: 'marketplace_publisher_history',
@@ -101,7 +104,7 @@ const publisherHistoryReader: PortableReader = {
     updated_at: instant('t.updated_at'),
   },
 };
-const publisherReaders = [...catalogReaders, publisherHistoryReader];
+const publisherReaders = [...legacyCatalogReaders, publisherHistoryReader];
 const sandboxRunReceiptReader: PortableReader = {
   table: 'sovereign.portable_sandbox_run_receipts',
   kind: 'sandbox_run_receipt',
@@ -115,9 +118,58 @@ const sandboxRunReceiptReader: PortableReader = {
     finished_at: instant('t.finished_at'),
   },
 };
+const marketplaceHistoryReaders: readonly PortableReader[] = [
+  {
+    table: 'sovereign.portable_marketplace_submissions',
+    kind: 'marketplace_submission_history',
+    fields: {
+      id: 't.id',
+      publisher_id: 't.publisher_id',
+      package_id: 't.package_id',
+      skill_version_id: 't.skill_version_id',
+      name: 't.name',
+      semver: 't.semver',
+      state: 't.state',
+      created_at: instant('t.created_at'),
+      decided_at: nullableInstant('t.decided_at'),
+      delist_requested_at: nullableInstant('t.delist_requested_at'),
+    },
+  },
+  {
+    table: 'sovereign.portable_marketplace_listings',
+    kind: 'marketplace_listing_history',
+    fields: {
+      id: 't.id',
+      publisher_id: 't.publisher_id',
+      submission_id: 't.submission_id',
+      review_id: 't.review_id',
+      display_name: 't.display_name',
+      summary: 't.summary',
+      semver: 't.semver',
+      state: 't.state',
+      delist_mode: 't.delist_mode',
+      delist_code: 't.delist_code',
+      listed_at: instant('t.listed_at'),
+      delisted_at: nullableInstant('t.delisted_at'),
+    },
+  },
+  {
+    table: 'sovereign.portable_marketplace_reviews',
+    kind: 'marketplace_review_history',
+    fields: {
+      id: 't.id',
+      submission_id: 't.submission_id',
+      verdict: 't.verdict',
+      finding_codes: 't.finding_codes',
+      decided_at: instant('t.decided_at'),
+      recorded_at: instant('t.recorded_at'),
+    },
+  },
+];
+
 const skillReadersByProfile: Partial<Record<JoinedPortabilityVersion, readonly PortableReader[]>> =
   {
-    [SKILL_METADATA_PORTABILITY_VERSION]: catalogReaders,
+    [SKILL_METADATA_PORTABILITY_VERSION]: legacyCatalogReaders,
     [MARKETPLACE_PUBLISHER_PORTABILITY_VERSION]: publisherReaders,
     [MEETING_CONFIGURATION_PORTABILITY_VERSION]: publisherReaders,
     [MEETING_HISTORY_PORTABILITY_VERSION]: publisherReaders,
@@ -126,6 +178,12 @@ const skillReadersByProfile: Partial<Record<JoinedPortabilityVersion, readonly P
     [RESIDENCY_PORTABILITY_VERSION]: publisherReaders,
     [SKILL_BUNDLE_PORTABILITY_VERSION]: publisherReaders,
     [SANDBOX_HISTORY_PORTABILITY_VERSION]: [...publisherReaders, sandboxRunReceiptReader],
+    [MARKETPLACE_HISTORY_PORTABILITY_VERSION]: [
+      ...catalogReaders,
+      publisherHistoryReader,
+      sandboxRunReceiptReader,
+      ...marketplaceHistoryReaders,
+    ],
   };
 const residencyRequirementReader: PortableReader = {
   table: 'sovereign.portable_residency_requirements',
@@ -546,7 +604,7 @@ export async function assertJoinedPortabilitySchema(
       AND schemaname NOT IN ('information_schema','drizzle')`,
   );
   const known = new Set<string>([
-    ...SANDBOX_HISTORY_PORTABILITY_INVENTORY.map((entry) => entry.table),
+    ...MARKETPLACE_HISTORY_PORTABILITY_INVENTORY.map((entry) => entry.table),
     ...PENDING_PORTABILITY_TABLES,
   ]);
   if (present.some((row) => !known.has(row.table_name))) throw new RecordRefused();
@@ -646,6 +704,9 @@ function exporter(section: ExportSection): PortabilitySection['exportPage'] {
                     { mode: 'test', kind: 'skill_test_history' },
                   ] as const)
                 : []),
+              ...(inventoryVersion === MARKETPLACE_HISTORY_PORTABILITY_VERSION
+                ? ([{ mode: 'installation', kind: 'marketplace_installation_history' }] as const)
+                : []),
             ] as const)
           : [];
     const totalReaders = list.length + nativeReaders.length;
@@ -665,7 +726,9 @@ function exporter(section: ExportSection): PortabilitySection['exportPage'] {
           ? sql`select key,record from sovereign.portable_skill_upload_cleanup_page(${state.key}::uuid,${pageSize})`
           : mode === 'bundle' || mode === 'test'
             ? sql`select key,record from sovereign.portable_skill_bundle_page(${mode},${state.key}::uuid,${pageSize})`
-            : sql`select key,record from sovereign.portable_business_page(${mode},${state.key}::uuid,${pageSize})`,
+            : mode === 'installation'
+              ? sql`select key,record from sovereign.portable_marketplace_installation_page(${state.key}::uuid,${pageSize})`
+              : sql`select key,record from sovereign.portable_business_page(${mode},${state.key}::uuid,${pageSize})`,
       );
       const records = rows.map(({ record }) => extensionRecordSchema.parse(record));
       const originals = records.flatMap((record) =>

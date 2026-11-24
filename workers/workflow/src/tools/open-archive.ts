@@ -23,7 +23,7 @@ import {
   EXPORT_SECTIONS,
   matchesPortabilityInventory,
   PORTABILITY_INVENTORY_PROFILES,
-  SANDBOX_HISTORY_PORTABILITY_VERSION,
+  carriesSandboxHistory,
   carriesSkillBundleOriginals,
   type ImportFailureCode,
 } from '@ensemus/domain/portability';
@@ -175,7 +175,7 @@ function readManifest(plain: Buffer) {
     const joined = isJoinedPortabilityVersion(profile);
     const sandboxExclusions = manifest.sandbox_receipts_excluded;
     if (
-      profile === SANDBOX_HISTORY_PORTABILITY_VERSION
+      carriesSandboxHistory(profile)
         ? typeof sandboxExclusions !== 'number' ||
           !Number.isSafeInteger(sandboxExclusions) ||
           sandboxExclusions < 0

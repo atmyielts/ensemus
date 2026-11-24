@@ -3,9 +3,6 @@
 // The complete portability inventory remains a release gate until a new reviewed profile covers them.
 export const PENDING_PORTABILITY_TABLES = [
   'marketplace.installations',
-  'marketplace.listings',
-  'marketplace.security_reviews',
-  'marketplace.submissions',
   'skills.packages',
   'skills.trusted_signers',
   'federation.org_settings',

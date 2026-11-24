@@ -39,8 +39,12 @@ const SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION = 'ensemus.skill-upload-cleanup/1
 const RESIDENCY_PORTABILITY_VERSION = 'ensemus.residency/11';
 const SKILL_BUNDLE_PORTABILITY_VERSION = 'ensemus.skill-bundles/12';
 const SANDBOX_HISTORY_PORTABILITY_VERSION = 'ensemus.sandbox-history/13';
+const MARKETPLACE_HISTORY_PORTABILITY_VERSION = 'ensemus.marketplace-history/14';
+const carriesSandboxHistory = (version: unknown) =>
+  version === SANDBOX_HISTORY_PORTABILITY_VERSION ||
+  version === MARKETPLACE_HISTORY_PORTABILITY_VERSION;
 const carriesSkillBundleOriginals = (version: unknown) =>
-  version === SKILL_BUNDLE_PORTABILITY_VERSION || version === SANDBOX_HISTORY_PORTABILITY_VERSION;
+  version === SKILL_BUNDLE_PORTABILITY_VERSION || carriesSandboxHistory(version);
 const carriesResidency = (version: unknown) =>
   version === RESIDENCY_PORTABILITY_VERSION || carriesSkillBundleOriginals(version);
 const carriesUploadCleanup = (version: unknown) =>
@@ -451,7 +455,113 @@ const BUSINESS_RECORD_KINDS = [
   'business_record_action_reference',
 ] as const;
 
+const marketplaceHistorySemver = z
+  .string()
+  .max(120)
+  .regex(/^[0-9]+\.[0-9]+\.[0-9]+$/);
+const marketplaceHistoryName = z.string().min(1).max(120);
+const marketplaceHistoryKinds = [
+  'marketplace_submission_history',
+  'marketplace_listing_history',
+  'marketplace_review_history',
+  'marketplace_installation_history',
+] as const;
+
 export const extensionRecordSchema = z.discriminatedUnion('kind', [
+  z.strictObject({
+    kind: z.literal('marketplace_submission_history'),
+    id,
+    publisher_id: id,
+    package_id: id,
+    skill_version_id: id,
+    name: marketplaceHistoryName,
+    semver: marketplaceHistorySemver,
+    state: z.enum(['submitted', 'in_review', 'approved', 'rejected', 'withdrawn']),
+    created_at: moment,
+    decided_at: moment.nullable(),
+    delist_requested_at: moment.nullable(),
+  }),
+  z
+    .strictObject({
+      kind: z.literal('marketplace_listing_history'),
+      id,
+      publisher_id: id,
+      submission_id: id,
+      review_id: id,
+      display_name: z.string().min(1).max(120),
+      summary: z.string().min(1).max(500),
+      semver: marketplaceHistorySemver,
+      state: z.enum(['listed', 'delisted']),
+      delist_mode: z.enum(['stop_new', 'revoke']).nullable(),
+      delist_code: z
+        .enum(['PUBLISHER_REQUEST', 'SECURITY_ISSUE', 'LICENSE_ISSUE', 'POLICY_VIOLATION'])
+        .nullable(),
+      listed_at: moment,
+      delisted_at: moment.nullable(),
+    })
+    .refine((r) =>
+      r.state === 'delisted'
+        ? r.delist_mode !== null && r.delist_code !== null && r.delisted_at !== null
+        : r.delist_mode === null && r.delist_code === null && r.delisted_at === null,
+    ),
+  z.strictObject({
+    kind: z.literal('marketplace_review_history'),
+    id,
+    submission_id: id,
+    verdict: z.enum(['approved', 'rejected']),
+    finding_codes: z
+      .array(
+        z.enum([
+          'SIGNATURE_PROBLEM',
+          'LICENSE_PROBLEM',
+          'DEPENDENCY_PROBLEM',
+          'EXCESSIVE_TOOLS',
+          'EXCESSIVE_DATA_ACCESS',
+          'HARMFUL_INSTRUCTIONS',
+          'HARMFUL_CODE',
+          'INADEQUATE_TESTS',
+          'MISLEADING_DESCRIPTION',
+        ]),
+      )
+      .max(9),
+    decided_at: moment,
+    recorded_at: moment,
+  }),
+  z
+    .strictObject({
+      kind: z.literal('marketplace_installation_history'),
+      id,
+      listing_id: id,
+      requested_by_membership_id: id,
+      state: z.enum(['installed', 'removed', 'failed']),
+      failure_code: z
+        .enum([
+          'LISTING_NOT_AVAILABLE',
+          'ATTESTATION_INVALID',
+          'SIGNATURE_INVALID',
+          'BUNDLE_HASH_MISMATCH',
+          'BUNDLE_UNAVAILABLE',
+          'NAME_TAKEN',
+          'VERIFICATION_REJECTED',
+          'INSTALL_ERROR',
+        ])
+        .nullable(),
+      package_id: id.nullable(),
+      skill_version_id: id.nullable(),
+      package_name: marketplaceHistoryName.nullable(),
+      semver: marketplaceHistorySemver.nullable(),
+      created_at: moment,
+      updated_at: moment,
+      removed_at: moment.nullable(),
+    })
+    .refine(
+      (r) =>
+        (r.state === 'failed') === (r.failure_code !== null) &&
+        (r.package_id !== null) === (r.skill_version_id !== null) &&
+        (r.state === 'failed' ||
+          (r.package_id !== null && r.package_name !== null && r.semver !== null)) &&
+        (r.state === 'removed') === (r.removed_at !== null),
+    ),
   z.strictObject({
     kind: z.literal('sandbox_run_receipt'),
     id,
@@ -1025,6 +1135,7 @@ export const EXTENSION_SECTION_KINDS = {
     'skill_bundle_version',
     'skill_test_history',
     'sandbox_run_receipt',
+    ...marketplaceHistoryKinds,
   ],
   'custom-objects': [
     'custom_object_type',
@@ -1087,7 +1198,12 @@ export function assertPortableExtensionProfile(
     !carriesSkillBundleOriginals(inventoryVersion)
   )
     throw new Error('RECORD_REFUSED');
-  if (kind === 'sandbox_run_receipt' && inventoryVersion !== SANDBOX_HISTORY_PORTABILITY_VERSION)
+  if (kind === 'sandbox_run_receipt' && !carriesSandboxHistory(inventoryVersion))
+    throw new Error('RECORD_REFUSED');
+  if (
+    (marketplaceHistoryKinds as readonly string[]).includes(kind) &&
+    inventoryVersion !== MARKETPLACE_HISTORY_PORTABILITY_VERSION
+  )
     throw new Error('RECORD_REFUSED');
 }
 
@@ -1160,6 +1276,7 @@ const manifestV2Schema = manifestV1Schema.extend({
     RESIDENCY_PORTABILITY_VERSION,
     SKILL_BUNDLE_PORTABILITY_VERSION,
     SANDBOX_HISTORY_PORTABILITY_VERSION,
+    MARKETPLACE_HISTORY_PORTABILITY_VERSION,
   ]),
   record_max_bytes: z.literal(4 * 1024 * 1024).optional(),
   generated_bodies_excluded: z.int().min(0),
@@ -1213,7 +1330,7 @@ export const exportManifestSchema = z
       ctx.addIssue({ code: 'custom', message: 'Legacy archives carry only core inert records' });
     if (
       value.schema_version === 2 &&
-      (value.inventory_version === SANDBOX_HISTORY_PORTABILITY_VERSION) !==
+      carriesSandboxHistory(value.inventory_version) !==
         (value.sandbox_receipts_excluded !== undefined)
     )
       ctx.addIssue({

@@ -40,6 +40,8 @@ import {
   SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION,
   SKILL_BUNDLE_PORTABILITY_VERSION,
   SANDBOX_HISTORY_PORTABILITY_VERSION,
+  MARKETPLACE_HISTORY_PORTABILITY_VERSION,
+  carriesSandboxHistory,
   carriesSkillBundleOriginals,
   isJoinedPortabilityVersion,
   PORTABILITY_INVENTORY_PROFILES,
@@ -564,6 +566,7 @@ export async function beginExport(
         when sovereign.portable_profile_clear(${RESIDENCY_PORTABILITY_VERSION}) then ${RESIDENCY_PORTABILITY_VERSION}
         when sovereign.portable_profile_clear(${SKILL_BUNDLE_PORTABILITY_VERSION}) then ${SKILL_BUNDLE_PORTABILITY_VERSION}
         when sovereign.portable_profile_clear(${SANDBOX_HISTORY_PORTABILITY_VERSION}) then ${SANDBOX_HISTORY_PORTABILITY_VERSION}
+        when sovereign.portable_profile_clear(${MARKETPLACE_HISTORY_PORTABILITY_VERSION}) then ${MARKETPLACE_HISTORY_PORTABILITY_VERSION}
         else null end as profile`,
     );
     const profile = admitted?.profile;
@@ -1202,7 +1205,7 @@ async function manifestPiece(run: Run): Promise<ExportStep> {
   const inventoryVersion = row.inventoryVersion ?? PORTABILITY_INVENTORY_VERSION;
   if (!isJoinedPortabilityVersion(inventoryVersion)) return failStep(run, 'RECORD_REFUSED');
   let sandboxReceiptsExcluded: number | undefined;
-  if (inventoryVersion === SANDBOX_HISTORY_PORTABILITY_VERSION) {
+  if (carriesSandboxHistory(inventoryVersion)) {
     const [sandbox] = await withTenantTx(database, context, (tx) =>
       withPortabilityScope(tx, { 'app.portability_export_id': row.id }, (scoped) =>
         queryRows<{ count: number | null }>(

@@ -45,10 +45,17 @@ import {
 } from '@ensemus/database/marketplace-operator';
 import { createServiceContext } from '@ensemus/database/service';
 import { listingObjectKey, REVIEW_CHECKS } from '@ensemus/domain/marketplace';
-import { exportManifestSchema } from '@ensemus/contracts/portability-records';
+import {
+  exportManifestSchema,
+  validatePortableRecord,
+} from '@ensemus/contracts/portability-records';
 import {
   EXPORT_MANIFEST_PATH,
+  MARKETPLACE_HISTORY_PORTABILITY_INVENTORY,
+  MARKETPLACE_HISTORY_PORTABILITY_VERSION,
+  SANDBOX_HISTORY_PORTABILITY_VERSION,
   SKILL_METADATA_PORTABILITY_VERSION,
+  skillBundlePartPath,
 } from '@ensemus/domain/portability';
 import { SANDBOX_DEFAULT_CEILINGS } from '@ensemus/domain/sandbox';
 import { skillBundleObjectKey } from '@ensemus/domain/skill';
@@ -464,31 +471,54 @@ describe('marketplace tenant actions and signed offline publication', () => {
     await expect(metadataProfile()).resolves.toBe(true);
 
     const recipient = testRecipient();
-    const exportDeps = {
-      sections: SOURCE_PORTABILITY_SECTIONS,
-      sourceRelease: 'test-release',
-      retentionHours: 24,
-    };
-    const { id: exportId } = await requestOrganizationExport(web.db, buyer, {
-      recipientPublicKey: recipient.publicKeyBase64,
-      sourceRelease: exportDeps.sourceRelease,
-    });
-    const buyerService = createServiceContext(buyer.organizationId);
-    let exportStep = await beginExport(worker.db, buyerService, { exportId }, exportDeps);
-    while (exportStep.state === 'continue') {
-      exportStep = await exportNextBatch(worker.db, store, buyerService, { exportId }, exportDeps);
-    }
-    expect(exportStep.state).not.toBe('failed');
-    do {
-      exportStep = await finishExport(worker.db, store, buyerService, { exportId }, exportDeps);
-    } while (exportStep.state === 'continue');
-    expect(exportStep.state).toBe('finished');
+    async function exportWorkspace(context: typeof owner) {
+      const exportDeps = {
+        sections: SOURCE_PORTABILITY_SECTIONS,
+        sourceRelease: 'test-release',
+        retentionHours: 24,
+      };
+      const { id: exportId } = await requestOrganizationExport(web.db, context, {
+        recipientPublicKey: recipient.publicKeyBase64,
+        sourceRelease: exportDeps.sourceRelease,
+      });
+      const service = createServiceContext(context.organizationId);
+      let step = await beginExport(worker.db, service, { exportId }, exportDeps);
+      while (step.state === 'continue') {
+        step = await exportNextBatch(worker.db, store, service, { exportId }, exportDeps);
+      }
+      expect(step.state).toBe('finished');
+      do {
+        step = await finishExport(worker.db, store, service, { exportId }, exportDeps);
+      } while (step.state === 'continue');
+      expect(step.state).toBe('finished');
 
-    const archive = await openExportArchive(web.db, store, buyer, exportId);
-    const chunks: Buffer[] = [];
-    for await (const chunk of archive.chunks) chunks.push(chunk);
-    const tar = Buffer.concat(chunks);
-    const read = async (offset: number, length: number) => tar.subarray(offset, offset + length);
+      const archive = await openExportArchive(web.db, store, context, exportId);
+      const chunks: Buffer[] = [];
+      for await (const chunk of archive.chunks) chunks.push(chunk);
+      const tar = Buffer.concat(chunks);
+      const read = async (offset: number, length: number) => tar.subarray(offset, offset + length);
+      const receipts: unknown[] = [];
+      const binaryParts = new Map<string, Buffer>();
+      let manifest;
+      for await (const entry of readTarEntries(read, tar.length)) {
+        if (entry.path === EXPORT_MANIFEST_PATH) {
+          manifest = exportManifestSchema.parse(
+            JSON.parse(
+              open(await read(entry.offset, entry.size), recipient.privateKey).toString('utf8'),
+            ),
+          );
+        } else if (entry.path.startsWith('skills/')) {
+          const bytes = open(await read(entry.offset, entry.size), recipient.privateKey);
+          if (entry.path.endsWith('.bin.sealed')) binaryParts.set(entry.path, bytes);
+          else
+            for (const line of bytes.toString('utf8').trim().split('\n')) {
+              if (line) receipts.push(JSON.parse(line));
+            }
+        }
+      }
+      return { tar, manifest, receipts, binaryParts };
+    }
+    const { tar, receipts, manifest } = await exportWorkspace(buyer);
     const expectedReceipts = [
       {
         id: untrusted.installationId,
@@ -503,22 +533,6 @@ describe('marketplace tenant actions and signed offline publication', () => {
         failure_code: 'LISTING_NOT_AVAILABLE',
       },
     ];
-    const receipts: unknown[] = [];
-    let manifest;
-    for await (const entry of readTarEntries(read, tar.length)) {
-      if (entry.path === EXPORT_MANIFEST_PATH) {
-        manifest = exportManifestSchema.parse(
-          JSON.parse(
-            open(await read(entry.offset, entry.size), recipient.privateKey).toString('utf8'),
-          ),
-        );
-      } else if (entry.path.startsWith('skills/') && entry.path.endsWith('.jsonl.sealed')) {
-        const bytes = open(await read(entry.offset, entry.size), recipient.privateKey);
-        for (const line of bytes.toString('utf8').trim().split('\n')) {
-          if (line) receipts.push(JSON.parse(line));
-        }
-      }
-    }
     expect(manifest).toMatchObject({
       inventory_version: SKILL_METADATA_PORTABILITY_VERSION,
       sections: { skills: { records: 2 } },
@@ -623,6 +637,122 @@ describe('marketplace tenant actions and signed offline publication', () => {
     await expect(publish()).resolves.toMatchObject({ state: 'published', version: 4 });
     await expect(resolveSkillVersionForUse(web.db, buyer, queued.id)).resolves.toMatchObject({
       ok: true,
+    });
+
+    const buyerArchive = await exportWorkspace(buyer);
+    expect(buyerArchive.manifest).toMatchObject({
+      inventory_version: MARKETPLACE_HISTORY_PORTABILITY_VERSION,
+      inventory: MARKETPLACE_HISTORY_PORTABILITY_INVENTORY,
+      sandbox_receipts_excluded: 0,
+    });
+    expect(buyerArchive.receipts).toContainEqual(
+      expect.objectContaining({
+        kind: 'marketplace_installation_history',
+        id: queued.id,
+        listing_id: listingId,
+        state: 'installed',
+        package_id: queued.id,
+        skill_version_id: queued.id,
+        package_name: listing.name,
+      }),
+    );
+    expect(buyerArchive.receipts).toContainEqual(
+      expect.objectContaining({
+        kind: 'skill_test_history',
+        skill_version_id: queued.id,
+        outcome: 'passed',
+      }),
+    );
+    expect(buyerArchive.binaryParts.size).toBe(0);
+    expect(buyerArchive.receipts).not.toContainEqual(
+      expect.objectContaining({ kind: 'marketplace_review_history' }),
+    );
+    expect(buyerArchive.receipts).not.toContainEqual(
+      expect.objectContaining({ kind: 'marketplace_listing_history' }),
+    );
+    expect(buyerArchive.receipts).not.toContainEqual(
+      expect.objectContaining({ kind: 'skill_package_metadata' }),
+    );
+
+    const sourceArchive = await exportWorkspace(owner);
+    expect(sourceArchive.manifest).toMatchObject({
+      inventory_version: MARKETPLACE_HISTORY_PORTABILITY_VERSION,
+      inventory: MARKETPLACE_HISTORY_PORTABILITY_INVENTORY,
+    });
+    expect(sourceArchive.binaryParts.get(skillBundlePartPath(built.id))).toEqual(built.bytes);
+    expect(sourceArchive.receipts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'marketplace_submission_history',
+          id: subject.id,
+          skill_version_id: built.id,
+          state: 'approved',
+        }),
+        expect.objectContaining({
+          kind: 'marketplace_listing_history',
+          id: listingId,
+          submission_id: subject.id,
+          state: 'listed',
+        }),
+        expect.objectContaining({
+          kind: 'marketplace_review_history',
+          submission_id: subject.id,
+          verdict: 'approved',
+          finding_codes: [],
+        }),
+      ]),
+    );
+    const listingHistory = sourceArchive.receipts.find(
+      (row) => (row as { kind?: string }).kind === 'marketplace_listing_history',
+    );
+    expect(() =>
+      validatePortableRecord('skills', listingHistory, SANDBOX_HISTORY_PORTABILITY_VERSION),
+    ).toThrow('RECORD_REFUSED');
+    const historyText = JSON.stringify(sourceArchive.receipts);
+    expect(historyText).not.toContain('Generated reviewer');
+    expect(historyText).not.toContain(review.keyId);
+    expect(historyText).not.toContain(key);
+    expect(historyText).not.toContain('attestation');
+
+    async function importMarketplaceHistory(archive: Buffer, name: string) {
+      const organization = await createOrganization(web.db, {
+        userId: buyer.userId,
+        name,
+        commercialMode: 'sovereign',
+      });
+      const destination = await nativeSovereignContext(
+        web.db,
+        buyer.userId,
+        organization.organizationId,
+      );
+      const { id } = await requestOrganizationImport(web.db, destination);
+      const targetStore = new LifecycleMemoryStore();
+      const result = await runOrganizationImport(
+        worker.db,
+        createServiceContext(destination.organizationId),
+        {
+          importId: id,
+          archive: archiveReader(archive),
+          recipientPrivateKeyPem: recipient.privateKeyPem,
+        },
+        { sections: SOURCE_PORTABILITY_SECTIONS, ledger: targetStore, store: targetStore },
+      );
+      expect(result.status, result.failureCode ?? undefined).toBe('completed_with_warnings');
+      await expect(getPublisher(web.db, destination)).resolves.toBeNull();
+      await expect(listInstallations(web.db, destination)).resolves.toEqual([]);
+      return result.appliedCounts;
+    }
+    expect(
+      await importMarketplaceHistory(sourceArchive.tar, 'Imported publisher history'),
+    ).toMatchObject({
+      marketplace_submission_history: 1,
+      marketplace_listing_history: 1,
+      marketplace_review_history: 1,
+    });
+    expect(
+      await importMarketplaceHistory(buyerArchive.tar, 'Imported buyer history'),
+    ).toMatchObject({
+      marketplace_installation_history: 3,
     });
 
     await expect(
