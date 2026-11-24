@@ -1,12 +1,13 @@
 'use client';
 
-import { useActionState, useId, useState } from 'react';
-import { SubmitButton } from '@/components/submit-button';
+import { startTransition, useActionState, useId, useState } from 'react';
 import { ErrorNotice } from '@/components/ui';
+import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { NativeSelect } from '@/components/ui/native-select';
 import { Textarea } from '@/components/ui/textarea';
-import { startSandboxTrial, type SandboxTrialFormState } from './actions';
+import { startSandboxTrial } from './actions';
+import type { SandboxTrialFormState } from './trial-submission';
 
 const initial: SandboxTrialFormState = {};
 const labels = { public: 'Public', internal: 'Internal', confidential: 'Confidential' } as const;
@@ -22,10 +23,9 @@ export function SandboxTrialForm({
   requestToken: string;
   classifications: readonly (keyof typeof labels)[];
 }) {
-  const [state, action] = useActionState(
+  const [state, action, pending] = useActionState(
     startSandboxTrial.bind(null, organizationId, skillVersionId, requestToken),
     initial,
-    `/o/${organizationId}/skills/versions/${skillVersionId}`,
   );
   const [input, setInput] = useState(state.input ?? '{}');
   const [classification, setClassification] = useState<string>(
@@ -37,7 +37,18 @@ export function SandboxTrialForm({
   );
   const field = useId();
   return (
-    <form action={action} className="grid max-w-2xl gap-4">
+    <form
+      method="post"
+      action={`/o/${organizationId}/sandbox/trials/${skillVersionId}`}
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (pending) return;
+        const data = new FormData(event.currentTarget);
+        startTransition(() => action(data));
+      }}
+      className="grid max-w-2xl gap-4"
+    >
+      <input type="hidden" name="requestToken" value={requestToken} />
       <ErrorNotice code={state.code} />
       <div className="grid gap-1.5">
         <Label htmlFor={`${field}-classification`}>Input classification</Label>
@@ -80,9 +91,12 @@ export function SandboxTrialForm({
         )}
       </div>
       <div>
-        <SubmitButton working="Queuing trial" className="w-full sm:w-auto">
+        <Button type="submit" disabled={pending} aria-busy={pending} className="w-full sm:w-auto">
           Run trial
-        </SubmitButton>
+        </Button>
+        <span className="pending" role="status">
+          {pending ? 'Queuing trial' : ''}
+        </span>
       </div>
     </form>
   );

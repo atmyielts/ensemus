@@ -9,8 +9,8 @@ async function openNativeTrial(open: Open) {
   const organization = await createOrganization(owner, 'Generated trial company');
   const version = await signedTrialVersion(owner, organization);
   const page = await open(owner, { javaScriptEnabled: false, width: 320 });
-  const path = `/o/${organization}/skills/versions/${version}`;
-  await page.goto(path);
+  const path = `/o/${organization}/sandbox/trials/${version}`;
+  await page.goto(`/o/${organization}/skills/versions/${version}`);
   return { owner, organization, page, path };
 }
 
@@ -18,9 +18,15 @@ test('a native mobile Sandbox form keeps input after refusal', async ({ open }) 
   const { page, path } = await openNativeTrial(open);
   const input = page.getByRole('textbox', { name: 'JSON input', exact: true });
   const classification = page.getByLabel('Input classification', { exact: true });
+  const draft = '{"example":</textarea><p id="unexpected-draft-markup">';
   await expect(input).toBeVisible();
+  const forbidden = await page.request.post(path, {
+    headers: { Origin: 'https://other.example.invalid' },
+    form: { input: draft, classification: 'public' },
+  });
+  expect(forbidden.status()).toBe(403);
   await classification.selectOption('public');
-  await input.fill('{"example":');
+  await input.fill(draft);
   const [response] = await Promise.all([
     page.waitForResponse(
       (reply) => reply.request().method() === 'POST' && new URL(reply.url()).pathname === path,
@@ -28,12 +34,18 @@ test('a native mobile Sandbox form keeps input after refusal', async ({ open }) 
     ),
     page.getByRole('button', { name: 'Run trial', exact: true }).click(),
   ]);
-  expect(response.ok()).toBe(true);
+  expect(response.status()).toBe(422);
   await expect(input).toHaveAttribute('aria-invalid', 'true');
-  await expect(input).toHaveValue('{"example":');
+  await expect(input).toHaveValue(draft);
   await expect(classification).toHaveValue('public');
   await expect(page.getByText('Enter valid JSON.', { exact: true })).toBeVisible();
+  await expect(page.locator('#unexpected-draft-markup')).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+
+  await input.fill('{"sample":true}');
+  await page.getByRole('button', { name: 'Run trial', exact: true }).click();
+  await expect(page).toHaveURL(/\/sandbox\/runs\/[0-9a-f-]{36}$/);
+  await expect(page.getByRole('region', { name: 'Status' })).toContainText('Queued');
 });
 
 test('a native mobile operator queues and cancels a private Sandbox trial', async ({ open }) => {
