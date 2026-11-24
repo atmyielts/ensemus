@@ -235,8 +235,11 @@ export type IsolationProbeReport = {
 
 /** Every check on the list, none missing and none failed. A short report proves nothing. */
 export function probePassed(report: IsolationProbeReport): boolean {
-  return ISOLATION_CHECKS.every((check) =>
-    report.checks.some((item) => item.check === check && item.passed),
+  return (
+    report.checks.length === ISOLATION_CHECKS.length &&
+    ISOLATION_CHECKS.every((check) =>
+      report.checks.some((item) => item.check === check && item.passed),
+    )
   );
 }
 

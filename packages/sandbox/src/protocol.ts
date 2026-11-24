@@ -8,6 +8,7 @@ import {
   type SandboxPolicy,
 } from '@ensemus/domain/sandbox';
 import { z } from 'zod';
+import { SANDBOX_JOB_ID } from './oci';
 
 export const RUNNER_JOBS_PATH = '/v1/jobs';
 export const RUNNER_PROBE_PATH = '/v1/probe';
@@ -18,12 +19,12 @@ export const RUNNER_MAX_REQUEST_BYTES = 16 * 1024 * 1024;
 const base64 = z.string().regex(/^[A-Za-z0-9+/]*={0,2}$/);
 
 const limitsSchema = z.strictObject({
-  wallMs: z.int().min(1),
-  cpuMs: z.int().min(1),
-  memoryMb: z.int().min(1),
-  tmpfsMb: z.int().min(1),
-  outputKb: z.int().min(1),
-  pids: z.int().min(1),
+  wallMs: z.int().min(100).max(600_000),
+  cpuMs: z.int().min(100).max(600_000),
+  memoryMb: z.int().min(32).max(4096),
+  tmpfsMb: z.int().min(1).max(1024),
+  outputKb: z.int().min(1).max(1024),
+  pids: z.int().min(1).max(256),
 });
 
 export const sandboxPolicySchema = z.strictObject({
@@ -42,7 +43,7 @@ export const sandboxPolicySchema = z.strictObject({
 }) satisfies z.ZodType<SandboxPolicy>;
 
 export const runnerJobRequestSchema = z.strictObject({
-  jobId: z.string().regex(/^[0-9a-f-]{36}$/),
+  jobId: z.string().regex(SANDBOX_JOB_ID),
   policy: sandboxPolicySchema,
   policyHash: z.string().regex(/^[0-9a-f]{64}$/),
   files: z

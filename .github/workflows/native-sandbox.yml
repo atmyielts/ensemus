@@ -1,0 +1,51 @@
+name: Native Sandbox evidence
+
+on:
+  push:
+    branches: [main, codex/release-candidate]
+    paths:
+      - '.github/workflows/native-sandbox.yml'
+      - 'packages/sandbox/**'
+      - 'packages/domain/src/sandbox.ts'
+      - 'infrastructure/containers/Dockerfile.worker'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runc:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Prepare the pinned Node root filesystem fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          image=$(awk '$1 == "FROM" && $2 ~ /^node:24-slim@sha256:[a-f0-9]+$/ { print $2; exit }' infrastructure/containers/Dockerfile.worker)
+          test -n "$image"
+          rootfs=$(mktemp -d "$RUNNER_TEMP/ensemus-native-rootfs.XXXXXX")
+          sudo --non-interactive chown root:root "$rootfs"
+          docker pull "$image"
+          container=$(docker create "$image")
+          trap 'docker rm "$container"' EXIT
+          docker export "$container" | sudo --non-interactive tar -xpf - -C "$rootfs"
+          sudo --non-interactive mkdir -p "$rootfs/dev" "$rootfs/proc" "$rootfs/skill" "$rootfs/tmp"
+          printf 'ENSEMUS_NATIVE_ROOTFS=%s\nENSEMUS_NATIVE_RUNC=%s\n' "$rootfs" "$(command -v runc)" >> "$GITHUB_ENV"
+      - name: Run the probes on the Linux host
+        env:
+          ENSEMUS_NATIVE_SANDBOX_CHECK: '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ENSEMUS_NATIVE_RUNC" --version
+          sudo --non-interactive --preserve-env=ENSEMUS_NATIVE_SANDBOX_CHECK,ENSEMUS_NATIVE_RUNC,ENSEMUS_NATIVE_ROOTFS -- \
+            "$(command -v node)" node_modules/vitest/vitest.mjs run --project unit packages/sandbox/src/native-runner.test.ts

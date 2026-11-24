@@ -1,69 +1,125 @@
-// Owned by the sandbox-policy slice (EXP-05). See docs/06-delivery/m11b-slices.md and ADR-034 D3. Turns a compiled
-// policy into an OCI runtime configuration. Pure, so every rule can be tested without a runtime. This file
-// writing a limit down does not mean a limit holds: only a real runtime, on a real boundary, can prove that.
 import type { SandboxPolicy } from '@ensemus/domain/sandbox';
+import { SANDBOX_SECCOMP } from './seccomp';
 
-/** The part of the OCI runtime specification this uses. Anything it does not name stays at its strict default. */
-export type OciSpec = {
-  ociVersion: '1.0.2';
-  process: {
-    terminal: false;
-    user: { uid: number; gid: number };
-    args: readonly string[];
-    env: readonly string[];
-    cwd: string;
-    capabilities: {
-      bounding: readonly string[];
-      effective: readonly string[];
-      inheritable: readonly string[];
-      permitted: readonly string[];
-      ambient: readonly string[];
-    };
-    rlimits: ReadonlyArray<{ type: string; hard: number; soft: number }>;
-    noNewPrivileges: true;
-  };
-  root: { path: string; readonly: true };
-  hostname: string;
-  mounts: ReadonlyArray<{
-    destination: string;
-    type: string;
-    source: string;
-    options: readonly string[];
-  }>;
-  linux: {
-    namespaces: ReadonlyArray<{ type: string }>;
-    resources: {
-      memory: { limit: number; swap: number };
-      pids: { limit: number };
-      cpu: { quota: number; period: number };
-    };
-    maskedPaths: readonly string[];
-    readonlyPaths: readonly string[];
-    seccomp: {
-      defaultAction: 'SCMP_ACT_ERRNO';
-      architectures: readonly string[];
-      syscalls: ReadonlyArray<{ names: readonly string[]; action: 'SCMP_ACT_ALLOW' }>;
-    };
-  };
-};
+export const SANDBOX_JOB_ENVIRONMENT = ['PATH=/usr/local/bin:/usr/bin:/bin', 'HOME=/tmp'] as const;
 
 export type OciJobPaths = {
-  /** A read-only root filesystem holding the runtime, prepared by the image and shared by every job. */
   rootfs: string;
-  /** This job's files, written by the runner and mounted read-only at /skill. */
   skillDir: string;
 };
 
-/**
- * The rules, each with a test: every namespace including an empty network one and a user one, a read-only
- * root, /skill read-only, the only writable place a size-limited tmpfs at /tmp with noexec and nosuid, the
- * environment exactly `PATH` and `HOME=/tmp` and nothing from the runner, no capabilities, no new privileges,
- * a seccomp allowlist, memory equal to swap, pids and open files limited, RLIMIT_CPU from the policy, and
- * /proc masked as a container's is. The arguments run the entry, with nothing interpolated into a shell.
- */
-export function buildOciSpec(_policy: SandboxPolicy, _paths: OciJobPaths): OciSpec {
-  throw new Error('NOT_IMPLEMENTED');
+const FORBIDDEN_PROC_PATHS = [
+  '/proc/acpi',
+  '/proc/config.gz',
+  '/proc/kcore',
+  '/proc/keys',
+  '/proc/latency_stats',
+  '/proc/sched_debug',
+  '/proc/scsi',
+  '/proc/timer_list',
+];
+
+const READONLY_PROC_PATHS = [
+  '/proc/asound',
+  '/proc/bus',
+  '/proc/fs',
+  '/proc/irq',
+  '/proc/sys',
+  '/proc/sysrq-trigger',
+];
+
+const ID_MAP = [{ containerID: 0, hostID: 65532, size: 2 }];
+const MEBIBYTE = 1024 ** 2;
+
+function rlimit(type: string, limit: number) {
+  return { type, hard: limit, soft: limit };
 }
 
-/** What a job's process may inherit. A test keeps this list to these two, whatever the runner's own has. */
-export const SANDBOX_JOB_ENVIRONMENT = ['PATH=/usr/local/bin:/usr/bin:/bin', 'HOME=/tmp'] as const;
+/** The native probe is required separately to verify enforcement by the configured runtime. */
+export function buildOciSpec(policy: SandboxPolicy, paths: OciJobPaths) {
+  const memoryBytes = policy.limits.memoryMb * MEBIBYTE;
+  const cpuSeconds = Math.ceil(policy.limits.cpuMs / 1000);
+  return {
+    ociVersion: '1.0.2',
+    process: {
+      terminal: false,
+      user: { uid: 1, gid: 1, additionalGids: [] as number[] },
+      args: ['/usr/local/bin/node', '--', '/skill/' + policy.entry],
+      env: SANDBOX_JOB_ENVIRONMENT,
+      cwd: '/skill',
+      capabilities: {
+        bounding: [],
+        effective: [],
+        inheritable: [],
+        permitted: [],
+        ambient: [],
+      },
+      rlimits: [
+        rlimit('RLIMIT_CPU', cpuSeconds),
+        rlimit('RLIMIT_NOFILE', 128),
+        rlimit('RLIMIT_CORE', 0),
+      ],
+      noNewPrivileges: true,
+    },
+    root: { path: paths.rootfs, readonly: true },
+    hostname: 'skill',
+    mounts: [
+      {
+        destination: '/proc',
+        type: 'proc',
+        source: 'proc',
+        options: ['nosuid', 'nodev', 'noexec'],
+      },
+      {
+        destination: '/dev',
+        type: 'tmpfs',
+        source: 'tmpfs',
+        options: ['nosuid', 'noexec', 'mode=755', 'size=65536'],
+      },
+      {
+        destination: '/skill',
+        type: 'bind',
+        source: paths.skillDir,
+        options: ['rbind', 'ro', 'nosuid', 'nodev', 'noexec'],
+      },
+      {
+        destination: '/tmp',
+        type: 'tmpfs',
+        source: 'tmpfs',
+        options: [
+          'nosuid',
+          'nodev',
+          'noexec',
+          'mode=1777',
+          'size=' + policy.limits.tmpfsMb * MEBIBYTE,
+        ],
+      },
+    ],
+    linux: {
+      namespaces: ['pid', 'network', 'ipc', 'uts', 'mount', 'user', 'cgroup'].map((type) => ({
+        type,
+      })),
+      uidMappings: ID_MAP,
+      gidMappings: ID_MAP,
+      resources: {
+        memory: { limit: memoryBytes, swap: memoryBytes },
+        pids: { limit: policy.limits.pids },
+        cpu: { quota: 10000, period: 10000 },
+      },
+      maskedPaths: FORBIDDEN_PROC_PATHS,
+      readonlyPaths: READONLY_PROC_PATHS,
+      seccomp: SANDBOX_SECCOMP,
+    },
+  } as const;
+}
+
+export type OciSpec = ReturnType<typeof buildOciSpec>;
+
+export const SANDBOX_JOB_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+// Matches skillPathSchema at the runner boundary without importing manifest parsing into the runner.
+export function safeSkillPath(path: string): boolean {
+  return (
+    path.length <= 200 && /^[A-Za-z0-9][A-Za-z0-9._-]*(\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/.test(path)
+  );
+}
