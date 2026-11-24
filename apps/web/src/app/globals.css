@@ -2013,7 +2013,7 @@
   .person-access details.confirm > summary:hover {
     border-color: color-mix(in srgb, var(--danger) 70%, transparent);
   }
-  @media (max-width: 760px) {
+  @container workspace (width < 37rem) {
     .person-access {
       flex-basis: 100%;
       justify-content: flex-start;

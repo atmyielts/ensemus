@@ -344,7 +344,7 @@ export default async function PeoplePage({
                       </span>
                       {seesEmail && <small className="email">{member.email}</small>}
                     </span>
-                    <span className="person-access">
+                    <div className="person-access">
                       {member.status !== 'active' && <span className="badge">Disabled</span>}
                       {canManage && canChange(member) ? (
                         <>
@@ -402,7 +402,7 @@ export default async function PeoplePage({
                           )}
                         </span>
                       )}
-                    </span>
+                    </div>
                   </div>
                 </li>
               ))}

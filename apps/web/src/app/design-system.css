@@ -1226,6 +1226,9 @@
     [data-slot='button'] {
       min-height: 40px;
     }
+    .person-access :is(select, button, details.confirm > summary) {
+      min-height: 44px;
+    }
     .queue-row {
       min-height: 46px;
     }
