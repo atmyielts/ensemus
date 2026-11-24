@@ -99,6 +99,9 @@ export function buildOciSpec(policy: SandboxPolicy, paths: OciJobPaths) {
       namespaces: ['pid', 'network', 'ipc', 'uts', 'mount', 'user', 'cgroup'].map((type) => ({
         type,
       })),
+      // A user namespace cannot privatize inherited mounts on newer runc versions.
+      // One-way slave propagation keeps the job's mount operations from reaching the host.
+      rootfsPropagation: 'rslave',
       uidMappings: ID_MAP,
       gidMappings: ID_MAP,
       resources: {

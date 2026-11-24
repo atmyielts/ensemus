@@ -165,6 +165,7 @@ describe('OCI policy', () => {
     const spec = buildOciSpec(policy, { rootfs: '/rootfs', skillDir: '/bundle/skill' });
     expect(spec.root).toEqual({ path: '/rootfs', readonly: true });
     expect(spec.process.env).toEqual(SANDBOX_JOB_ENVIRONMENT);
+    expect(spec.linux.rootfsPropagation).toBe('rslave');
     expect(spec.process.args).toEqual(['/usr/local/bin/node', '--', '/skill/' + policy.entry]);
     expect(spec.process.user.uid).toBeGreaterThan(0);
     expect(spec.process.noNewPrivileges).toBe(true);

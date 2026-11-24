@@ -4,6 +4,7 @@ import {
   access,
   lstat,
   mkdir,
+  open,
   readFile,
   readdir,
   realpath,
@@ -67,7 +68,15 @@ async function cgroupStats(cgroup: string): Promise<CgroupStats> {
 }
 
 async function killCgroup(cgroup: string): Promise<void> {
-  await writeFile(join(cgroup, 'cgroup.kill'), '1', { flag: 'r+' });
+  const control = await open(
+    join(cgroup, 'cgroup.kill'),
+    constants.O_WRONLY | constants.O_NOFOLLOW,
+  );
+  try {
+    await control.writeFile('1');
+  } finally {
+    await control.close();
+  }
 }
 
 /** Supports runc on a dedicated Linux x64 host with native cgroup v2. */
