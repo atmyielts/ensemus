@@ -79,7 +79,7 @@ describe('worker login roles (ADR-039)', () => {
     );
     // A body can mention a mapped app check and a distinct native connector check. Match the actual
     // comparison, not the mere presence of both names. Mail invitations and interactive skill
-    // administration and uploads retain explicit web-login boundaries.
+    // administration, uploads and Marketplace installation receipts retain explicit web-login boundaries.
     const rawTierCheck =
       /\b(?:session_user|current_user)\s*(?:=|<>|!=|(?:NOT\s+)?IN\s*\()\s*'ensemus_app'/i;
     expect(
@@ -90,6 +90,7 @@ describe('worker login roles (ADR-039)', () => {
     ).toEqual(
       [
         'platform.check_new_tenant_mail()',
+        'marketplace.guard_installation_authority()',
         'skills.guard_signer_administration()',
         'skills.check_bundle_upload()',
         'skills.guard_interactive_release()',

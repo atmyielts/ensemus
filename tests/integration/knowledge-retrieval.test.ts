@@ -306,6 +306,9 @@ describe('authorized lexical and hybrid retrieval', () => {
 
       await fixture.query('reset session authorization');
       await fixture.query("set local maintenance_work_mem='128 MB'");
+      // The test container's shared-memory mount has less space than a parallel HNSW build.
+      // Building the same index serially keeps that workspace in the fixture backend.
+      await fixture.query('set local max_parallel_maintenance_workers=0');
       await fixture.query(definition);
       // This fixture queries immediately after bulk loading, before autoanalyze can run.
       await fixture.query(

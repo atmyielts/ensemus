@@ -37,6 +37,10 @@ for (const javaScriptEnabled of [true, false])
           inner = sidebar.locator('.sidebar-inner'),
           navigation = sidebar.locator('.desktop-navigation'),
           main = page.getByRole('navigation', { name: 'Main', exact: true }),
+          profile = sidebar.getByRole('link', {
+            name: `${person.name} ${person.email}`,
+            exact: true,
+          }),
           name = sidebar.locator('.account-name'),
           email = sidebar.locator('.account-email'),
           signOut = sidebar.getByRole('button', { name: 'Sign out', exact: true });
@@ -102,12 +106,13 @@ for (const javaScriptEnabled of [true, false])
         await insideViewport(page, sidebar.locator('.workspace-brand'));
         await insideViewport(page, signOut);
         await page.keyboard.press('Tab');
-        await expect(name).toBeFocused();
+        await expect(profile).toBeFocused();
+        await insideViewport(page, profile);
         await page.keyboard.press('Tab');
         await expect(signOut).toBeFocused();
         await insideViewport(page, signOut);
         await page.keyboard.press('Shift+Tab');
-        await expect(name).toBeFocused();
+        await expect(profile).toBeFocused();
         await page.keyboard.press('Shift+Tab');
         await expect(last).toBeFocused();
         expect(new URL(page.url()).pathname).toBe(path);
