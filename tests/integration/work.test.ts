@@ -4,6 +4,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   acceptInvitation,
+  readClaimedInvitation,
   addArtifact,
   addDependency,
   addTeamMember,
@@ -2514,15 +2515,37 @@ describe('work', () => {
     it('make an unverified account ask, and join nothing until confirmed', async () => {
       const a = await newOrg();
       const { user, id, token } = await invite(a, 'admin', false);
-      expect(await accept(user, token, false)).toEqual({ status: 'awaiting_confirmation' });
+      expect(await Promise.all([accept(user, token, false), accept(user, token, false)])).toEqual([
+        { status: 'awaiting_confirmation' },
+        { status: 'awaiting_confirmation' },
+      ]);
       await expect(resolveTenantContext(db(), user.id, a.organizationId)).rejects.toThrow();
       const listed = (await listInvitations(db(), a)).find((i) => i.id === id);
       expect(listed?.claimedAt).toBeTruthy();
       expect(listed?.acceptedAt).toBeNull();
-      expect((await listMyNotifications(db(), a))[0]?.kind).toBe('member.join_requested');
+      const actor = { token, userId: user.id, email: user.email };
+      const other = await newOrg();
+      expect(await readClaimedInvitation(db(), actor)).toEqual({ status: 'awaiting_confirmation' });
+      expect(await readClaimedInvitation(db(), { ...actor, userId: other.userId })).toBeNull();
+      expect(await accept(user, token, false)).toEqual({ status: 'awaiting_confirmation' });
+      expect((await listInvitations(db(), a)).find((i) => i.id === id)?.claimedAt).toEqual(
+        listed?.claimedAt,
+      );
+      expect((await listMyNotifications(db(), a)).map((n) => n.kind)).toEqual([
+        'member.join_requested',
+      ]);
+      expect(await auditRows(a, 'member.join_requested')).toHaveLength(1);
 
       await confirmInvitation(db(), a, { invitationId: id });
-      expect((await resolveTenantContext(db(), user.id, a.organizationId)).role).toBe('admin');
+      const member = await resolveTenantContext(db(), user.id, a.organizationId);
+      expect(member.role).toBe('admin');
+      expect(await readClaimedInvitation(db(), actor)).toEqual({
+        status: 'joined',
+        organizationId: a.organizationId,
+      });
+      expect(await readClaimedInvitation(db(), { ...actor, userId: other.userId })).toBeNull();
+      await disableMember(db(), a, { membershipId: member.membershipId });
+      expect(await readClaimedInvitation(db(), actor)).toBeNull();
       await expect(confirmInvitation(db(), a, { invitationId: id })).rejects.toEqual(
         code('INVITATION_INVALID'),
       );
@@ -2546,6 +2569,9 @@ describe('work', () => {
       const { user, id, token } = await invite(a, 'admin', false);
       await accept(user, token, false);
       await revokeInvitation(db(), a, { invitationId: id });
+      expect(
+        await readClaimedInvitation(db(), { token, userId: user.id, email: user.email }),
+      ).toBeNull();
       await expect(confirmInvitation(db(), a, { invitationId: id })).rejects.toEqual(
         code('INVITATION_INVALID'),
       );

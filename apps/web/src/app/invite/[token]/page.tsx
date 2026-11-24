@@ -1,8 +1,11 @@
+import { readClaimedInvitation } from '@ensemus/application';
+import { isRestoreAdmissionDenied } from '@ensemus/database';
 import Link from 'next/link';
 import { headers } from 'next/headers';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { SubmitButton } from '@/components/submit-button';
 import { ErrorNotice, Wordmark } from '@/components/ui';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { safeReturnPath, withReturnPath } from '@/lib/return-path';
@@ -12,9 +15,8 @@ import { acceptInvitationAction } from '@/server/work-actions';
 
 export const metadata = { title: 'Invitation | Ensemus' };
 
-// This page never reads the invitation. It shows the same thing for a real token, a guessed one and
-// a used one, so holding a link reveals no organization, role or address until it is accepted. The
-// Registration and acceptance both check the token only when someone submits the matching details.
+// Signed-out visitors see a generic page. Only the signed-in claimant can see their request state,
+// and continuing to an organization still requires an active membership there.
 export default async function InvitationPage({
   params,
   searchParams,
@@ -27,8 +29,11 @@ export default async function InvitationPage({
   // Not the shape of any token we issue. Saying so reveals nothing about any real invitation.
   if (!here) notFound();
 
-  const { auth, config } = getRuntime();
-  const session = await auth.api.getSession({ headers: await headers() });
+  const { app, config, readInteractiveSession } = getRuntime();
+  const session = await readInteractiveSession(await headers()).catch((error: unknown) => {
+    if (isRestoreAdmissionDenied(error)) redirect('/restoring');
+    throw error;
+  });
   const { error, state, registration } = await searchParams;
 
   if (!session) {
@@ -115,23 +120,31 @@ export default async function InvitationPage({
     );
   }
 
-  if (state === 'waiting') {
+  const { id: userId, email, emailVerified } = session.user;
+  const invitation = await readClaimedInvitation(app, { token, userId, email });
+  if (invitation?.status === 'joined') redirect(`/o/${invitation.organizationId}`);
+
+  if (!error && invitation?.status === 'awaiting_confirmation' && !emailVerified) {
     return (
       <main className="centered">
         <Wordmark />
         <div className="sheet">
           <h1>Waiting for confirmation</h1>
           <p className="lede" role="status">
-            Your email address has not been confirmed yet, so someone in the organization needs to
-            confirm it is you before you can join. We have let them know. Come back once they have,
-            or ask them directly.
+            Your request was sent. Ask the person who invited you to confirm it, then check your
+            access here.
           </p>
-          <form action={signOutAction}>
-            <input type="hidden" name="next" value={here} />
-            <button className="link" type="submit">
-              Use a different account
-            </button>
-          </form>
+          <div className="row gap-above-large">
+            <Button asChild>
+              <a href={here}>Check access</a>
+            </Button>
+            <form action={signOutAction}>
+              <input type="hidden" name="next" value={here} />
+              <button className="link" type="submit">
+                Use a different account
+              </button>
+            </form>
+          </div>
         </div>
       </main>
     );
@@ -145,7 +158,9 @@ export default async function InvitationPage({
           Accept to join the organization that invited you. You will see which one it is once you
           have joined.
         </p>
-        <ErrorNotice code={error} />
+        <ErrorNotice
+          code={error ?? (state === 'waiting' && !invitation ? 'INVITATION_INVALID' : undefined)}
+        />
         <p>
           You are signed in as <strong>{session.user.email}</strong>. An invitation only works for
           the email address it was sent to.

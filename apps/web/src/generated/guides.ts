@@ -1885,11 +1885,11 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
           },
           {
             "t": "strong",
-            "v": "Ensemus"
+            "v": "Check access"
           },
           {
             "t": "text",
-            "v": " at the top of their page, and their organization opens, or is listed if they have several. The invitation link itself has been used, so it no longer works."
+            "v": " on the invitation page to open the organization. If they closed the page, they can reopen the link and sign in to the same account. An invitation can admit a person only once."
           }
         ]
       },

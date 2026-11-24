@@ -45,7 +45,7 @@ Someone who holds a link and has an account with the invited address has not pro
 2. Check with that person directly. Any owner or admin can confirm.
 3. Press **Confirm**, tick the box, and press **Confirm** again. The box names their address and says: "Someone holding this link signed in with this address, but nothing has proven the address is theirs. Only confirm if you have checked with them."
 
-Once confirmed, the person selects **Ensemus** at the top of their page, and their organization opens, or is listed if they have several. The invitation link itself has been used, so it no longer works.
+Once confirmed, the person selects **Check access** on the invitation page to open the organization. If they closed the page, they can reopen the link and sign in to the same account. An invitation can admit a person only once.
 
 ## See and withdraw invitations
 

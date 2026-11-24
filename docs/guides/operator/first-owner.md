@@ -5,7 +5,7 @@ area: op-install
 tickets: [ID-01]
 modes: [cloud, byom, sovereign]
 status: written_untested
-sources: [workers/workflow/src/setup-token.ts, packages/database/src/setup-token.ts, packages/auth/src/index.ts, apps/web/src/app/setup/page.tsx, apps/web/src/app/sign-in/page.tsx, apps/web/src/app/page.tsx, apps/web/src/app/invite/[token]/page.tsx, packages/config/src/index.ts, tests/stack/first-owner.test.ts, docs/05-operations/05-container-deployment-runbook.md]
+sources: [workers/workflow/src/setup-token.ts, packages/database/src/setup-token.ts, packages/auth/src/index.ts, apps/web/src/app/setup/page.tsx, apps/web/src/app/sign-in/page.tsx, apps/web/src/app/page.tsx, apps/web/src/app/invite/[token]/page.tsx, packages/application/src/people.ts, packages/config/src/index.ts, tests/stack/first-owner.test.ts, docs/05-operations/05-container-deployment-runbook.md]
 tests: []
 ---
 
@@ -89,11 +89,7 @@ compose exec -T postgres psql -U postgres -d ensemus -c "select count(*) from id
 
 ## Letting more people in
 
-While sign-up is off, there are two ways for someone else to join.
-
-**Invite them and issue another code.** Someone who can invite does so from the organization's people page. The invitation page tells the person, `No account yet? Ask the person who invited you how to get one`, and links to `/setup`, which brings them back to the invitation afterwards. Issue one code per person.
-
-Ensemus sends no account mail, so a password account's address is unproven. The person sees that they are waiting, and someone who can invite still confirms them on the people page.
+**Share a workspace invitation.** Create the invitation on the organization's People and teams page, then share the link privately. The recipient can create an account and accept the invitation from that link while public sign-up is off. They still enter the address you invited. If their address is unverified, an owner or admin confirms them and they can then choose **Check access** from the invitation page. See [Inviting people](../user/members-and-invitations.md).
 
 **Connect an identity provider.** See [Connecting an identity provider](identity-providers.md), which also says what is not finished.
 

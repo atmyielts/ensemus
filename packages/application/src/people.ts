@@ -8,6 +8,8 @@ import {
   notifications,
   organizations,
   projects,
+  resolveTenantContext,
+  TenantAccessDenied,
   teamMemberships,
   teams,
   users,
@@ -536,6 +538,46 @@ export async function revokeInvitation(
 export type InvitationOutcome =
   { status: 'joined'; organizationId: string } | { status: 'awaiting_confirmation' };
 
+/** A claimant can resume from the link after confirmation while they still have access. */
+export async function readClaimedInvitation(
+  database: AppDatabase,
+  input: { token: string; userId: string; email: string },
+): Promise<InvitationOutcome | null> {
+  const tokenHash = hashToken(input.token);
+  const [invitation] = await withInvitationTx(database, tokenHash, (tx) =>
+    tx
+      .select({
+        organizationId: invitations.organizationId,
+        expiresAt: invitations.expiresAt,
+        acceptedAt: invitations.acceptedAt,
+      })
+      .from(invitations)
+      .where(
+        and(
+          eq(invitations.tokenHash, tokenHash),
+          eq(invitations.claimedByUserId, input.userId),
+          eq(invitations.email, input.email.trim().toLowerCase()),
+          isNull(invitations.revokedAt),
+        ),
+      ),
+  );
+  if (!invitation) return null;
+  if (!invitation.acceptedAt) {
+    return invitation.expiresAt > new Date() ? { status: 'awaiting_confirmation' } : null;
+  }
+  try {
+    const { organizationId } = await resolveTenantContext(
+      database,
+      input.userId,
+      invitation.organizationId,
+    );
+    return { status: 'joined', organizationId };
+  } catch (error) {
+    if (error instanceof TenantAccessDenied) return null;
+    throw error;
+  }
+}
+
 /**
  * Accepts an invitation. It grants only the organization and role it names, works once, and only
  * for the person it was sent to, while the person who sent it can still invite. Every failure gives
@@ -624,6 +666,8 @@ export async function acceptInvitation(
     }
 
     if (!existing && !input.emailVerified) {
+      // The row remains locked from the check above, so simultaneous retries leave one request.
+      if (current.claimedByUserId === input.userId) return { status: 'awaiting_confirmation' };
       await tx
         .update(invitations)
         .set({ claimedByUserId: input.userId, claimedAt: new Date() })

@@ -1177,8 +1177,8 @@
     },
     {
       "path": "guides/operator/first-owner.md",
-      "size_bytes": 6516,
-      "sha256": "4bc7dd48b844abd987d5ea7b5c04578d5694fbda36fd9d0d5448c4db254677c1"
+      "size_bytes": 6458,
+      "sha256": "6d069dcaecc7b7e3efdd408dfe0043aa0ce6857be9871f4f526be2221fd34833"
     },
     {
       "path": "guides/operator/hosted-environments.md",
@@ -1432,8 +1432,8 @@
     },
     {
       "path": "guides/user/members-and-invitations.md",
-      "size_bytes": 5273,
-      "sha256": "88c91122223f0348d545f380462dd9376361a52d672540b868f9947b201fa519"
+      "size_bytes": 5298,
+      "sha256": "d4e1bba4515148218c8ef477f55e878ad2e028cf2692c9af05a2a4c323984004"
     },
     {
       "path": "guides/user/memory-and-facts.md",

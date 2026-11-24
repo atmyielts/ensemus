@@ -251,6 +251,11 @@ describe('a first owner on a default install (ID-01)', () => {
         `${here}?state=waiting`,
       );
       expect((await read(`/o/${organization}`, jar)).status).toBe(404);
+      expect((await read(here, jar)).html).toContain('Waiting for confirmation');
+      expect((await read(here, jar)).html).toContain('Check access');
+      expect((await read(`${here}?state=waiting`, inviter.person.jar)).html).not.toContain(
+        'Waiting for confirmation',
+      );
       const confirmed = await submit(
         people,
         inviter.person.jar,
@@ -260,6 +265,9 @@ describe('a first owner on a default install (ID-01)', () => {
         },
       );
       expect(confirmed.headers.get('location')).toBe(people);
+      expect((await visit(`${here}?state=waiting`, jar)).headers.get('location')).toBe(
+        `/o/${organization}`,
+      );
       expect((await read(`/o/${organization}`, jar)).status).toBe(200);
     });
   });
