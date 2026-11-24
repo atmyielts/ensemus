@@ -32,9 +32,12 @@ const FEDERATION_PROFILE = 'ensemus.m3-m7-federation/4';
 const SKILL_METADATA_PORTABILITY_VERSION = 'ensemus.skill-metadata/5';
 const MARKETPLACE_PUBLISHER_PORTABILITY_VERSION = 'ensemus.marketplace-publisher/6';
 const MEETING_CONFIGURATION_PORTABILITY_VERSION = 'ensemus.meeting-config/7';
+const MEETING_HISTORY_PORTABILITY_VERSION = 'ensemus.meeting-history/8';
+const carriesMeetingConfiguration = (version: unknown) =>
+  version === MEETING_CONFIGURATION_PORTABILITY_VERSION ||
+  version === MEETING_HISTORY_PORTABILITY_VERSION;
 const carriesPublisherHistory = (version: unknown) =>
-  version === MARKETPLACE_PUBLISHER_PORTABILITY_VERSION ||
-  version === MEETING_CONFIGURATION_PORTABILITY_VERSION;
+  version === MARKETPLACE_PUBLISHER_PORTABILITY_VERSION || carriesMeetingConfiguration(version);
 const carriesPortableSkillMetadata = (version: unknown) =>
   version === SKILL_METADATA_PORTABILITY_VERSION || carriesPublisherHistory(version);
 const isJoinedInventory = (value: string) =>
@@ -412,6 +415,16 @@ export const MEETING_CONFIGURATION_RECORD_KINDS = [
   'meeting_settings_history',
   'meeting_provider_approval_history',
 ] as const;
+export const MEETING_HISTORY_RECORD_KINDS = [
+  'meeting_purge_history',
+  'meeting_participant_history',
+  'meeting_consent_history',
+  'meeting_note_purge_history',
+  'meeting_summary_purge_history',
+  'meeting_proposal_history',
+  'meeting_derivation_history',
+  'meeting_import_history',
+] as const;
 const meetingReference = z
   .string()
   .min(1)
@@ -419,6 +432,99 @@ const meetingReference = z
   .refine((value) => [...value].length <= 200);
 
 export const extensionRecordSchema = z.discriminatedUnion('kind', [
+  z.strictObject({
+    kind: z.literal('meeting_purge_history'),
+    id,
+    organizer_membership_id: id,
+    classification,
+    source_kind: z.enum(['manual', 'connector']),
+    occurred_at: moment,
+    created_at: moment,
+    purged_at: moment,
+  }),
+  z
+    .strictObject({
+      kind: z.literal('meeting_participant_history'),
+      id,
+      meeting_id: id,
+      classification,
+      member_id: id.nullable(),
+      participant_kind: z.enum(['member', 'external']),
+      created_at: moment,
+    })
+    .refine((record) => (record.participant_kind === 'member') === (record.member_id !== null)),
+  z.strictObject({
+    kind: z.literal('meeting_consent_history'),
+    id,
+    meeting_id: id,
+    classification,
+    participant_id: id,
+    decision: z.enum(['granted', 'declined', 'withdrawn']),
+    basis: z.enum(['self', 'attested']),
+    notice_ref: meetingReference,
+    recorded_by_membership_id: id,
+    recorded_at: moment,
+    position: z.string().regex(/^[1-9][0-9]{0,18}$/),
+  }),
+  z.strictObject({
+    kind: z.literal('meeting_note_purge_history'),
+    id,
+    meeting_id: id,
+    classification,
+    version: z.int().min(1),
+    source_kind: z.enum(['manual', 'connector']),
+    source_approval_id: id.nullable(),
+    imported_by_membership_id: id.nullable(),
+    created_at: moment,
+    purged_at: moment,
+  }),
+  z.strictObject({
+    kind: z.literal('meeting_summary_purge_history'),
+    id,
+    meeting_id: id,
+    classification,
+    run_id: id,
+    created_at: moment,
+    purged_at: moment,
+  }),
+  z.strictObject({
+    kind: z.literal('meeting_proposal_history'),
+    id,
+    meeting_id: id,
+    classification,
+    run_id: id,
+    ordinal: z.int().min(1).max(100),
+    proposal_kind: z.enum(['decision', 'work']),
+    status: z.enum(['accepted', 'rejected', 'withdrawn']),
+    decided_by_membership_id: id.nullable(),
+    decided_at: moment.nullable(),
+    created_at: moment,
+    purged_at: moment,
+  }),
+  z.strictObject({
+    kind: z.literal('meeting_derivation_history'),
+    id,
+    meeting_id: id,
+    classification,
+    notes_id: id,
+    provider_approval_id: id,
+    purpose: z.enum(['summarize', 'extract_items']),
+    status: z.enum(['completed', 'failed', 'refused', 'cancelled']),
+    requested_by_membership_id: id,
+    created_at: moment,
+    finished_at: moment.nullable(),
+  }),
+  z.strictObject({
+    kind: z.literal('meeting_import_history'),
+    id,
+    meeting_id: id,
+    classification,
+    source_approval_id: id,
+    status: z.enum(['completed', 'failed', 'refused']),
+    requested_by_membership_id: id,
+    created_at: moment,
+    finished_at: moment.nullable(),
+  }),
   z
     .strictObject({
       kind: z.literal('meeting_settings_history'),
@@ -801,6 +907,7 @@ export const EXTENSION_SECTION_KINDS = {
     'policy_definition',
     'security_settings',
     ...MEETING_CONFIGURATION_RECORD_KINDS,
+    ...MEETING_HISTORY_RECORD_KINDS,
   ],
   skills: [...SKILL_METADATA_RECORD_KINDS, 'marketplace_publisher_history'],
   'custom-objects': [
@@ -842,7 +949,12 @@ export function assertPortableExtensionProfile(
     throw new Error('RECORD_REFUSED');
   if (
     (MEETING_CONFIGURATION_RECORD_KINDS as readonly string[]).includes(kind) &&
-    inventoryVersion !== MEETING_CONFIGURATION_PORTABILITY_VERSION
+    !carriesMeetingConfiguration(inventoryVersion)
+  )
+    throw new Error('RECORD_REFUSED');
+  if (
+    (MEETING_HISTORY_RECORD_KINDS as readonly string[]).includes(kind) &&
+    inventoryVersion !== MEETING_HISTORY_PORTABILITY_VERSION
   )
     throw new Error('RECORD_REFUSED');
 }
@@ -910,6 +1022,7 @@ const manifestV2Schema = manifestV1Schema.extend({
     SKILL_METADATA_PORTABILITY_VERSION,
     MARKETPLACE_PUBLISHER_PORTABILITY_VERSION,
     MEETING_CONFIGURATION_PORTABILITY_VERSION,
+    MEETING_HISTORY_PORTABILITY_VERSION,
   ]),
   record_max_bytes: z.literal(4 * 1024 * 1024).optional(),
   generated_bodies_excluded: z.int().min(0),
@@ -930,7 +1043,7 @@ const manifestV2Schema = manifestV1Schema.extend({
         version: z.literal(1),
       }),
     )
-    .max(256),
+    .max(288),
 });
 export const exportManifestSchema = z
   .discriminatedUnion('schema_version', [manifestV1Schema, manifestV2Schema])
@@ -961,6 +1074,19 @@ export const exportManifestSchema = z
     )
       ctx.addIssue({ code: 'custom', message: 'Legacy archives carry only core inert records' });
     const joined = value.schema_version === 2 && isJoinedInventory(value.inventory_version);
+    if (
+      value.schema_version === 2 &&
+      value.inventory_version !== MEETING_HISTORY_PORTABILITY_VERSION &&
+      value.inventory.length > 256
+    )
+      ctx.addIssue({
+        code: 'too_big',
+        path: ['inventory'],
+        origin: 'array',
+        maximum: 256,
+        inclusive: true,
+        message: 'Inventory exceeds profile bound',
+      });
     if (
       value.schema_version === 2 &&
       ((joined && value.record_max_bytes !== 4 * 1024 * 1024) ||

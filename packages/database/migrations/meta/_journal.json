@@ -1352,6 +1352,13 @@
       "when": 1794201807665,
       "tag": "0785_meeting_configuration_portability",
       "breakpoints": true
+    },
+    {
+      "idx": 193,
+      "version": "7",
+      "when": 1794201807666,
+      "tag": "0786_meeting_purge_history_portability",
+      "breakpoints": true
     }
   ]
 }

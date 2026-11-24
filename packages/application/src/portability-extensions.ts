@@ -8,8 +8,9 @@ import {
   type ExtensionRecord,
 } from '@ensemus/contracts/portability-records';
 import {
-  MEETING_CONFIGURATION_PORTABILITY_INVENTORY,
   MEETING_CONFIGURATION_PORTABILITY_VERSION,
+  MEETING_HISTORY_PORTABILITY_INVENTORY,
+  MEETING_HISTORY_PORTABILITY_VERSION,
   MARKETPLACE_PUBLISHER_PORTABILITY_VERSION,
   SKILL_METADATA_PORTABILITY_VERSION,
   PORTABILITY_INVENTORY_PROFILES,
@@ -26,6 +27,7 @@ import { RecordRefused } from './portability-sections-import';
 import { CORE_PORTABILITY_SECTIONS } from './portability-sections';
 import { queryRows } from './portability-sql';
 import { M7_PORTABLE_READERS, type PortableReader } from './portability-m7-readers';
+import { MEETING_HISTORY_READERS } from './portability-meeting-readers';
 import { PENDING_PORTABILITY_TABLES } from './portability-pending-modules';
 
 const portableId = (text: string) => {
@@ -98,6 +100,7 @@ const skillReadersByProfile: Partial<Record<JoinedPortabilityVersion, readonly P
     [SKILL_METADATA_PORTABILITY_VERSION]: catalogReaders,
     [MARKETPLACE_PUBLISHER_PORTABILITY_VERSION]: publisherReaders,
     [MEETING_CONFIGURATION_PORTABILITY_VERSION]: publisherReaders,
+    [MEETING_HISTORY_PORTABILITY_VERSION]: publisherReaders,
   };
 const meetingConfigurationReaders: readonly PortableReader[] = [
   {
@@ -505,7 +508,7 @@ export async function assertJoinedPortabilitySchema(
       AND schemaname NOT IN ('information_schema','drizzle')`,
   );
   const known = new Set<string>([
-    ...MEETING_CONFIGURATION_PORTABILITY_INVENTORY.map((entry) => entry.table),
+    ...MEETING_HISTORY_PORTABILITY_INVENTORY.map((entry) => entry.table),
     ...PENDING_PORTABILITY_TABLES,
   ]);
   if (present.some((row) => !known.has(row.table_name))) throw new RecordRefused();
@@ -522,12 +525,37 @@ async function assertExportViewer(tx: Tx) {
     sql`select sovereign.portable_export_viewer() as id`,
   );
   if (rows.length !== 1 || !rows[0]?.id) throw new RecordRefused();
+  return rows[0].id;
+}
+
+export async function assertMeetingHistoryViewer(tx: Tx, organizationId: string, viewerId: string) {
+  const [result] = await queryRows<{ allowed: boolean }>(
+    tx,
+    sql`
+    select not exists (
+      select 1 from meetings.meetings m
+      where m.organization_id=${organizationId}::uuid and (
+        (m.organizer_membership_id <> ${viewerId}::uuid and not exists (
+          select 1 from meetings.participants p
+          where p.organization_id=m.organization_id and p.meeting_id=m.id
+            and p.membership_id=${viewerId}::uuid
+        ))
+        or not exists (
+          select 1 from platform.tombstones t
+          where t.organization_id=m.organization_id and t.target_type='meeting' and t.target_id=m.id
+        )
+      )
+    ) as allowed`,
+  );
+  if (result?.allowed !== true) throw new RecordRefused();
 }
 
 function exporter(section: ExportSection): PortabilitySection['exportPage'] {
   return async (tx, context, { cursor, limit, inventoryVersion }): Promise<ExportPage> => {
     await assertJoinedPortabilitySchema(tx, inventoryVersion);
-    await assertExportViewer(tx);
+    const exportViewer = await assertExportViewer(tx);
+    if (section === 'policy' && inventoryVersion === MEETING_HISTORY_PORTABILITY_VERSION)
+      await assertMeetingHistoryViewer(tx, context.organizationId, exportViewer);
     const list =
       section === 'skills'
         ? (skillReadersByProfile[inventoryVersion ?? PORTABILITY_INVENTORY_VERSION] ?? [])
@@ -535,8 +563,12 @@ function exporter(section: ExportSection): PortabilitySection['exportPage'] {
             ...(readers[section] ?? []),
             ...(M7_PORTABLE_READERS[section] ?? []),
             ...(section === 'policy' &&
-            inventoryVersion === MEETING_CONFIGURATION_PORTABILITY_VERSION
+            (inventoryVersion === MEETING_CONFIGURATION_PORTABILITY_VERSION ||
+              inventoryVersion === MEETING_HISTORY_PORTABILITY_VERSION)
               ? meetingConfigurationReaders
+              : []),
+            ...(section === 'policy' && inventoryVersion === MEETING_HISTORY_PORTABILITY_VERSION
+              ? MEETING_HISTORY_READERS
               : []),
           ];
     if (section === 'skills' && !list.length)

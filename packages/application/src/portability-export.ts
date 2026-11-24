@@ -33,6 +33,7 @@ import {
   SKILL_METADATA_PORTABILITY_VERSION,
   MARKETPLACE_PUBLISHER_PORTABILITY_VERSION,
   MEETING_CONFIGURATION_PORTABILITY_VERSION,
+  MEETING_HISTORY_PORTABILITY_VERSION,
   isJoinedPortabilityVersion,
   PORTABILITY_INVENTORY_PROFILES,
   PORTABILITY_INVENTORY_VERSION,
@@ -73,7 +74,10 @@ import { AppError } from './errors';
 import { emit } from './events';
 import { idSchema } from './ids';
 import { CORE_SECTION_EXPORTERS, nextExportableFile } from './portability-sections-export';
-import { assertJoinedPortabilitySchema } from './portability-extensions';
+import {
+  assertJoinedPortabilitySchema,
+  assertMeetingHistoryViewer,
+} from './portability-extensions';
 import { RecordRefused } from './portability-sections-import';
 import { queryRows } from './portability-sql';
 import { assertExportEpoch, isExportEpochCurrent } from './portability-epoch';
@@ -528,6 +532,7 @@ export async function beginExport(
         when sovereign.portable_profile_clear(${SKILL_METADATA_PORTABILITY_VERSION}) then ${SKILL_METADATA_PORTABILITY_VERSION}
         when sovereign.portable_profile_clear(${MARKETPLACE_PUBLISHER_PORTABILITY_VERSION}) then ${MARKETPLACE_PUBLISHER_PORTABILITY_VERSION}
         when sovereign.portable_profile_clear(${MEETING_CONFIGURATION_PORTABILITY_VERSION}) then ${MEETING_CONFIGURATION_PORTABILITY_VERSION}
+        when sovereign.portable_profile_clear(${MEETING_HISTORY_PORTABILITY_VERSION}) then ${MEETING_HISTORY_PORTABILITY_VERSION}
         else null end as profile`,
     );
     const profile = admitted?.profile;
@@ -537,6 +542,8 @@ export async function beginExport(
     }
     try {
       await assertJoinedPortabilitySchema(tx, profile);
+      if (profile === MEETING_HISTORY_PORTABILITY_VERSION)
+        await assertMeetingHistoryViewer(tx, context.organizationId, row.requestedByMembershipId);
     } catch (error) {
       if (!(error instanceof RecordRefused)) throw error;
       await recordFailure(tx, context, row, 'RECORD_REFUSED');

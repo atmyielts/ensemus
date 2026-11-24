@@ -54,19 +54,22 @@ export const FEDERATION_PORTABILITY_VERSION = 'ensemus.m3-m7-federation/4' as co
 export const SKILL_METADATA_PORTABILITY_VERSION = 'ensemus.skill-metadata/5' as const;
 export const MARKETPLACE_PUBLISHER_PORTABILITY_VERSION = 'ensemus.marketplace-publisher/6' as const;
 export const MEETING_CONFIGURATION_PORTABILITY_VERSION = 'ensemus.meeting-config/7' as const;
+export const MEETING_HISTORY_PORTABILITY_VERSION = 'ensemus.meeting-history/8' as const;
 export type JoinedPortabilityVersion =
   | typeof PORTABILITY_INVENTORY_VERSION
   | typeof FEDERATION_PORTABILITY_VERSION
   | typeof SKILL_METADATA_PORTABILITY_VERSION
   | typeof MARKETPLACE_PUBLISHER_PORTABILITY_VERSION
-  | typeof MEETING_CONFIGURATION_PORTABILITY_VERSION;
+  | typeof MEETING_CONFIGURATION_PORTABILITY_VERSION
+  | typeof MEETING_HISTORY_PORTABILITY_VERSION;
 export function isJoinedPortabilityVersion(profile: unknown): profile is JoinedPortabilityVersion {
   return (
     profile === PORTABILITY_INVENTORY_VERSION ||
     profile === FEDERATION_PORTABILITY_VERSION ||
     profile === SKILL_METADATA_PORTABILITY_VERSION ||
     profile === MARKETPLACE_PUBLISHER_PORTABILITY_VERSION ||
-    profile === MEETING_CONFIGURATION_PORTABILITY_VERSION
+    profile === MEETING_CONFIGURATION_PORTABILITY_VERSION ||
+    profile === MEETING_HISTORY_PORTABILITY_VERSION
   );
 }
 export const PORTABLE_SOURCE_SECTIONS = [
@@ -402,6 +405,18 @@ export const MEETING_CONFIGURATION_PORTABILITY_INVENTORY = [
   inventory('meetings.provider_approvals', 'policy', 'quarantined'),
 ] as const;
 
+export const MEETING_HISTORY_PORTABILITY_INVENTORY = [
+  ...MEETING_CONFIGURATION_PORTABILITY_INVENTORY,
+  inventory('meetings.meetings', 'policy', 'quarantined'),
+  inventory('meetings.participants', 'policy', 'quarantined'),
+  inventory('meetings.consent_records', 'policy', 'quarantined'),
+  inventory('meetings.notes', 'policy', 'quarantined'),
+  inventory('meetings.summaries', 'policy', 'quarantined'),
+  inventory('meetings.proposed_items', 'policy', 'quarantined'),
+  inventory('meetings.derivation_runs', 'policy', 'quarantined'),
+  inventory('meetings.import_requests', 'policy', 'quarantined'),
+] as const;
+
 export const PORTABILITY_INVENTORY_PROFILES = {
   [LEGACY_PORTABILITY_INVENTORY_VERSION]: PORTABILITY_INVENTORY_V1,
   [PORTABILITY_INVENTORY_V2_VERSION]: PORTABILITY_INVENTORY_V2,
@@ -410,6 +425,7 @@ export const PORTABILITY_INVENTORY_PROFILES = {
   [SKILL_METADATA_PORTABILITY_VERSION]: SKILL_METADATA_PORTABILITY_INVENTORY,
   [MARKETPLACE_PUBLISHER_PORTABILITY_VERSION]: MARKETPLACE_PUBLISHER_PORTABILITY_INVENTORY,
   [MEETING_CONFIGURATION_PORTABILITY_VERSION]: MEETING_CONFIGURATION_PORTABILITY_INVENTORY,
+  [MEETING_HISTORY_PORTABILITY_VERSION]: MEETING_HISTORY_PORTABILITY_INVENTORY,
 } as const;
 
 export function matchesPortabilityInventory(

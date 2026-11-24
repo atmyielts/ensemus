@@ -32,9 +32,12 @@ import {
   getWorkUnit,
   listOrganizationExports,
   listImportedDefinitions,
+  listMeetings,
   listMeetingProviderApprovals,
   openExportArchive,
   purgeExpiredExports,
+  recordMeetingConsent,
+  requestMeetingNotesImport,
   requestOrganizationExport,
   requestOrganizationImport,
   runOrganizationImport,
@@ -56,6 +59,8 @@ import {
   connections,
   createOrganization,
   domainEvents,
+  externalResourceAcl,
+  externalResources,
   notifications,
   openAppDatabase,
   organizationExportParts,
@@ -69,6 +74,7 @@ import {
   type TenantContext,
 } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
+import { storeSecret } from '@ensemus/secrets/seal';
 import {
   artifactPartPath,
   EXPORT_MANIFEST_PATH,
@@ -79,6 +85,8 @@ import {
   MARKETPLACE_PUBLISHER_PORTABILITY_VERSION,
   MEETING_CONFIGURATION_PORTABILITY_INVENTORY,
   MEETING_CONFIGURATION_PORTABILITY_VERSION,
+  MEETING_HISTORY_PORTABILITY_INVENTORY,
+  MEETING_HISTORY_PORTABILITY_VERSION,
   SKILL_METADATA_PORTABILITY_INVENTORY,
   SKILL_METADATA_PORTABILITY_VERSION,
   isArchivePath,
@@ -100,6 +108,13 @@ import {
 } from '../helpers/sovereign';
 import { inFixtureTenant } from '../helpers/fixture-tenant';
 import {
+  recordConsent,
+  seedMeeting,
+  seedMeetingSuggestions,
+  TEST_NOTICE,
+  TEST_TERMS,
+} from '../helpers/expansion';
+import {
   clearDeploymentProfile,
   enableFederation,
   seedGrant,
@@ -107,7 +122,7 @@ import {
 } from '../helpers/federation';
 import { seedConnection, seedExternalAction } from '../helpers/integrations';
 import { seedPackage, seedSigner } from '../helpers/skills';
-import { urls } from '../helpers/stack';
+import { secret, urls } from '../helpers/stack';
 import { archiveReader } from './fixtures/archive-builder';
 
 /** A store in memory, which remembers what was asked of it and can be told to fail. */
@@ -415,6 +430,167 @@ describe('organization export', () => {
     await seedPackage(db(), source, { contentClassification: 'restricted' });
     const refused = await request(source);
     expect(await beginExport(workerDb(), worker(source), { exportId: refused }, deps)).toEqual({
+      state: 'failed',
+      code: 'RECORD_REFUSED',
+    });
+  });
+
+  it('carries purged meeting receipts only to the importing owner', async () => {
+    const source = await newOrg();
+    if (source.actorType !== 'user') throw new Error('Expected a source owner');
+    const target = await newOrg();
+    const room = await seedMeetingSuggestions(db(), source);
+    const withdraw = (meeting: Awaited<ReturnType<typeof seedMeeting>>) =>
+      recordMeetingConsent(db(), source, {
+        meetingId: meeting.id,
+        participantId: meeting.organizerParticipantId,
+        decision: 'withdrawn',
+        noticeRef: TEST_NOTICE,
+      });
+    await withdraw(room);
+
+    const credential = 'generated-provider-credential';
+    const sealed = await storeSecret(db(), source, {
+      publicKeyPem: secret('sealing_public_key.pem'),
+      purpose: 'connector_credential',
+      plaintext: credential,
+    });
+    const connectionId = await seedConnection(db(), source, {
+      connectorType: 'meeting_notes_http',
+      credentialSecretId: sealed.secretRef,
+    });
+    const resourceId = randomUUID();
+    const externalId = `private-provider-reference/${resourceId}`;
+    await withTenantTx(db(), source, async (tx) => {
+      await tx.insert(externalResources).values({
+        organizationId: source.organizationId,
+        id: resourceId,
+        connectionId,
+        externalId,
+        stream: 'meetings.notes',
+        resourceType: 'meetings.notes',
+        classification: 'confidential',
+        aclState: 'mapped',
+      });
+      await tx.insert(externalResourceAcl).values({
+        organizationId: source.organizationId,
+        resourceId,
+        principalKind: 'user',
+        principalExternalId: 'generated-user',
+        access: 'read',
+        membershipId: source.membershipId,
+      });
+    });
+    const connectorRoom = await seedMeeting(db(), source, {
+      sourceKind: 'connector',
+      connectionId,
+      sourceResourceId: resourceId,
+    });
+    await recordConsent(db(), source, {
+      meetingId: connectorRoom.id,
+      participantId: connectorRoom.organizerParticipantId,
+    });
+    const provider = await approveMeetingProvider(db(), source, {
+      kind: 'source',
+      connectionId,
+      maxClassification: 'confidential',
+      termsRef: TEST_TERMS,
+      expiresAt: new Date(Date.now() + 3_600_000),
+    });
+    const pending = await requestMeetingNotesImport(db(), source, {
+      meetingId: connectorRoom.id,
+      providerApprovalId: provider.id,
+    });
+    await withdraw(connectorRoom);
+
+    const store = new MemoryStore();
+    const exportId = await request(source);
+    expect(await drive(source, store, exportId)).toMatchObject({ state: 'finished' });
+    const opened = await downloadAndOpen(source, store, exportId);
+    expect(opened.manifest).toMatchObject({
+      inventory_version: MEETING_HISTORY_PORTABILITY_VERSION,
+      inventory: MEETING_HISTORY_PORTABILITY_INVENTORY,
+    });
+    const receipts = recordsOf(opened, 'meeting_purge_history');
+    expect(receipts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: room.id, purged_at: expect.any(String) }),
+        expect.objectContaining({ id: connectorRoom.id, purged_at: expect.any(String) }),
+      ]),
+    );
+    expect(recordsOf(opened, 'meeting_consent_history')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ meeting_id: room.id, decision: 'granted', position: '1' }),
+        expect.objectContaining({ meeting_id: room.id, decision: 'withdrawn', position: '2' }),
+      ]),
+    );
+    expect(recordsOf(opened, 'meeting_import_history')).toMatchObject([
+      { id: pending.id, meeting_id: connectorRoom.id, status: 'refused' },
+    ]);
+    for (const value of [
+      'Generated notes only.',
+      room.summaryText,
+      'Send the plan',
+      externalId,
+      credential,
+    ]) {
+      expect(opened.text).not.toContain(value);
+    }
+    expect(() =>
+      validatePortableRecord('policy', receipts[0], MEETING_CONFIGURATION_PORTABILITY_VERSION),
+    ).toThrow('RECORD_REFUSED');
+
+    const bound = await requestOrganizationImport(db(), target);
+    const targetStore = new MemoryStore();
+    const result = await runOrganizationImport(
+      workerDb(),
+      worker(target),
+      {
+        importId: bound.id,
+        archive: archiveReader(opened.bytes),
+        recipientPrivateKeyPem: recipient.privateKeyPem,
+      },
+      { sections: SOURCE_PORTABILITY_SECTIONS, ledger: targetStore, store: targetStore },
+    );
+    expect(result.status).toBe('completed_with_warnings');
+    expect(result.appliedCounts).toMatchObject({
+      meeting_purge_history: 2,
+      meeting_participant_history: 2,
+      meeting_consent_history: 4,
+      meeting_note_purge_history: 1,
+      meeting_summary_purge_history: 1,
+      meeting_proposal_history: 3,
+      meeting_derivation_history: 2,
+      meeting_import_history: 1,
+    });
+    const expectedReceipt = expect.objectContaining({ section: 'policy', record: receipts[0] });
+    expect(await listImportedDefinitions(db(), target)).toContainEqual(expectedReceipt);
+    const reviewingAdmin = await join(target, 'review-admin', 'admin');
+    expect(await listImportedDefinitions(db(), reviewingAdmin)).not.toContainEqual(expectedReceipt);
+    expect((await listMeetings(db(), target, {})).items).toEqual([]);
+  });
+
+  it('refuses purged meeting history where the exporting owner was not a participant', async () => {
+    const source = await newOrg();
+    await updateMeetingSettings(db(), source, {
+      enabled: true,
+      noticeRef: TEST_NOTICE,
+      expectedVersion: 1,
+    });
+    const organizer = await join(source, 'organizer', 'member');
+    const room = await seedMeeting(db(), organizer);
+    await recordConsent(db(), organizer, {
+      meetingId: room.id,
+      participantId: room.organizerParticipantId,
+    });
+    await recordMeetingConsent(db(), organizer, {
+      meetingId: room.id,
+      participantId: room.organizerParticipantId,
+      decision: 'withdrawn',
+      noticeRef: TEST_NOTICE,
+    });
+    const exportId = await request(source);
+    expect(await drive(source, new MemoryStore(), exportId)).toEqual({
       state: 'failed',
       code: 'RECORD_REFUSED',
     });
