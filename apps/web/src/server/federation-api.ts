@@ -10,6 +10,9 @@ import {
   proposeGrant,
   requestHash,
   runIdempotent,
+  type CrossingView,
+  type InboundItemView,
+  type OutboundItemView,
   type FederationGrantView,
   type FederationInvitationPreview,
   type FederationSettingsView,
@@ -25,6 +28,7 @@ import { type ApiScope, apiRoute, organizationParams, toErrorResponse } from './
 import { studioOnce } from './studio-api';
 
 export const grantParams = organizationParams.extend({ grantId: idSchema });
+export const federationItemParams = organizationParams.extend({ federationItemId: idSchema });
 export const federationHeaders = { 'Cache-Control': 'private, no-store' };
 
 export function federationRoute<S extends z.ZodType<{ organizationId: string }>>(
@@ -98,6 +102,52 @@ export const invitationDto = (row: FederationInvitationPreview) => ({
   sharing_display_name: row.sharingDisplayName,
   sharing_fingerprint: row.sharingFingerprint,
   invitation_expires_at: row.invitationExpiresAt.toISOString(),
+});
+
+export const outboundItemDto = (row: OutboundItemView) => ({
+  id: row.id,
+  grant_id: row.grantId,
+  kind: row.kind,
+  title: row.title,
+  body: row.body,
+  classification: row.classification,
+  state: row.state,
+  refuse_code: row.refuseCode,
+  has_file: row.hasFile,
+  created_at: row.createdAt.toISOString(),
+  delivered_at: row.deliveredAt?.toISOString() ?? null,
+  withdrawn_at: row.withdrawnAt?.toISOString() ?? null,
+  version: row.version,
+});
+
+export const inboundItemDto = (row: InboundItemView) => ({
+  id: row.id,
+  grant_id: row.grantId,
+  kind: row.kind,
+  title: row.title,
+  body: row.body,
+  classification: row.classification,
+  sender_name: row.senderName,
+  sender_fingerprint: row.senderFingerprint,
+  has_file: row.hasFile,
+  file_size_bytes: row.fileSizeBytes,
+  file_mime_type: row.fileMimeType,
+  disposition: row.disposition,
+  linked_work_unit_id: row.linkedWorkUnitId,
+  received_at: row.receivedAt.toISOString(),
+  version: row.version,
+});
+
+export const crossingDto = (row: CrossingView) => ({
+  id: row.id,
+  grant_id: row.grantId,
+  item_id: row.itemId,
+  direction: row.direction,
+  kind: row.kind,
+  outcome: row.outcome,
+  code: row.code,
+  content_sha256: row.contentSha256,
+  crossed_at: row.crossedAt.toISOString(),
 });
 
 export function federationJson(body: unknown, status = 200) {

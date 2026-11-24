@@ -3,6 +3,9 @@
 import {
   AppError,
   confirmGrant,
+  disposeInboundItem,
+  publishItem,
+  withdrawItem,
   endGrant,
   idSchema,
   previewGrantInvitation,
@@ -14,6 +17,7 @@ import {
   confirmGrantSchema,
   endGrantSchema,
   proposeGrantSchema,
+  publishItemSchema,
   redeemInvitationSchema,
   setFederationSettingsSchema,
 } from '@ensemus/contracts/federation';
@@ -27,7 +31,7 @@ import {
   proposeGrantOnce,
 } from '@/server/federation-api';
 import { redirectForSsoRefusal } from '@/server/interactive-refusal';
-import { getRuntime } from '@/server/runtime';
+import { getRuntime, getStore } from '@/server/runtime';
 import { requireTenant } from '@/server/tenant';
 
 async function scope(organizationId: string) {
@@ -160,4 +164,64 @@ export async function updateCollaboration(org: string, form: FormData) {
     errorCode = errorFor(error);
   }
   redirect(path + (errorCode ? '?error=' + encodeURIComponent(errorCode) : '?saved=1'));
+}
+
+export async function updateSharedItem(org: string, grantId: string, form: FormData) {
+  const { database, context, path } = await scope(org);
+  const grant = idSchema.safeParse(grantId);
+  if (!grant.success) notFound();
+  const location = path + '/' + grant.data;
+  const operation = text(form, 'operation');
+  let error: string | undefined;
+  try {
+    if (operation === 'send') {
+      const kind = text(form, 'kind');
+      const title = text(form, 'title');
+      const note = text(form, 'note').trim();
+      const item = publishItemSchema.safeParse(
+        kind === 'work_summary'
+          ? {
+              kind,
+              title,
+              work_unit_id: form.get('workId'),
+              body: { ...(note ? { objective: note } : {}) },
+            }
+          : {
+              kind,
+              title,
+              classification: form.get('classification'),
+              body: { state: form.get('state'), ...(note ? { note } : {}) },
+            },
+      );
+      if (!item.success || item.data.kind === 'artifact') throw new AppError('INVALID_INPUT');
+      await publishItem(database, getStore(), context, {
+        grantId: grant.data,
+        item: item.data,
+        requestKey: text(form, 'requestKey'),
+      });
+    } else {
+      const id = idSchema.safeParse(form.get('itemId'));
+      const expectedVersion = integer(form, 'version');
+      if (!id.success || expectedVersion === undefined) throw new AppError('INVALID_INPUT');
+      if (operation === 'withdraw' && form.get('confirm') === 'yes') {
+        await withdrawItem(database, context, { itemId: id.data, expectedVersion });
+      } else if (operation === 'accepted' || operation === 'rejected') {
+        await disposeInboundItem(database, context, {
+          itemId: id.data,
+          disposition: operation,
+          expectedVersion,
+          linkedWorkUnitId: null,
+        });
+      } else {
+        throw new AppError('INVALID_INPUT');
+      }
+    }
+    revalidatePath(location);
+  } catch (failure) {
+    error = errorFor(failure);
+  }
+  redirect(
+    location +
+      (error ? '?error=' + encodeURIComponent(error) : '?saved=' + encodeURIComponent(operation)),
+  );
 }

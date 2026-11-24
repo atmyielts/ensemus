@@ -129,7 +129,11 @@ async function boundary<T>(run: () => Promise<T>, invitation = false): Promise<T
   }
 }
 
-async function requireCapability(tx: Tx, context: TenantContext, capability: Capability) {
+export async function requireFederationCapability(
+  tx: Tx,
+  context: TenantContext,
+  capability: Capability,
+) {
   const refusal = capability === 'federation.view' ? 'NOT_FOUND' : 'FORBIDDEN';
   if (context.actorType !== 'user' || !interactiveSessionOf(context)) throw new AppError(refusal);
   const [member] = await tx
@@ -148,7 +152,7 @@ async function requireCapability(tx: Tx, context: TenantContext, capability: Cap
     await assertInteractivePrivilege(tx, context, 'organization.manage');
 }
 
-async function availableIn(tx: Tx) {
+export async function federationAvailableIn(tx: Tx) {
   const [profile] = await tx
     .select({ enabled: deploymentProfile.crossOrgEnabled })
     .from(deploymentProfile);
@@ -165,8 +169,8 @@ async function settingsIn(tx: Tx, organizationId: string, lock = false) {
 }
 
 async function requireConsent(tx: Tx, context: TenantContext) {
-  await requireCapability(tx, context, 'federation.manage');
-  if (!(await availableIn(tx))) throw new AppError('FEDERATION_NOT_AVAILABLE');
+  await requireFederationCapability(tx, context, 'federation.manage');
+  if (!(await federationAvailableIn(tx))) throw new AppError('FEDERATION_NOT_AVAILABLE');
   // Lock the switch before the grant, in the same order as disabling.
   if (!(await settingsIn(tx, context.organizationId, true))?.enabled)
     throw new AppError('FEDERATION_DISABLED');
@@ -184,8 +188,11 @@ function settingsView(available: boolean, row: Settings | undefined): Federation
 
 export function getFederationSettings(database: AppDatabase, context: TenantContext) {
   return withTenantTx(database, context, async (tx) => {
-    await requireCapability(tx, context, 'federation.view');
-    return settingsView(await availableIn(tx), await settingsIn(tx, context.organizationId));
+    await requireFederationCapability(tx, context, 'federation.view');
+    return settingsView(
+      await federationAvailableIn(tx),
+      await settingsIn(tx, context.organizationId),
+    );
   });
 }
 
@@ -202,15 +209,15 @@ export function setFederationEnabled(
     if (input.enabled) {
       // The entitlement adapter can use its own connection. Check before holding a write lock.
       await withTenantTx(database, context, async (tx) => {
-        await requireCapability(tx, context, 'federation.manage');
-        if (!(await availableIn(tx))) throw new AppError('FEDERATION_NOT_AVAILABLE');
+        await requireFederationCapability(tx, context, 'federation.manage');
+        if (!(await federationAvailableIn(tx))) throw new AppError('FEDERATION_NOT_AVAILABLE');
       });
       if (!(await entitlement.allows(context))) throw new AppError('ENTITLEMENT_DENIED');
     }
     return withTenantTx(database, context, async (tx) => {
-      await requireCapability(tx, context, 'federation.manage');
+      await requireFederationCapability(tx, context, 'federation.manage');
       const organizationId = context.organizationId;
-      const available = await availableIn(tx);
+      const available = await federationAvailableIn(tx);
       if (input.enabled && !available) throw new AppError('FEDERATION_NOT_AVAILABLE');
       const before = await settingsIn(tx, organizationId, true);
       const version = before?.version ?? 0;
@@ -526,7 +533,7 @@ export function endGrant(
 ): Promise<FederationGrantView> {
   return boundary(() =>
     withTenantTx(database, context, async (tx) => {
-      await requireCapability(tx, context, 'federation.end');
+      await requireFederationCapability(tx, context, 'federation.end');
       if (!['cancelled', 'declined', 'revoked'].includes(input.reason))
         throw new AppError('INVALID_INPUT');
       const before = await lockedGrant(tx, context.organizationId, input.grantId, false);
@@ -557,7 +564,8 @@ async function endOpenGrants(tx: Tx, context: TenantContext, reason: 'expired' |
   return rows.length;
 }
 export async function endAllGrantsInTx(tx: Tx, context: TenantContext): Promise<number> {
-  if (context.actorType !== 'service') await requireCapability(tx, context, 'federation.manage');
+  if (context.actorType !== 'service')
+    await requireFederationCapability(tx, context, 'federation.manage');
   return endOpenGrants(tx, context, 'disabled');
 }
 export const federationWindDown = async (tx: Tx, context: TenantContext): Promise<void> => {
@@ -569,7 +577,7 @@ export function listGrants(
   context: TenantContext,
 ): Promise<readonly FederationGrantView[]> {
   return withTenantTx(database, context, async (tx) => {
-    await requireCapability(tx, context, 'federation.view');
+    await requireFederationCapability(tx, context, 'federation.view');
     const rows = await tx
       .select()
       .from(federationGrants)
@@ -585,7 +593,7 @@ export function getGrant(
   id: string,
 ): Promise<FederationGrantView> {
   return withTenantTx(database, context, async (tx) => {
-    await requireCapability(tx, context, 'federation.view');
+    await requireFederationCapability(tx, context, 'federation.view');
     const [row] = await tx
       .select()
       .from(federationGrants)

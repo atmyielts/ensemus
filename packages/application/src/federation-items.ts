@@ -1,9 +1,16 @@
 // Owned by the items slice (EXP-07). See docs/06-delivery/m11c-slices.md and ADR-035 D3 and D4. What is sent,
 // from a tenant's own rows, and what arrived, as that tenant sees it. Nothing here crosses anything: the
 // bridge worker carries a queued item later. Sending takes federation.share, and reading takes federation.view.
-import type { PublishItemBody } from '@ensemus/contracts/federation';
+import { createHash } from 'node:crypto';
+import {
+  federationDispositionSchema,
+  publishItemSchema,
+  type PublishItemBody,
+} from '@ensemus/contracts/federation';
+import { canonicalJson } from '@ensemus/domain/approval';
 import {
   domainEvents,
+  federationCrossings,
   federationGrants,
   federationInboundItems,
   federationOutboundItems,
@@ -15,21 +22,40 @@ import {
 } from '@ensemus/database';
 import {
   AGGREGATE_FEDERATION_ITEM,
+  AUDIT_FEDERATION_FILE_READ,
   AUDIT_FEDERATION_ITEM_RECEIVED,
+  AUDIT_FEDERATION_ITEM_SENT,
+  AUDIT_FEDERATION_ITEM_WITHDRAWN,
+  FEDERATION_ITEM_DISPOSED,
+  FEDERATION_ITEM_PUBLISHED,
+  FEDERATION_ITEM_WITHDRAWN,
   FEDERATION_ITEM_RECEIVED,
   federationItemTargetRef,
   NOTIFY_FEDERATION_ITEM_RECEIVED,
 } from '@ensemus/domain/federation-events';
-import { and, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
+import { z } from 'zod';
 import { AppError } from './errors';
 import { emit } from './events';
 import { idSchema } from './ids';
-import { auditAction, notify } from './work';
-import type {
-  FederationCrossingOutcome,
-  FederationDisposition,
-  FederationItemKind,
-  FederationItemState,
+import { auditAction, loadReadable, notify } from './work';
+import { federationAvailableIn, requireFederationCapability } from './federation';
+import { requestHash, runIdempotent } from './idempotency';
+import {
+  classificationAllowed,
+  directionOf,
+  FEDERATION_MAX_BODY_BYTES,
+  FEDERATION_MAX_FILE_BYTES,
+  inboundObjectKey,
+  itemContentHash,
+  kindAllowed,
+  organizationFingerprint,
+  type FederationClassification,
+  type FederationCrossingOutcome,
+  type FederationDisposition,
+  type FederationItemKind,
+  type FederationItemState,
+  type FederationPurpose,
 } from '@ensemus/domain/federation';
 import type { ObjectStore } from './artifacts';
 
@@ -81,105 +107,560 @@ export type CrossingView = {
   crossedAt: Date;
 };
 
-/**
- * Makes a copy from the sender's own row, holding only the contract's fields, and queues it. Classification
- * always comes from the source row, or from the request for a status update, which has none. A person who
- * cannot read the source gets not found. For a file, the bytes go to the derived outbound key first and the
- * row second, as artifacts do. Emits federation.item_published. A repeat with the same `requestKey` returns
- * the first. Uses the idempotency service.
- */
-export function publishItem(
-  _database: AppDatabase,
+type OutboundRow = typeof federationOutboundItems.$inferSelect;
+type InboundRow = typeof federationInboundItems.$inferSelect;
+type GrantSender = Pick<
+  typeof federationGrants.$inferSelect,
+  'sharingOrganizationId' | 'sharingDisplayName' | 'receivingDisplayName'
+>;
+
+function outboundView(row: OutboundRow): OutboundItemView {
+  return {
+    id: row.id,
+    grantId: row.grantId,
+    kind: row.kind as FederationItemKind,
+    title: row.title,
+    body: row.body,
+    classification: row.classification,
+    state: row.state as FederationItemState,
+    refuseCode: row.refuseCode,
+    hasFile: row.fileObjectKey !== null,
+    sourceType: row.sourceType,
+    sourceId: row.sourceId,
+    createdAt: row.createdAt,
+    deliveredAt: row.deliveredAt,
+    withdrawnAt: row.withdrawnAt,
+    version: row.version,
+  };
+}
+
+function inboundView(row: InboundRow, grant: GrantSender): InboundItemView {
+  const fromSharing = row.senderOrganizationId === grant.sharingOrganizationId;
+  const senderName = fromSharing ? grant.sharingDisplayName : grant.receivingDisplayName;
+  return {
+    id: row.id,
+    grantId: row.grantId,
+    kind: row.kind as FederationItemKind,
+    title: row.title,
+    body: row.body,
+    classification: row.classification,
+    senderName: senderName ?? 'Organization',
+    senderFingerprint: organizationFingerprint(row.senderOrganizationId),
+    hasFile: row.fileObjectKey !== null,
+    fileSizeBytes: row.fileSizeBytes,
+    fileMimeType: row.fileMimeType,
+    disposition: row.disposition as FederationDisposition,
+    linkedWorkUnitId: row.linkedWorkUnitId,
+    receivedAt: row.receivedAt,
+    version: row.version,
+  };
+}
+
+function itemId(value: string) {
+  const result = idSchema.safeParse(value);
+  if (!result.success) throw new AppError('INVALID_INPUT');
+  return result.data;
+}
+
+function checkVersion(version: number) {
+  if (!Number.isSafeInteger(version) || version < 1) throw new AppError('INVALID_INPUT');
+}
+
+async function authorizeItems(
+  tx: Tx,
+  context: TenantContext,
+  capability: 'federation.view' | 'federation.share',
+) {
+  await requireFederationCapability(tx, context, capability);
+  if (!(await federationAvailableIn(tx))) throw new AppError('NOT_FOUND');
+}
+
+function outboundScope(context: TenantContext, id: string) {
+  return and(
+    eq(federationOutboundItems.organizationId, context.organizationId),
+    eq(federationOutboundItems.id, id),
+  );
+}
+
+async function selectGrant(tx: Tx, context: TenantContext, grantId: string) {
+  const [grant] = await tx
+    .select({
+      row: {
+        sharingOrganizationId: federationGrants.sharingOrganizationId,
+        receivingOrganizationId: federationGrants.receivingOrganizationId,
+        purpose: federationGrants.purpose,
+        maxClassification: federationGrants.maxClassification,
+      },
+      open: sql<boolean>`federation.grant_is_open(${federationGrants.id})
+      and ${federationGrants.expiresAt} > clock_timestamp()`,
+    })
+    .from(federationGrants)
+    .where(
+      and(
+        eq(federationGrants.id, grantId),
+        or(
+          eq(federationGrants.sharingOrganizationId, context.organizationId),
+          eq(federationGrants.receivingOrganizationId, context.organizationId),
+        ),
+      ),
+    );
+  if (!grant) throw new AppError('NOT_FOUND');
+  return grant;
+}
+
+async function lockGrant(tx: Tx, grantId: string) {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock_shared(federation.grant_lock_key(${grantId}::uuid))`,
+  );
+}
+
+/** Publishes a contract-shaped snapshot. The receipt retains only its reference. */
+export async function publishItem(
+  database: AppDatabase,
   _store: ObjectStore,
-  _context: TenantContext,
-  _input: { grantId: string; item: PublishItemBody; requestKey: string },
+  context: TenantContext,
+  input: { grantId: string; item: PublishItemBody; requestKey: string },
 ): Promise<OutboundItemView> {
-  throw new Error('NOT_IMPLEMENTED');
+  const grantId = itemId(input.grantId);
+  const parsed = publishItemSchema.safeParse(input.item);
+  if (!parsed.success) throw new AppError('INVALID_INPUT');
+  const item = parsed.data;
+  let created: OutboundItemView | undefined;
+  const outcome = await runIdempotent(
+    database,
+    context,
+    {
+      key: input.requestKey,
+      requestHash: requestHash(['federation.publish', grantId, canonicalJson(item)]),
+    },
+    (db) =>
+      withTenantTx(db, context, async (tx) => {
+        await authorizeItems(tx, context, 'federation.share');
+        // Discover only our grant before locking. Load the work before the grant lock so source
+        // deletion can finish and publishing then sees the authoritative Work Unit.
+        await selectGrant(tx, context, grantId);
+        const work =
+          item.kind === 'work_summary'
+            ? await loadReadable(tx, context, itemId(item.work_unit_id), true)
+            : null;
+        await lockGrant(tx, grantId);
+        const grant = await selectGrant(tx, context, grantId);
+        if (!grant.open) throw new AppError('FEDERATION_GRANT_NOT_OPEN');
+        const direction = directionOf(grant.row, context.organizationId);
+        if (
+          !direction ||
+          !kindAllowed(grant.row.purpose as FederationPurpose, direction, item.kind)
+        )
+          throw new AppError('FEDERATION_KIND_NOT_ALLOWED');
+        if (item.kind === 'artifact') throw new AppError('CAPABILITY_UNAVAILABLE');
+
+        const classification =
+          work?.classification ?? (item.kind === 'status_update' ? item.classification : '');
+        if (
+          !classificationAllowed(
+            grant.row.maxClassification as FederationClassification,
+            classification,
+          )
+        )
+          throw new AppError('FEDERATION_CLASSIFICATION_TOO_HIGH');
+        if (
+          item.title.includes('\0') ||
+          Object.values(item.body).some(
+            (value) => typeof value === 'string' && value.includes('\0'),
+          )
+        )
+          throw new AppError('INVALID_INPUT');
+        const size = await tx.execute<{ size: number }>(
+          sql`select pg_column_size(${JSON.stringify(item.body)}::jsonb) as size`,
+        );
+        if ((size.rows[0]?.size ?? Infinity) > FEDERATION_MAX_BODY_BYTES)
+          throw new AppError('INVALID_INPUT');
+
+        const [row] = await tx
+          .insert(federationOutboundItems)
+          .values({
+            organizationId: context.organizationId,
+            grantId,
+            kind: item.kind,
+            title: item.title,
+            body: item.body,
+            classification,
+            sourceType: work ? 'work_unit' : null,
+            sourceId: work?.id ?? null,
+            contentSha256: itemContentHash({ ...item, classification, fileSha256: null }),
+            createdByMembershipId: context.membershipId,
+          })
+          .returning();
+        if (!row) throw new Error('Federation item insert returned no row');
+        await recordItemChange(tx, context, row, FEDERATION_ITEM_PUBLISHED);
+        await auditAction(tx, context, AUDIT_FEDERATION_ITEM_SENT, federationItemTargetRef(row.id));
+        created = outboundView(row);
+        return created;
+      }),
+    (row) => ({ status: 201, body: { id: row.id } }),
+  );
+  if (outcome.kind === 'conflict') throw new AppError('IDEMPOTENCY_KEY_REUSED');
+  if (created && outcome.kind === 'fresh') return created;
+  const receipt = z.strictObject({ id: idSchema }).parse(outcome.body);
+  return withTenantTx(database, context, async (tx) => {
+    await authorizeItems(tx, context, 'federation.share');
+    const [row] = await tx
+      .select()
+      .from(federationOutboundItems)
+      .where(and(outboundScope(context, receipt.id), eq(federationOutboundItems.grantId, grantId)));
+    if (!row) throw new AppError('NOT_FOUND');
+    return outboundView(row);
+  });
 }
 
-/**
- * Takes one item back, before or after it arrived. Emits federation.item_withdrawn, and the purge removes
- * the receiver's copy. The receiver may already have read it, and the page says so.
- */
+type ItemEvent =
+  | typeof FEDERATION_ITEM_PUBLISHED
+  | typeof FEDERATION_ITEM_WITHDRAWN
+  | typeof FEDERATION_ITEM_DISPOSED;
+function recordItemChange(
+  tx: Tx,
+  context: TenantContext,
+  row: OutboundRow | InboundRow,
+  eventType: ItemEvent,
+) {
+  return emit(tx, context, {
+    eventType,
+    aggregateType: AGGREGATE_FEDERATION_ITEM,
+    aggregateId: row.id,
+    aggregateVersion: row.version,
+    classification: row.classification,
+    payload: {},
+  });
+}
+
+async function withdrawInTx(tx: Tx, context: TenantContext, row: OutboundRow) {
+  const [withdrawn] = await tx
+    .update(federationOutboundItems)
+    .set({ state: 'withdrawn', withdrawnAt: new Date(), version: row.version + 1 })
+    .where(outboundScope(context, row.id))
+    .returning();
+  if (!withdrawn) throw new AppError('NOT_FOUND');
+  await recordItemChange(tx, context, withdrawn, FEDERATION_ITEM_WITHDRAWN);
+  await auditAction(tx, context, AUDIT_FEDERATION_ITEM_WITHDRAWN, federationItemTargetRef(row.id));
+  return withdrawn;
+}
+
 export function withdrawItem(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: { itemId: string; expectedVersion: number },
+  database: AppDatabase,
+  context: TenantContext,
+  input: { itemId: string; expectedVersion: number },
 ): Promise<OutboundItemView> {
-  throw new Error('NOT_IMPLEMENTED');
+  const id = itemId(input.itemId);
+  checkVersion(input.expectedVersion);
+  return withTenantTx(database, context, async (tx) => {
+    await authorizeItems(tx, context, 'federation.share');
+    const [row] = await tx
+      .select()
+      .from(federationOutboundItems)
+      .where(outboundScope(context, id))
+      .for('no key update');
+    if (!row) throw new AppError('NOT_FOUND');
+    if (row.state === 'withdrawn' && row.version === input.expectedVersion + 1)
+      return outboundView(row);
+    if (row.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT');
+    if (row.state !== 'queued' && row.state !== 'delivered')
+      throw new AppError('FEDERATION_ITEM_NOT_WITHDRAWABLE');
+    return outboundView(await withdrawInTx(tx, context, row));
+  });
 }
 
-/**
- * Withdraws everything sent from one source record, in the caller's transaction, because the record is being
- * deleted. Returns how many. The final merge calls this from the tombstone paths in work and artifacts.
- */
-export function withdrawItemsForSourceInTx(
-  _tx: Tx,
-  _context: TenantContext,
-  _source: { sourceType: 'work_unit' | 'artifact'; sourceId: string },
+/** Called inside the source's existing tombstone transaction. */
+export async function withdrawItemsForSourceInTx(
+  tx: Tx,
+  context: TenantContext,
+  source: { sourceType: 'work_unit' | 'artifact'; sourceId: string },
 ): Promise<number> {
-  throw new Error('NOT_IMPLEMENTED');
+  const rows = await tx
+    .select()
+    .from(federationOutboundItems)
+    .where(
+      and(
+        eq(federationOutboundItems.organizationId, context.organizationId),
+        eq(federationOutboundItems.sourceType, source.sourceType),
+        eq(federationOutboundItems.sourceId, itemId(source.sourceId)),
+        inArray(federationOutboundItems.state, ['queued', 'delivered']),
+      ),
+    )
+    .orderBy(asc(federationOutboundItems.id))
+    .for('no key update');
+  for (const row of rows) await withdrawInTx(tx, context, row);
+  return rows.length;
 }
 
 export function listOutboundItems(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: { grantId: string },
+  database: AppDatabase,
+  context: TenantContext,
+  input: { grantId: string },
 ): Promise<readonly OutboundItemView[]> {
-  throw new Error('NOT_IMPLEMENTED');
+  const grantId = itemId(input.grantId);
+  return withTenantTx(database, context, async (tx) => {
+    await authorizeItems(tx, context, 'federation.view');
+    await selectGrant(tx, context, grantId);
+    const rows = await tx
+      .select()
+      .from(federationOutboundItems)
+      .where(
+        and(
+          eq(federationOutboundItems.organizationId, context.organizationId),
+          eq(federationOutboundItems.grantId, grantId),
+        ),
+      )
+      .orderBy(desc(federationOutboundItems.createdAt), desc(federationOutboundItems.id));
+    return rows.map(outboundView);
+  });
 }
 
-/** Only while the grant is open, because of the policy on the table. There is no other answer to give. */
+function inboundQuery(tx: Tx, context: TenantContext, filter?: SQL) {
+  return tx
+    .select({
+      item: federationInboundItems,
+      grant: {
+        sharingOrganizationId: federationGrants.sharingOrganizationId,
+        sharingDisplayName: federationGrants.sharingDisplayName,
+        receivingDisplayName: federationGrants.receivingDisplayName,
+      },
+    })
+    .from(federationInboundItems)
+    .innerJoin(federationGrants, eq(federationGrants.id, federationInboundItems.grantId))
+    .where(
+      and(
+        eq(federationInboundItems.organizationId, context.organizationId),
+        sql`${federationGrants.expiresAt} > clock_timestamp()`,
+        filter,
+      ),
+    );
+}
+
+async function selectInbound(tx: Tx, context: TenantContext, id: string) {
+  const [row] = await inboundQuery(tx, context, eq(federationInboundItems.id, id));
+  if (!row) throw new AppError('NOT_FOUND');
+  return row;
+}
+
+/** Grant and tenant visibility are also enforced by the inbound table's RLS. */
 export function listInboundItems(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: { disposition?: FederationDisposition },
+  database: AppDatabase,
+  context: TenantContext,
+  input: { disposition?: FederationDisposition; grantId?: string },
 ): Promise<readonly InboundItemView[]> {
-  throw new Error('NOT_IMPLEMENTED');
+  return withTenantTx(database, context, async (tx) => {
+    await authorizeItems(tx, context, 'federation.view');
+    const disposition =
+      input.disposition === undefined
+        ? undefined
+        : federationDispositionSchema.safeParse(input.disposition);
+    if (disposition && !disposition.success) throw new AppError('INVALID_INPUT');
+    const grantId = input.grantId === undefined ? undefined : itemId(input.grantId);
+    const rows = await inboundQuery(
+      tx,
+      context,
+      and(
+        disposition ? eq(federationInboundItems.disposition, disposition.data) : undefined,
+        grantId ? eq(federationInboundItems.grantId, grantId) : undefined,
+      ),
+    ).orderBy(desc(federationInboundItems.receivedAt), desc(federationInboundItems.id));
+    return rows.map(({ item, grant }) => inboundView(item, grant));
+  });
 }
 
 export function getInboundItem(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _itemId: string,
+  database: AppDatabase,
+  context: TenantContext,
+  id: string,
 ): Promise<InboundItemView> {
-  throw new Error('NOT_IMPLEMENTED');
+  return withTenantTx(database, context, async (tx) => {
+    await authorizeItems(tx, context, 'federation.view');
+    const { item, grant } = await selectInbound(tx, context, itemId(id));
+    return inboundView(item, grant);
+  });
 }
 
-/**
- * The bytes of an arrived file, with an audit row in this tenant. Checks the grant again after reading, so a
- * revocation during the read cannot be answered with bytes, and checks the hash it was sent with.
- */
-export function readInboundFile(
-  _database: AppDatabase,
-  _store: ObjectStore,
-  _context: TenantContext,
-  _itemId: string,
+/** Both the received bytes and the current grant are checked before a download is released. */
+export async function readInboundFile(
+  database: AppDatabase,
+  store: ObjectStore,
+  context: TenantContext,
+  rawId: string,
 ): Promise<{ body: Buffer; mimeType: string; title: string }> {
-  throw new Error('NOT_IMPLEMENTED');
+  const id = itemId(rawId);
+  const { item } = await withTenantTx(database, context, async (tx) => {
+    await authorizeItems(tx, context, 'federation.view');
+    return selectInbound(tx, context, id);
+  });
+  const key = inboundObjectKey(context.organizationId, id);
+  if (
+    item.fileObjectKey !== key ||
+    !item.fileSha256 ||
+    !item.fileMimeType ||
+    item.fileSizeBytes === null ||
+    item.fileSizeBytes < 0 ||
+    item.fileSizeBytes > FEDERATION_MAX_FILE_BYTES
+  )
+    throw new AppError('NOT_FOUND');
+  let body: Buffer;
+  try {
+    body = await store.get(key, FEDERATION_MAX_FILE_BYTES);
+  } catch {
+    throw new AppError('NOT_FOUND');
+  }
+  if (
+    body.length !== item.fileSizeBytes ||
+    createHash('sha256').update(body).digest('hex') !== item.fileSha256
+  )
+    throw new AppError('NOT_FOUND');
+
+  await withTenantTx(database, context, async (tx) => {
+    await authorizeItems(tx, context, 'federation.view');
+    await lockGrant(tx, item.grantId);
+    const { item: current } = await selectInbound(tx, context, id);
+    if (
+      current.grantId !== item.grantId ||
+      current.fileObjectKey !== key ||
+      current.fileSha256 !== item.fileSha256 ||
+      current.contentSha256 !== item.contentSha256
+    )
+      throw new AppError('NOT_FOUND');
+    await auditAction(tx, context, AUDIT_FEDERATION_FILE_READ, federationItemTargetRef(id));
+  });
+  return { body, mimeType: item.fileMimeType, title: item.title };
 }
 
-/** A person's answer. Accepting starts nothing, and only records the Work Unit they made, if any. */
 export function disposeInboundItem(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: {
+  database: AppDatabase,
+  context: TenantContext,
+  input: {
     itemId: string;
     disposition: 'accepted' | 'rejected';
     linkedWorkUnitId: string | null;
     expectedVersion: number;
   },
 ): Promise<InboundItemView> {
-  throw new Error('NOT_IMPLEMENTED');
+  const id = itemId(input.itemId);
+  const linked = input.linkedWorkUnitId === null ? null : itemId(input.linkedWorkUnitId);
+  checkVersion(input.expectedVersion);
+  if (
+    !['accepted', 'rejected'].includes(input.disposition) ||
+    (input.disposition === 'rejected' && linked)
+  )
+    throw new AppError('INVALID_INPUT');
+  return withTenantTx(database, context, async (tx) => {
+    await authorizeItems(tx, context, 'federation.share');
+    const first = await selectInbound(tx, context, id);
+    await lockGrant(tx, first.item.grantId);
+    const { item, grant } = await selectInbound(tx, context, id);
+    if (item.grantId !== first.item.grantId) throw new AppError('NOT_FOUND');
+    if (item.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT');
+    if (
+      item.disposition !== 'pending' &&
+      !(
+        item.disposition === 'accepted' &&
+        input.disposition === 'accepted' &&
+        item.linkedWorkUnitId === null &&
+        linked
+      )
+    )
+      throw new AppError('INVALID_STATE');
+    if (linked) {
+      const work = await loadReadable(tx, context, linked, true);
+      if (work.createdByMembershipId !== context.membershipId) throw new AppError('NOT_FOUND');
+    }
+    const [updated] = await tx
+      .update(federationInboundItems)
+      .set({
+        disposition: input.disposition,
+        linkedWorkUnitId: linked,
+        disposedByMembershipId: context.membershipId,
+        disposedAt: new Date(),
+        version: item.version + 1,
+      })
+      .where(
+        and(
+          eq(federationInboundItems.organizationId, context.organizationId),
+          eq(federationInboundItems.id, id),
+          eq(federationInboundItems.version, item.version),
+        ),
+      )
+      .returning();
+    if (!updated) {
+      await selectInbound(tx, context, id);
+      throw new AppError('VERSION_CONFLICT');
+    }
+    await recordItemChange(tx, context, updated, FEDERATION_ITEM_DISPOSED);
+    await auditAction(tx, context, FEDERATION_ITEM_DISPOSED, federationItemTargetRef(id));
+    return inboundView(updated, grant);
+  });
 }
 
-/** Everything that crossed either way for this tenant, for the people who answer for it. */
+function crossingCursor(raw: string) {
+  if (raw.length > 160 || !/^[A-Za-z0-9_-]+$/.test(raw)) throw new AppError('INVALID_INPUT');
+  try {
+    return z
+      .tuple([z.iso.datetime(), idSchema])
+      .parse(JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')));
+  } catch {
+    throw new AppError('INVALID_INPUT');
+  }
+}
+
+/** A receipt log with opaque keyset pagination at the database's timestamp precision. */
 export function listCrossings(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: { grantId?: string; cursor?: string; limit: number },
+  database: AppDatabase,
+  context: TenantContext,
+  input: { grantId?: string; cursor?: string; limit: number },
 ): Promise<{ items: readonly CrossingView[]; nextCursor: string | null }> {
-  throw new Error('NOT_IMPLEMENTED');
+  if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 100)
+    throw new AppError('INVALID_INPUT');
+  const grantId = input.grantId === undefined ? undefined : itemId(input.grantId);
+  const cursor = input.cursor === undefined ? null : crossingCursor(input.cursor);
+  return withTenantTx(database, context, async (tx) => {
+    await authorizeItems(tx, context, 'federation.view');
+    if (grantId) await selectGrant(tx, context, grantId);
+    const c = federationCrossings;
+    const rows = await tx
+      .select({
+        crossing: c,
+        at: sql<string>`to_char(${c.crossedAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
+      })
+      .from(c)
+      .where(
+        and(
+          or(
+            eq(c.senderOrganizationId, context.organizationId),
+            eq(c.receiverOrganizationId, context.organizationId),
+          ),
+          grantId ? eq(c.grantId, grantId) : undefined,
+          cursor
+            ? sql`(${c.crossedAt}, ${c.id}) < (${cursor[0]}::timestamptz, ${cursor[1]}::uuid)`
+            : undefined,
+        ),
+      )
+      .orderBy(desc(c.crossedAt), desc(c.id))
+      .limit(input.limit + 1);
+    const last = rows[input.limit - 1];
+    const items = rows.slice(0, input.limit).map(({ crossing }): CrossingView => ({
+      id: crossing.id,
+      grantId: crossing.grantId,
+      itemId: crossing.itemId,
+      direction: crossing.senderOrganizationId === context.organizationId ? 'sent' : 'received',
+      kind: crossing.kind as FederationItemKind | null,
+      outcome: crossing.outcome as FederationCrossingOutcome,
+      code: crossing.code,
+      contentSha256: crossing.contentSha256,
+      crossedAt: crossing.crossedAt,
+    }));
+    return {
+      items,
+      nextCursor:
+        rows.length > input.limit && last
+          ? Buffer.from(JSON.stringify([last.at, last.crossing.id])).toString('base64url')
+          : null,
+    };
+  });
 }
 
 export { removeWithdrawnItem, settleGrantEndForTenant } from './federation-file-lifecycle';

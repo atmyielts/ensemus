@@ -155,6 +155,13 @@ export default async function CollaborationPage({
                           Fingerprint <code>{grant.counterpartyFingerprint}</code>
                         </p>
                       )}
+                      {(grant.status === 'active' || grant.status === 'ended') && (
+                        <div>
+                          <Button asChild variant="outline" size="sm">
+                            <Link href={path + '/' + grant.id}>Shared items</Link>
+                          </Button>
+                        </div>
+                      )}
                       <details>
                         <summary>Review scope</summary>
                         <GrantScope terms={grant.terms} />

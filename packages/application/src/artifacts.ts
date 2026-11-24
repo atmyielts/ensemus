@@ -24,6 +24,7 @@ import { and, asc, eq, inArray, lte, ne, sql } from 'drizzle-orm';
 import { AppError } from './errors';
 import { eraseTombstonedArtifact } from './saas/object-deletion';
 import { emit } from './events';
+import { withdrawItemsForSourceInTx } from './federation-items';
 import type { RawKnowledgeObjectPort } from './knowledge/raw-objects';
 import { idFromRequest } from './request-id';
 import { closeOutdatedReviews, loadChangeable, loadReadable, type WorkRow } from './work';
@@ -442,6 +443,7 @@ export async function recordArtifactTombstoneInTx(
   // bound by it, so removing the row after the tombstone matched nothing and left it alive. The
   // tombstone still commits in this same transaction, so access is blocked exactly as before.
   if (beforeTombstone) await beforeTombstone();
+  await withdrawItemsForSourceInTx(tx, context, { sourceType: 'artifact', sourceId: artifact.id });
   const marked = await tx
     .insert(tombstones)
     .values({

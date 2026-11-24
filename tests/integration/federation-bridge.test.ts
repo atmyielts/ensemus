@@ -9,6 +9,15 @@ import {
 } from '@ensemus/database';
 import {
   claimFederationCopy,
+  createWorkUnit,
+  disposeInboundItem,
+  getInboundItem,
+  listCrossings,
+  listInboundItems,
+  listOutboundItems,
+  publishItem,
+  readInboundFile,
+  withdrawItem,
   endGrant,
   loadFederationCopyState,
   observeFederationCopy,
@@ -466,6 +475,138 @@ describe('collaboration bridge transactions', () => {
     });
   }
 
+  it('publishes a Work Summary once, records a decision and withdraws through the real worker', async () => {
+    const grant = await seedGrant(app.db, sharing(), receiving());
+    const { store } = transferStore();
+    const source = await createWorkUnit(app.db, sharing(), {
+      title: 'Private local title',
+      objective: 'Local objective that does not travel',
+      classification: 'internal',
+    });
+    const request = {
+      grantId: grant.id,
+      item: {
+        kind: 'work_summary' as const,
+        work_unit_id: source.id,
+        title: 'Generated shared title',
+        body: { objective: 'Generated chosen summary' },
+      },
+      requestKey: randomUUID(),
+    };
+    const [first, second] = await Promise.all([
+      publishItem(app.db, store, sharing(), request),
+      publishItem(app.db, store, sharing(), request),
+    ]);
+    expect(first.id).toBe(second.id);
+    expect(first).toMatchObject({
+      state: 'queued',
+      sourceId: source.id,
+      classification: 'internal',
+      body: { objective: 'Generated chosen summary' },
+    });
+    await expect(
+      publishItem(app.db, store, sharing(), {
+        ...request,
+        item: { ...request.item, title: 'Different request' },
+      }),
+    ).rejects.toMatchObject({ code: 'IDEMPOTENCY_KEY_REUSED' });
+    await expect(listOutboundItems(app.db, receiving(), { grantId: grant.id })).resolves.toEqual(
+      [],
+    );
+    await expect(getInboundItem(app.db, receiving(), first.id)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+
+    const activities = transport(store);
+    const reference = { organizationId: sharing().organizationId, itemId: first.id };
+    await expect(activities.deliverFederationItem(reference)).resolves.toBe('delivered');
+    await activities.recordFederationItemReceived(reference);
+    const inbox = await listInboundItems(app.db, receiving(), { disposition: 'pending' });
+    expect(inbox.find((item) => item.id === first.id)).toMatchObject({
+      title: 'Generated shared title',
+      body: { objective: 'Generated chosen summary' },
+    });
+    expect(inbox.find((item) => item.id === first.id)).not.toHaveProperty('sourceId');
+
+    const decision = { itemId: first.id, expectedVersion: 1, disposition: 'accepted' as const };
+    await expect(
+      disposeInboundItem(app.db, receiving(), { ...decision, linkedWorkUnitId: source.id }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    await expect(
+      disposeInboundItem(app.db, receiving(), { ...decision, linkedWorkUnitId: null }),
+    ).resolves.toMatchObject({ disposition: 'accepted', version: 2, linkedWorkUnitId: null });
+    await expect(
+      disposeInboundItem(app.db, receiving(), { ...decision, linkedWorkUnitId: null }),
+    ).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+
+    await expect(
+      withdrawItem(app.db, sharing(), { itemId: first.id, expectedVersion: 2 }),
+    ).resolves.toMatchObject({ state: 'withdrawn', version: 3 });
+    await expect(
+      withdrawItem(app.db, sharing(), { itemId: first.id, expectedVersion: 2 }),
+    ).resolves.toMatchObject({ state: 'withdrawn', version: 3 });
+    await expect(activities.purgeFederationItem(reference)).resolves.toEqual({
+      purged: 1,
+      more: false,
+    });
+    await expect(getInboundItem(app.db, receiving(), first.id)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+
+    const newest = await listCrossings(app.db, sharing(), { grantId: grant.id, limit: 1 });
+    expect(newest.items).toMatchObject([{ outcome: 'purged', direction: 'sent' }]);
+    expect(newest.nextCursor).toBeTruthy();
+    const earlier = await listCrossings(app.db, receiving(), {
+      grantId: grant.id,
+      cursor: newest.nextCursor!,
+      limit: 1,
+    });
+    expect(earlier.items).toMatchObject([{ outcome: 'delivered', direction: 'received' }]);
+    expect(earlier.nextCursor).toBeNull();
+  });
+
+  it('enforces each side, classification and readable source when publishing', async () => {
+    const grant = await seedGrant(app.db, sharing(), receiving());
+    const { store } = transferStore();
+    const restricted = await createWorkUnit(app.db, sharing(), {
+      title: 'Generated restricted source',
+      classification: 'restricted',
+    });
+    const sendStatus = (context: ReturnType<typeof sharing>) =>
+      publishItem(app.db, store, context, {
+        grantId: grant.id,
+        item: {
+          kind: 'status_update',
+          title: 'Generated update',
+          body: { state: 'received' },
+          classification: 'public',
+        },
+        requestKey: randomUUID(),
+      });
+    await expect(sendStatus(sharing())).rejects.toMatchObject({
+      code: 'FEDERATION_KIND_NOT_ALLOWED',
+    });
+    await expect(sendStatus(receiving())).resolves.toMatchObject({
+      kind: 'status_update',
+      state: 'queued',
+    });
+    const sendSummary = (sourceId: string) =>
+      publishItem(app.db, store, sharing(), {
+        grantId: grant.id,
+        item: {
+          kind: 'work_summary',
+          work_unit_id: sourceId,
+          title: 'Generated shared title',
+          body: {},
+        },
+        requestKey: randomUUID(),
+      });
+    await expect(sendSummary(restricted.id)).rejects.toMatchObject({
+      code: 'FEDERATION_CLASSIFICATION_TOO_HIGH',
+    });
+    await expect(sendSummary(randomUUID())).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
   it('recovers after a completed PUT and DELETE with lost responses, without repeating either mutation', async () => {
     const { grant, itemId, bytes, source, destination } = await queuedFile();
     const { store, objects } = transferStore();
@@ -489,10 +630,27 @@ describe('collaboration bridge transactions', () => {
     await flow.recordFederationItemReceived(job);
     expect(objects.get(destination)).toEqual(bytes);
 
-    await endGrant(app.db, sharing(), {
-      grantId: grant.id,
-      reason: 'revoked',
-      expectedVersion: grant.version,
+    await expect(readInboundFile(app.db, store, receiving(), itemId)).resolves.toMatchObject({
+      body: bytes,
+      mimeType: 'text/plain',
+    });
+    await expect(readInboundFile(app.db, store, sharing(), itemId)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+    store.get.mockResolvedValueOnce(Buffer.from('Different generated content'));
+    await expect(readInboundFile(app.db, store, receiving(), itemId)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+    store.get.mockImplementationOnce(async (key) => {
+      await endGrant(app.db, sharing(), {
+        grantId: grant.id,
+        reason: 'revoked',
+        expectedVersion: grant.version,
+      });
+      return read(key);
+    });
+    await expect(readInboundFile(app.db, store, receiving(), itemId)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
     });
     await expect(flow.purgeFederationGrantPass(ending)).resolves.toEqual({
       purged: 1,

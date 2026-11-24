@@ -1,5 +1,8 @@
 import { Card } from '@/components/ui/card';
-import { NOTIFY_FEDERATION_GRANT_ACCEPTED } from '@ensemus/domain/federation-events';
+import {
+  NOTIFY_FEDERATION_GRANT_ACCEPTED,
+  NOTIFY_FEDERATION_ITEM_RECEIVED,
+} from '@ensemus/domain/federation-events';
 import {
   countUnread,
   INBOX_SIZE,
@@ -15,6 +18,7 @@ export const metadata = { title: 'Inbox | Ensemus' };
 
 const KIND_WORDS: Record<string, string> = {
   [NOTIFY_FEDERATION_GRANT_ACCEPTED]: 'A collaboration invitation was accepted',
+  [NOTIFY_FEDERATION_ITEM_RECEIVED]: 'An organization shared an item with you',
   'approval.requested': 'An approval needs your decision',
   'approval.decided': 'A review of your work was decided',
   'approval.expired': 'A review of your work ran out of time',
@@ -45,6 +49,7 @@ function targetPath(base: string, targetRef: string) {
   if (separator > 0 && type === 'work_unit') return `${base}/work/${id}`;
   if (separator > 0 && type === 'invitation') return `${base}/people`;
   if (separator > 0 && type === 'federation_grant') return `${base}/collaboration#grant-${id}`;
+  if (separator > 0 && type === 'federation_item') return `${base}/collaboration/received/${id}`;
   if (separator > 0 && type === 'external_action') return `${base}/external-actions/${id}`;
   return `${base}/inbox`;
 }

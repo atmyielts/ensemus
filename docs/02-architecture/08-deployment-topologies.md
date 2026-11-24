@@ -119,6 +119,12 @@ sender row until it can prove physical absence for every owned object. An admitt
 an unknown outcome keeps the reference available for recovery. If a delete loses its response,
 the worker checks physical absence without repeating that request.
 
-Keep federation off on customer deployments until item publishing and reading, the operator's
-worker setup, qualification with live Temporal and object storage, and outside security review
-are complete. Current qualification uses generated workspaces.
+Workspace owners and admins can queue Work Summaries and Status Updates for an active grant.
+The Shared items page shows arrivals, their decisions, and the sender's delivery and withdrawal
+states. Inbox notices resolve through the receiver's current grant before opening an item.
+File downloads repeat the grant check after verifying the bytes. The API lists crossing receipts
+with opaque pagination.
+
+Keep federation off on customer deployments until artifact publishing has durable upload
+admission, the operator's worker setup has been qualified with live Temporal and object storage,
+and outside security review is complete. Current qualification uses generated workspaces.

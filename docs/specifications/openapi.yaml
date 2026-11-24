@@ -10812,7 +10812,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/FederationGrantID"
     get:
-      x-ensemus-status: planned
       tags:
         - federation
       summary: What this organization has sent under this arrangement
@@ -10844,11 +10843,10 @@ paths:
         "503":
           $ref: "#/components/responses/RestorePending"
     post:
-      x-ensemus-status: planned
       tags:
         - federation
-      summary: Send a copy of one thing. Only what the arrangement covers, and never
-        restricted data
+      summary: Queue a Work Summary or Status Update covered by the grant
+      description: Artifact publishing currently returns a conflict. Restricted data cannot be sent.
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -10887,7 +10885,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/FederationItemID"
     post:
-      x-ensemus-status: planned
       tags:
         - federation
       summary: Take one item back. The other side may already have read it
@@ -10910,8 +10907,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
-        "413":
-          $ref: "#/components/responses/PayloadTooLarge"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
         "415":
           $ref: "#/components/responses/UnsupportedMediaType"
         "500":
@@ -10922,10 +10919,14 @@ paths:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
     get:
-      x-ensemus-status: planned
       tags:
         - federation
       summary: What has arrived and is still shared
+      parameters:
+        - name: disposition
+          in: query
+          schema:
+            $ref: "#/components/schemas/FederationDisposition"
       responses:
         "200":
           description: Items
@@ -10958,7 +10959,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/FederationItemID"
     get:
-      x-ensemus-status: planned
       tags:
         - federation
       summary: One arrival. Not found once the arrangement has ended
@@ -10986,7 +10986,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/FederationItemID"
     post:
-      x-ensemus-status: planned
       tags:
         - federation
       summary: A person says what they will do with it. Accepting starts nothing by
@@ -11027,7 +11026,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/FederationItemID"
     get:
-      x-ensemus-status: planned
       tags:
         - federation
       summary: The bytes of an arrived file. Each read is audited in this organization
@@ -11055,11 +11053,29 @@ paths:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
     get:
-      x-ensemus-status: planned
       tags:
         - federation
       summary: Everything that went over either way, and everything removed since.
         Hashes and kinds, with no content
+      parameters:
+        - name: grant_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 160
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
       responses:
         "200":
           description: Crossings
@@ -11070,11 +11086,16 @@ paths:
                 additionalProperties: false
                 required:
                   - items
+                  - next_cursor
                 properties:
                   items:
                     type: array
                     items:
                       $ref: "#/components/schemas/FederationCrossing"
+                  next_cursor:
+                    type:
+                      - string
+                      - "null"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
