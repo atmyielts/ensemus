@@ -420,6 +420,7 @@ const BRIDGE_FILES = [
 ];
 const DEPLOY_JOB_FILES = [
   'workers/workflow/src/apply-deployment-profile.ts',
+  'workers/workflow/src/migrate.ts',
   'workers/workflow/src/isolation-report.ts',
 ];
 

@@ -407,6 +407,40 @@ If a run did cross that migration, its work is left `running` or `awaiting_appro
 
 Dry-run migration and replay tests in staging using production-like data/roles; back up; release compatible DB changes; deploy compatible workers and web versions; canary and verify; delay destructive schema contraction. Rollbacks can be limited by irreversible database changes and Temporal workflow history version compatibility; an operator must receive those limitations before upgrade.
 
+## Cross-organization collaboration
+
+Federation is off on a default installation. Both organizations must be on the same shared
+deployment. Qualify it with generated workspaces and obtain independent security review before
+enabling it for customers.
+
+1. Set `ENSEMUS_CROSS_ORG_ENABLED=true` in the deployment environment and select the
+   Compose `federation` profile. Supply `db_federation_password` and `db_federation_url` in the
+   installation's secret directory. The URL uses the `ensemus_federation` login with that password
+   and connects to `postgres:5432/ensemus`. Percent-encode any reserved characters in the URL.
+   Disposable development stacks can generate these files with
+   `node infrastructure/scripts/generate-test-secrets.mjs --federation`.
+2. Start the stack with `docker compose --profile federation -f infrastructure/compose/compose.yaml up -d --build --wait`.
+   Sovereign operators use the installed bundle's base and Sovereign Compose files with the same
+   profile and the worker image supplied in the bundle.
+3. Confirm `provision-federation` and `migrate` finished successfully and `federation-worker`
+   is healthy. Confirm a generated sender and receiver can deliver, open, withdraw, and physically
+   purge a file through the normal workspace flow. Each organization still opts in under its own
+   owner authority.
+
+The provisioner creates or rotates the bridge login. The migration job applies its scoped object
+grants and then records the enabled deployment profile. The worker also holds the native worker
+login to prepare sender files and record receipts under the correct tenant. The bridge login alone
+has its own restricted grants.
+
+To retire the profile, have owners turn off collaboration in every participating workspace while
+the worker is running. Wait for grant endings, withdrawal, and physical file cleanup. Then apply
+the deployment profile with `ENSEMUS_CROSS_ORG_ENABLED=false` and the same tier and region settings.
+Recreate web with that setting and stop the federation worker. The deployment switch closes grant
+access on commit. Ending the grants and draining the worker ensures their outstanding cleanup is
+recorded before shutdown.
+In an emergency, apply the off switch immediately and finish ending affected grants before
+reenabling collaboration.
+
 ## Performance and cost validation
 
 Run reference load against web and workers separately. Profile event-loop delay, CPU/RSS, DB pool contention, Temporal task lag, model quotas, per-task cost, retrieval recall, and worker retry storms. Compare one-host and scale-out profiles. Do not claim fixed concurrent capacity without measured hardware, dataset and provider assumptions.

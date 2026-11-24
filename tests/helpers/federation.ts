@@ -45,7 +45,7 @@ export async function ensureBridgeRole(): Promise<string> {
     const { rows } = await su.query(`select 1 from pg_roles where rolname = 'ensemus_federation'`);
     const verb = rows.length === 0 ? 'CREATE' : 'ALTER';
     const extras = rows.length === 0 ? ' LOGIN NOSUPERUSER NOCREATEROLE NOBYPASSRLS' : '';
-    await su.query(`${verb} ROLE ensemus_federation${extras} PASSWORD '${password}'`);
+    await su.query(`${verb} ROLE ensemus_federation${extras} NOINHERIT PASSWORD '${password}'`);
     await migrator.query('select federation.apply_bridge_grants()');
   } finally {
     await su.end();

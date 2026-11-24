@@ -177,8 +177,8 @@
     },
     {
       "path": "02-architecture/08-deployment-topologies.md",
-      "size_bytes": 11128,
-      "sha256": "23c3142f54e110808d130cd669ec2770c1eabdb76e8f8d98b50fca6df5194bb5"
+      "size_bytes": 11610,
+      "sha256": "0f8d19b7f16e3816b8054755c7a441fc6d8aa9c85755ee482316a8df9b9ad7a7"
     },
     {
       "path": "02-architecture/09-performance-scaling.md",
@@ -302,8 +302,8 @@
     },
     {
       "path": "05-operations/05-container-deployment-runbook.md",
-      "size_bytes": 48040,
-      "sha256": "bc353d9dc0b548fda2184badac9f041410eb489259a251b84ba4715687d59a8d"
+      "size_bytes": 50347,
+      "sha256": "8d2d1eb793218c1993192912275ecaa3bfd42f0743afc93ad81244b17af90bb3"
     },
     {
       "path": "05-operations/06-performance-and-load-plan.md",

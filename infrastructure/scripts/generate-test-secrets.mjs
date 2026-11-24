@@ -49,6 +49,11 @@ for (const [name, role, file] of [
   const pw = await read(file);
   put(name, () => `postgres://${role}:${pw}@postgres:5432/ensemus`);
 }
+if (process.argv.includes('--federation')) {
+  put('db_federation_password', password);
+  const pw = await read('db_federation_password');
+  put('db_federation_url', () => `postgres://ensemus_federation:${pw}@postgres:5432/ensemus`);
+}
 put('objects_access_key', () => randomBytes(12).toString('hex'));
 put('objects_secret_key', () => randomBytes(24).toString('hex'));
 put('objects_ledger_access_key', () => randomBytes(12).toString('hex'));

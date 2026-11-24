@@ -129,5 +129,12 @@ states. Inbox notices resolve through the receiver's current grant before openin
 File downloads repeat the grant check after verifying the bytes. The API lists crossing receipts
 with opaque pagination.
 
+Compose exposes the bridge and its provisioning job through the optional `federation` profile.
+The worker uses a separate internal network to reach PostgreSQL, Temporal, and object storage.
+Before reporting healthy, it checks the deployment flag, the native sender and bridge logins,
+the bridge grants, and object storage's ability to prove physical deletion.
+
 Keep federation off on customer deployments until the operator's worker setup has been qualified
-with live Temporal and object storage and outside security review is complete. Current qualification uses generated workspaces.
+with live Temporal and object storage and outside security review is complete. Follow the
+[container deployment runbook](../05-operations/05-container-deployment-runbook.md#cross-organization-collaboration)
+to enable federation and drain it safely.

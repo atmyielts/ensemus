@@ -40,6 +40,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import {
   crossItem,
+  federationBridgeReady,
+  federationSenderReady,
   openBridgeDatabase,
   purgeInboundCopies,
   readItemToCross,
@@ -85,6 +87,20 @@ describe('collaboration bridge transactions', () => {
   afterAll(async () => {
     await clearDeploymentProfile();
     await Promise.all([app?.close(), worker?.close(), bridge?.close(), sql?.end()]);
+  });
+
+  it('only reports ready under the native logins and an enabled deployment profile', async () => {
+    expect(await federationSenderReady(app.db)).toBe(false);
+    expect(await federationSenderReady(worker.db)).toBe(true);
+    expect(await federationBridgeReady(bridge.db)).toBe(true);
+
+    await setDeploymentProfile({ crossOrgEnabled: false });
+    try {
+      expect(await federationSenderReady(worker.db)).toBe(false);
+      expect(await federationBridgeReady(bridge.db)).toBe(false);
+    } finally {
+      await setDeploymentProfile({ crossOrgEnabled: true });
+    }
   });
 
   it('delivers an exact copy once when two workers retry concurrently', async () => {

@@ -50,6 +50,11 @@ services:
     volumes:
       - ../bundle-manifest.dsse.json:/run/ensemus/bundle-manifest.dsse.json:ro
 
+  federation-worker:
+    image: ensemus-sovereign/worker:${ENSEMUS_RELEASE:?set by install-bundle}
+    pull_policy: never
+    build: !reset null
+
   knowledge-worker:
     image: ensemus-sovereign/worker:${ENSEMUS_RELEASE:?set by install-bundle}
     pull_policy: never
@@ -106,6 +111,11 @@ services:
     pull_policy: never
     build: !reset null
 
+  provision-federation:
+    image: ensemus-sovereign/postgres:${ENSEMUS_RELEASE:?set by install-bundle}
+    pull_policy: never
+    build: !reset null
+
   postgres:
     image: ensemus-sovereign/postgres:${ENSEMUS_RELEASE:?set by install-bundle}
     pull_policy: never
@@ -139,6 +149,10 @@ services:
 # Every secret compose.yaml names, restated from the operator's folder. The names are the files
 # generate-test-secrets.mjs writes, so a folder laid out like .local/secrets works as it is.
 secrets:
+  db_federation_password:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_federation_password' }
+  db_federation_url:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_federation_url' }
   db_superuser_password:
     { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_superuser_password' }
   db_migrator_password:

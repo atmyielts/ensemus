@@ -17,7 +17,11 @@ import {
   settleGrantEndForTenant,
 } from '@ensemus/application';
 import { openAppDatabase } from '@ensemus/database';
-import { openBridgeDatabase } from '@ensemus/database/federation';
+import {
+  federationBridgeReady,
+  federationSenderReady,
+  openBridgeDatabase,
+} from '@ensemus/database/federation';
 import { S3ObjectStore } from '@ensemus/storage';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import { AesGcmPayloadCodec } from '@ensemus/workflows/codec';
@@ -40,9 +44,6 @@ async function main() {
     log.error('federation_worker.not_enabled');
     process.exit(1);
   }
-  const connection = await NativeConnection.connect({
-    address: process.env.TEMPORAL_ADDRESS ?? 'temporal:7233',
-  });
   const app = openAppDatabase(readSecret('DATABASE_URL_APP'));
   const bridge = openBridgeDatabase(readSecret('DATABASE_URL_FEDERATION'));
   const store = new S3ObjectStore({
@@ -50,6 +51,20 @@ async function main() {
     bucket: process.env.OBJECT_STORAGE_BUCKET ?? 'ensemus',
     accessKey: readSecret('OBJECT_STORAGE_ACCESS_KEY'),
     secretKey: readSecret('OBJECT_STORAGE_SECRET_KEY'),
+  });
+  // Probe with no business record in scope. The first heartbeat means all three dependencies
+  // accepted the production role bindings and the provider can prove physical deletion.
+  if (!(await federationSenderReady(app.db))) {
+    log.error('federation_worker.sender_database_not_ready');
+    process.exit(1);
+  }
+  if (!(await federationBridgeReady(bridge.db))) {
+    log.error('federation_worker.bridge_database_not_ready');
+    process.exit(1);
+  }
+  await store.assertPurgeCapability();
+  const connection = await NativeConnection.connect({
+    address: process.env.TEMPORAL_ADDRESS ?? 'temporal:7233',
   });
   const worker = await Worker.create({
     connection,

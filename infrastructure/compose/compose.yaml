@@ -69,6 +69,10 @@ services:
       ENSEMUS_OTEL_METRIC_INTERVAL_SECONDS: ${ENSEMUS_OTEL_METRIC_INTERVAL_SECONDS:-}
       ENSEMUS_MODE: ${ENSEMUS_MODE:-sovereign}
       ENSEMUS_PUBLIC_URL: ${ENSEMUS_PUBLIC_URL:-https://localhost:8443}
+      ENSEMUS_TENANCY_TIER:
+      ENSEMUS_DEDICATED_ORGANIZATION_ID:
+      ENSEMUS_HOME_REGION:
+      ENSEMUS_CROSS_ORG_ENABLED: ${ENSEMUS_CROSS_ORG_ENABLED:-false}
       ENSEMUS_ALLOW_SIGNUP: ${ENSEMUS_ALLOW_SIGNUP:-false}
       ENSEMUS_CONNECTORS_ENABLED: ${ENSEMUS_CONNECTORS_ENABLED:-false}
       # Business adapter metadata only in web; sockets remain confined to the connector worker.
@@ -173,6 +177,42 @@ services:
       migrate: { condition: service_completed_successfully }
     deploy:
       resources: { limits: { memory: 2G } }
+
+  federation-worker:
+    <<: *restart
+    profiles: ['federation']
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    command: ['node', 'dist/federation-worker.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks: [federation]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.9.10
+      - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.9.11
+      - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.9.12
+    environment:
+      ENSEMUS_CROSS_ORG_ENABLED: ${ENSEMUS_CROSS_ORG_ENABLED:-false}
+      ENSEMUS_TENANCY_TIER:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
+      DATABASE_URL_APP_FILE: /run/secrets/db_worker_url
+      DATABASE_URL_FEDERATION_FILE: /run/secrets/db_federation_url
+      OBJECT_STORAGE_ENDPOINT: http://objects:8333
+      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
+      OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
+    secrets:
+      [temporal_codec_key, db_worker_url, db_federation_url, objects_access_key, objects_secret_key]
+    depends_on:
+      provision-federation: { condition: service_completed_successfully }
+      migrate: { condition: service_completed_successfully }
+      temporal-namespace: { condition: service_completed_successfully }
+    deploy:
+      resources: { limits: { memory: 512M } }
 
   # Document parsing and ingestion have neither model keys nor an outbound network.
   knowledge-worker:
@@ -666,6 +706,24 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
 
+  provision-federation:
+    profiles: ['federation']
+    image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
+    user: postgres
+    read_only: true
+    entrypoint: ['/bin/sh', '/provision/provision-federation.sh']
+    networks: [federation]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.9.10
+    environment:
+      ENSEMUS_CROSS_ORG_ENABLED: ${ENSEMUS_CROSS_ORG_ENABLED:-false}
+    volumes:
+      - ./postgres/provision-federation.sh:/provision/provision-federation.sh:ro
+      - ./postgres/provision-federation.sql:/provision/provision-federation.sql:ro
+    secrets: [db_superuser_password, db_federation_password]
+    depends_on:
+      postgres: { condition: service_healthy }
+
   migrate:
     build:
       context: ../..
@@ -685,12 +743,17 @@ services:
       OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
       OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
       DATABASE_URL_MIGRATOR_FILE: /run/secrets/db_migrator_url
+      ENSEMUS_TENANCY_TIER:
+      ENSEMUS_DEDICATED_ORGANIZATION_ID:
+      ENSEMUS_HOME_REGION:
+      ENSEMUS_CROSS_ORG_ENABLED: ${ENSEMUS_CROSS_ORG_ENABLED:-}
     secrets: [db_migrator_url, objects_access_key, objects_secret_key]
     depends_on:
       postgres: { condition: service_healthy }
       # It creates the bucket too. Without this it loses the race whenever PostgreSQL is already up.
       objects: { condition: service_healthy }
       provision-roles: { condition: service_completed_successfully }
+      provision-federation: { condition: service_completed_successfully, required: false }
 
   # One-shot offline invalidation only. Ordinary workers never receive the native auth DB/key.
   # Run only after migrator begin has closed admission. No Temporal, object, vault or provider key.
@@ -762,6 +825,7 @@ services:
       connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.10' }
       agents: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.10' }
       mail: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.8.10' }
+      federation: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.9.10' }
     secrets:
       - db_superuser_password
       - db_migrator_password
@@ -800,6 +864,7 @@ services:
       temporal-db: {}
       connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.11' }
       agents: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.11' }
+      federation: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.9.11' }
     extra_hosts:
       - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.4.10
     entrypoint: ['/bin/sh', '/provision/temporal-start.sh']
@@ -896,6 +961,7 @@ services:
     networks:
       data: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.2.12' }
       agents: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.12' }
+      federation: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.9.12' }
     healthcheck:
       test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:9333/cluster/status']
       interval: 5s
@@ -958,6 +1024,15 @@ networks:
             subnet: '${ENSEMUS_NETWORK_PREFIX:-172.30}.8.0/24',
             ip_range: '${ENSEMUS_NETWORK_PREFIX:-172.30}.8.128/25',
           }
+  # The optional federation worker can reach only PostgreSQL, Temporal and object storage.
+  federation:
+    internal: true
+    ipam:
+      config:
+        - {
+            subnet: '${ENSEMUS_NETWORK_PREFIX:-172.30}.9.0/24',
+            ip_range: '${ENSEMUS_NETWORK_PREFIX:-172.30}.9.128/25',
+          }
   # The way out, and only the gateways are on it. A sovereign site's firewall limits it to the relays.
   outbound:
     ipam:
@@ -973,6 +1048,8 @@ volumes:
   objects-data: {}
 
 secrets:
+  db_federation_password: { file: ../../.local/secrets/db_federation_password }
+  db_federation_url: { file: ../../.local/secrets/db_federation_url }
   db_superuser_password: { file: ../../.local/secrets/db_superuser_password }
   db_migrator_password: { file: ../../.local/secrets/db_migrator_password }
   db_app_password: { file: ../../.local/secrets/db_app_password }
