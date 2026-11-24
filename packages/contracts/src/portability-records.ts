@@ -31,9 +31,12 @@ const EXPORT_SECTIONS = [
 const FEDERATION_PROFILE = 'ensemus.m3-m7-federation/4';
 const SKILL_METADATA_PORTABILITY_VERSION = 'ensemus.skill-metadata/5';
 const MARKETPLACE_PUBLISHER_PORTABILITY_VERSION = 'ensemus.marketplace-publisher/6';
-export const carriesPortableSkillMetadata = (version: unknown) =>
-  version === SKILL_METADATA_PORTABILITY_VERSION ||
-  version === MARKETPLACE_PUBLISHER_PORTABILITY_VERSION;
+const MEETING_CONFIGURATION_PORTABILITY_VERSION = 'ensemus.meeting-config/7';
+const carriesPublisherHistory = (version: unknown) =>
+  version === MARKETPLACE_PUBLISHER_PORTABILITY_VERSION ||
+  version === MEETING_CONFIGURATION_PORTABILITY_VERSION;
+const carriesPortableSkillMetadata = (version: unknown) =>
+  version === SKILL_METADATA_PORTABILITY_VERSION || carriesPublisherHistory(version);
 const isJoinedInventory = (value: string) =>
   value === 'ensemus.m3-m7/3' ||
   value === FEDERATION_PROFILE ||
@@ -405,7 +408,57 @@ export const SKILL_METADATA_RECORD_KINDS = [
   'marketplace_failed_installation',
 ] as const;
 
+export const MEETING_CONFIGURATION_RECORD_KINDS = [
+  'meeting_settings_history',
+  'meeting_provider_approval_history',
+] as const;
+const meetingReference = z
+  .string()
+  .min(1)
+  .max(400)
+  .refine((value) => [...value].length <= 200);
+
 export const extensionRecordSchema = z.discriminatedUnion('kind', [
+  z
+    .strictObject({
+      kind: z.literal('meeting_settings_history'),
+      id,
+      enabled: z.boolean(),
+      notice_ref: meetingReference.nullable(),
+      version: z.string().regex(/^[1-9][0-9]{0,18}$/),
+      updated_by_membership_id: id,
+      updated_at: moment,
+    })
+    .refine((record) => !record.enabled || record.notice_ref !== null),
+  z
+    .strictObject({
+      kind: z.literal('meeting_provider_approval_history'),
+      id,
+      provider_kind: z.enum(['model', 'source']),
+      target_ref: z
+        .string()
+        .regex(/^(model_profile|connection):[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/),
+      purposes: z
+        .array(z.enum(['summarize', 'extract_items', 'import_notes']))
+        .min(1)
+        .max(2),
+      max_classification: classification,
+      terms_ref: meetingReference,
+      approved_by_membership_id: id,
+      approved_at: moment,
+      expires_at: moment,
+      revoked_at: moment.nullable(),
+      revoked_by_membership_id: id.nullable(),
+    })
+    .refine((record) => {
+      if ((record.revoked_at === null) !== (record.revoked_by_membership_id === null)) return false;
+      return record.provider_kind === 'model'
+        ? record.target_ref.startsWith('model_profile:') &&
+            record.purposes.every((purpose) => purpose !== 'import_notes')
+        : record.target_ref.startsWith('connection:') &&
+            record.purposes.length === 1 &&
+            record.purposes[0] === 'import_notes';
+    }),
   z.strictObject({
     kind: z.literal('marketplace_publisher_history'),
     id,
@@ -742,7 +795,13 @@ export const EXTENSION_SECTION_KINDS = {
     'pack_installation',
     'pack_item',
   ],
-  policy: ['budget', 'usage_entry', 'policy_definition', 'security_settings'],
+  policy: [
+    'budget',
+    'usage_entry',
+    'policy_definition',
+    'security_settings',
+    ...MEETING_CONFIGURATION_RECORD_KINDS,
+  ],
   skills: [...SKILL_METADATA_RECORD_KINDS, 'marketplace_publisher_history'],
   'custom-objects': [
     'custom_object_type',
@@ -765,6 +824,29 @@ export const EXTENSION_SECTION_KINDS = {
   history: ['action_attempt'],
 } as const;
 
+export function assertPortableExtensionProfile(
+  kind: ExtensionRecord['kind'],
+  inventoryVersion: string | undefined,
+) {
+  if (
+    (M7_PORTABLE_RECORD_KINDS as readonly string[]).includes(kind) &&
+    (inventoryVersion === undefined || !isJoinedInventory(inventoryVersion))
+  )
+    throw new Error('RECORD_REFUSED');
+  if (
+    (SKILL_METADATA_RECORD_KINDS as readonly string[]).includes(kind) &&
+    !carriesPortableSkillMetadata(inventoryVersion)
+  )
+    throw new Error('RECORD_REFUSED');
+  if (kind === 'marketplace_publisher_history' && !carriesPublisherHistory(inventoryVersion))
+    throw new Error('RECORD_REFUSED');
+  if (
+    (MEETING_CONFIGURATION_RECORD_KINDS as readonly string[]).includes(kind) &&
+    inventoryVersion !== MEETING_CONFIGURATION_PORTABILITY_VERSION
+  )
+    throw new Error('RECORD_REFUSED');
+}
+
 export function validatePortableRecord(
   section: string,
   raw: unknown,
@@ -773,21 +855,7 @@ export function validatePortableRecord(
   const core = coreRecordSchema.safeParse(raw);
   if (core.success) return core.data;
   const extension = extensionRecordSchema.parse(raw);
-  if (
-    (M7_PORTABLE_RECORD_KINDS as readonly string[]).includes(extension.kind) &&
-    !isJoinedInventory(inventoryVersion)
-  )
-    throw new Error('RECORD_REFUSED');
-  if (
-    (SKILL_METADATA_RECORD_KINDS as readonly string[]).includes(extension.kind) &&
-    !carriesPortableSkillMetadata(inventoryVersion)
-  )
-    throw new Error('RECORD_REFUSED');
-  if (
-    extension.kind === 'marketplace_publisher_history' &&
-    inventoryVersion !== MARKETPLACE_PUBLISHER_PORTABILITY_VERSION
-  )
-    throw new Error('RECORD_REFUSED');
+  assertPortableExtensionProfile(extension.kind, inventoryVersion);
   const allowed = EXTENSION_SECTION_KINDS[section as keyof typeof EXTENSION_SECTION_KINDS] as
     readonly string[] | undefined;
   if (!allowed?.includes(extension.kind)) throw new Error('RECORD_REFUSED');
@@ -841,6 +909,7 @@ const manifestV2Schema = manifestV1Schema.extend({
     FEDERATION_PROFILE,
     SKILL_METADATA_PORTABILITY_VERSION,
     MARKETPLACE_PUBLISHER_PORTABILITY_VERSION,
+    MEETING_CONFIGURATION_PORTABILITY_VERSION,
   ]),
   record_max_bytes: z.literal(4 * 1024 * 1024).optional(),
   generated_bodies_excluded: z.int().min(0),

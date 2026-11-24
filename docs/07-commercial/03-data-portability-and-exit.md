@@ -12,6 +12,8 @@ Data formats: JSON/JSONL for typed records and events, CSV optionally for famili
 
 The Marketplace publisher archive profile includes the source workspace's publisher name, status, version, and timestamps as a review record. The receiving workspace registers its publisher through its own Marketplace enrollment. Source listings, submissions, and reviews require separate archive coverage before an export can proceed.
 
+The meeting configuration profile carries notice references, settings history, and provider approval and revocation records for review. The receiving workspace sets its own meeting policy and provider approvals. Meeting content and consent records require separate archive coverage.
+
 ## 3. Credentials and connectors
 
 Never export bearer keys, OAuth refresh tokens, or shared Ensemus service credentials in plaintext. Include connector identities and required scopes; on import, authorized customer re-binds new credentials. Imported external resource IDs must be reconciled rather than blindly using source account IDs in another organization.

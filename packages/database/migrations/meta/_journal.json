@@ -1345,6 +1345,13 @@
       "when": 1794201807664,
       "tag": "0784_marketplace_publisher_portability",
       "breakpoints": true
+    },
+    {
+      "idx": 192,
+      "version": "7",
+      "when": 1794201807665,
+      "tag": "0785_meeting_configuration_portability",
+      "breakpoints": true
     }
   ]
 }

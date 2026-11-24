@@ -11,10 +11,12 @@ import {
   acceptInvitation,
   addArtifact,
   addTeamMember,
+  approveMeetingProvider,
   beginExport,
   SOURCE_PORTABILITY_SECTIONS,
   createClient,
   createInvitation,
+  createMeeting,
   createPublisher,
   createProject,
   createTeam,
@@ -25,17 +27,21 @@ import {
   failExport,
   finishExport,
   getOrganizationExport,
+  getMeetingSettings,
   getPublisher,
   getWorkUnit,
   listOrganizationExports,
   listImportedDefinitions,
+  listMeetingProviderApprovals,
   openExportArchive,
   purgeExpiredExports,
   requestOrganizationExport,
   requestOrganizationImport,
   runOrganizationImport,
   requestWorkReview,
+  revokeMeetingProvider,
   transitionWorkUnit,
+  updateMeetingSettings,
   type ExportDeps,
   type ExportStep,
   type ObjectStore,
@@ -71,6 +77,8 @@ import {
   FEDERATION_PORTABILITY_VERSION,
   MARKETPLACE_PUBLISHER_PORTABILITY_INVENTORY,
   MARKETPLACE_PUBLISHER_PORTABILITY_VERSION,
+  MEETING_CONFIGURATION_PORTABILITY_INVENTORY,
+  MEETING_CONFIGURATION_PORTABILITY_VERSION,
   SKILL_METADATA_PORTABILITY_INVENTORY,
   SKILL_METADATA_PORTABILITY_VERSION,
   isArchivePath,
@@ -472,6 +480,131 @@ describe('organization export', () => {
       record_kind: 'marketplace_publisher_history',
       source_id: publisher.id,
       record: records[0],
+    });
+  });
+
+  it('carries meeting settings and provider decisions as review records without activating them', async () => {
+    const source = await newOrg();
+    const unrelated = await newOrg();
+    const target = await newOrg();
+    const publisher = await createPublisher(
+      db(),
+      source,
+      { isEnabled: async () => true },
+      { displayName: `Meeting profile test publisher ${randomUUID()}` },
+    );
+    const noticeRef = `meeting-notice-${randomUUID()}`;
+    const otherNotice = `unrelated-notice-${randomUUID()}`;
+    await updateMeetingSettings(db(), source, { enabled: true, noticeRef, expectedVersion: 1 });
+    await updateMeetingSettings(db(), unrelated, {
+      enabled: true,
+      noticeRef: otherNotice,
+      expectedVersion: 1,
+    });
+    const connectionId = await seedConnection(db(), source, {
+      connectorType: 'meeting_notes_http',
+    });
+    const termsRef = `source-terms-${randomUUID()}`;
+    const approval = await approveMeetingProvider(db(), source, {
+      kind: 'source',
+      connectionId,
+      maxClassification: 'internal',
+      termsRef,
+      expiresAt: new Date(Date.now() + 3_600_000),
+    });
+    const store = new MemoryStore();
+    const priorExport = await request(source);
+    expect(await drive(source, store, priorExport)).toMatchObject({ state: 'finished' });
+    expect(
+      recordsOf(
+        await downloadAndOpen(source, store, priorExport),
+        'meeting_provider_approval_history',
+      ),
+    ).toMatchObject([{ id: approval.id, revoked_at: null, revoked_by_membership_id: null }]);
+    const sourceOwner = source.actorType === 'user' ? source.membershipId : null;
+    await revokeMeetingProvider(db(), source, { providerApprovalId: approval.id });
+    await expect(openExportArchive(db(), store, source, priorExport)).rejects.toMatchObject({
+      code: 'EXPORT_SUPERSEDED',
+    });
+
+    const exportId = await request(source);
+    expect(await drive(source, store, exportId)).toMatchObject({ state: 'finished' });
+    const opened = await downloadAndOpen(source, store, exportId);
+    expect(opened.manifest).toMatchObject({
+      inventory_version: MEETING_CONFIGURATION_PORTABILITY_VERSION,
+      inventory: MEETING_CONFIGURATION_PORTABILITY_INVENTORY,
+    });
+    const settings = recordsOf(opened, 'meeting_settings_history');
+    const approvals = recordsOf(opened, 'meeting_provider_approval_history');
+    expect(recordsOf(opened, 'marketplace_publisher_history')).toMatchObject([
+      { id: publisher.id },
+    ]);
+    expect(settings).toMatchObject([
+      { enabled: true, notice_ref: noticeRef, version: '2', updated_by_membership_id: sourceOwner },
+    ]);
+    expect(approvals).toMatchObject([
+      {
+        id: approval.id,
+        provider_kind: 'source',
+        target_ref: `connection:${connectionId}`,
+        purposes: ['import_notes'],
+        terms_ref: termsRef,
+        revoked_at: expect.any(String),
+        revoked_by_membership_id: sourceOwner,
+      },
+    ]);
+    expect(opened.text).not.toContain(otherNotice);
+    expect(() =>
+      validatePortableRecord('policy', settings[0], MARKETPLACE_PUBLISHER_PORTABILITY_VERSION),
+    ).toThrow('RECORD_REFUSED');
+    expect(() =>
+      validatePortableRecord(
+        'policy',
+        { ...approvals[0], revoked_by_membership_id: null },
+        MEETING_CONFIGURATION_PORTABILITY_VERSION,
+      ),
+    ).toThrow();
+
+    const targetStore = new MemoryStore();
+    const bound = await requestOrganizationImport(db(), target);
+    const result = await runOrganizationImport(
+      workerDb(),
+      worker(target),
+      {
+        importId: bound.id,
+        archive: archiveReader(opened.bytes),
+        recipientPrivateKeyPem: recipient.privateKeyPem,
+      },
+      { sections: SOURCE_PORTABILITY_SECTIONS, ledger: targetStore, store: targetStore },
+    );
+    expect(result.status).toBe('completed_with_warnings');
+    expect(result.appliedCounts).toMatchObject({
+      marketplace_publisher_history: 1,
+      meeting_settings_history: 1,
+      meeting_provider_approval_history: 1,
+    });
+    const imported = await listImportedDefinitions(db(), target);
+    expect(imported).toContainEqual(
+      expect.objectContaining({ section: 'policy', record: settings[0] }),
+    );
+    expect(imported).toContainEqual(
+      expect.objectContaining({ section: 'policy', record: approvals[0] }),
+    );
+    expect(await getMeetingSettings(db(), target)).toMatchObject({
+      enabled: false,
+      noticeRef: null,
+    });
+    expect(await listMeetingProviderApprovals(db(), target)).toEqual([]);
+    expect(await getPublisher(db(), target)).toBeNull();
+
+    await createMeeting(db(), source, {
+      title: `private meeting ${randomUUID()}`,
+      occurredAt: new Date(),
+    });
+    const refused = await request(source);
+    expect(await beginExport(workerDb(), worker(source), { exportId: refused }, deps)).toEqual({
+      state: 'failed',
+      code: 'RECORD_REFUSED',
     });
   });
 

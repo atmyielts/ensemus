@@ -10,8 +10,6 @@ export const PENDING_PORTABILITY_TABLES = [
   'meetings.notes',
   'meetings.participants',
   'meetings.proposed_items',
-  'meetings.provider_approvals',
-  'meetings.settings',
   'meetings.summaries',
   'meetings.meetings',
   'marketplace.installations',
