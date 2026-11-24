@@ -107,6 +107,13 @@ with the same request key returns a conflict because the invitation token is iss
 original grant remains available in the list. The persisted request receipt contains only the
 grant ID.
 
+The bridge database operations bind one grant at a time. A delivery writes the inbound copy,
+outbound state and crossing record in one transaction. Revocation and delivery share the grant
+lock, and an ended grant is unreadable even before rows are removed. Copy removal deletes only a
+bounded set of rows from an ended grant or a specific withdrawn item. The outbound references
+remain available to derive storage keys on retry. The receiving tenant also has an idempotent
+service for recording arrivals, with reference-only events and Inbox items.
+
 Keep federation off on customer deployments until the separate item delivery, copy purge,
 operator setup and outside security review are complete. This grant flow issues consent records
 and uses generated workspaces during qualification.

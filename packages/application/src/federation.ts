@@ -446,6 +446,8 @@ export function acceptGrantInvitation(
 }
 
 async function lockedGrant(tx: Tx, org: string, id: string, sharingOnly: boolean) {
+  // Inbound copies take a key-share FK lock while holding the grant advisory lock. This
+  // weaker row lock still serializes grant changes and allows that FK check to finish.
   const [row] = await tx
     .select()
     .from(federationGrants)
@@ -455,7 +457,7 @@ async function lockedGrant(tx: Tx, org: string, id: string, sharingOnly: boolean
         sharingOnly ? eq(federationGrants.sharingOrganizationId, org) : party(org),
       ),
     )
-    .for('update');
+    .for('no key update');
   if (!row) throw new AppError('NOT_FOUND');
   return row;
 }
@@ -549,7 +551,7 @@ async function endOpenGrants(tx: Tx, context: TenantContext, reason: 'expired' |
       and(party(context.organizationId), inArray(federationGrants.status, openStates), expired),
     )
     .orderBy(asc(federationGrants.id))
-    .for('update');
+    .for('no key update');
   const rows = await (reason === 'expired' ? query.limit(100) : query);
   for (const grant of rows) await finishGrant(tx, context, grant, reason);
   return rows.length;

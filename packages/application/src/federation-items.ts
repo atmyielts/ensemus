@@ -2,7 +2,29 @@
 // from a tenant's own rows, and what arrived, as that tenant sees it. Nothing here crosses anything: the
 // bridge worker carries a queued item later. Sending takes federation.share, and reading takes federation.view.
 import type { PublishItemBody } from '@ensemus/contracts/federation';
-import type { AppDatabase, TenantContext, Tx } from '@ensemus/database';
+import {
+  domainEvents,
+  federationGrants,
+  federationInboundItems,
+  federationOutboundItems,
+  memberships,
+  withTenantTx,
+  type AppDatabase,
+  type TenantContext,
+  type Tx,
+} from '@ensemus/database';
+import {
+  AGGREGATE_FEDERATION_ITEM,
+  AUDIT_FEDERATION_ITEM_RECEIVED,
+  FEDERATION_ITEM_RECEIVED,
+  federationItemTargetRef,
+  NOTIFY_FEDERATION_ITEM_RECEIVED,
+} from '@ensemus/domain/federation-events';
+import { and, eq, inArray, or, sql } from 'drizzle-orm';
+import { AppError } from './errors';
+import { emit } from './events';
+import { idSchema } from './ids';
+import { auditAction, notify } from './work';
 import type {
   FederationCrossingOutcome,
   FederationDisposition,
@@ -188,32 +210,135 @@ export function removeWithdrawnItem(
   throw new Error('NOT_IMPLEMENTED');
 }
 
-/**
- * After a copy landed, as a worker with a service context for the receiver: the event, the notification to
- * its owners and admins, and the audit row. Keyed by the item, so a repeat writes nothing.
- */
-export function recordItemReceived(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: { itemId: string },
+function workerReferenceId(context: TenantContext, id: string): string {
+  if (context.actorType !== 'service') throw new AppError('FORBIDDEN');
+  const parsed = idSchema.safeParse(id);
+  if (!parsed.success) throw new AppError('INVALID_INPUT');
+  return parsed.data;
+}
+
+/** The receiving tenant records a reference to the still-readable item once. */
+export async function recordItemReceived(
+  database: AppDatabase,
+  context: TenantContext,
+  input: { itemId: string },
 ): Promise<void> {
-  throw new Error('NOT_IMPLEMENTED');
+  const itemId = workerReferenceId(context, input.itemId);
+  await withTenantTx(database, context, async (tx) => {
+    const itemScope = and(
+      eq(federationInboundItems.organizationId, context.organizationId),
+      eq(federationInboundItems.id, itemId),
+    );
+    const [arrived] = await tx
+      .select({ grantId: federationInboundItems.grantId })
+      .from(federationInboundItems)
+      .where(itemScope);
+    if (!arrived) return;
+
+    // Recheck visibility after the lock used by revocation, then serialize notice retries on the item.
+    await tx.execute(
+      sql`select pg_advisory_xact_lock_shared(federation.grant_lock_key(${arrived.grantId}::uuid))`,
+    );
+    const [item] = await tx
+      .select({
+        id: federationInboundItems.id,
+        classification: federationInboundItems.classification,
+      })
+      .from(federationInboundItems)
+      .where(and(itemScope, eq(federationInboundItems.grantId, arrived.grantId)))
+      .for('no key update');
+    if (!item) return;
+
+    const [recorded] = await tx
+      .select({ id: domainEvents.id })
+      .from(domainEvents)
+      .where(
+        and(
+          eq(domainEvents.organizationId, context.organizationId),
+          eq(domainEvents.aggregateType, AGGREGATE_FEDERATION_ITEM),
+          eq(domainEvents.aggregateId, item.id),
+          eq(domainEvents.eventType, FEDERATION_ITEM_RECEIVED),
+        ),
+      )
+      .limit(1);
+    if (recorded) return;
+
+    const targetRef = federationItemTargetRef(item.id);
+    const recipients = await tx
+      .select({ id: memberships.id })
+      .from(memberships)
+      .where(
+        and(
+          eq(memberships.organizationId, context.organizationId),
+          eq(memberships.status, 'active'),
+          inArray(memberships.role, ['owner', 'admin']),
+        ),
+      );
+    await emit(tx, context, {
+      eventType: FEDERATION_ITEM_RECEIVED,
+      aggregateType: AGGREGATE_FEDERATION_ITEM,
+      aggregateId: item.id,
+      aggregateVersion: 1,
+      classification: item.classification,
+      payload: {},
+    });
+    await notify(
+      tx,
+      context,
+      recipients.map(({ id }) => id),
+      NOTIFY_FEDERATION_ITEM_RECEIVED,
+      targetRef,
+    );
+    await auditAction(tx, context, AUDIT_FEDERATION_ITEM_RECEIVED, targetRef);
+  });
 }
 
-/** The two parties of a grant, for the worker. Bound to one of them, so anyone else finds nothing. */
-export function loadGrantPartiesForWorker(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _grantId: string,
+/** The worker resolves the parties only while bound to one of them. */
+export async function loadGrantPartiesForWorker(
+  database: AppDatabase,
+  context: TenantContext,
+  grantId: string,
 ): Promise<{ sharingOrganizationId: string; receivingOrganizationId: string | null } | null> {
-  throw new Error('NOT_IMPLEMENTED');
+  const id = workerReferenceId(context, grantId);
+  return withTenantTx(database, context, async (tx) => {
+    const [grant] = await tx
+      .select({
+        sharingOrganizationId: federationGrants.sharingOrganizationId,
+        receivingOrganizationId: federationGrants.receivingOrganizationId,
+      })
+      .from(federationGrants)
+      .where(
+        and(
+          eq(federationGrants.id, id),
+          or(
+            eq(federationGrants.sharingOrganizationId, context.organizationId),
+            eq(federationGrants.receivingOrganizationId, context.organizationId),
+          ),
+        ),
+      );
+    return grant ?? null;
+  });
 }
 
-/** Where a sender's item is, for the worker. Bound to the sender's tenant, so it finds only its own. */
-export function loadItemGrantForWorker(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _itemId: string,
+export async function loadItemGrantForWorker(
+  database: AppDatabase,
+  context: TenantContext,
+  itemId: string,
 ): Promise<{ grantId: string; state: FederationItemState } | null> {
-  throw new Error('NOT_IMPLEMENTED');
+  const id = workerReferenceId(context, itemId);
+  return withTenantTx(database, context, async (tx) => {
+    const [item] = await tx
+      .select({
+        grantId: federationOutboundItems.grantId,
+        state: federationOutboundItems.state,
+      })
+      .from(federationOutboundItems)
+      .where(
+        and(
+          eq(federationOutboundItems.organizationId, context.organizationId),
+          eq(federationOutboundItems.id, id),
+        ),
+      );
+    return item ? { grantId: item.grantId, state: item.state as FederationItemState } : null;
+  });
 }
