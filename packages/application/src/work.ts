@@ -1446,7 +1446,6 @@ async function moveOwner(
   context: TenantContext,
   current: WorkRow,
   input: { id: string; expectedVersion: number; ownerMembershipId: string },
-  auditReason?: string,
 ) {
   if (current.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT');
   const owner = canonicalId(input.ownerMembershipId);
@@ -1470,7 +1469,7 @@ async function moveOwner(
     classification: current.classification,
     payload: { work_unit_id: input.id, owner_membership_id: owner },
   });
-  await auditAction(tx, context, 'work.owner_changed', `work_unit:${input.id}`, auditReason);
+  await auditAction(tx, context, 'work.owner_changed', `work_unit:${input.id}`);
   await notify(tx, context, [owner], 'work.assigned', `work_unit:${input.id}`);
   // Ownership grants access, so moving it can take access away from a reviewer.
   await closeReviewsForLostAccess(tx, context, { workUnitId: input.id });
@@ -1487,35 +1486,35 @@ const DISABLED_OWNER_LIST_SIZE = 50;
  */
 export async function listWorkWithDisabledOwner(database: AppDatabase, context: TenantContext) {
   if (!can(context.role, 'member.manage')) throw new AppError('FORBIDDEN');
-  const ownerDisabled = ne(memberships.status, 'active');
+  const ownedAndReadable = and(eq(memberships.status, 'disabled'), visibleTo(context));
   const newestFirst = desc(workUnits.updatedAt);
   return withTenantTx(database, context, async (tx) => {
     const visible = await tx
       .select({ id: workUnits.id, title: workUnits.title, status: workUnits.status })
       .from(workUnits)
       .innerJoin(memberships, eq(memberships.id, workUnits.ownerMembershipId))
-      .where(and(ownerDisabled, visibleTo(context)))
+      .where(ownedAndReadable)
       .orderBy(newestFirst)
       .limit(DISABLED_OWNER_LIST_SIZE);
-    const hidden = can(context.role, 'work.recover_owner')
-      ? await tx
-          .select({ id: workUnits.id, version: workUnits.version, status: workUnits.status })
-          .from(workUnits)
-          .innerJoin(memberships, eq(memberships.id, workUnits.ownerMembershipId))
-          .where(and(ownerDisabled, not(visibleTo(context) as SQL)))
-          .orderBy(newestFirst)
-          .limit(DISABLED_OWNER_LIST_SIZE)
-      : [];
-    return { visible, hidden };
+
+    if (!can(context.role, 'work.recover_owner')) return { visible, hidden: [] };
+
+    // Compute exclusions in the caller's normal RLS scope, including inherited and parent access.
+    const readableIds = tx
+      .select({ id: workUnits.id })
+      .from(workUnits)
+      .innerJoin(memberships, eq(memberships.id, workUnits.ownerMembershipId))
+      .where(ownedAndReadable);
+    const { rows } = await tx.execute<{ id: string; version: string; status: string }>(
+      sql`select id, version::text, status from work.list_disabled_owner_recovery(array(${readableIds}))`,
+    );
+    return { visible, hidden: rows.map((row) => ({ ...row, version: Number(row.version) })) };
   });
 }
 
 /**
- * The way back to work nobody can reach (WORK-03). Restricted work is closed to everyone but the people
- * on it, so when its owner is disabled nobody active can read, stop or reassign it, and its files can
- * never be deleted. An organization owner may name a new owner. That is all this does: it shows them
- * nothing, and it grants them nothing unless they name themselves, which goes on the record the same
- * way. Work whose owner is still here gives the same answer as work that does not exist.
+ * Repairs ownership without serving the Work body through the recovery path. The database
+ * admits the exact disabled-owner Work, names an active recipient, and records the change.
  */
 export async function recoverWorkOwner(
   database: AppDatabase,
@@ -1523,33 +1522,40 @@ export async function recoverWorkOwner(
   input: { id: string; expectedVersion: number; ownerMembershipId: string },
 ) {
   if (!can(context.role, 'work.recover_owner')) throw new AppError('FORBIDDEN');
-  return withTenantTx(database, context, async (tx) => {
-    const [current] = await tx
-      .select()
-      .from(workUnits)
-      .where(eq(workUnits.id, input.id))
-      .for('update');
-    if (!current) throw new AppError('NOT_FOUND');
-    const [owner] = await tx
-      .select({ status: memberships.status })
-      .from(memberships)
-      .where(eq(memberships.id, current.ownerMembershipId));
-    if (owner?.status === 'active') throw new AppError('NOT_FOUND');
-    const row = await moveOwner(tx, context, current, input, 'OWNER_DISABLED');
-    const otherOwners = await tx
-      .select({ id: memberships.id })
-      .from(memberships)
-      .where(and(eq(memberships.role, 'owner'), eq(memberships.status, 'active')));
-    // Not a link to the work, which most of them still may not open.
-    await notify(
-      tx,
-      context,
-      otherOwners.map(({ id }) => id),
-      'work.owner_recovered',
-      `membership:${input.ownerMembershipId}`,
-    );
-    return row;
-  });
+  const work = idSchema.safeParse(input.id);
+  const recipient = idSchema.safeParse(input.ownerMembershipId);
+  if (!work.success || !recipient.success || !Number.isSafeInteger(input.expectedVersion))
+    throw new AppError('INVALID_INPUT');
+  try {
+    await withTenantTx(database, context, async (tx) => {
+      const { rows } = await tx.execute<{ outcome: string }>(
+        sql`select work.recover_disabled_owner(${work.data}::uuid,${input.expectedVersion}::bigint,
+          ${recipient.data}::uuid) as outcome`,
+      );
+      const outcome = rows[0]?.outcome;
+      switch (outcome) {
+        case 'RECOVERED':
+          // The old owner was already disabled, so this cannot newly revoke their access.
+          // Preserve the normal review housekeeping where the caller can read the work.
+          await closeReviewsForLostAccess(tx, context, { workUnitId: work.data });
+          return;
+        case 'FOREIGN_REFERENCE':
+          throw foreignReference();
+        case 'FORBIDDEN':
+        case 'INVALID_INPUT':
+        case 'NOT_FOUND':
+        case 'TENANT_READ_ONLY':
+        case 'VERSION_CONFLICT':
+          throw new AppError(outcome);
+        default:
+          throw new AppError('INVALID_STATE');
+      }
+    });
+  } catch (error) {
+    if (pgCode(error) === '55P03') throw new AppError('TENANT_BUSY');
+    if (pgCode(error) === '25006') throw new AppError('TENANT_READ_ONLY');
+    throw error;
+  }
 }
 
 export function assignContributor(

@@ -190,9 +190,15 @@ async function stepFor(
     now,
   );
 }
+async function requireDeferredErasureClear(tx: Tx, offboardingId: string) {
+  const result = await tx.execute<{ ready: boolean }>(
+    sql`select lifecycle.deferred_erasure_clear(${offboardingId}::uuid) as ready`,
+  );
+  if (result.rows[0]?.ready !== true) throw new AppError('PREREQUISITES_INCOMPLETE');
+}
 async function contentTables(tx: Tx) {
   const result = await tx.execute(
-    sql`select n.nspname as schema_name,c.relname as table_name,has_table_privilege('ensemus_eraser',c.oid,'DELETE') as granted from pg_class c join pg_namespace n on n.oid=c.relnamespace join pg_attribute a on a.attrelid=c.oid and a.attname='organization_id' and not a.attisdropped where c.relkind in ('r','p') and not c.relispartition and n.nspname not like 'pg_%' and n.nspname<>'information_schema' and not lifecycle.retained_table(n.nspname::text,c.relname::text) order by n.nspname,c.relname`,
+    sql`select n.nspname as schema_name,c.relname as table_name,has_table_privilege('ensemus_eraser',c.oid,'DELETE') as granted from pg_class c join pg_namespace n on n.oid=c.relnamespace join pg_attribute a on a.attrelid=c.oid and a.attname='organization_id' and not a.attisdropped where c.relkind in ('r','p') and not c.relispartition and n.nspname not like 'pg_%' and n.nspname<>'information_schema' and not lifecycle.retained_table(n.nspname::text,c.relname::text) and not lifecycle.erasure_requires_empty(n.nspname::text,c.relname::text) order by n.nspname,c.relname`,
   );
   return result.rows.map((row) => {
     if (
@@ -659,6 +665,7 @@ export async function assertErasureAdmittedInTx(
   const pending = await effects(tx, context);
   if (pending.activeHolds) throw new AppError('LEGAL_HOLD_ACTIVE');
   if (pending.actions || pending.payments) throw new AppError('PREREQUISITES_INCOMPLETE');
+  await requireDeferredErasureClear(tx, id);
   return { row, finished: false };
 }
 
@@ -812,6 +819,7 @@ export async function finishErasure(
     throw new AppError('PREREQUISITES_INCOMPLETE');
   return withAccountTx(database, context, async (tx) => {
     const { row } = await locked(tx, context, id, true);
+    await requireDeferredErasureClear(tx, id);
     const physical = await tx.execute<{ ready: boolean }>(
       sql`select lifecycle.erasure_object_proofs(${id}::uuid) as ready`,
     );

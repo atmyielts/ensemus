@@ -250,7 +250,7 @@ describe('frozen archives beside unfinished modules', () => {
       from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname||'.'||c.relname=any($1::text[])`,
       [PENDING_PORTABILITY_TABLES],
     );
-    expect(rows).toHaveLength(30);
+    expect(rows.map((row) => row.name).sort()).toEqual([...PENDING_PORTABILITY_TABLES].sort());
     for (const row of rows) {
       expect(row.relrowsecurity && row.relforcerowsecurity).toBe(true);
       const tenantData = !['tenancy.deployment_profile', 'tenancy.isolation_evidence'].includes(
@@ -281,6 +281,11 @@ describe('frozen archives beside unfinished modules', () => {
       'meetings.provider_approvals',
       'meetings.settings',
       'meetings.summaries',
+      'skills.bundle_uploads',
+      'skills.package_versions',
+      'skills.packages',
+      'skills.test_runs',
+      'skills.trusted_signers',
       'tenancy.residency_requirements',
     ]);
     for (const url of [urls.auth(), urls.dispatcher()]) {

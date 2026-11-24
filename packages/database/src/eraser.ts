@@ -47,12 +47,12 @@ export function openEraserDatabase(url: string) {
 
 export type ErasedTable = { tableRef: string; rowsRemoved: number; rowsLeft: number };
 
-/** Every table this role reaches, as `schema.table`. Read from the catalog, so it cannot go stale. */
+// Every table this role reaches. The database separately proves absence for deferred modules.
 export async function listErasableTables(db: EnsemusDrizzle): Promise<readonly string[]> {
   return db.transaction(async (tx) => {
     await assertRole(tx);
     const result = await tx.execute(
-      sql`select n.nspname||'.'||c.relname as table_ref,has_table_privilege(current_user,c.oid,'DELETE') as granted from pg_class c join pg_namespace n on n.oid=c.relnamespace join pg_attribute a on a.attrelid=c.oid and a.attname='organization_id' and not a.attisdropped where c.relkind in ('r','p') and not c.relispartition and n.nspname not like 'pg_%' and n.nspname<>'information_schema' and not lifecycle.retained_table(n.nspname::text,c.relname::text) order by n.nspname,c.relname`,
+      sql`select n.nspname||'.'||c.relname as table_ref,has_table_privilege(current_user,c.oid,'DELETE') as granted from pg_class c join pg_namespace n on n.oid=c.relnamespace join pg_attribute a on a.attrelid=c.oid and a.attname='organization_id' and not a.attisdropped where c.relkind in ('r','p') and not c.relispartition and n.nspname not like 'pg_%' and n.nspname<>'information_schema' and not lifecycle.retained_table(n.nspname::text,c.relname::text) and not lifecycle.erasure_requires_empty(n.nspname::text,c.relname::text) order by n.nspname,c.relname`,
     );
     return result.rows.map((row) => {
       if (typeof row.table_ref !== 'string' || row.granted !== true)

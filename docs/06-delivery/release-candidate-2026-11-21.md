@@ -1390,6 +1390,19 @@ across reruns. Missing or ambiguous evidence retains the data and keeps verifica
 
 A generated tenant's attached bundle was erased from a separate local S3-compatible bucket.
 The native eraser then removed the three skill records and left the second tenant's bundle intact.
-This exercised the admitted module path. The complete operator command still stops on seven
-uncovered tables across federation, marketplace, and sandbox. Migration security review and
-restore requalification remain open.
+This exercised the admitted module path. Migration security review and restore requalification
+remain open.
+
+### Tenant erasure with unused expansion modules (LIFE-04)
+
+Migration 0771 separates the restricted deletion inventory from the tables that require an
+absence proof. Before delegated cleanup or initial erasure, the native application login must
+prove the tenant has no federation, marketplace, or sandbox rows, including counterparties and
+shared records. PostgreSQL fences new associations when a tenant is ready for erasure. The
+operator repeats the proof before reporting. Populated modules still require their own cleanup
+protocols. Physical deletion receipts and independent proofs for all other content still apply.
+
+The full migration journal through 0771 applied to a fresh PostgreSQL 18 database. All 15
+cases in the tenant and skill-bundle erasure suites passed under native roles. Cases included
+a complete tenant report, protection of other tenants, and refusal of a populated deferred
+module, a writer racing the tenant lock, and an unknown tenant table.

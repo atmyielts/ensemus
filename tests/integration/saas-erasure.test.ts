@@ -239,20 +239,102 @@ describe('restricted erasure independently verifies every tenant-content table',
     expect(await listTrustedSigners(database.db, other)).toHaveLength(1);
   });
 
-  it('classifies every tenant table as explicitly retained or actually reachable by the eraser role', async () => {
+  it('blocks a populated deferred module before any destructive step and refuses new rows after readiness', async () => {
+    const owner = await lifecycleTenant(database.db, auth);
+    const other = await lifecycleTenant(database.db, auth);
+    const registerFederationSettings = (tenant: typeof owner) =>
+      withAccountTx(database.db, tenant, (tx) =>
+        tx.execute(sql`
+          insert into federation.org_settings(organization_id, changed_by_membership_id)
+          values (${tenant.organizationId}::uuid, ${tenant.membershipId}::uuid)
+        `),
+      );
+
+    await withAccountTx(database.db, createServiceContext(other.organizationId), async (tx) => {
+      await tx.execute(sql`select id from org.organizations
+        where id=${other.organizationId}::uuid for no key update`);
+      await expect(registerFederationSettings(other)).rejects.toMatchObject({
+        cause: { code: '55P03' },
+      });
+    });
+
+    await registerFederationSettings(owner);
+    const ready = await readyToErase(database.db, owner);
+    const operatorRef = 'test-operator@example.invalid';
+    await expect(
+      beginErasure(database.db, ready.service, { ...ready, operatorRef }),
+    ).rejects.toMatchObject({ code: 'PREREQUISITES_INCOMPLETE' });
+    expect((await getOffboarding(database.db, owner))?.state).toBe('ready_for_erasure');
+
+    await expect(
+      withAccountTx(database.db, ready.service, (tx) =>
+        tx
+          .update(offboardings)
+          .set({
+            state: 'erasing',
+            erasureStartedAt: new Date(),
+            erasureStartedByRef: operatorRef,
+            version: sql`${offboardings.version}+1`,
+            updatedAt: new Date(),
+          })
+          .where(eq(offboardings.id, ready.offboardingId)),
+      ),
+    ).rejects.toMatchObject({
+      cause: { code: 'EN850', message: 'DEFERRED_ERASURE_CONTENT_PRESENT' },
+    });
+    expect((await getOffboarding(database.db, owner))?.state).toBe('ready_for_erasure');
+
+    const otherReady = await readyToErase(database.db, other);
+    await expect(registerFederationSettings(other)).rejects.toMatchObject({
+      cause: { code: 'EN850', message: 'TENANT_ERASURE_IN_PROGRESS' },
+    });
+    const webProof = await withAccountTx(database.db, other, (tx) =>
+      tx.execute(
+        sql`select lifecycle.deferred_erasure_clear(${otherReady.offboardingId}::uuid) as clear`,
+      ),
+    );
+    expect(webProof.rows).toEqual([{ clear: false }]);
+    await beginErasure(database.db, otherReady.service, { ...otherReady, operatorRef });
+    expect((await getOffboarding(database.db, other))?.state).toBe('erasing');
+  });
+
+  it('still refuses an unknown tenant table in the operator inventory', async () => {
+    const observer = new pg.Client({ connectionString: urls.superuser() });
+    await observer.connect();
+    const schema = `generated_erasure_inventory_${randomUUID().replaceAll('-', '')}`;
+    try {
+      await observer.query(`create schema ${schema}`);
+      try {
+        await observer.query(`create table ${schema}.unknown_content(organization_id uuid)`);
+        await expect(listErasableTables(eraser)).rejects.toThrow('ERASURE_GRANTS_INCOMPLETE');
+      } finally {
+        await observer.query(`drop table if exists ${schema}.unknown_content`);
+        await observer.query(`drop schema ${schema}`);
+      }
+    } finally {
+      await observer.end();
+    }
+  });
+
+  it('classifies all tenant tables as retained, absence-proved, or physically erasable', async () => {
     const rows = await asRole('ensemus_eraser', (client) =>
-      client.query<{ table_ref: string; retained: boolean; deletable: boolean }>(
-        `select n.nspname||'.'||c.relname as table_ref,lifecycle.retained_table(n.nspname::text,c.relname::text) as retained,has_table_privilege(current_user,c.oid,'DELETE') as deletable from pg_class c join pg_namespace n on n.oid=c.relnamespace join pg_attribute a on a.attrelid=c.oid and a.attname='organization_id' and not a.attisdropped where c.relkind in ('r','p') and not c.relispartition and n.nspname not like 'pg_%' and n.nspname<>'information_schema'`,
+      client.query<{
+        table_ref: string;
+        retained: boolean;
+        requires_empty: boolean;
+        deletable: boolean;
+      }>(
+        `select n.nspname||'.'||c.relname as table_ref,lifecycle.retained_table(n.nspname::text,c.relname::text) as retained,lifecycle.erasure_requires_empty(n.nspname::text,c.relname::text) as requires_empty,has_table_privilege(current_user,c.oid,'DELETE') as deletable from pg_class c join pg_namespace n on n.oid=c.relnamespace join pg_attribute a on a.attrelid=c.oid and a.attname='organization_id' and not a.attisdropped where c.relkind in ('r','p') and not c.relispartition and n.nspname not like 'pg_%' and n.nspname<>'information_schema'`,
       ),
     );
     expect(rows.rows.length).toBeGreaterThan(0);
     for (const row of rows.rows)
       expect(row.deletable, `${row.table_ref} classification and role grants disagree`).toBe(
-        !row.retained,
+        !row.retained && !row.requires_empty,
       );
     expect(await listErasableTables(eraser)).toEqual(
       rows.rows
-        .filter((row) => !row.retained)
+        .filter((row) => !row.retained && !row.requires_empty)
         .map((row) => row.table_ref)
         .sort(),
     );

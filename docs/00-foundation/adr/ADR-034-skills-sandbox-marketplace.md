@@ -29,7 +29,14 @@ attached bundles with current-generation write receipts under an admitted tenant
 exact canonical key is claimed, deleted once, and checked for physical absence. The restricted
 eraser removes test runs and versions before their upload records. The report counts proven
 deletions made under its intent. Older or ambiguous writes with insufficient proof remain
-blockers. Restore requalification and the complete tenant erasure inventory remain open.
+blockers. Restore requalification remains open.
+
+**Tenant erasure update, 2026-11-24.** Migration 0771 lets the native operator erase a tenant
+after PostgreSQL proves it has no federation, marketplace, or sandbox records. The proof includes
+both parties of federation records and the publisher or submission tenant of shared marketplace
+records. Writers and the operator take conflicting locks on the tenant so a record cannot
+appear after that proof. The verifier repeats the check before reporting erasure. Populated
+modules still require their own cleanup protocols.
 
 **Version release update, 2026-11-24.** A second workspace administrator can publish a verified
 version when the package is active and the catalog is enabled. Publication and withdrawal use
