@@ -205,7 +205,8 @@ describe('a link to a page this mode does not have', () => {
     expect(html).not.toContain('billing-and-invoices');
     expect(html).not.toContain('cloud-only');
     // Every one of the seven is still there to read, whether or not it can be followed.
-    expect(html.match(/Read this/g)).toHaveLength(7);
+    expect(html.match(/>Read this</g)).toHaveLength(7);
+    expect(html).toContain('aria-label="Table: Read this"');
     expect(html).toContain('href="/help/approvals"');
     expect(html).toContain('href="/help/home#y"');
     expect(html).toContain('href="#here"');

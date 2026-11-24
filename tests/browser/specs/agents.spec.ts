@@ -22,6 +22,7 @@ import {
 import { previousTotpFromUri } from '../../helpers/totp';
 import { expect, test } from '../support/fixtures';
 import { axeFindings, sidewaysOverflow, THEMES, WIDTHS } from '../support/look';
+import { alertIn } from '../support/notices';
 
 /** What a fresh organization's report has to carry. It has no policy document of its own yet. */
 const POLICY_VERSION = 'default';
@@ -82,9 +83,6 @@ function reportFor(spec: unknown) {
 const pretty = (value: unknown) => JSON.stringify(value, null, 2);
 const agentsPath = (organization: string) => `/o/${organization}/settings/agents`;
 const apiPath = (organization: string) => `/api/v1/organizations/${organization}/agent-versions`;
-
-/** A class and not the alert role: Next.js keeps an alert of its own on every page, for navigation. */
-const refusal = (page: Page) => page.locator('p.notice.error');
 
 /**
  * Turns on two-step sign-in for this person's session, through the security page's own forms, as an owner
@@ -198,7 +196,7 @@ test.describe('what publishing refuses', () => {
     const spec = testSpec({ tools: { allow: ['secrets.read'] } });
     await fillAndPublish(page, spec, reportFor(spec));
 
-    await expect(refusal(page)).toHaveText('This agent definition is not valid.');
+    await expect(alertIn(page)).toHaveText('This agent definition is not valid.');
     await expect(
       page.getByText('It allows a tool no agent may have', { exact: false }),
     ).toBeVisible();
@@ -213,7 +211,7 @@ test.describe('what publishing refuses', () => {
     const report = reportFor(testSpec({ version: 2 }));
     await fillAndPublish(page, testSpec(), report);
 
-    await expect(refusal(page)).toContainText('needs a passing evaluation');
+    await expect(alertIn(page)).toContainText('needs a passing evaluation');
     await expect(page.getByLabel('Evaluation report')).toHaveValue(pretty(report));
     await expect(page.getByText('No assistant has been published yet')).toBeVisible();
   });
@@ -227,7 +225,7 @@ test.describe('what publishing refuses', () => {
     await page.getByLabel('Agent manifest').fill('not json');
     await page.getByLabel('Evaluation report').fill('not json either');
     await page.getByRole('button', { name: 'Publish this version' }).click();
-    await expect(refusal(page)).toHaveText('This agent definition is not valid.');
+    await expect(alertIn(page)).toHaveText('This agent definition is not valid.');
     await expect(page.getByLabel('Agent manifest')).toHaveValue('not json');
   });
 });
@@ -320,7 +318,7 @@ test.describe('how it reads', () => {
     await scan('empty');
     const bad = testSpec({ tools: { allow: ['secrets.read'] } });
     await fillAndPublish(page, bad, reportFor(bad));
-    await expect(refusal(page)).toBeVisible();
+    await expect(alertIn(page)).toBeVisible();
     await scan('refused');
     const good = testSpec();
     await fillAndPublish(page, good, reportFor(good));
