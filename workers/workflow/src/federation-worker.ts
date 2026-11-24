@@ -10,6 +10,7 @@ import {
   loadFederationCopyState,
   loadGrantPartiesForWorker,
   observeFederationCopy,
+  prepareFederationSenderFile,
   loadItemGrantForWorker,
   recordItemReceived,
   removeWithdrawnItem,
@@ -58,6 +59,8 @@ async function main() {
       bridge: bridge.db,
       store,
       followUp: {
+        prepareSenderFile: (context, item) =>
+          prepareFederationSenderFile(app.db, store, context, item),
         loadFileCopy: (context, target) => loadFederationCopyState(app.db, context, target),
         claimFileCopy: (context, target) => claimFederationCopy(app.db, context, target),
         observeFileCopy: (context, target, proof) =>

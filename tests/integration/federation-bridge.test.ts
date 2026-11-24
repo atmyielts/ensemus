@@ -8,11 +8,15 @@ import {
   withTenantTx,
 } from '@ensemus/database';
 import {
+  addArtifact,
+  deleteArtifact,
   claimFederationCopy,
   createWorkUnit,
   disposeInboundItem,
   getInboundItem,
   listCrossings,
+  listFederationSourceFiles,
+  objectKey,
   listInboundItems,
   listOutboundItems,
   publishItem,
@@ -21,6 +25,7 @@ import {
   endGrant,
   loadFederationCopyState,
   observeFederationCopy,
+  prepareFederationSenderFile,
   removeWithdrawnItem,
   settleGrantEndForTenant,
   type ObjectStore,
@@ -460,6 +465,8 @@ describe('collaboration bridge transactions', () => {
       bridge: bridge.db,
       store,
       followUp: {
+        prepareSenderFile: (context, item) =>
+          prepareFederationSenderFile(worker.db, store, context, item),
         loadFileCopy: (context, target) => loadFederationCopyState(worker.db, context, target),
         claimFileCopy: (context, target) => claimFederationCopy(worker.db, context, target),
         observeFileCopy: (context, target, proof) =>
@@ -605,6 +612,193 @@ describe('collaboration bridge transactions', () => {
       code: 'FEDERATION_CLASSIFICATION_TOO_HIGH',
     });
     await expect(sendSummary(randomUUID())).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  async function publishGeneratedFile() {
+    const grant = await seedGrant(app.db, sharing(), receiving());
+    const { store, objects } = transferStore();
+    const bytes = Buffer.from('Generated artifact submitted for sharing');
+    const work = await createWorkUnit(app.db, sharing(), { title: 'Generated sender work' });
+    const artifact = await addArtifact(app.db, store, sharing(), {
+      workUnitId: work.id,
+      name: 'handover.txt',
+      mimeType: 'text/plain',
+      body: bytes,
+    });
+    const request = {
+      grantId: grant.id,
+      item: { kind: 'artifact' as const, artifact_id: artifact.id, title: 'Handover.txt' },
+      requestKey: randomUUID(),
+    };
+    await expect(listFederationSourceFiles(app.db, sharing(), grant.id)).resolves.toContainEqual({
+      id: artifact.id,
+      name: 'handover.txt',
+      classification: 'internal',
+    });
+    await expect(publishItem(app.db, store, receiving(), request)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+    const item = await publishItem(app.db, store, sharing(), request);
+    await expect(publishItem(app.db, store, sharing(), request)).resolves.toMatchObject({
+      id: item.id,
+    });
+    expect(item).toMatchObject({
+      classification: 'internal',
+      state: 'queued',
+      hasFile: true,
+      body: {},
+    });
+    expect(store.putSingleAttempt).not.toHaveBeenCalled();
+    return {
+      grant,
+      store,
+      objects,
+      bytes,
+      work,
+      artifact,
+      item,
+      original: objectKey(sharing().organizationId, artifact.id),
+      snapshot: outboundObjectKey(sharing().organizationId, item.id),
+      destination: inboundObjectKey(receiving().organizationId, item.id),
+      job: { organizationId: sharing().organizationId, itemId: item.id },
+    };
+  }
+
+  it('queues a readable ordinary artifact and recovers a lost sender PUT before delivering it once', async () => {
+    const f = await publishGeneratedFile();
+    const job = { ...f.job, grantId: f.grant.id };
+    await expect(
+      claimFederationCopy(worker.db, createServiceContext(sharing().organizationId), {
+        ...job,
+        receiverOrganizationId: receiving().organizationId,
+      }),
+    ).rejects.toMatchObject({ cause: { code: 'EN727' } });
+    await expect(
+      prepareFederationSenderFile(
+        app.db,
+        f.store,
+        createServiceContext(sharing().organizationId),
+        job,
+      ),
+    ).rejects.toMatchObject({ cause: { code: '42501' } });
+    expect(f.store.putSingleAttempt).not.toHaveBeenCalled();
+    const read = f.store.get.getMockImplementation()!;
+    f.store.get
+      .mockImplementationOnce(read)
+      .mockRejectedValueOnce(new Error('Generated lost GET response'));
+    f.store.putSingleAttempt.mockImplementationOnce(async (key, buffer) => {
+      f.objects.set(key, Buffer.from(buffer));
+      throw new Error('Generated lost sender response');
+    });
+    const flow = transport(f.store);
+    await expect(flow.deliverFederationItem(f.job)).rejects.toThrow(
+      'FEDERATION_SOURCE_UPLOAD_UNCONFIRMED',
+    );
+    expect(f.objects.get(f.snapshot)).toEqual(f.bytes);
+    expect(f.objects.has(f.destination)).toBe(false);
+    await expect(flow.deliverFederationItem(f.job)).resolves.toBe('delivered');
+    await expect(flow.deliverFederationItem(f.job)).resolves.toBe('delivered');
+    expect(f.store.putSingleAttempt.mock.calls).toEqual([
+      [f.snapshot, f.bytes, 'text/plain'],
+      [f.destination, f.bytes, 'text/plain'],
+    ]);
+    await expect(readInboundFile(app.db, f.store, receiving(), f.item.id)).resolves.toMatchObject({
+      body: f.bytes,
+      mimeType: 'text/plain',
+      title: 'Handover.txt',
+    });
+    await expect(
+      withdrawItem(app.db, sharing(), { itemId: f.item.id, expectedVersion: 2 }),
+    ).resolves.toMatchObject({
+      state: 'withdrawn',
+    });
+    await expect(flow.purgeFederationItem(f.job)).resolves.toEqual({ purged: 1, more: false });
+    expect(f.objects.has(f.snapshot)).toBe(false);
+    expect(f.objects.has(f.destination)).toBe(false);
+    expect(f.objects.get(f.original)).toEqual(f.bytes);
+  });
+
+  it('keeps an admitted sender upload until it is positively observed after grant revocation', async () => {
+    const f = await publishGeneratedFile();
+    let started!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    f.store.putSingleAttempt.mockImplementationOnce(async (key, bytes) => {
+      started();
+      await pending;
+      f.objects.set(key, Buffer.from(bytes));
+      return { transport: 'written' };
+    });
+    const flow = transport(f.store);
+    const delivery = flow.deliverFederationItem(f.job);
+    const ending = { organizationId: f.job.organizationId, grantId: f.grant.id };
+    try {
+      await Promise.race([
+        entered,
+        delivery.then(() => {
+          throw new Error('Delivery ended before the sender write');
+        }),
+      ]);
+      await endGrant(app.db, sharing(), {
+        grantId: f.grant.id,
+        reason: 'revoked',
+        expectedVersion: f.grant.version,
+      });
+      await expect(flow.settleFederationGrantEnd(ending)).rejects.toThrow(
+        'FEDERATION_SOURCE_UPLOAD_UNCONFIRMED',
+      );
+      expect(f.store.deleteForPurge).not.toHaveBeenCalled();
+    } finally {
+      finish();
+    }
+    await expect(delivery).resolves.toBe('closed');
+    await expect(flow.settleFederationGrantEnd(ending)).resolves.toBe(false);
+    expect(f.store.deleteForPurge.mock.calls).toEqual([[f.snapshot]]);
+    expect(f.objects.get(f.original)).toEqual(f.bytes);
+    expect(f.objects.has(f.destination)).toBe(false);
+  });
+
+  it('withdraws a queued artifact when its source is deleted and never starts a sender upload', async () => {
+    const f = await publishGeneratedFile();
+    await deleteArtifact(app.db, f.store, sharing(), {
+      workUnitId: f.work.id,
+      artifactId: f.artifact.id,
+    });
+    await expect(
+      listOutboundItems(app.db, sharing(), { grantId: f.grant.id }),
+    ).resolves.toContainEqual(expect.objectContaining({ id: f.item.id, state: 'withdrawn' }));
+    const flow = transport(f.store);
+    await expect(flow.deliverFederationItem(f.job)).resolves.toBe('withdrawn');
+    await expect(flow.purgeFederationItem(f.job)).resolves.toEqual({ purged: 0, more: false });
+    expect(f.store.putSingleAttempt).not.toHaveBeenCalled();
+    expect(f.store.deleteForPurge).not.toHaveBeenCalledWith(f.snapshot);
+    expect(f.store.deleteForPurge).not.toHaveBeenCalledWith(f.destination);
+  });
+
+  it('clears a refused file record when the source is deleted', async () => {
+    const f = await publishGeneratedFile();
+    f.objects.set(f.original, Buffer.from('Generated altered bytes'));
+    const flow = transport(f.store);
+    await expect(flow.deliverFederationItem(f.job)).resolves.toBe('refused');
+    await deleteArtifact(app.db, f.store, sharing(), {
+      workUnitId: f.work.id,
+      artifactId: f.artifact.id,
+    });
+    const events = await sql.query(
+      "select event_type from platform.domain_events where organization_id=$1 and aggregate_id=$2 and event_type='federation.item_withdrawn'",
+      [sharing().organizationId, f.item.id],
+    );
+    expect(events.rowCount).toBe(1);
+    await expect(flow.purgeFederationItem(f.job)).resolves.toEqual({ purged: 0, more: false });
+    await expect(listOutboundItems(app.db, sharing(), { grantId: f.grant.id })).resolves.toEqual(
+      [],
+    );
+    expect(f.store.putSingleAttempt).not.toHaveBeenCalled();
   });
 
   it('recovers after a completed PUT and DELETE with lost responses, without repeating either mutation', async () => {

@@ -10845,8 +10845,10 @@ paths:
     post:
       tags:
         - federation
-      summary: Queue a Work Summary or Status Update covered by the grant
-      description: Artifact publishing currently returns a conflict. Restricted data cannot be sent.
+      summary: Queue a work summary, status update, or file covered by the grant
+      description: >
+        Tenant and grant rules determine which sources and classifications can be shared. The
+        delivery worker verifies file bytes before making them available to the recipient.
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:

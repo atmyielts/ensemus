@@ -119,12 +119,15 @@ sender row until it can prove physical absence for every owned object. An admitt
 an unknown outcome keeps the reference available for recovery. If a delete loses its response,
 the worker checks physical absence without repeating that request.
 
-Workspace owners and admins can queue Work Summaries and Status Updates for an active grant.
+Workspace owners and admins can queue Work Summaries, Status Updates, and eligible Work files
+for an active grant. Publishing a file records a reference and expected checksum from the
+sender's artifact. The worker admits the sender snapshot before writing, and verifies that
+snapshot before admitting the receiver's copy. Source deletion and publication share an
+advisory lock, and a source delete withdraws queued and delivered copies in its transaction.
 The Shared items page shows arrivals, their decisions, and the sender's delivery and withdrawal
 states. Inbox notices resolve through the receiver's current grant before opening an item.
 File downloads repeat the grant check after verifying the bytes. The API lists crossing receipts
 with opaque pagination.
 
-Keep federation off on customer deployments until artifact publishing has durable upload
-admission, the operator's worker setup has been qualified with live Temporal and object storage,
-and outside security review is complete. Current qualification uses generated workspaces.
+Keep federation off on customer deployments until the operator's worker setup has been qualified
+with live Temporal and object storage and outside security review is complete. Current qualification uses generated workspaces.

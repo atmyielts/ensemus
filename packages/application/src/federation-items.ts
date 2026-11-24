@@ -1,7 +1,7 @@
 // Owned by the items slice (EXP-07). See docs/06-delivery/m11c-slices.md and ADR-035 D3 and D4. What is sent,
 // from a tenant's own rows, and what arrived, as that tenant sees it. Nothing here crosses anything: the
 // bridge worker carries a queued item later. Sending takes federation.share, and reading takes federation.view.
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   federationDispositionSchema,
   publishItemSchema,
@@ -9,6 +9,7 @@ import {
 } from '@ensemus/contracts/federation';
 import { canonicalJson } from '@ensemus/domain/approval';
 import {
+  artifacts,
   domainEvents,
   federationCrossings,
   federationGrants,
@@ -33,7 +34,7 @@ import {
   federationItemTargetRef,
   NOTIFY_FEDERATION_ITEM_RECEIVED,
 } from '@ensemus/domain/federation-events';
-import { and, asc, desc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lte, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { AppError } from './errors';
 import { emit } from './events';
@@ -44,12 +45,14 @@ import { requestHash, runIdempotent } from './idempotency';
 import {
   classificationAllowed,
   directionOf,
+  FEDERATION_CLASSIFICATIONS,
   FEDERATION_MAX_BODY_BYTES,
   FEDERATION_MAX_FILE_BYTES,
   inboundObjectKey,
   itemContentHash,
   kindAllowed,
   organizationFingerprint,
+  outboundObjectKey,
   type FederationClassification,
   type FederationCrossingOutcome,
   type FederationDisposition,
@@ -57,7 +60,8 @@ import {
   type FederationItemState,
   type FederationPurpose,
 } from '@ensemus/domain/federation';
-import type { ObjectStore } from './artifacts';
+import { objectKey, type ObjectStore } from './artifacts';
+import { lockFederationFileSource } from './federation-source-files';
 
 export type OutboundItemView = {
   id: string;
@@ -243,6 +247,10 @@ export async function publishItem(
           item.kind === 'work_summary'
             ? await loadReadable(tx, context, itemId(item.work_unit_id), true)
             : null;
+        const file =
+          item.kind === 'artifact'
+            ? await sourceArtifact(tx, context, itemId(item.artifact_id))
+            : null;
         await lockGrant(tx, grantId);
         const grant = await selectGrant(tx, context, grantId);
         if (!grant.open) throw new AppError('FEDERATION_GRANT_NOT_OPEN');
@@ -252,10 +260,10 @@ export async function publishItem(
           !kindAllowed(grant.row.purpose as FederationPurpose, direction, item.kind)
         )
           throw new AppError('FEDERATION_KIND_NOT_ALLOWED');
-        if (item.kind === 'artifact') throw new AppError('CAPABILITY_UNAVAILABLE');
-
         const classification =
-          work?.classification ?? (item.kind === 'status_update' ? item.classification : '');
+          file?.classification ??
+          work?.classification ??
+          (item.kind === 'status_update' ? item.classification : '');
         if (
           !classificationAllowed(
             grant.row.maxClassification as FederationClassification,
@@ -263,31 +271,46 @@ export async function publishItem(
           )
         )
           throw new AppError('FEDERATION_CLASSIFICATION_TOO_HIGH');
+        const body = item.kind === 'artifact' ? {} : item.body;
         if (
           item.title.includes('\0') ||
-          Object.values(item.body).some(
-            (value) => typeof value === 'string' && value.includes('\0'),
-          )
+          Object.values(body).some((value) => typeof value === 'string' && value.includes('\0'))
         )
           throw new AppError('INVALID_INPUT');
         const size = await tx.execute<{ size: number }>(
-          sql`select pg_column_size(${JSON.stringify(item.body)}::jsonb) as size`,
+          sql`select pg_column_size(${JSON.stringify(body)}::jsonb) as size`,
         );
         if ((size.rows[0]?.size ?? Infinity) > FEDERATION_MAX_BODY_BYTES)
           throw new AppError('INVALID_INPUT');
 
+        const id = randomUUID();
         const [row] = await tx
           .insert(federationOutboundItems)
           .values({
             organizationId: context.organizationId,
             grantId,
             kind: item.kind,
+            id,
             title: item.title,
-            body: item.body,
+            body,
             classification,
-            sourceType: work ? 'work_unit' : null,
-            sourceId: work?.id ?? null,
-            contentSha256: itemContentHash({ ...item, classification, fileSha256: null }),
+            sourceType: file ? 'artifact' : work ? 'work_unit' : null,
+            sourceId: file?.id ?? work?.id ?? null,
+            contentSha256: itemContentHash({
+              ...item,
+              body,
+              classification,
+              fileSha256: file?.sha256 ?? null,
+            }),
+            ...(file
+              ? {
+                  fileObjectKey: outboundObjectKey(context.organizationId, id),
+                  fileSha256: file.sha256,
+                  fileSizeBytes: file.sizeBytes,
+                  fileMimeType: file.mimeType,
+                  sourceUploadState: 'pending' as const,
+                }
+              : {}),
             createdByMembershipId: context.membershipId,
           })
           .returning();
@@ -310,6 +333,56 @@ export async function publishItem(
       .where(and(outboundScope(context, receipt.id), eq(federationOutboundItems.grantId, grantId)));
     if (!row) throw new AppError('NOT_FOUND');
     return outboundView(row);
+  });
+}
+
+async function sourceArtifact(tx: Tx, context: TenantContext, id: string) {
+  await lockFederationFileSource(tx, context.organizationId, id);
+  // The ordinary artifact RLS checks the requesting member, work link, provenance and tombstones.
+  const [file] = await tx
+    .select()
+    .from(artifacts)
+    .where(and(eq(artifacts.organizationId, context.organizationId), eq(artifacts.id, id)));
+  if (!file || file.objectKey !== objectKey(context.organizationId, id))
+    throw new AppError('NOT_FOUND');
+  if (file.sizeBytes > FEDERATION_MAX_FILE_BYTES) throw new AppError('FILE_TOO_LARGE');
+  return file;
+}
+
+/** Lists recent visible files that this grant accepts without exposing object keys or hashes. */
+export function listFederationSourceFiles(
+  database: AppDatabase,
+  context: TenantContext,
+  grantId: string,
+) {
+  return withTenantTx(database, context, async (tx) => {
+    await authorizeItems(tx, context, 'federation.share');
+    const grant = await selectGrant(tx, context, itemId(grantId));
+    const direction = directionOf(grant.row, context.organizationId);
+    if (
+      !grant.open ||
+      !direction ||
+      !kindAllowed(grant.row.purpose as FederationPurpose, direction, 'artifact')
+    )
+      return [];
+    const classes = FEDERATION_CLASSIFICATIONS.filter((classification) =>
+      classificationAllowed(
+        grant.row.maxClassification as FederationClassification,
+        classification,
+      ),
+    );
+    return tx
+      .select({ id: artifacts.id, name: artifacts.name, classification: artifacts.classification })
+      .from(artifacts)
+      .where(
+        and(
+          eq(artifacts.organizationId, context.organizationId),
+          inArray(artifacts.classification, classes),
+          lte(artifacts.sizeBytes, FEDERATION_MAX_FILE_BYTES),
+        ),
+      )
+      .orderBy(desc(artifacts.createdAt), desc(artifacts.id))
+      .limit(50);
   });
 }
 
@@ -383,12 +456,31 @@ export async function withdrawItemsForSourceInTx(
         eq(federationOutboundItems.organizationId, context.organizationId),
         eq(federationOutboundItems.sourceType, source.sourceType),
         eq(federationOutboundItems.sourceId, itemId(source.sourceId)),
-        inArray(federationOutboundItems.state, ['queued', 'delivered']),
+        inArray(federationOutboundItems.state, ['queued', 'delivered', 'refused']),
       ),
     )
     .orderBy(asc(federationOutboundItems.id))
     .for('no key update');
-  for (const row of rows) await withdrawInTx(tx, context, row);
+  for (const row of rows) {
+    if (row.state !== 'refused') {
+      await withdrawInTx(tx, context, row);
+      continue;
+    }
+    // Refused is terminal. Source removal still owes cleanup of its metadata and any sender bytes.
+    const [alreadyQueued] = await tx
+      .select({ id: domainEvents.id })
+      .from(domainEvents)
+      .where(
+        and(
+          eq(domainEvents.organizationId, context.organizationId),
+          eq(domainEvents.aggregateType, AGGREGATE_FEDERATION_ITEM),
+          eq(domainEvents.aggregateId, row.id),
+          eq(domainEvents.eventType, FEDERATION_ITEM_WITHDRAWN),
+        ),
+      )
+      .limit(1);
+    if (!alreadyQueued) await recordItemChange(tx, context, row, FEDERATION_ITEM_WITHDRAWN);
+  }
   return rows.length;
 }
 

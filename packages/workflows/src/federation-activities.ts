@@ -69,6 +69,9 @@ export function createFederationActivities({ bridge, followUp, store }: Federati
         throw new Error('FEDERATION_FILE_METADATA_INVALID');
       }
       if (item.fileSizeBytes > FEDERATION_MAX_FILE_BYTES) return refuse('FILE_TOO_LARGE');
+      const staged = await followUp.prepareSenderFile(sender, target);
+      if (staged === 'closed') return 'closed';
+      if (staged !== 'ready') return refuse(staged.refusal);
       let marker = await followUp.loadFileCopy(sender, target);
       if (marker === 'closed') return 'closed';
       if (marker === 'unclaimed') {
@@ -152,7 +155,8 @@ export function createFederationActivities({ bridge, followUp, store }: Federati
     async purgeFederationItem(input: FederationItemInput): Promise<FederationPurgePass> {
       const sender = createServiceContext(input.organizationId);
       const item = await followUp.loadItemGrant(sender, input.itemId);
-      if (item?.state !== 'withdrawn') return { purged: 0, more: false };
+      if (!item || (item.state !== 'withdrawn' && item.state !== 'refused'))
+        return { purged: 0, more: false };
       const reference = {
         grantId: item.grantId,
         senderOrganizationId: sender.organizationId,

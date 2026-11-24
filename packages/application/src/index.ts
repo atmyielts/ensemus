@@ -11,6 +11,7 @@ export * from './external-actions';
 export * from './federation';
 export { notifyFederationGrantAccepted } from './federation-notices';
 export * from './federation-items';
+export { prepareFederationSenderFile, type SenderFilePreparation } from './federation-source-files';
 export {
   claimFederationCopy,
   loadFederationCopyState,

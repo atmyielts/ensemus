@@ -87,8 +87,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-035-cross-org-tenants-regions.md",
-      "size_bytes": 26990,
-      "sha256": "77ecdcbf334a0e4719fbd1038811aa2ee70f0110661ce0bd62c43ffc8e160ee6"
+      "size_bytes": 27190,
+      "sha256": "c28dc84bb49ee0dcaaff5b2256d8d2e0a0a313edd831051b4fd7b6bcd5df32ca"
     },
     {
       "path": "00-foundation/adr/ADR-036-release-readiness.md",
@@ -177,8 +177,8 @@
     },
     {
       "path": "02-architecture/08-deployment-topologies.md",
-      "size_bytes": 10816,
-      "sha256": "d727e54228d9b10fca39e2428c14ac8ffea047422550c3022b73e29369345a82"
+      "size_bytes": 11128,
+      "sha256": "23c3142f54e110808d130cd669ec2770c1eabdb76e8f8d98b50fca6df5194bb5"
     },
     {
       "path": "02-architecture/09-performance-scaling.md",
@@ -1012,8 +1012,8 @@
     },
     {
       "path": "06-delivery/m11c-slices.md",
-      "size_bytes": 33422,
-      "sha256": "17b2689bc481225dc97b1c4c4314198e25d7fcc5047dbaa0eefcc08887f7cf8d"
+      "size_bytes": 33499,
+      "sha256": "c660432fc79de0f4057a1617328d2eed30405757bc8b5f3295dfbe7c176c27d2"
     },
     {
       "path": "06-delivery/m3-slices.md",
@@ -1687,8 +1687,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 564726,
-      "sha256": "47c3aca5686e089f03eb235038d1dbddc7e6768ba35b57b535d054324a10d970"
+      "size_bytes": 564838,
+      "sha256": "2d8590020acc46e5b40815cdde9187c408cd998034a6bf05dd88eec0976cbd7c"
     },
     {
       "path": "specifications/qa-scenarios.csv",

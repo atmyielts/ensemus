@@ -109,7 +109,7 @@ sequenceDiagram
 
 **What arrived is another company's words.** Inbound items sit in their own table, which nothing indexes, embeds or retrieves, and they are not offered to an agent as instructions. Accepting one starts nothing: it can only point at a Work Unit a person made. Taking them into knowledge or a context is a later, separate decision (`KNOW-*`, M5).
 
-**Files cannot be aimed.** A file's object key is a check constraint on the row, `federation/outbound/{organization}/{item}` and `federation/inbound/{organization}/{item}`, so no row can point the worker at another tenant's bytes. The worker verifies the hash after copying and refuses with a code if it differs.
+**Files cannot be aimed.** A file's object key is a check constraint on the row, `federation/outbound/{organization}/{item}` and `federation/inbound/{organization}/{item}`, so no row can point the worker at another tenant's bytes. The worker admits a durable sender snapshot and checks the hash before opening the receiver write. A receiver gets a copy only after its hash is verified. A mismatched source is refused with a code.
 
 **Temporal and the web tier.** Only IDs and enums cross Temporal: `{organizationId, itemId}` and `{organizationId, grantId}`. The dispatcher starts `federationDeliveryWorkflow` and `federationPurgeWorkflow` on the platform queue, and their Activities run on `FEDERATION_TASK_QUEUE`, polled only by the federation worker. With no worker, things wait and nothing crosses. The web tier writes its own tenant's rows and its outbox, as ever, with no new role and no path to Temporal.
 
@@ -121,7 +121,7 @@ Either party ends a grant, and that cannot be undone.
 
 1. **On commit:** `inbound_receiver_read` requires `federation.grant_is_open`, so nothing arrived can be read on any page, including an open one on its next request. The bridge's outbound read fails the same test, so nothing further crosses. This does not wait for any worker.
 2. **No race:** a crossing takes a shared advisory lock on the grant, and ending takes it exclusively. So a crossing either finishes before the end commits, and is purged, or sees the grant closed.
-3. **Afterwards:** `federation.grant_ended` starts `federationPurgeWorkflow`, which removes the inbound copies and their files in bounded passes until none are left. Then each side withdraws and deletes its outbound copies, and gets its notification and audit row. The row goes first and the bytes after, so a crash leaves a file nobody can reach, not a row pointing at nothing.
+3. **Afterwards:** `federation.grant_ended` starts `federationPurgeWorkflow`, which removes the inbound copies and their files in bounded passes until none are left. Then each side withdraws and deletes its outbound copies, and gets its notification and audit row. The inbound row goes first. The sender record stays until cleanup proves the owned keys are physically absent. If an admitted write is still uncertain, the sender record preserves that obligation.
 4. **The record:** `federation.crossings` holds what crossed and what was removed, with a hash and a kind and no content. Both parties can read it, and it is append-only for everyone. It and the grant are what stay. The grant holds each side's name and the note, kept as evidence of what was agreed, and whether that outlives a tenant's erasure is on the owner's list.
 
 **If the operator turns it all off,** every grant closes on commit, and the copies stay stored and unreadable until the worker has run the purges, so the worker is the last thing to stop.

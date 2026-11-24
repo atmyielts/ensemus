@@ -180,6 +180,7 @@ export const federationOutboundItems = federationSchema.table(
     copyVerified: boolean().notNull().default(false),
     inboundDeleteState: text().notNull().default('pending'),
     outboundDeleteState: text().notNull().default('pending'),
+    sourceUploadState: text().$type<'pending' | 'admitted' | 'verified'>(),
     version: bigint({ mode: 'number' }).notNull().default(1),
   },
   (t) => [
@@ -189,6 +190,10 @@ export const federationOutboundItems = federationSchema.table(
       columns: [t.organizationId, t.createdByMembershipId],
       foreignColumns: [memberships.organizationId, memberships.id],
     }),
+    check(
+      'outbound_items_source_upload_state',
+      sql`${t.sourceUploadState} is null or (${t.kind} = 'artifact' and ${t.sourceType} is not distinct from 'artifact' and ${t.sourceId} is not null and ${t.sourceUploadState} in ('pending','admitted','verified'))`,
+    ),
     unique('outbound_items_receiver_copy_key').on(t.copyReceiverOrganizationId, t.id),
     index('outbound_items_grant_idx').on(t.grantId, t.createdAt),
     index('outbound_items_source_idx').on(t.organizationId, t.sourceType, t.sourceId),

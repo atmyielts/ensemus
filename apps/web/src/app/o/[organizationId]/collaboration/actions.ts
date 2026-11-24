@@ -186,14 +186,16 @@ export async function updateSharedItem(org: string, grantId: string, form: FormD
               work_unit_id: form.get('workId'),
               body: { ...(note ? { objective: note } : {}) },
             }
-          : {
-              kind,
-              title,
-              classification: form.get('classification'),
-              body: { state: form.get('state'), ...(note ? { note } : {}) },
-            },
+          : kind === 'artifact'
+            ? { kind, title, artifact_id: form.get('artifactId') }
+            : {
+                kind,
+                title,
+                classification: form.get('classification'),
+                body: { state: form.get('state'), ...(note ? { note } : {}) },
+              },
       );
-      if (!item.success || item.data.kind === 'artifact') throw new AppError('INVALID_INPUT');
+      if (!item.success) throw new AppError('INVALID_INPUT');
       await publishItem(database, getStore(), context, {
         grantId: grant.data,
         item: item.data,

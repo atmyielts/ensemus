@@ -12,10 +12,11 @@ import {
   inboundObjectKey,
   outboundObjectKey,
 } from '@ensemus/domain/federation';
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import type { ObjectStore } from './artifacts';
 import { AppError } from './errors';
 import { idSchema } from './ids';
+import { verifyFederationSenderFile } from './federation-source-files';
 
 type CopyTarget = { itemId: string; grantId: string; receiverOrganizationId: string };
 type FileProof = { sha256: string; sizeBytes: number };
@@ -265,6 +266,7 @@ async function eraseOutbound(
 ) {
   if (item.fileObjectKey) {
     if (!receiverOrganizationId) throw new Error('FEDERATION_COPY_TARGET_MISMATCH');
+    await verifyFederationSenderFile(database, store, context, item);
     if (item.copyReceiverOrganizationId) {
       await verifyOutstandingCopy(database, store, context, item, receiverOrganizationId);
       await proveObjectGone(
@@ -280,14 +282,19 @@ async function eraseOutbound(
       if (item.deliveredAt) throw new Error('FEDERATION_LEGACY_COPY_UNPROVEN');
       await updateDeletion(database, context, item.id, 'inbound', 'pending', 'proved');
     }
-    await proveObjectGone(
-      database,
-      store,
-      context,
-      item.id,
-      'outbound',
-      outboundObjectKey(context.organizationId, item.id),
-    );
+    if (item.sourceUploadState === 'pending') {
+      // No sender write was admitted for this generated key.
+      await updateDeletion(database, context, item.id, 'outbound', 'pending', 'proved');
+    } else {
+      await proveObjectGone(
+        database,
+        store,
+        context,
+        item.id,
+        'outbound',
+        outboundObjectKey(context.organizationId, item.id),
+      );
+    }
   }
   await withTenantTx(database, context, (tx) =>
     tx
@@ -314,7 +321,10 @@ export async function removeWithdrawnItem(
       .select()
       .from(federationOutboundItems)
       .where(
-        and(itemIn(context.organizationId, id), eq(federationOutboundItems.state, 'withdrawn')),
+        and(
+          itemIn(context.organizationId, id),
+          inArray(federationOutboundItems.state, ['withdrawn', 'refused']),
+        ),
       );
     if (!item) return null;
     const grant = await ownGrant(tx, context.organizationId, item.grantId);

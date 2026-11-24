@@ -128,7 +128,9 @@ export async function crossItem(
       }
       if (
         item.fileObjectKey &&
-        (!item.copyVerified ||
+        (item.sourceUploadState === 'pending' ||
+          item.sourceUploadState === 'admitted' ||
+          !item.copyVerified ||
           item.copyReceiverOrganizationId !== receiverOrganizationId ||
           !input.verifiedFile ||
           input.verifiedFile.sha256 !== item.fileSha256 ||

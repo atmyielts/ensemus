@@ -4,6 +4,7 @@ import {
   getGrant,
   getFederationSettings,
   idSchema,
+  listFederationSourceFiles,
   listInboundItems,
   listOutboundItems,
   listWorkUnits,
@@ -24,6 +25,7 @@ import { Label } from '@/components/ui/label';
 import { NativeSelect } from '@/components/ui/native-select';
 import { requireTenant } from '@/server/tenant';
 import { updateSharedItem } from '../actions';
+import { ShareFileForm } from './share-file-form';
 
 export const metadata = { title: 'Shared items | Ensemus' };
 
@@ -103,10 +105,16 @@ export default async function SharedItemsPage({
     ? grant.terms.forward_kinds.includes('work_summary')
     : grant.terms.return_kinds.includes('status_update');
   const canSendText = canSend && settings.enabled && active && supportsText;
-  const [sent, received, work, feedback] = await Promise.all([
+  const canSendFile =
+    canSend &&
+    settings.enabled &&
+    active &&
+    (summary ? grant.terms.forward_kinds : grant.terms.return_kinds).includes('artifact');
+  const [sent, received, work, files, feedback] = await Promise.all([
     listOutboundItems(database, context, { grantId }),
     listInboundItems(database, context, { grantId }),
     canSendText && summary ? listWorkUnits(database, context) : null,
+    canSendFile ? listFederationSourceFiles(database, context, grantId) : [],
     searchParams,
   ]);
   const eligible =
@@ -219,6 +227,7 @@ export default async function SharedItemsPage({
           </form>
         </section>
       )}
+      {canSendFile && <ShareFileForm action={action} grantId={grant.id} files={files} />}
       <section className="card min-w-0" aria-labelledby="received-shared-items">
         <h2 id="received-shared-items">Received</h2>
         {received.length === 0 && (

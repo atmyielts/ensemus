@@ -1,5 +1,5 @@
 // What the federation worker hands its Activities (ADR-035 D2). Nothing here reaches the web tier (lint).
-import type { ObjectStore } from '@ensemus/application';
+import type { ObjectStore, SenderFilePreparation } from '@ensemus/application';
 import type { TenantContext } from '@ensemus/database';
 import type { BridgeDatabase } from '@ensemus/database/federation';
 
@@ -11,6 +11,10 @@ import type { BridgeDatabase } from '@ensemus/database/federation';
 type CopyTarget = { itemId: string; grantId: string; receiverOrganizationId: string };
 
 export interface FederationFollowUp {
+  prepareSenderFile(
+    context: TenantContext,
+    input: { itemId: string; grantId: string },
+  ): Promise<SenderFilePreparation>;
   loadFileCopy(
     context: TenantContext,
     target: CopyTarget,
@@ -52,6 +56,6 @@ export type FederationActivityDeps = {
   /** The one role that crosses. It sees one grant per transaction, and no business table. */
   bridge: BridgeDatabase;
   followUp: FederationFollowUp;
-  /** The application's own credential, used only for the two derived prefixes under `federation/`. */
+  /** The application's own credential, used for the authorized sender artifact and derived federation copies. */
   store: ObjectStore;
 };
