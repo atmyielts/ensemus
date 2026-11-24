@@ -2428,7 +2428,7 @@
   .guide pre code {
     font-size: inherit;
   }
-  /* The cells wrap instead of the table scrolling, so no table needs a tab stop of its own to be read. */
+  /* Wrap cells to keep guide tables readable before horizontal scrolling is needed. */
   .guide table {
     margin: 0 0 0.75rem;
   }

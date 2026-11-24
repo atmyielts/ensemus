@@ -24,6 +24,7 @@ import { getTableConfig, PgDialect, type PgTable } from 'drizzle-orm/pg-core';
 import type { SQL } from 'drizzle-orm';
 import {
   EXPORT_MANIFEST_PATH,
+  isJoinedPortabilityVersion,
   MAX_RECORD_BYTES,
   recordPartPath,
   PORTABILITY_INVENTORY,
@@ -627,8 +628,9 @@ function fakeDatabase(row: Record<string, unknown>) {
           ],
         };
       }
-      // This scripted parser fixture contains no M11 rows. Native RLS/epoch admission is tested separately.
-      if (text.includes('sovereign.pending_modules_empty()')) return { rows: [{ empty: true }] };
+      // This parser fixture contains no expansion rows. Native admission is tested separately.
+      if (text.includes('sovereign.portable_profile_clear('))
+        return { rows: [{ empty: isJoinedPortabilityVersion(params[0]) }] };
       if (text.includes('to_regclass'))
         return { rows: PORTABILITY_INVENTORY.map((entry) => ({ table_name: entry.table })) };
       if (text.includes('pg_catalog.pg_tables'))

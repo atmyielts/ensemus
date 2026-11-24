@@ -87,7 +87,7 @@ test.describe('the next person in the same tab', () => {
     await page.goto('/sign-in');
     await markDocument(page);
     await signIn(page, first);
-    await expect(page.getByRole('heading', { name: /^Hello/ })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'My work' })).toBeVisible();
 
     await page.getByRole('button', { name: 'Sign out' }).click();
     await expect(page.getByRole('heading', { name: 'Sign in to Ensemus' })).toBeVisible();

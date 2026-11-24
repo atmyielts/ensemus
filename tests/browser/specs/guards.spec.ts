@@ -50,7 +50,12 @@ test('the signed-in session carries over from the seeded person', async ({ open,
   const page = await open(world.bob);
   await page.goto(`/o/${world.organization}`);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('My work');
-  await expect(page.getByRole('link', { name: world.bob.name, exact: true })).toBeVisible();
+  const account = page.getByRole('link', {
+    name: `${world.bob.name} ${world.bob.email}`,
+    exact: true,
+  });
+  await expect(account).toBeVisible();
+  await expect(account).toHaveAttribute('href', `/o/${world.organization}/security`);
 });
 
 test('a missing page inside an organization keeps the navigation, and answers 404', async ({

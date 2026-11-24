@@ -66,9 +66,10 @@ function Block({ block, heading }: { block: GuideBlock; heading: GuideHeading | 
           <code>{block.text}</code>
         </pre>
       );
-    case 'table':
+    case 'table': {
+      const columns = block.head.map((cell) => cell.map((part) => part.v).join('')).join(', ');
       return (
-        <Table>
+        <Table scrollLabel={columns ? `Table: ${columns}` : 'Table'}>
           <TableHeader>
             <TableRow>
               {block.head.map((cell, index) => (
@@ -91,6 +92,7 @@ function Block({ block, heading }: { block: GuideBlock; heading: GuideHeading | 
           </TableBody>
         </Table>
       );
+    }
   }
 }
 

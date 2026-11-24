@@ -1,7 +1,12 @@
-// AGENT-01, AGENT-16: publishing an agent from the settings page, as a person does it. Written and
-// typechecked. It has not been run yet, because it needs the built images behind the proxy.
+// AGENT-01, AGENT-16: publishing an agent from the settings page, as a person does it.
 import { createHash, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import type { Page } from '@playwright/test';
+import { evaluationSigner } from '../../../packages/application/src/ai/evaluation-attestation';
+import {
+  reportV2,
+  signedReport,
+} from '../../../packages/application/src/ai/evaluation-attestation.test-support';
 import {
   assembled,
   BASE,
@@ -64,20 +69,14 @@ function canonical(value: unknown): string {
 
 const specHash = (spec: unknown) => createHash('sha256').update(canonical(spec)).digest('hex');
 
-function reportFor(spec: unknown, overrides: Record<string, unknown> = {}) {
-  return {
-    report_version: 1,
-    spec_sha256: specHash(spec),
-    policy_version: POLICY_VERSION,
-    suite_ref: 'evaluations/agents/work-brief',
-    dataset_version: 'synthetic-1',
-    model_label: 'scripted',
-    pass_rate: 1,
-    cases: 3,
-    passed: true,
-    scripted_model: true,
-    ...overrides,
-  };
+function reportFor(spec: unknown) {
+  // The assembled test stack generates this signer and supplies only its public key to web.
+  const keyFolder = new URL('../../../.local/evaluation-test/', import.meta.url);
+  const signer = evaluationSigner({
+    keyId: readFileSync(new URL('signing-key.id', keyFolder), 'utf8').trim(),
+    privateKeyPem: readFileSync(new URL('signing-key.pem', keyFolder), 'utf8'),
+  });
+  return signedReport(reportV2(specHash(spec), POLICY_VERSION), signer);
 }
 
 const pretty = (value: unknown) => JSON.stringify(value, null, 2);

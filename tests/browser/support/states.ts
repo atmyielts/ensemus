@@ -454,7 +454,7 @@ export const STATES: PageState[] = [
     name: 'invitation-signed-out',
     who: () => null,
     path: (w) => `/invite/${w.inviteToken}`,
-    shows: headed('You have been invited', 'Sign in with the email address'),
+    shows: headed('You have been invited', 'Use the email address your inviter gave you'),
   },
   {
     name: 'invitation-signed-in',

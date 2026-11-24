@@ -80,20 +80,12 @@ export default async function ApprovalsPage({
             <ul className="activity-rows" role="list">
               {pending.map((approval, index) => {
                 const who = askedBy(index);
-                const id = `approval-${approval.id}`;
                 return (
                   <li key={approval.id}>
-                    <Link
-                      className="activity-row"
-                      href={`${base}/approvals/${approval.id}`}
-                      aria-labelledby={`${id}-title`}
-                      aria-describedby={`${id}-source ${id}-deadline`}
-                    >
+                    <Link className="activity-row" href={`${base}/approvals/${approval.id}`}>
                       <span className="activity-subject">
-                        <span className="activity-title" id={`${id}-title`}>
-                          {approval.workTitle}
-                        </span>
-                        <small id={`${id}-source`}>
+                        <span className="activity-title">{approval.workTitle}</span>
+                        <small>
                           {TOOL_WORDS[approval.toolName] ?? 'A proposed action'}
                           {' · '}
                           {approval.toolName === 'work.review'
@@ -102,9 +94,7 @@ export default async function ApprovalsPage({
                         </small>
                       </span>
                       <span className="activity-meta">
-                        <small id={`${id}-deadline`}>
-                          Decide by {formatDateTime(approval.expiresAt)}
-                        </small>
+                        <small>Decide by {formatDateTime(approval.expiresAt)}</small>
                         <StatusBadge status="pending" />
                       </span>
                       <ChevronRightIcon className="activity-chevron" aria-hidden="true" />
