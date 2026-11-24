@@ -94,6 +94,10 @@ export function ResidencyRequirements({
           <form action={action} className="mt-3 grid min-w-0 max-w-sm gap-3">
             <input type="hidden" name="operation" value="set" />
             <input type="hidden" name="region" value={homeRegion} />
+            <p className="m-0 text-sm text-muted-foreground">
+              Required region{' '}
+              <span className="wrap-anywhere font-medium text-foreground">{homeRegion}</span>
+            </p>
             <Label>
               Data scope
               <NativeSelect name="selection" required>
@@ -108,7 +112,7 @@ export function ResidencyRequirements({
               </NativeSelect>
             </Label>
             <div>
-              <SubmitButton working="Saving requirement">Require {homeRegion}</SubmitButton>
+              <SubmitButton working="Saving requirement">Save requirement</SubmitButton>
             </div>
           </form>
         )}
