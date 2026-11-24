@@ -5,24 +5,20 @@ import { createAgentDraft } from '@ensemus/application/agent-drafts';
 import { createRuntimeProductPorts } from '@ensemus/application/product-runtime';
 import { requestSimulation, runSimulationStep } from '@ensemus/application/simulations';
 import { requestPublishReview, decidePublishReview } from '@ensemus/application/publish-reviews';
-import { getAgentPolicyVersion } from '@ensemus/application/ai-agents';
 import { openAppDatabase, withTenantTx, agentVersions } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
-import { STUDIO_SUITE_REF } from '@ensemus/domain/agent-draft';
-import {
-  reportV2,
-  signedReport,
-} from '../../packages/application/src/ai/evaluation-attestation.test-support';
 import { BASE, createOrganization, signUp, read, type Person } from '../helpers/forms';
 import { nativePersonContext, proveSecondFactor, testAnswers } from '../helpers/product';
-import { stackEvaluationSigner } from '../helpers/ai/evaluation';
+import { signedStudioStackReport } from '../helpers/ai/evaluation';
 import { contractProblems } from '../helpers/openapi';
 import { urls } from '../helpers/stack';
 
 describe('independent Studio evaluation through the actual HTTP route', () => {
   let worker: ReturnType<typeof openAppDatabase>;
   let database: ReturnType<typeof openAppDatabase>, owner: Person, outsider: Person;
-  let organization: string, reviewId: string, signed: ReturnType<typeof signedReport>;
+  let organization: string,
+    reviewId: string,
+    signed: Awaited<ReturnType<typeof signedStudioStackReport>>;
   let context: Awaited<ReturnType<typeof nativePersonContext>>;
   beforeAll(async () => {
     database = openAppDatabase(urls.app());
@@ -60,12 +56,7 @@ describe('independent Studio evaluation through the actual HTTP route', () => {
       { reviewId: review.id, expectedVersion: 1, decision: 'approved' },
     );
     reviewId = review.id;
-    signed = signedReport(
-      reportV2(draft.specSha256!, await getAgentPolicyVersion(database.db, context), {
-        suite_ref: STUDIO_SUITE_REF,
-      }),
-      stackEvaluationSigner(),
-    );
+    signed = await signedStudioStackReport(database.db, context, draft.specSha256!);
   });
   afterAll(async () => {
     await database?.close();

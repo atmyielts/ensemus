@@ -5,8 +5,10 @@
 import { readFileSync } from 'node:fs';
 import { join as joinPath } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { agentSpecSha256 } from '@ensemus/application/ai-agents';
+import { agentSpecSha256, getAgentPolicyVersion } from '@ensemus/application/ai-agents';
 import { agentSpecV1Schema, type EvaluationReportV2 } from '@ensemus/contracts/ai';
+import type { AppDatabase, TenantContext } from '@ensemus/database';
+import { STUDIO_SUITE_REF } from '@ensemus/domain/agent-draft';
 import { evaluationSigner } from '../../../packages/application/src/ai/evaluation-attestation';
 import {
   reportV2,
@@ -44,4 +46,17 @@ export function stackEvaluationSigner() {
     keyId: readFileSync(joinPath(folder, 'signing-key.id'), 'utf8').trim(),
     privateKeyPem: readFileSync(joinPath(folder, 'signing-key.pem'), 'utf8'),
   });
+}
+
+export async function signedStudioStackReport(
+  database: AppDatabase,
+  context: TenantContext,
+  specSha256: string,
+) {
+  return signedReport(
+    reportV2(specSha256, await getAgentPolicyVersion(database, context), {
+      suite_ref: STUDIO_SUITE_REF,
+    }),
+    stackEvaluationSigner(),
+  );
 }

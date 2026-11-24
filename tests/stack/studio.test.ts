@@ -2,21 +2,12 @@
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import {
-  BASE,
-  PASSWORD,
-  assembled,
-  formsIn,
-  post,
-  createOrganization,
-  join,
-  signUp,
-  submit,
-  type Person,
-} from '../helpers/forms';
+import { openAppDatabase } from '@ensemus/database';
+import { BASE, createOrganization, join, signUp, type Person } from '../helpers/forms';
+import { signedStudioStackReport } from '../helpers/ai/evaluation';
+import { enrollAuthenticator, nativeStackContext } from '../helpers/native-mfa';
 import { contractProblems, operationName, operations } from '../helpers/openapi';
 import { testAnswers } from '../helpers/product';
-import { totpFromUri } from '../helpers/totp';
 import { urls } from '../helpers/stack';
 
 describe('Studio actual HTTP contracts and synthetic rehearsal', () => {
@@ -124,22 +115,7 @@ describe('Studio actual HTTP contracts and synthetic rehearsal', () => {
       { 'if-match': first.headers.get('etag')! },
     );
     expect(patched.status).toBe(200);
-    // A real authenticator enrollment; no SQL proof or copied session UUID authorizes publication.
-    const security = `/o/${org}/security/two-factor`,
-      prepared = await submit(security, owner.jar, /Set up authenticator app/, {
-        password: PASSWORD,
-      }),
-      setupHtml = assembled(await prepared.text()),
-      uri = /href="(otpauth:\/\/[^"]+)"/.exec(setupHtml)?.[1]?.replaceAll('&amp;', '&');
-    if (!uri) throw new Error('TEST_STUDIO_NATIVE_MFA_SETUP_MISSING');
-    const confirmation = formsIn(setupHtml).filter((form) => /Confirm and turn on/.test(form.html));
-    expect(confirmation).toHaveLength(1);
-    const confirmed = await post(security, owner.jar, confirmation[0]!, {
-      kind: 'totp',
-      code: totpFromUri(uri, Date.now() - 30000),
-    });
-    expect(confirmed.status).toBe(303);
-    expect(confirmed.headers.get('location')).toBe(`/o/${org}/security?notice=enrolled`);
+    await enrollAuthenticator(owner, org);
     const process = await call(
         owner,
         'POST',
@@ -246,8 +222,24 @@ describe('Studio actual HTTP contracts and synthetic rehearsal', () => {
         { 'if-match': review.headers.get('etag')!, 'idempotency-key': randomUUID() },
       );
       expect(approved.status).toBe(200);
+      let publicationBody:
+        { evaluation_report: Awaited<ReturnType<typeof signedStudioStackReport>> } | undefined;
+      if (kind === 'agent_draft') {
+        const specSha256 = queued.body?.subject_sha256;
+        if (typeof specSha256 !== 'string' || specSha256 !== patched.body?.spec_sha256)
+          throw new Error('TEST_STUDIO_EVALUATION_SUBJECT_CHANGED');
+        const database = openAppDatabase(urls.app());
+        try {
+          const context = await nativeStackContext(database.db, owner, org);
+          publicationBody = {
+            evaluation_report: await signedStudioStackReport(database.db, context, specSha256),
+          };
+        } finally {
+          await database.close();
+        }
+      }
       const publishKey = randomUUID(),
-        published = await call(owner, 'POST', `${reviewPath}/publication`, undefined, {
+        published = await call(owner, 'POST', `${reviewPath}/publication`, publicationBody, {
           'if-match': approved.headers.get('etag')!,
           'idempotency-key': publishKey,
         });
@@ -256,14 +248,14 @@ describe('Studio actual HTTP contracts and synthetic rehearsal', () => {
       expect(published.body?.status).toBe('published');
       expect(published.body?.id).toBe(review.body?.id);
       expect(typeof published.body?.published_ref).toBe('string');
-      const replayed = await call(owner, 'POST', `${reviewPath}/publication`, undefined, {
+      const replayed = await call(owner, 'POST', `${reviewPath}/publication`, publicationBody, {
         'if-match': approved.headers.get('etag')!,
         'idempotency-key': publishKey,
       });
       expect(replayed.status).toBe(200);
       expect(replayed.body?.published_ref).toBe(published.body?.published_ref);
       // The same key for a different precondition is a different request and is refused.
-      const reused = await call(owner, 'POST', `${reviewPath}/publication`, undefined, {
+      const reused = await call(owner, 'POST', `${reviewPath}/publication`, publicationBody, {
         'if-match': published.headers.get('etag')!,
         'idempotency-key': publishKey,
       });
