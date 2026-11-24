@@ -1,3 +1,4 @@
+import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { NativeSelect } from '@/components/ui/native-select';
@@ -78,7 +79,6 @@ export default async function WorkPage({
     <>
       <PageHead
         title="Work"
-        description="Everything you can see, newest first. Open a piece of work to move it along."
         actions={<ActionLink href={`${base}/work/new`}>New work</ActionLink>}
       />
       <ErrorNotice code={notice} />
@@ -90,22 +90,32 @@ export default async function WorkPage({
       )}
       {/* With nothing here at all, a filter only gets in the way of the first step. */}
       {(items.length > 0 || filter || projectId) && (
-        <form className="inline-form filter" method="get">
+        <form
+          className="mb-2 flex min-w-0 items-center gap-2 border-y py-2"
+          method="get"
+          aria-label="Filter work"
+        >
           {projectId && <input type="hidden" name="project" value={projectId} />}
-          <Label>
+          <Label htmlFor="work-status" className="text-muted-foreground">
             Status
-            <NativeSelect name="status" defaultValue={filter ?? ''}>
-              <option value="">All</option>
-              {WORK_STATES.map((state) => (
-                <option key={state} value={state}>
-                  {LABELS[state]}
-                </option>
-              ))}
-            </NativeSelect>
           </Label>
-          <button className="secondary" type="submit">
+          <NativeSelect
+            id="work-status"
+            name="status"
+            controlSize="sm"
+            className="w-40 min-w-0 max-md:[&_select]:min-h-11"
+            defaultValue={filter ?? ''}
+          >
+            <option value="">All statuses</option>
+            {WORK_STATES.map((state) => (
+              <option key={state} value={state}>
+                {LABELS[state]}
+              </option>
+            ))}
+          </NativeSelect>
+          <Button className="shrink-0 max-md:min-h-11" variant="outline" size="sm" type="submit">
             Filter
-          </button>
+          </Button>
         </form>
       )}
       {items.length === 0 ? (
@@ -134,7 +144,7 @@ export default async function WorkPage({
         )
       ) : (
         <Card asChild>
-          <div className="card table-wrap">
+          <div className="card table-wrap work-overview-table">
             {/* The roles keep this a table for a screen reader when a small screen stacks its rows. */}
             <Table className="work-table [&_td]:p-[var(--work-cell-padding)]" role="table">
               <TableHeader role="rowgroup">
