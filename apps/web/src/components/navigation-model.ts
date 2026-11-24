@@ -148,6 +148,11 @@ export function isNavigationCurrent(item: NavItem, pathname: string) {
   );
 }
 
+export function navigationCurrentState(item: NavItem, pathname: string) {
+  if (!isNavigationCurrent(item, pathname)) return undefined;
+  return pathname === item.href ? 'page' : 'location';
+}
+
 export function workspaceNavigation(input: {
   base: string;
   role: string;

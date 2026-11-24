@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   currentNavigation,
   isNavigationCurrent,
+  navigationCurrentState,
   visibleSettings,
   workspaceNavigation,
 } from '../../apps/web/src/components/navigation-model';
@@ -12,6 +13,17 @@ const base = '/o/00000000-0000-4000-8000-000000000001';
 const navigation = (role: string) => workspaceNavigation({ base, role, unread: 3, pending: 2 });
 
 describe('working workspace navigation', () => {
+  it('announces the exact destination as the current page and related pages as a location', () => {
+    const work = navigation('owner')
+      .flatMap((group) => group.items)
+      .find((item) => item.href === `${base}/work`);
+    expect(work).toBeDefined();
+    expect(navigationCurrentState(work!, `${base}/work`)).toBe('page');
+    expect(navigationCurrentState(work!, `${base}/work/a`)).toBe('location');
+    expect(navigationCurrentState(work!, `${base}/compose`)).toBe('location');
+    expect(navigationCurrentState(work!, `${base}/inbox`)).toBeUndefined();
+  });
+
   it('groups routine work, the builder and administration without future or dead destinations', () => {
     const groups = navigation('owner');
     expect(groups.map((group) => group.label)).toEqual([

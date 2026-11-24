@@ -2,7 +2,7 @@
 // JavaScript off, against built images.
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createWork, locationOf, move, sectionOf, workPage } from '../helpers/flows';
+import { createWork, locationOf, mainOf, move, sectionOf, workPage } from '../helpers/flows';
 import {
   createOrganization,
   type Form,
@@ -124,10 +124,10 @@ describe('what forms and pages do', () => {
     for (let i = 0; i < 13; i += 1) {
       await createWork(person, org, { title: `Late ${i} ${randomUUID()}`, dueAt: '2020-01-02' });
     }
-    const mine = sectionOf((await read(`/o/${org}`, person.jar)).html, 'mine-heading');
+    const mine = mainOf((await read(`/o/${org}`, person.jar)).html);
     expect(mine).not.toContain('Everything you are on is listed above');
-    expect(mine).toContain('there is more');
-    expect(mine).toContain(`href="/o/${org}/work"`);
+    expect(mine).toContain('More work is available.');
+    expect(mine).toMatch(new RegExp(`<a[^>]*href="/o/${org}/work"[^>]*>Open all work</a>`));
   });
 
   describe('the sentence about a plan', () => {

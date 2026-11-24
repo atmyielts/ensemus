@@ -18,6 +18,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import {
   currentNavigation,
   isNavigationCurrent,
+  navigationCurrentState,
   pendingDestination,
   pendingDestinationText,
   type NavGroup,
@@ -76,12 +77,12 @@ function NavigationLink({
   pathname: string;
   child?: boolean;
 }) {
-  const current = isNavigationCurrent(item, pathname);
+  const current = navigationCurrentState(item, pathname);
   const { hydrated, open, isMobile } = useSidebar();
   return (
     <SidebarMenuButton
       asChild
-      isActive={current}
+      isActive={Boolean(current)}
       className="h-auto min-h-8 w-full whitespace-normal font-normal"
     >
       <Link
@@ -105,13 +106,7 @@ function NavigationLink({
             menu.querySelector('summary')?.focus();
           }
         }}
-        aria-current={
-          current
-            ? !child && (item.children || pathname !== item.href)
-              ? 'location'
-              : 'page'
-            : undefined
-        }
+        aria-current={current}
       >
         {!child && <NavigationIcon name={item.icon} />}
         <span className="nav-label">{item.label}</span>
@@ -175,7 +170,7 @@ export function MobileWorkspaceNavigation({
         {shortcuts.map((icon) => {
           const item = items.find((entry) => entry.icon === icon);
           if (!item) return null;
-          const current = isNavigationCurrent(item, pathname);
+          const current = navigationCurrentState(item, pathname);
           return (
             <Button
               asChild
@@ -183,10 +178,7 @@ export function MobileWorkspaceNavigation({
               className="mobile-destination text-[11px] text-muted-foreground"
               key={item.href}
             >
-              <Link
-                href={item.href}
-                aria-current={current ? (pathname === item.href ? 'page' : 'location') : undefined}
-              >
+              <Link href={item.href} aria-current={current}>
                 <span className="mobile-destination-icon">
                   <NavigationIcon name={item.icon} />
                   {item.count ? (

@@ -417,10 +417,14 @@ describe('what the pages say', () => {
       expect(top).toContain('>New<');
     });
 
-    it('says nothing goes out by email yet', async () => {
-      expect((await read(`/o/${org}/inbox`, reviewer.jar)).html).toContain(
-        'nothing is sent by email yet',
-      );
+    it('links to email settings and explains when mail delivery is unavailable', async () => {
+      const destination = `/o/${org}/notifications`;
+      const inbox = mainOf((await read(`/o/${org}/inbox`, reviewer.jar)).html);
+      expect(inbox).toMatch(new RegExp(`<a[^>]*href="${destination}"[^>]*>Email settings</a>`));
+      const settings = await read(destination, reviewer.jar);
+      expect(settings.status).toBe(200);
+      if (process.env.ENSEMUS_MAIL_ENABLED !== 'true')
+        expect(mainOf(settings.html)).toContain('Email isn’t set up here yet');
     });
   });
 });

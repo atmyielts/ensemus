@@ -696,8 +696,7 @@ describe('the product through its forms', () => {
           .replace(/\s+/g, ' ')
           .trim(),
       }));
-      // Work is a group in the one navigation model (navigation-model.ts); its list is "All work".
-      expect(currentLinks).toContainEqual({ href: `/o/${org}/work`, label: 'All work' });
+      expect(currentLinks).toContainEqual({ href: `/o/${org}/work`, label: 'Work' });
     });
 
     it('does not offer switching organization to someone with only one', async () => {

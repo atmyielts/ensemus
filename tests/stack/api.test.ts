@@ -1130,7 +1130,7 @@ describe('public API', () => {
       const stream = await follow(person.jar, events(org, work.id));
       await expect.poll(() => lastId(stream), POLL).toBe('1');
       const cookie = person.jar.cookie;
-      const out = await submit(`/o/${org}`, person.jar, />Sign out</);
+      const out = await submit(`/o/${org}`, person.jar, /aria-label="Sign out"/);
       expect(out.status).toBe(303);
       // The session is checked less often than the membership, by design.
       await expect.poll(() => stream.ended(), { timeout: 45_000, interval: 250 }).toBe(true);
