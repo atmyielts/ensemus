@@ -219,3 +219,14 @@ The unpublished ensemus.m3-m7/3 profile extends strict definition/custom-record 
 0409 captures genuine native organization.manage authority at import admission, including configured administration MFA. Later immutable worker effects do not retain a live-session FK, but recheck current requesting/fallback owners. The actual customer-key parser verifies all bytes/strict records. SQL pins archive/manifest metadata, verifies bounded plaintext part hashes/counts and admits exact one-use team/disabled-connector effects only after every part receipt exists. Connectors restore no scopes, consent or secret. No generic service management exception is introduced.
 
 Archive-original artifact provenance remains an explicit open boundary: real 0208 writer/insert guards refuse unknown/generated origin, and old archives cannot invent missing input lineage. No fake human creator or empty source inventory is installed. Source checks and exact unrun migration, role, privacy, erasure, hosted-provider, bundle and restore limits are recorded in [the joined source evidence](../../06-delivery/evidence/M6-M7-joined-authority-source.md).
+
+## Federation-aware archive profile
+
+The `ensemus.m3-m7-federation/4` inventory can carry a workspace's own records when live
+federation data exists. Its manifest explicitly excludes cross-tenant settings, grants,
+received items, outbound copies and crossing receipts. Deployment isolation evidence and the
+marketplace's deployment-wide object reservations also stay with the source. An import never
+creates federation or publisher authority. The original `ensemus.m3-m7/3` profile and earlier
+inventories retain their exact definitions. The export worker pins the newer profile when the
+legacy profile refuses federation data and the database proves remaining unsupported modules
+empty. Owner authorization, restricted record filters and epoch checks apply to both profiles.

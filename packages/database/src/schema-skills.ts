@@ -4,6 +4,7 @@
 import { sql } from 'drizzle-orm';
 import {
   bigint,
+  boolean,
   check,
   customType,
   foreignKey,
@@ -351,6 +352,8 @@ export const sandboxRuns = sandboxSchema.table(
     outcomeCode: text(),
     /** How many times it went to the runner. Nothing leaves a sandbox, so another try is safe. */
     attempts: integer().notNull().default(0),
+    /** Irreversible database marker. A missing historical receipt starts true. */
+    executionEverAdmitted: boolean().notNull().default(true),
     exitCode: integer(),
     wallMs: integer(),
     cpuMs: integer(),
@@ -667,6 +670,23 @@ export const marketplaceInstallations = marketplaceSchema.table(
       sql`${t.state} <> 'installed' or (${t.packageId} is not null and ${t.skillVersionId} is not null)`,
     ),
     check('marketplace_installations_version', sql`${t.version} > 0`),
+  ],
+);
+
+/** Immutable bytes identity for the shared manifest-digest object used by a listing. */
+export const marketplaceListingObjectReservations = marketplaceSchema.table(
+  'listing_object_reservations',
+  { digest: text().primaryKey(), bundleSha256: text().notNull(), sizeBytes: integer().notNull() },
+  (t) => [
+    check('listing_object_reservations_digest_check', sql`${t.digest} ~ '^[0-9a-f]{64}$'`),
+    check(
+      'listing_object_reservations_bundle_sha256_check',
+      sql`${t.bundleSha256} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      'listing_object_reservations_size_bytes_check',
+      sql`${t.sizeBytes} between 1 and 8388608`,
+    ),
   ],
 );
 

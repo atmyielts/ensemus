@@ -27,7 +27,7 @@ A bug in any of these is reported, not fixed in passing.
 | Rule | Detail |
 |---|---|
 | Integration tests | With your own `COMPOSE_PROJECT_NAME`, `ENSEMUS_NETWORK_PREFIX` and `ENSEMUS_TEST_PG_PORT`, and run **your own test file**: `pnpm exec vitest run --project integration tests/integration/<yours>.test.ts` |
-| **Do not run the whole integration suite in parallel** | `tests/integration/auth.test.ts` publishes `oidc-mock` on the fixed port 58080, so two runs of it collide. That file and that port were left alone on purpose. Whoever runs the full suite, runs it alone |
+| **Isolate concurrent integration runs** | The OIDC fixture uses a private Compose project and an assigned loopback port. Run concurrent suites on separate qualification databases because suites share deployment fixtures within each database. |
 | Never locally | `docker build`, the app stack, stack tests, browser tests, the upgrade gate, the air-gap gate, any `prune`. These run in CI. Write them, make them typecheck, and say they did not run |
 | Replay capture | Needs Temporal, which is not the app stack and builds nothing. In your own project: `docker compose -p <yours> -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml -f infrastructure/compose/compose.capture.yaml up -d --wait temporal-test-port` with `ENSEMUS_TEST_TEMPORAL_PORT` set. Then `ENSEMUS_CAPTURE_REPLAY=1 pnpm exec vitest run --project replay tests/replay/capture-<yours>.test.ts`. Bring it down with `down -v`. If your instructions forbid even this, leave the capture test written and report the histories as owed |
 | Disk | Below 4 GB free on C:, stop and report |

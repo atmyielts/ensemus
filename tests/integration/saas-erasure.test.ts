@@ -43,6 +43,12 @@ import {
   updateWorkUnit,
 } from '@ensemus/application';
 import { generateTestSigner } from '../helpers/skills';
+import {
+  clearDeploymentProfile,
+  enableFederation,
+  seedGrant,
+  setDeploymentProfile,
+} from '../helpers/federation';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { asRole, seedTaxTreatment } from '../helpers/saas';
@@ -84,6 +90,7 @@ describe('restricted erasure independently verifies every tenant-content table',
   });
   it('registers tenant-local expansion records for restricted erasure without granting body reads', async () => {
     const tables = [
+      'federation.org_settings',
       'integrations.business_record_actions',
       'integrations.business_records',
       'meetings.consent_records',
@@ -96,6 +103,7 @@ describe('restricted erasure independently verifies every tenant-content table',
       'meetings.provider_approvals',
       'meetings.settings',
       'meetings.summaries',
+      'sandbox.runs',
       'skills.bundle_uploads',
       'skills.package_versions',
       'skills.packages',
@@ -154,11 +162,11 @@ describe('restricted erasure independently verifies every tenant-content table',
         `select n.nspname as schema_name, has_table_privilege(current_user,c.oid,'DELETE') as deletable
          from pg_class c join pg_namespace n on c.relnamespace=n.oid
          where (n.nspname,c.relname) in (
-           ('federation','outbound_items'),('marketplace','installations'),('sandbox','runs')
+           ('federation','outbound_items'),('marketplace','installations')
          ) order by n.nspname`,
       );
       expect(rows).toEqual(
-        ['federation', 'marketplace', 'sandbox'].map((schema_name) => ({
+        ['federation', 'marketplace'].map((schema_name) => ({
           schema_name,
           deletable: false,
         })),
@@ -239,9 +247,10 @@ describe('restricted erasure independently verifies every tenant-content table',
     expect(await listTrustedSigners(database.db, other)).toHaveLength(1);
   });
 
-  it('blocks a populated deferred module before any destructive step and refuses new rows after readiness', async () => {
+  it('erases standalone federation settings and fences new settings after readiness', async () => {
     const owner = await lifecycleTenant(database.db, auth);
     const other = await lifecycleTenant(database.db, auth);
+    const late = await lifecycleTenant(database.db, auth);
     const registerFederationSettings = (tenant: typeof owner) =>
       withAccountTx(database.db, tenant, (tx) =>
         tx.execute(sql`
@@ -250,52 +259,65 @@ describe('restricted erasure independently verifies every tenant-content table',
         `),
       );
 
-    await withAccountTx(database.db, createServiceContext(other.organizationId), async (tx) => {
+    await withAccountTx(database.db, createServiceContext(late.organizationId), async (tx) => {
       await tx.execute(sql`select id from org.organizations
-        where id=${other.organizationId}::uuid for no key update`);
-      await expect(registerFederationSettings(other)).rejects.toMatchObject({
+        where id=${late.organizationId}::uuid for no key update`);
+      await expect(registerFederationSettings(late)).rejects.toMatchObject({
         cause: { code: '55P03' },
       });
     });
-
-    await registerFederationSettings(owner);
-    const ready = await readyToErase(database.db, owner);
-    const operatorRef = 'test-operator@example.invalid';
-    await expect(
-      beginErasure(database.db, ready.service, { ...ready, operatorRef }),
-    ).rejects.toMatchObject({ code: 'PREREQUISITES_INCOMPLETE' });
-    expect((await getOffboarding(database.db, owner))?.state).toBe('ready_for_erasure');
-
-    await expect(
-      withAccountTx(database.db, ready.service, (tx) =>
-        tx
-          .update(offboardings)
-          .set({
-            state: 'erasing',
-            erasureStartedAt: new Date(),
-            erasureStartedByRef: operatorRef,
-            version: sql`${offboardings.version}+1`,
-            updatedAt: new Date(),
-          })
-          .where(eq(offboardings.id, ready.offboardingId)),
-      ),
-    ).rejects.toMatchObject({
-      cause: { code: 'EN850', message: 'DEFERRED_ERASURE_CONTENT_PRESENT' },
-    });
-    expect((await getOffboarding(database.db, owner))?.state).toBe('ready_for_erasure');
-
-    const otherReady = await readyToErase(database.db, other);
-    await expect(registerFederationSettings(other)).rejects.toMatchObject({
+    const lateReady = await readyToErase(database.db, late);
+    await expect(registerFederationSettings(late)).rejects.toMatchObject({
       cause: { code: 'EN850', message: 'TENANT_ERASURE_IN_PROGRESS' },
     });
-    const webProof = await withAccountTx(database.db, other, (tx) =>
+    const webProof = await withAccountTx(database.db, late, (tx) =>
       tx.execute(
-        sql`select lifecycle.deferred_erasure_clear(${otherReady.offboardingId}::uuid) as clear`,
+        sql`select lifecycle.deferred_erasure_clear(${lateReady.offboardingId}::uuid) as clear`,
       ),
     );
     expect(webProof.rows).toEqual([{ clear: false }]);
-    await beginErasure(database.db, otherReady.service, { ...otherReady, operatorRef });
-    expect((await getOffboarding(database.db, other))?.state).toBe('erasing');
+
+    await registerFederationSettings(owner);
+    await registerFederationSettings(other);
+    const ready = await readyToErase(database.db, owner);
+    const operatorRef = 'test-operator@example.invalid';
+    await beginErasure(database.db, ready.service, { ...ready, operatorRef });
+    await seal(ready);
+    const removed = await eraseTenantRows(eraser, owner.organizationId);
+    expect(removed.find((table) => table.tableRef === 'federation.org_settings')).toEqual({
+      tableRef: 'federation.org_settings',
+      rowsRemoved: 1,
+      rowsLeft: 0,
+    });
+    const otherSettings = await withTenantTx(database.db, other, (tx) =>
+      tx.execute(
+        sql`select enabled from federation.org_settings where organization_id=${other.organizationId}::uuid`,
+      ),
+    );
+    expect(otherSettings.rows).toEqual([{ enabled: false }]);
+  });
+
+  it('blocks either party of a federation grant before erasing standalone settings', async () => {
+    const sharing = await lifecycleTenant(database.db, auth);
+    const receiving = await lifecycleTenant(database.db, auth);
+    await setDeploymentProfile({ crossOrgEnabled: true });
+    try {
+      await enableFederation(database.db, sharing);
+      await enableFederation(database.db, receiving);
+      await seedGrant(database.db, sharing, receiving);
+      for (const owner of [sharing, receiving]) {
+        const ready = await readyToErase(database.db, owner);
+        await expect(
+          beginErasure(database.db, ready.service, {
+            ...ready,
+            operatorRef: 'test-operator@example.invalid',
+          }),
+        ).rejects.toMatchObject({ code: 'PREREQUISITES_INCOMPLETE' });
+        expect((await getOffboarding(database.db, owner))?.state).toBe('ready_for_erasure');
+      }
+    } finally {
+      await clearDeploymentProfile();
+    }
   });
 
   it('still refuses an unknown tenant table in the operator inventory', async () => {

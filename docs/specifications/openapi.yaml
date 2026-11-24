@@ -10052,7 +10052,6 @@ paths:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
     get:
-      x-ensemus-status: planned
       tags:
         - marketplace
       summary: This organization's publisher profile, if it has one
@@ -10079,7 +10078,6 @@ paths:
         "503":
           $ref: "#/components/responses/RestorePending"
     post:
-      x-ensemus-status: planned
       tags:
         - marketplace
       summary: Become a publisher on this deployment
@@ -10129,7 +10127,6 @@ paths:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
     get:
-      x-ensemus-status: planned
       tags:
         - marketplace
       summary: What this organization has asked to list, and what became of it
@@ -10161,7 +10158,6 @@ paths:
         "503":
           $ref: "#/components/responses/RestorePending"
     post:
-      x-ensemus-status: planned
       tags:
         - marketplace
       summary: Ask for a verified version of a public package to be reviewed for listing
@@ -10217,7 +10213,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/SubmissionID"
     post:
-      x-ensemus-status: planned
       tags:
         - marketplace
       summary: Withdraw a submission that is not listed
@@ -10254,7 +10249,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/SubmissionID"
     post:
-      x-ensemus-status: planned
       tags:
         - marketplace
       summary: Ask the operator to take a listing down. A publisher cannot write a
@@ -10291,7 +10285,6 @@ paths:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
     get:
-      x-ensemus-status: planned
       tags:
         - marketplace
       summary: What is on offer on this deployment. Each has been signed and reviewed
@@ -10339,7 +10332,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/ListingID"
     get:
-      x-ensemus-status: planned
       tags:
         - marketplace
       summary: One listing, with what it would be able to ask for and who reviewed it
@@ -10366,7 +10358,6 @@ paths:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
     get:
-      x-ensemus-status: planned
       tags:
         - marketplace
       summary: What this organization has taken from the marketplace

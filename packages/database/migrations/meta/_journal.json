@@ -1275,6 +1275,34 @@
       "when": 1794201807654,
       "tag": "0772_disabled_work_owner_recovery",
       "breakpoints": true
+    },
+    {
+      "idx": 182,
+      "version": "7",
+      "when": 1794201807655,
+      "tag": "0773_settled_module_erasure",
+      "breakpoints": true
+    },
+    {
+      "idx": 183,
+      "version": "7",
+      "when": 1794201807656,
+      "tag": "0774_sandbox_native_run_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 184,
+      "version": "7",
+      "when": 1794201807657,
+      "tag": "0775_federation_portability_profile",
+      "breakpoints": true
+    },
+    {
+      "idx": 185,
+      "version": "7",
+      "when": 1794201807658,
+      "tag": "0776_marketplace_listing_object_reservation",
+      "breakpoints": true
     }
   ]
 }

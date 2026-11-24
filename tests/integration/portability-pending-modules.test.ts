@@ -269,6 +269,7 @@ describe('frozen archives beside unfinished modules', () => {
     );
     // Erasure coverage and the frozen export format have independent admission rules.
     expect(eraser.rows.map((row) => row.name).sort()).toEqual([
+      'federation.org_settings',
       'integrations.business_record_actions',
       'integrations.business_records',
       'meetings.consent_records',
@@ -281,6 +282,7 @@ describe('frozen archives beside unfinished modules', () => {
       'meetings.provider_approvals',
       'meetings.settings',
       'meetings.summaries',
+      'sandbox.runs',
       'skills.bundle_uploads',
       'skills.package_versions',
       'skills.packages',

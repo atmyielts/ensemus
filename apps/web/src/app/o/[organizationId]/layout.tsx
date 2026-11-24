@@ -62,7 +62,9 @@ export default async function OrganizationLayout({
         </Avatar>
         <span className="account-details">
           <span className="account-name">{actor.name}</span>
-          <span className="account-email">{actor.email}</span>
+          <span className="account-email" title={actor.email}>
+            {actor.email}
+          </span>
         </span>
       </Link>
       <form action={signOutAction}>

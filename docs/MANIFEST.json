@@ -62,8 +62,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-030-sovereign-license-and-bundle.md",
-      "size_bytes": 26522,
-      "sha256": "6f637c6a6d6fe0de1f9bad4acbd22a1d6a715e40970ed2eb49474d1e569e9391"
+      "size_bytes": 27299,
+      "sha256": "7928fa13ed84dfacbcb8f96934d15c64254d1706b4126df60d2531d218f8847b"
     },
     {
       "path": "00-foundation/adr/ADR-031-full-product-depth.md",
@@ -82,8 +82,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-034-skills-sandbox-marketplace.md",
-      "size_bytes": 32301,
-      "sha256": "5ad7c87958532b5e3437bbaf881bb2a06680a33b7b3c27915979c0364c9a4b69"
+      "size_bytes": 32813,
+      "sha256": "33c90b2cd6d8f98f004a0a7d3f81263ff2f18352175e6fb95236a9112e101633"
     },
     {
       "path": "00-foundation/adr/ADR-035-cross-org-tenants-regions.md",
@@ -1017,8 +1017,8 @@
     },
     {
       "path": "06-delivery/m3-slices.md",
-      "size_bytes": 33733,
-      "sha256": "a6e07ed8431e6dd3dcd100e2421fc5e9af7dedda5bfa1f1f73956016cf2942fd"
+      "size_bytes": 33716,
+      "sha256": "cf9f8011676428a4bc5425015d199af9d88cce0b7fdcdd7cc3a0697b64e2277c"
     },
     {
       "path": "06-delivery/m4-slices.md",
@@ -1057,8 +1057,8 @@
     },
     {
       "path": "06-delivery/release-candidate-2026-11-21.md",
-      "size_bytes": 109174,
-      "sha256": "e332c5d207e26f08c670b924eead69e2accb3ef7e1165e992af2040db84a2246"
+      "size_bytes": 110132,
+      "sha256": "c1c3c427e8be4a926e75da721bb6a95ed57e6129b4b85485e02c4cb6b9214673"
     },
     {
       "path": "06-delivery/release-candidate-source-ledger.json",
@@ -1687,8 +1687,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 564550,
-      "sha256": "997dd6f0aab2eafa9105b94c2c13789ff8aad5d804da8b0b11995a0f8093aca4"
+      "size_bytes": 564262,
+      "sha256": "5e262806d79cde1b676329c51386bf7b9f373bf288f37bf09ff3be63283bb52b"
     },
     {
       "path": "specifications/qa-scenarios.csv",

@@ -13,7 +13,7 @@ import { isValidPublicKey, keyIdOf } from '@ensemus/skills/signature';
 
 const hash = z.string().regex(/^[0-9a-f]{64}$/);
 const result = z.enum(REVIEW_CHECK_RESULTS);
-const approved = z.strictObject({
+const review = z.strictObject({
   kind: z.literal('ensemus.skill.review.v1'),
   submissionId: z.uuid(),
   publisherId: z.uuid(),
@@ -21,7 +21,7 @@ const approved = z.strictObject({
   semver: z.string().regex(/^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$/),
   digest: hash,
   signerKeyId: hash,
-  verdict: z.literal('approved'),
+  verdict: z.enum(['approved', 'rejected']),
   checks: z.strictObject({
     signature_and_digest_checked: result,
     license_and_dependencies_checked: result,
@@ -44,14 +44,19 @@ export function attestationPayload(attestation: ReviewAttestation): Buffer {
   return Buffer.from(REVIEW_SIGNATURE_DOMAIN + canonicalJson(attestation), 'utf8');
 }
 
-/** Checks a stored attestation's shape, with the verdict `approved`. Null for anything else. */
-export function parseApprovedAttestation(value: unknown): ReviewAttestation | null {
+/** Checks the exact signed shape, for either decision. */
+export function parseReviewAttestation(value: unknown): ReviewAttestation | null {
   try {
-    const parsed = approved.safeParse(value);
+    const parsed = review.safeParse(value);
     return parsed.success ? parsed.data : null;
   } catch {
     return null;
   }
+}
+
+export function parseApprovedAttestation(value: unknown): ReviewAttestation | null {
+  const parsed = parseReviewAttestation(value);
+  return parsed?.verdict === 'approved' ? parsed : null;
 }
 
 export type AttestationFacts = {
@@ -66,24 +71,26 @@ export type AttestationFacts = {
 };
 
 /**
- * True only if the reviewer's key is one this deployment configured, it signed exactly this attestation,
- * the verdict is `approved`, and every fact matches. Answers false for any failure, and never throws.
+ * True only when the configured reviewer signed the exact decision for this package. Both an
+ * approval and a rejection require independent review authority.
  */
-export function verifyApprovedAttestation(input: {
+export function verifyReviewAttestation(input: {
   attestation: unknown;
   signature: Buffer;
   reviewKeys: ReadonlyMap<string, Buffer>;
   facts: AttestationFacts;
 }): boolean {
   try {
-    const attestation = parseApprovedAttestation(input.attestation);
+    const attestation = parseReviewAttestation(input.attestation);
     if (
       !['declarative', 'sandbox'].includes(input.facts.executionKind) ||
       !attestation ||
       !Buffer.isBuffer(input.signature) ||
       input.signature.length !== 64 ||
       attestation.reviewerKeyId === attestation.signerKeyId ||
-      !reviewCanApprove(attestation.checks, attestation.findingCodes, input.facts.executionKind)
+      (attestation.verdict === 'approved'
+        ? !reviewCanApprove(attestation.checks, attestation.findingCodes, input.facts.executionKind)
+        : attestation.findingCodes.length === 0)
     )
       return false;
     for (const field of [
@@ -108,4 +115,12 @@ export function verifyApprovedAttestation(input: {
   } catch {
     return false;
   }
+}
+
+/** Installers and listings accept only an approved decision. */
+export function verifyApprovedAttestation(
+  input: Parameters<typeof verifyReviewAttestation>[0],
+): boolean {
+  const attestation = parseApprovedAttestation(input.attestation);
+  return attestation !== null && verifyReviewAttestation({ ...input, attestation });
 }

@@ -1406,3 +1406,17 @@ The full migration journal through 0771 applied to a fresh PostgreSQL 18 databas
 cases in the tenant and skill-bundle erasure suites passed under native roles. Cases included
 a complete tenant report, protection of other tenants, and refusal of a populated deferred
 module, a writer racing the tenant lock, and an unknown tenant table.
+
+### Standalone federation settings and unstarted sandbox trials (LIFE-04)
+
+Migration 0773 adds two cases to restricted erasure. The operator can remove federation settings
+when no grant, item, or crossing names the tenant. It can remove a sandbox run after the database
+proves it reached a terminal state without ever admitting execution. An irreversible admission flag
+keeps old and attempted runs out of this path. Tenant locks fence new admissions during erasure,
+and the restricted role reads only the tenant key when deleting. Shared federation records,
+marketplace records, and sandbox executions still need their own cleanup evidence.
+
+The 0773 PostgreSQL 18 upgrade passed 26 integration cases across erasure, portability, and
+federation grants. Three focused cases passed again with migration 0774, covering settings
+deletion, refusal to erase either party of a federation grant, and a cancelled sandbox trial
+that was never admitted to execution.

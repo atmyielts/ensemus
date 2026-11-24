@@ -24,10 +24,13 @@ import {
   failExport,
   finishExport,
   getOrganizationExport,
+  getWorkUnit,
   listOrganizationExports,
   openExportArchive,
   purgeExpiredExports,
   requestOrganizationExport,
+  requestOrganizationImport,
+  runOrganizationImport,
   requestWorkReview,
   transitionWorkUnit,
   type ExportDeps,
@@ -57,6 +60,8 @@ import {
   artifactPartPath,
   EXPORT_MANIFEST_PATH,
   EXPORT_OBJECT_PREFIX,
+  FEDERATION_PORTABILITY_INVENTORY,
+  FEDERATION_PORTABILITY_VERSION,
   isArchivePath,
 } from '@ensemus/domain/portability';
 import {
@@ -75,8 +80,16 @@ import {
   nativeSovereignContext,
 } from '../helpers/sovereign';
 import { inFixtureTenant } from '../helpers/fixture-tenant';
+import {
+  clearDeploymentProfile,
+  enableFederation,
+  seedGrant,
+  setDeploymentProfile,
+} from '../helpers/federation';
 import { seedConnection, seedExternalAction } from '../helpers/integrations';
+import { seedSigner } from '../helpers/skills';
 import { urls } from '../helpers/stack';
+import { archiveReader } from './fixtures/archive-builder';
 
 /** A store in memory, which remembers what was asked of it and can be told to fail. */
 class MemoryStore implements ObjectStore {
@@ -114,6 +127,9 @@ class MemoryStore implements ObjectStore {
   async isPhysicallyAbsent(key: string) {
     return !this.objects.has(key);
   }
+  async *listPages(prefix: string) {
+    yield [...this.objects.keys()].filter((key) => key.startsWith(prefix));
+  }
   exportKeys() {
     return [...this.objects.keys()].filter((key) => key.startsWith(EXPORT_OBJECT_PREFIX));
   }
@@ -126,7 +142,7 @@ const deps: ExportDeps = {
   retentionHours: 24,
 };
 
-type Opened = { manifest: ExportManifest; parts: Map<string, Buffer>; text: string };
+type Opened = { manifest: ExportManifest; parts: Map<string, Buffer>; text: string; bytes: Buffer };
 
 describe('organization export', () => {
   let app: ReturnType<typeof openAppDatabase>;
@@ -248,8 +264,78 @@ describe('organization export', () => {
       parts.set(path, plain);
     }
     const text = [...parts.values()].map((part) => part.toString('latin1')).join('\n');
-    return { manifest, parts, text: `${text}\n${tar.toString('latin1')}` };
+    return { manifest, parts, text: `${text}\n${tar.toString('latin1')}`, bytes: tar };
   }
+
+  it('exports and imports ordinary records with the federation exclusions explicitly pinned', async () => {
+    const source = await newOrg();
+    const peer = await newOrg();
+    const target = await newOrg();
+    const store = new MemoryStore();
+    await setDeploymentProfile({ crossOrgEnabled: true });
+    try {
+      await enableFederation(db(), source);
+      await enableFederation(db(), peer);
+      const grant = await seedGrant(db(), source, peer);
+      const title = 'Generated work retained after a federation archive';
+      const work = await createWorkUnit(db(), source, {
+        title,
+        objective: 'Verify that a workspace keeps its own work across deployments.',
+        classification: 'internal',
+      });
+
+      const exportId = await request(source);
+      expect(await drive(source, store, exportId)).toMatchObject({ state: 'finished' });
+      const opened = await downloadAndOpen(source, store, exportId);
+      expect(opened.manifest).toMatchObject({
+        schema_version: 2,
+        inventory_version: FEDERATION_PORTABILITY_VERSION,
+        inventory: FEDERATION_PORTABILITY_INVENTORY,
+      });
+      expect(recordsOf(opened, 'work_unit')).toContainEqual(
+        expect.objectContaining({ id: work.id, title }),
+      );
+      expect(opened.text).not.toContain(grant.id);
+      expect(opened.text).not.toContain(grant.termsHash);
+      expect(opened.text).not.toContain(peer.organizationId);
+
+      const targetStore = new MemoryStore();
+      const bound = await requestOrganizationImport(db(), target);
+      const result = await runOrganizationImport(
+        workerDb(),
+        worker(target),
+        {
+          importId: bound.id,
+          archive: archiveReader(opened.bytes),
+          recipientPrivateKeyPem: recipient.privateKeyPem,
+        },
+        { sections: SOURCE_PORTABILITY_SECTIONS, ledger: targetStore, store: targetStore },
+      );
+      expect(result.status).toMatch(/^completed(?:_with_warnings)?$/);
+      expect(result.appliedCounts.work_unit).toBe(1);
+      expect(await getWorkUnit(db(), target, work.id)).toMatchObject({ title });
+      expect(
+        (
+          await su.query('select 1 from federation.org_settings where organization_id=$1', [
+            target.organizationId,
+          ])
+        ).rowCount,
+      ).toBe(0);
+
+      // Federation writer epochs remain active after the module's own rows leave the archive.
+      await seedSigner(db(), source);
+      await expect(openExportArchive(db(), store, source, exportId)).rejects.toMatchObject({
+        code: 'EXPORT_SUPERSEDED',
+      });
+      const next = await request(source);
+      expect(await beginExport(workerDb(), worker(source), { exportId: next }, deps)).toEqual({
+        state: 'failed',
+        code: 'RECORD_REFUSED',
+      });
+    } finally {
+      await clearDeploymentProfile();
+    }
+  });
 
   /** Every record of one kind in an opened archive. */
   function recordsOf(opened: Opened, kind: string) {

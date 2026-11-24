@@ -362,7 +362,7 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
       const actual = { ...input, ...changes };
       const agentContext = await ensureRun(actual.execution);
       return addGeneratedArtifact(
-        agentContext ? agent.db : database.db,
+        agentContext ? agent.db : worker.db,
         store,
         agentContext ?? service,
         actual,
@@ -963,7 +963,7 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
     const accepted = await decideArtifact(database.db, value.owner, accept, { store: value.store });
     const current = () =>
       withTenantTx(
-        database.db,
+        worker.db,
         value.service,
         async (tx) =>
           (

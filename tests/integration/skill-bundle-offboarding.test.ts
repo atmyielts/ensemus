@@ -1,7 +1,15 @@
 import { addTrustedSigner, uploadSkillBundle } from '@ensemus/application';
 import { placeLegalHold, releaseLegalHold } from '@ensemus/application/saas/legal-holds';
 import { createTenantObjectErasure } from '@ensemus/application/saas/tenant-object-erasure';
-import { openAppDatabase, offboardings, type TenantContext } from '@ensemus/database';
+import { beginErasure } from '@ensemus/application/saas/offboarding';
+import {
+  openAppDatabase,
+  offboardings,
+  sandboxRuns,
+  skillVersions,
+  withTenantTx,
+  type TenantContext,
+} from '@ensemus/database';
 import { withAccountTx } from '@ensemus/database/account';
 import { createServiceContext } from '@ensemus/database/service';
 import { SANDBOX_DEFAULT_CEILINGS } from '@ensemus/domain/sandbox';
@@ -13,7 +21,7 @@ import { eq, sql } from 'drizzle-orm';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { makeTwoTenants, proveSecondFactor } from '../helpers/product';
-import { seedPackage } from '../helpers/skills';
+import { seedPackage, testPolicy } from '../helpers/skills';
 import { urls } from '../helpers/stack';
 import { LifecycleMemoryStore } from './saas-lifecycle-fixture';
 import { readyToErase } from './saas-offboarding-fixture';
@@ -60,7 +68,7 @@ describe('skill bundle offboarding', () => {
     await Promise.all([database?.close(), worker?.close()]);
   });
 
-  async function verifiedUpload(owner: TenantContext, store: SkillErasureStore) {
+  async function uploadedBundle(owner: TenantContext, store: SkillErasureStore) {
     const pkg = await seedPackage(database.db, owner);
     const key = generateTestKey();
     await addTrustedSigner(database.db, owner, enabled, {
@@ -68,10 +76,11 @@ describe('skill bundle offboarding', () => {
       publicKey: key.publicKey,
     });
     const { bytes } = buildTestBundle({ name: pkg.name, key });
-    const uploaded = await uploadSkillBundle(database.db, store, owner, enabled, {
-      packageId: pkg.id,
-      bytes,
-    });
+    return uploadSkillBundle(database.db, store, owner, enabled, { packageId: pkg.id, bytes });
+  }
+
+  async function verifiedUpload(owner: TenantContext, store: SkillErasureStore) {
+    const uploaded = await uploadedBundle(owner, store);
     const verifier = createSkillVerificationActivities({
       database: worker.db,
       store,
@@ -175,6 +184,122 @@ describe('skill bundle offboarding', () => {
     );
     expect(reported.rows).toEqual([{ n: '1' }]);
     expect(await store.exists(otherKey)).toBe(true);
+  });
+
+  it('erases cancelled sandbox metadata only if execution was never admitted', async () => {
+    const { a, b } = await makeTwoTenants(database.db);
+    const store = new SkillErasureStore();
+    const newRun = async (owner: TenantContext) => {
+      const uploaded = await uploadedBundle(owner, store);
+      const service = createServiceContext(owner.organizationId);
+      await withTenantTx(worker.db, service, (tx) =>
+        tx
+          .update(skillVersions)
+          .set({ state: 'verifying', version: sql`version+1` })
+          .where(eq(skillVersions.id, uploaded.id)),
+      );
+      const id = randomUUID();
+      await withTenantTx(worker.db, service, (tx) =>
+        tx.insert(sandboxRuns).values({
+          id,
+          organizationId: owner.organizationId,
+          skillVersionId: uploaded.id,
+          digest: '1'.repeat(64),
+          purpose: 'skill_test',
+          testFixture: 0,
+          classification: 'internal',
+          input: { generated: true },
+          ...testPolicy(),
+        }),
+      );
+      return { id, service };
+    };
+    const blocked = await newRun(b.owner.context);
+    const allowed = await newRun(a.owner.context);
+    const start = ({ id, service }: typeof allowed) =>
+      withTenantTx(worker.db, service, (tx) =>
+        tx
+          .update(sandboxRuns)
+          .set({
+            status: 'running',
+            attempts: 1,
+            startedAt: new Date(),
+            isolationProbePassedAt: new Date(),
+            version: sql`version+1`,
+          })
+          .where(eq(sandboxRuns.id, id)),
+      );
+    const settle = ({ id, service }: typeof allowed, status: 'cancelled' | 'runner_unavailable') =>
+      withTenantTx(
+        worker.db,
+        service,
+        async (tx) =>
+          (
+            await tx
+              .update(sandboxRuns)
+              .set({
+                status,
+                outcomeCode: status === 'cancelled' ? 'CANCELLED_BY_REQUEST' : 'RUNNER_UNREACHABLE',
+                finishedAt: new Date(),
+                version: sql`version+1`,
+              })
+              .where(eq(sandboxRuns.id, id))
+              .returning({ admitted: sandboxRuns.executionEverAdmitted })
+          )[0],
+      );
+
+    await start(blocked);
+    expect(await settle(blocked, 'runner_unavailable')).toEqual({ admitted: true });
+    const bReady = await readyToErase(database.db, b.owner.context);
+    const operatorRef = 'test-operator@example.invalid';
+    await expect(
+      beginErasure(database.db, bReady.service, { ...bReady, operatorRef }),
+    ).rejects.toMatchObject({ code: 'PREREQUISITES_INCOMPLETE' });
+
+    const aReady = await readyToErase(database.db, a.owner.context);
+    await expect(
+      beginErasure(database.db, aReady.service, { ...aReady, operatorRef }),
+    ).rejects.toMatchObject({ code: 'PREREQUISITES_INCOMPLETE' });
+    await expect(
+      withAccountTx(database.db, aReady.service, (tx) =>
+        tx
+          .update(offboardings)
+          .set({
+            state: 'erasing',
+            erasureStartedAt: new Date(),
+            erasureStartedByRef: operatorRef,
+            version: sql`${offboardings.version}+1`,
+            updatedAt: new Date(),
+          })
+          .where(eq(offboardings.id, aReady.offboardingId)),
+      ),
+    ).rejects.toMatchObject({
+      cause: { code: 'EN850', message: 'DEFERRED_ERASURE_CONTENT_PRESENT' },
+    });
+    await expect(start(allowed)).rejects.toMatchObject({
+      cause: { code: 'EN850', message: 'TENANT_ERASURE_IN_PROGRESS' },
+    });
+    expect(await settle(allowed, 'cancelled')).toEqual({ admitted: false });
+    await expect(settle(allowed, 'cancelled')).rejects.toMatchObject({
+      cause: { code: '42501', message: 'SANDBOX_SETTLED_IMMUTABLE' },
+    });
+
+    await beginErasure(database.db, aReady.service, { ...aReady, operatorRef });
+    const cleanup = createTenantObjectErasure({ database: database.db, store });
+    expect(await cleanup.purge(aReady.service, aReady)).toMatchObject({ skillBundlesRemoved: 1 });
+    expect(await checkPhysical(aReady)).toBe(true);
+    await withEraser(a.organizationId, async (client) => {
+      await expect(
+        client.query('delete from sandbox.runs where organization_id in ($1,$2)', [
+          a.organizationId,
+          b.organizationId,
+        ]),
+      ).resolves.toMatchObject({ rowCount: 1 });
+    });
+    const remaining = await withTenantTx(worker.db, blocked.service, (tx) =>
+      tx.select({ id: sandboxRuns.id }).from(sandboxRuns),
+    );
+    expect(remaining).toEqual([{ id: blocked.id }]);
   });
 
   it('honors holds and keeps an ambiguous DELETE as an erasure blocker', async () => {

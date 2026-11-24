@@ -50,6 +50,12 @@ export const LEGACY_PORTABLE_SOURCE_SECTIONS = [
 export const LEGACY_PORTABILITY_INVENTORY_VERSION = 'ensemus.m3-m5/1' as const;
 export const PORTABILITY_INVENTORY_V2_VERSION = 'ensemus.m3-m5/2' as const;
 export const PORTABILITY_INVENTORY_VERSION = 'ensemus.m3-m7/3' as const;
+export const FEDERATION_PORTABILITY_VERSION = 'ensemus.m3-m7-federation/4' as const;
+export type JoinedPortabilityVersion =
+  typeof PORTABILITY_INVENTORY_VERSION | typeof FEDERATION_PORTABILITY_VERSION;
+export function isJoinedPortabilityVersion(profile: unknown): profile is JoinedPortabilityVersion {
+  return profile === PORTABILITY_INVENTORY_VERSION || profile === FEDERATION_PORTABILITY_VERSION;
+}
 export const PORTABLE_SOURCE_SECTIONS = [
   ...LEGACY_PORTABLE_SOURCE_SECTIONS,
   'custom-objects',
@@ -351,10 +357,25 @@ export const PORTABILITY_INVENTORY = [
   inventory('org.notification_preferences', 'people', 'operational_excluded'),
 ] as const;
 
+// Federation trust, copies and transfer receipts belong to their source deployment. The original
+// Work and artifacts still use the ordinary owner-scoped archive readers.
+export const FEDERATION_PORTABILITY_INVENTORY = [
+  ...PORTABILITY_INVENTORY,
+  inventory('federation.org_settings', 'connections', 'operational_excluded'),
+  inventory('federation.grants', 'connections', 'operational_excluded'),
+  inventory('federation.inbound_items', 'connections', 'private_excluded'),
+  inventory('federation.outbound_items', 'connections', 'operational_excluded'),
+  inventory('federation.crossings', 'history', 'operational_excluded'),
+  inventory('tenancy.deployment_profile', 'policy', 'operational_excluded'),
+  inventory('tenancy.isolation_evidence', 'policy', 'operational_excluded'),
+  inventory('marketplace.listing_object_reservations', 'policy', 'operational_excluded'),
+] as const;
+
 export const PORTABILITY_INVENTORY_PROFILES = {
   [LEGACY_PORTABILITY_INVENTORY_VERSION]: PORTABILITY_INVENTORY_V1,
   [PORTABILITY_INVENTORY_V2_VERSION]: PORTABILITY_INVENTORY_V2,
   [PORTABILITY_INVENTORY_VERSION]: PORTABILITY_INVENTORY,
+  [FEDERATION_PORTABILITY_VERSION]: FEDERATION_PORTABILITY_INVENTORY,
 } as const;
 
 export function matchesPortabilityInventory(
@@ -397,10 +418,9 @@ export function assertPortabilitySections(
   profile: string = PORTABILITY_INVENTORY_VERSION,
 ): void {
   const supplied = new Set(sections);
-  const required: readonly string[] =
-    profile === PORTABILITY_INVENTORY_VERSION
-      ? PORTABLE_SOURCE_SECTIONS
-      : LEGACY_PORTABLE_SOURCE_SECTIONS;
+  const required: readonly string[] = isJoinedPortabilityVersion(profile)
+    ? PORTABLE_SOURCE_SECTIONS
+    : LEGACY_PORTABLE_SOURCE_SECTIONS;
   if (
     !Object.hasOwn(PORTABILITY_INVENTORY_PROFILES, profile) ||
     supplied.size !== sections.length ||
@@ -418,10 +438,10 @@ export const EXPORT_OBJECT_PREFIX = 'organization-exports/v1/';
 export const MAX_PART_PLAINTEXT_BYTES = 32 * 1024 * 1024;
 export const MAX_RECORDS_PER_PART = 5_000;
 export const MAX_RECORD_BYTES = 1024 * 1024;
-/** Only joined /3 expands this bound for legal immutable custom schemas; older inventories stay1MiB. */
+/** Joined profiles expand this bound for legal immutable custom schemas. Older profiles use 1 MiB. */
 export const MAX_JOINED_RECORD_BYTES = 4 * 1024 * 1024;
 export function portableRecordByteLimit(profile: string | null | undefined): number {
-  if (profile === PORTABILITY_INVENTORY_VERSION) return MAX_JOINED_RECORD_BYTES;
+  if (isJoinedPortabilityVersion(profile)) return MAX_JOINED_RECORD_BYTES;
   if (
     profile === null ||
     profile === undefined ||

@@ -3,7 +3,11 @@
 // the final merge, and adds itself to the list in workers/workflow/src/portability-sections.ts. Until then a
 // section with no implementation exports nothing, and says so in the manifest, instead of being guessed at.
 import type { AppDatabase, TenantContext, Tx } from '@ensemus/database';
-import type { ExportSection, ImportWarningCode } from '@ensemus/domain/portability';
+import type {
+  ExportSection,
+  ImportWarningCode,
+  JoinedPortabilityVersion,
+} from '@ensemus/domain/portability';
 
 /** What a section hands over for one page. `recordKind` names the part: `work_units-000001.jsonl`. */
 export type ExportPage = {
@@ -56,7 +60,7 @@ export interface PortabilitySection {
   exportPage(
     tx: Tx,
     context: TenantContext,
-    input: { cursor: string | null; limit: number },
+    input: { cursor: string | null; limit: number; inventoryVersion?: JoinedPortabilityVersion },
   ): Promise<ExportPage>;
   importPage(
     tx: Tx,

@@ -38,6 +38,13 @@ records. Writers and the operator take conflicting locks on the tenant so a reco
 appear after that proof. The verifier repeats the check before reporting erasure. Populated
 modules still require their own cleanup protocols.
 
+**Settled module erasure update, 2026-11-24.** Migration 0773 adds standalone federation settings
+to the restricted eraser after verifying the tenant has zero grant, item, or crossing records.
+It also covers sandbox runs that ended with a denial, cancellation, or unavailable runner before
+execution was admitted. PostgreSQL records execution admission permanently for each row and
+requires a terminal result before deleting its metadata. Existing rows and any admitted run
+require additional cleanup evidence.
+
 **Version release update, 2026-11-24.** A second workspace administrator can publish a verified
 version when the package is active and the catalog is enabled. Publication and withdrawal use
 version checks. The native database actor must match the receipt, and the receipt is immutable

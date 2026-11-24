@@ -8,8 +8,11 @@ import {
   type ExtensionRecord,
 } from '@ensemus/contracts/portability-records';
 import {
-  PORTABILITY_INVENTORY,
+  FEDERATION_PORTABILITY_INVENTORY,
+  PORTABILITY_INVENTORY_PROFILES,
   PORTABILITY_INVENTORY_VERSION,
+  isJoinedPortabilityVersion,
+  type JoinedPortabilityVersion,
   MAX_JOINED_RECORD_BYTES,
   type ExportSection,
 } from '@ensemus/domain/portability';
@@ -388,8 +391,11 @@ const readers: Readonly<Partial<Record<ExportSection, readonly Reader[]>>> = {
 // Distinguish actual unsupported tenant material from an unknown/missing schema at interactive admission.
 export class PendingModuleData extends RecordRefused {}
 
-export async function assertJoinedPortabilitySchema(tx: Tx): Promise<void> {
-  const required = PORTABILITY_INVENTORY.map((entry) => entry.table);
+export async function assertJoinedPortabilitySchema(
+  tx: Tx,
+  profile: JoinedPortabilityVersion = PORTABILITY_INVENTORY_VERSION,
+): Promise<void> {
+  const required = PORTABILITY_INVENTORY_PROFILES[profile].map((entry) => entry.table);
   const rows = await queryRows<{ table_name: string | null }>(
     tx,
     sql`select to_regclass(name)::text as table_name
@@ -403,11 +409,14 @@ export async function assertJoinedPortabilitySchema(tx: Tx): Promise<void> {
     from pg_catalog.pg_tables where schemaname NOT LIKE 'pg_%'
       AND schemaname NOT IN ('information_schema','drizzle')`,
   );
-  const known = new Set<string>([...required, ...PENDING_PORTABILITY_TABLES]);
+  const known = new Set<string>([
+    ...FEDERATION_PORTABILITY_INVENTORY.map((entry) => entry.table),
+    ...PENDING_PORTABILITY_TABLES,
+  ]);
   if (present.some((row) => !known.has(row.table_name))) throw new RecordRefused();
   const [pending] = await queryRows<{ empty: boolean }>(
     tx,
-    sql`select sovereign.pending_modules_empty() as empty`,
+    sql`select sovereign.portable_profile_clear(${profile}) as empty`,
   );
   if (pending?.empty !== true) throw new PendingModuleData();
 }
@@ -421,8 +430,8 @@ async function assertExportViewer(tx: Tx) {
 }
 
 function exporter(section: ExportSection): PortabilitySection['exportPage'] {
-  return async (tx, context, { cursor, limit }): Promise<ExportPage> => {
-    await assertJoinedPortabilitySchema(tx);
+  return async (tx, context, { cursor, limit, inventoryVersion }): Promise<ExportPage> => {
+    await assertJoinedPortabilitySchema(tx, inventoryVersion);
     await assertExportViewer(tx);
     const list = [...(readers[section] ?? []), ...(M7_PORTABLE_READERS[section] ?? [])];
     if (section === 'skills') return { recordKind: 'skills', records: [], nextCursor: null };
@@ -527,7 +536,7 @@ export async function quarantinePortableRecord(
   const checked = extensionRecordSchema.parse(record);
   if (
     (M7_PORTABLE_RECORD_KINDS as readonly string[]).includes(checked.kind) &&
-    scope.inventoryVersion !== PORTABILITY_INVENTORY_VERSION
+    !isJoinedPortabilityVersion(scope.inventoryVersion)
   )
     throw new RecordRefused();
   assertPortableDefinitionIntegrity(checked);

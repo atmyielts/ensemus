@@ -519,6 +519,7 @@ describe('skill, sandbox and marketplace rules in the database', () => {
             skillVersionId: version.id,
             digest: version.digest,
             purpose: 'operator_test',
+            requestedByMembershipId: ctxA.membershipId,
             classification: 'restricted',
             input: {},
             policy,
@@ -529,7 +530,7 @@ describe('skill, sandbox and marketplace rules in the database', () => {
     });
 
     const change = (id: string, set: Record<string, unknown>) =>
-      withTenantTx(database.db, ctxA, (tx) =>
+      withFixtureSkillVerifier(ctxA.organizationId, (tx) =>
         tx
           .update(sandboxRuns)
           .set({ ...set, version: sql`version + 1` })
@@ -577,7 +578,7 @@ describe('skill, sandbox and marketplace rules in the database', () => {
         output: { ok: true },
       });
       await expect(change(id, { status: 'queued', output: null })).rejects.toThrow(
-        sqlState('ES001'),
+        sqlState('42501'),
       );
     });
   });
@@ -801,6 +802,10 @@ describe('skill, sandbox and marketplace rules in the database', () => {
         [ctxA.organizationId, values.id],
       );
       const listingId = randomUUID();
+      await operator.query(
+        'insert into marketplace.listing_object_reservations (digest,bundle_sha256,size_bytes) values ($1,$2,$3)',
+        [values.digest, randomHex(), values.sizeBytes],
+      );
       await operator.query(
         `insert into marketplace.listings
            (id, publisher_id, publisher_organization_id, publisher_display_name, submission_id, review_id,

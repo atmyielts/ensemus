@@ -145,6 +145,7 @@ export type ErrorCode =
   | 'SKILL_VERSION_NOT_PUBLISHABLE'
   | 'SKILL_PUBLISH_SAME_PERSON'
   | 'SKILL_VERSION_NOT_USABLE'
+  | 'AGENT_LINK_UNAVAILABLE'
   | 'SANDBOX_INPUT_TOO_LARGE'
   | 'SANDBOX_CLASSIFICATION_NOT_ALLOWED'
   | 'SANDBOX_RUN_NOT_CANCELLABLE'
@@ -343,6 +344,7 @@ const MESSAGES: Record<ErrorCode, string> = {
     'This version cannot be published. It has to be verified, and its signer still trusted.',
   SKILL_PUBLISH_SAME_PERSON: 'Someone other than whoever uploaded this version has to publish it.',
   SKILL_VERSION_NOT_USABLE: 'This version cannot be used right now.',
+  AGENT_LINK_UNAVAILABLE: 'This agent cannot request a sandbox on this deployment.',
   SANDBOX_INPUT_TOO_LARGE: 'That input is larger than 1 MiB, so it was not accepted.',
   SANDBOX_CLASSIFICATION_NOT_ALLOWED: 'This skill cannot be given data of that classification.',
   SANDBOX_RUN_NOT_CANCELLABLE: 'This run has already finished.',
@@ -534,6 +536,7 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   SKILL_VERSION_NOT_PUBLISHABLE: 409,
   SKILL_PUBLISH_SAME_PERSON: 403,
   SKILL_VERSION_NOT_USABLE: 409,
+  AGENT_LINK_UNAVAILABLE: 409,
   SANDBOX_INPUT_TOO_LARGE: 413,
   SANDBOX_CLASSIFICATION_NOT_ALLOWED: 403,
   SANDBOX_RUN_NOT_CANCELLABLE: 409,

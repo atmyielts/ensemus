@@ -1,7 +1,14 @@
 // Owned by the marketplace-install slice (EXP-06). See docs/06-delivery/m11b-slices.md and ADR-034 D6, D7.
 // A tenant's side of taking a listing. Installing copies bytes and grants nothing (AGENT-14's rule), and the
 // copy goes through the same verification as an upload, and someone here still has to publish it.
-import type { AppDatabase, TenantContext } from '@ensemus/database';
+import {
+  marketplaceInstallations,
+  marketplaceListings,
+  withTenantTx,
+  type AppDatabase,
+  type TenantContext,
+} from '@ensemus/database';
+import { and, asc, desc, eq, gt, sql } from 'drizzle-orm';
 import type {
   DelistMode,
   InstallationFailureCode,
@@ -9,6 +16,9 @@ import type {
   ListingState,
 } from '@ensemus/domain/marketplace';
 import type { ObjectStore } from './artifacts';
+import { AppError } from './errors';
+import { idSchema } from './ids';
+import { requireSkillMember } from './skill-access';
 import type { SkillFeatureGate } from './skill-ports';
 
 export type ListingView = {
@@ -43,23 +53,106 @@ export type InstallationView = {
   version: number;
 };
 
-/** Every member can read what is on offer. Needs the marketplace feature on, and answers an empty page if not. */
-export function listListings(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _gate: SkillFeatureGate,
-  _input: { after?: string; limit?: number },
-): Promise<ListingPage> {
-  throw new Error('NOT_IMPLEMENTED');
+const listings = marketplaceListings;
+const listingFields = {
+  id: listings.id,
+  publisherDisplayName: listings.publisherDisplayName,
+  name: listings.name,
+  semver: listings.semver,
+  displayName: listings.displayName,
+  summary: listings.summary,
+  digest: listings.digest,
+  license: listings.license,
+  executionKind: listings.executionKind,
+  maxClassification: listings.maxClassification,
+  toolBoundaries: sql<unknown>`${listings.manifest}->'tool_boundaries'`,
+  signerKeyId: listings.signerKeyId,
+  reviewerKeyId: listings.reviewerKeyId,
+  state: listings.state,
+  delistMode: listings.delistMode,
+  listedAt: listings.listedAt,
+};
+
+function listingView(
+  row: Omit<
+    ListingView,
+    'executionKind' | 'maxClassification' | 'toolBoundaries' | 'state' | 'delistMode'
+  > & {
+    executionKind: string;
+    maxClassification: string;
+    toolBoundaries: unknown;
+    state: string;
+    delistMode: string | null;
+  },
+): ListingView {
+  if (
+    !Array.isArray(row.toolBoundaries) ||
+    !row.toolBoundaries.every((value: unknown) => typeof value === 'string')
+  )
+    throw new AppError('INVALID_STATE');
+  return {
+    ...row,
+    toolBoundaries: row.toolBoundaries as string[],
+    executionKind: row.executionKind as ListingView['executionKind'],
+    maxClassification: row.maxClassification as ListingView['maxClassification'],
+    state: row.state as ListingState,
+    delistMode: row.delistMode as DelistMode | null,
+  };
 }
 
-export function getListing(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _gate: SkillFeatureGate,
-  _listingId: string,
+const encodeCursor = (id: string) => Buffer.from(id, 'utf8').toString('base64url');
+
+function listingCursor(value: string) {
+  if (value.length !== 48) throw new AppError('INVALID_INPUT');
+  const parsed = idSchema.safeParse(Buffer.from(value, 'base64url').toString('utf8'));
+  if (!parsed.success || encodeCursor(parsed.data) !== value) throw new AppError('INVALID_INPUT');
+  return parsed.data;
+}
+
+/** Browse what is currently offered. Delisted listings can be opened only where native RLS allows them. */
+export async function listListings(
+  database: AppDatabase,
+  context: TenantContext,
+  gate: SkillFeatureGate,
+  input: { after?: string; limit?: number },
+): Promise<ListingPage> {
+  const limit = input.limit ?? 50;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new AppError('INVALID_INPUT');
+  const after = input.after === undefined ? undefined : listingCursor(input.after);
+  if (!(await gate.isEnabled(context, 'marketplace'))) return { items: [], nextCursor: null };
+  return withTenantTx(database, context, async (tx) => {
+    await requireSkillMember(tx, context);
+    const rows = await tx
+      .select(listingFields)
+      .from(listings)
+      .where(
+        and(eq(listings.state, 'listed'), after === undefined ? undefined : gt(listings.id, after)),
+      )
+      .orderBy(asc(listings.id))
+      .limit(limit + 1);
+    const items = rows.slice(0, limit).map(listingView);
+    return {
+      items,
+      nextCursor: rows.length > limit ? encodeCursor(items[items.length - 1]!.id) : null,
+    };
+  });
+}
+
+export async function getListing(
+  database: AppDatabase,
+  context: TenantContext,
+  gate: SkillFeatureGate,
+  listingId: string,
 ): Promise<ListingView> {
-  throw new Error('NOT_IMPLEMENTED');
+  const target = idSchema.safeParse(listingId);
+  if (!target.success) throw new AppError('INVALID_INPUT');
+  if (!(await gate.isEnabled(context, 'marketplace'))) throw new AppError('FEATURE_NOT_ENABLED');
+  return withTenantTx(database, context, async (tx) => {
+    await requireSkillMember(tx, context);
+    const [row] = await tx.select(listingFields).from(listings).where(eq(listings.id, target.data));
+    if (!row) throw new AppError('NOT_FOUND');
+    return listingView(row);
+  });
 }
 
 /**
@@ -75,11 +168,35 @@ export function requestInstallation(
   throw new Error('NOT_IMPLEMENTED');
 }
 
+const installations = marketplaceInstallations;
+const installationFields = {
+  id: installations.id,
+  listingId: installations.listingId,
+  state: installations.state,
+  packageId: installations.packageId,
+  skillVersionId: installations.skillVersionId,
+  failureCode: installations.failureCode,
+  createdAt: installations.createdAt,
+  version: installations.version,
+};
+
 export function listInstallations(
-  _database: AppDatabase,
-  _context: TenantContext,
+  database: AppDatabase,
+  context: TenantContext,
 ): Promise<readonly InstallationView[]> {
-  throw new Error('NOT_IMPLEMENTED');
+  return withTenantTx(database, context, async (tx) => {
+    await requireSkillMember(tx, context);
+    const rows = await tx
+      .select(installationFields)
+      .from(installations)
+      .where(eq(installations.organizationId, context.organizationId))
+      .orderBy(desc(installations.createdAt), desc(installations.id));
+    return rows.map((row) => ({
+      ...row,
+      state: row.state as InstallationState,
+      failureCode: row.failureCode as InstallationFailureCode | null,
+    }));
+  });
 }
 
 /**

@@ -76,6 +76,7 @@
     "./custom-objects": "./src/product/custom-objects.ts",
     "./packs": "./src/product/packs.ts",
     "./saas/*": "./src/saas/*.ts",
+    "./sandbox-worker-control": "./src/sandbox-worker-control.ts",
     "./platform-mail": "./src/platform-mail.ts"
   },
   "scripts": {

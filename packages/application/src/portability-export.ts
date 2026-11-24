@@ -29,8 +29,11 @@ import {
   artifactPartPath,
   knowledgePartPath,
   assertPortabilitySections,
-  PORTABILITY_INVENTORY,
+  FEDERATION_PORTABILITY_VERSION,
+  isJoinedPortabilityVersion,
+  PORTABILITY_INVENTORY_PROFILES,
   PORTABILITY_INVENTORY_VERSION,
+  type JoinedPortabilityVersion,
   EXPORT_FAILURE_CODES,
   EXPORT_MANIFEST_PATH,
   EXPORT_SECTIONS,
@@ -514,8 +517,14 @@ export async function beginExport(
   return withTenantTx(database, context, async (tx) => {
     const row = await findExport(tx, context, id, true);
     if (row.status !== 'requested') return stepOf(row);
+    const [legacy] = await queryRows<{ clear: boolean }>(
+      tx,
+      sql`select sovereign.portable_profile_clear(${PORTABILITY_INVENTORY_VERSION}) as clear`,
+    );
+    const profile =
+      legacy?.clear === true ? PORTABILITY_INVENTORY_VERSION : FEDERATION_PORTABILITY_VERSION;
     try {
-      await assertJoinedPortabilitySchema(tx);
+      await assertJoinedPortabilitySchema(tx, profile);
     } catch (error) {
       if (!(error instanceof RecordRefused)) throw error;
       await recordFailure(tx, context, row, 'RECORD_REFUSED');
@@ -525,6 +534,7 @@ export async function beginExport(
       .update(organizationExports)
       .set({
         status: 'running',
+        inventoryVersion: profile === FEDERATION_PORTABILITY_VERSION ? profile : undefined,
         exportEpoch: sql`(select epoch from sovereign.export_epochs where organization_id=${context.organizationId}::uuid)`,
         // The database's own clock, because every row this is compared with was stamped by it.
         snapshotAt: sql`now()`,
@@ -548,13 +558,17 @@ type EncodedPage =
  * One page as JSONL. Each core record goes through its strict schema and what comes out is what is written, so
  * a new column, a credential or a restricted class has nowhere to go. No text from a record reaches the answer.
  */
-export function encodeExportPage(section: string, records: readonly unknown[]): EncodedPage {
+export function encodeExportPage(
+  section: string,
+  records: readonly unknown[],
+  inventoryVersion: JoinedPortabilityVersion = PORTABILITY_INVENTORY_VERSION,
+): EncodedPage {
   const lines: Buffer[] = [];
   let total = 0;
   for (const record of records) {
     let checked: unknown;
     try {
-      checked = validatePortableRecord(section, record);
+      checked = validatePortableRecord(section, record, inventoryVersion);
       assertPortableDefinitionIntegrity(checked);
     } catch {
       return { ok: false, why: 'refused' };
@@ -745,6 +759,8 @@ async function writeRecords(
   ) => ReturnType<CommitChange['next']>,
 ): Promise<ExportStep> {
   const { database, context, row, progress } = run;
+  const inventoryVersion = row.inventoryVersion ?? PORTABILITY_INVENTORY_VERSION;
+  if (!isJoinedPortabilityVersion(inventoryVersion)) return failStep(run, 'RECORD_REFUSED');
   let limit = MAX_RECORDS_PER_PART;
   let page: ExportPage;
   let encoded: EncodedPage;
@@ -753,12 +769,16 @@ async function writeRecords(
     page = await withTenantTx(database, context, (tx) =>
       withPortabilityScope(tx, { 'app.portability_export_id': row.id }, async (tx) => {
         await assertExportEpoch(tx, context, row.id);
-        const page = await exportPage(tx, context, { cursor: progress.cursor, limit: size });
+        const page = await exportPage(tx, context, {
+          cursor: progress.cursor,
+          limit: size,
+          inventoryVersion,
+        });
         await assertExportEpoch(tx, context, row.id);
         return page;
       }),
     );
-    encoded = encodeExportPage(section, page.records);
+    encoded = encodeExportPage(section, page.records, inventoryVersion);
     if (encoded.ok || encoded.why === 'refused' || limit === 1) break;
     limit = Math.max(1, Math.floor(limit / 2));
   }
@@ -1100,12 +1120,14 @@ async function manifestPiece(run: Run): Promise<ExportStep> {
     where organization_id=${context.organizationId}::uuid and alive and provenance_state<>'ordinary'`,
     ),
   );
+  const inventoryVersion = row.inventoryVersion ?? PORTABILITY_INVENTORY_VERSION;
+  if (!isJoinedPortabilityVersion(inventoryVersion)) return failStep(run, 'RECORD_REFUSED');
   const manifest = exportManifestSchema.safeParse({
     format: 'ensemus.organization_export',
     schema_version: 2,
-    inventory_version: PORTABILITY_INVENTORY_VERSION,
+    inventory_version: inventoryVersion,
     record_max_bytes: MAX_JOINED_RECORD_BYTES,
-    inventory: PORTABILITY_INVENTORY,
+    inventory: PORTABILITY_INVENTORY_PROFILES[inventoryVersion],
     generated_bodies_excluded: omitted?.count ?? 0,
     export_id: row.id,
     organization_id: context.organizationId,

@@ -28,6 +28,10 @@ const EXPORT_SECTIONS = [
   'custom-objects',
 ] as const;
 
+const FEDERATION_PROFILE = 'ensemus.m3-m7-federation/4';
+const isJoinedInventory = (value: string) =>
+  value === 'ensemus.m3-m7/3' || value === FEDERATION_PROFILE;
+
 const id = z.uuid().refine((value) => value === value.toLowerCase());
 const moment = z.iso.datetime({ offset: true });
 const text = z.string().max(10_000);
@@ -703,7 +707,7 @@ export function validatePortableRecord(
   const extension = extensionRecordSchema.parse(raw);
   if (
     (M7_PORTABLE_RECORD_KINDS as readonly string[]).includes(extension.kind) &&
-    inventoryVersion !== 'ensemus.m3-m7/3'
+    !isJoinedInventory(inventoryVersion)
   )
     throw new Error('RECORD_REFUSED');
   const allowed = EXTENSION_SECTION_KINDS[section as keyof typeof EXTENSION_SECTION_KINDS] as
@@ -752,7 +756,12 @@ const manifestV1Schema = z.strictObject({
 });
 const manifestV2Schema = manifestV1Schema.extend({
   schema_version: z.literal(2),
-  inventory_version: z.enum(['ensemus.m3-m5/1', 'ensemus.m3-m5/2', 'ensemus.m3-m7/3']),
+  inventory_version: z.enum([
+    'ensemus.m3-m5/1',
+    'ensemus.m3-m5/2',
+    'ensemus.m3-m7/3',
+    FEDERATION_PROFILE,
+  ]),
   record_max_bytes: z.literal(4 * 1024 * 1024).optional(),
   generated_bodies_excluded: z.int().min(0),
   inventory: z
@@ -802,7 +811,7 @@ export const exportManifestSchema = z
       )
     )
       ctx.addIssue({ code: 'custom', message: 'Legacy archives carry only core inert records' });
-    const joined = value.schema_version === 2 && value.inventory_version === 'ensemus.m3-m7/3';
+    const joined = value.schema_version === 2 && isJoinedInventory(value.inventory_version);
     if (
       value.schema_version === 2 &&
       ((joined && value.record_max_bytes !== 4 * 1024 * 1024) ||

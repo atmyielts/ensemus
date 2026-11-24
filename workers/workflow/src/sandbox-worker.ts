@@ -5,7 +5,16 @@
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadSandboxWorkerConfig, readSecret } from '@ensemus/config';
+import { entitledSkillFeatureGate } from '@ensemus/application';
+import { createSandboxWorkerControl } from '@ensemus/application/sandbox-worker-control';
+import { createEntitlementChecker } from '@ensemus/application/saas/entitlements';
+import {
+  loadSandboxCeilings,
+  loadSandboxWorkerConfig,
+  loadSkillFeatures,
+  loadSaasConfig,
+  readSecret,
+} from '@ensemus/config';
 import { openAppDatabase } from '@ensemus/database';
 import { createRunnerClient } from '@ensemus/sandbox/client';
 import { S3ObjectStore } from '@ensemus/storage';
@@ -30,6 +39,11 @@ async function main() {
     address: process.env.TEMPORAL_ADDRESS ?? 'temporal:7233',
   });
   const app = openAppDatabase(readSecret('DATABASE_URL_APP'));
+  const control = await createSandboxWorkerControl(app.db);
+  const gate = entitledSkillFeatureGate(
+    loadSkillFeatures(),
+    createEntitlementChecker(app.db, loadSaasConfig().billingEnabled),
+  );
   const store = new S3ObjectStore({
     endpoint: process.env.OBJECT_STORAGE_ENDPOINT ?? 'http://objects:8333',
     bucket: process.env.OBJECT_STORAGE_BUCKET ?? 'ensemus',
@@ -41,7 +55,9 @@ async function main() {
     namespace: process.env.TEMPORAL_NAMESPACE ?? 'default',
     taskQueue: SANDBOX_TASK_QUEUE,
     activities: createSandboxRunActivities({
-      database: app.db,
+      control,
+      gate,
+      ceilings: loadSandboxCeilings(),
       store,
       runner: createRunnerClient({
         url: config.runnerUrl,
