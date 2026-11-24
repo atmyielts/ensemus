@@ -5,7 +5,7 @@ area: op-install
 tickets: [PLAT-15, PLAT-11]
 modes: [cloud, byom, sovereign]
 status: written_untested
-sources: [infrastructure/compose/compose.yaml, infrastructure/compose/compose.public.yaml, infrastructure/compose/proxy/Caddyfile, infrastructure/compose/postgres/10-provision.sh, infrastructure/compose/postgres/provision.sql, infrastructure/compose/temporal/setup-schema.sh, infrastructure/compose/temporal/setup-namespace.sh, infrastructure/containers/Dockerfile.web, infrastructure/containers/Dockerfile.worker, infrastructure/scripts/generate-test-secrets.mjs, packages/config/src/index.ts, packages/telemetry/src/console-guard.ts, apps/web/start.mjs, apps/web/src/app/api/health/ready/route.ts, apps/web/src/app/api/health/live/route.ts, apps/web/src/app/sign-in/page.tsx, workers/workflow/src/migrate.ts, docs/05-operations/05-container-deployment-runbook.md, docs/00-foundation/adr/ADR-025-m1-implementation-decisions.md, tests/stack/platform.test.ts]
+sources: [infrastructure/compose/compose.yaml, infrastructure/compose/compose.public.yaml, infrastructure/compose/proxy/Caddyfile, infrastructure/compose/postgres/10-provision.sh, infrastructure/compose/postgres/provision.sql, infrastructure/compose/temporal/setup-schema.sh, infrastructure/compose/temporal/setup-namespace.sh, infrastructure/containers/Dockerfile.web, infrastructure/containers/Dockerfile.worker, infrastructure/scripts/generate-install-secrets.mjs, infrastructure/scripts/check-compose-secrets.mjs, infrastructure/scripts/generate-test-secrets.mjs, packages/config/src/index.ts, packages/telemetry/src/console-guard.ts, apps/web/start.mjs, apps/web/src/app/api/health/ready/route.ts, apps/web/src/app/api/health/live/route.ts, apps/web/src/app/sign-in/page.tsx, workers/workflow/src/migrate.ts, docs/05-operations/05-container-deployment-runbook.md, docs/00-foundation/adr/ADR-025-m1-implementation-decisions.md, tests/stack/platform.test.ts]
 tests: []
 needs_walkthrough: true
 ---
@@ -22,7 +22,7 @@ This installs Ensemus on one host, from a copy of the repository, using `infrast
 
 - Docker Engine with the Compose plugin. The file uses `depends_on` conditions and `--wait`, so it needs Compose version 2.
 - A copy of this repository at the commit you are installing, on the host. There is no published image to pull, so the images are built here.
-- `openssl`, to make your secrets, or Node.js 24 if you are using the generated test values.
+- Node.js 24, to generate and check the secrets used by Compose.
 - Network access during the build, for the base images and packages.
 
 No hardware size is given here, because none has been measured. `compose.yaml` limits `web` to 1G of memory, `worker` to 2G and `dispatcher` to 512M. Those are ceilings in a file, not a statement of what you need.
@@ -63,28 +63,22 @@ compose() { docker compose --env-file .local/ensemus.env -f infrastructure/compo
 
 ## Step 3: Make the secrets
 
-The stack reads 22 files from `.local/secrets`. There are two ways to make them.
-
-- **For a real install,** follow [Secrets and key rotation](secrets.md), which gives every command.
-- **For a trial with nothing real in it,** run the generator. Its values are random, but the project calls them throwaway and treats them that way, and nothing looks after them:
+For a fresh installation, generate the database, storage and runtime secrets:
 
 ```sh
-node infrastructure/scripts/generate-test-secrets.mjs
+node infrastructure/scripts/generate-install-secrets.mjs
 ```
 
-Either way, check the count. This prints `22`:
-
-```sh
-ls .local/secrets | wc -l
-```
+For a disposable trial, use `node infrastructure/scripts/generate-test-secrets.mjs`. If you are upgrading an existing installation, preserve its secrets and consult [Secrets and key rotation](secrets.md).
 
 ## Step 4: Check that the settings resolve
 
 ```sh
 compose config --quiet
+compose config --format json | node infrastructure/scripts/check-compose-secrets.mjs
 ```
 
-It prints nothing and exits 0. Then look at what you are about to run, and confirm the addresses and mode are the ones you meant:
+The second command checks the file-backed secrets required by your chosen Compose files and profiles. Then confirm the addresses and mode:
 
 ```sh
 compose config | grep -E 'ENSEMUS_(MODE|PUBLIC_URL|HOSTNAME|ALLOW_SIGNUP)'
@@ -161,7 +155,7 @@ You will need these for [Upgrading a release](upgrade.md) and [Rolling back a re
 | What you see | What it means | What to do |
 |---|---|---|
 | `Couldn't find env file` | You are not in the top folder, or Step 1 was skipped | Change folder, or write the file |
-| An error naming a path under `.local/secrets` | A secret file is missing | Make it. `ls .local/secrets` should show 22 files |
+| Compose reports a missing or empty secret file | A service's secret mount cannot be read | Rerun the Step 4 check with your Compose files and profiles. Use the reported secret name and the rotation guide to locate its file |
 | An error about an overlapping address pool | `172.30.0.0/16` is already in use | Set `ENSEMUS_NETWORK_PREFIX`, then start again |
 | `compose logs web` says `Refusing to start: NEXT_SERVER_ACTIONS_ENCRYPTION_KEY_FILE is not set.` | The Server Action key is missing or empty. This is on purpose, and it will not fall back to the key built into the image | Check `next_server_actions_key` |
 | `web` stays unhealthy, and its log has `errorCode` `ConfigError` | A required setting or secret is missing or invalid. The log leaves out which one | Check `ENSEMUS_MODE`, then `ENSEMUS_PUBLIC_URL` for a slash at the end, then every file `web` reads, using [Configuration reference](configuration.md) |

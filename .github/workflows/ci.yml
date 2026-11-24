@@ -81,6 +81,17 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
+      - name: Verify fresh-install secrets against the public Compose stack
+        env:
+          ENSEMUS_HOSTNAME: ensemus.example.invalid
+        run: |
+          umask 077
+          node infrastructure/scripts/generate-install-secrets.mjs
+          test "$(stat -c %a .local/secrets)" = 700
+          test "$(stat -c %a .local/secrets/sealing_private_key.pem)" = 644
+          docker compose --profile connectors --profile federation \
+            -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.public.yaml \
+            config --format json | node infrastructure/scripts/check-compose-secrets.mjs
       - name: Deployed proxy - forged client address, trusted proxy and hostname
         run: node infrastructure/scripts/check-proxy.mjs
 

@@ -1197,8 +1197,8 @@
     },
     {
       "path": "guides/operator/install-compose.md",
-      "size_bytes": 12478,
-      "sha256": "89715ccdad9897afd2da6f1fe3504e621bc93e6c77e9c49e0c9546cdf24e2e01"
+      "size_bytes": 12587,
+      "sha256": "dc2a007221318fd5823051de2f46899f4a1affc8cc75cc3c136999cd1dd8e6ef"
     },
     {
       "path": "guides/operator/license-issuance.md",
@@ -1257,8 +1257,8 @@
     },
     {
       "path": "guides/operator/secrets.md",
-      "size_bytes": 14265,
-      "sha256": "bd4bb67d296cb33833363e90e63d1d51b493035a22ecf1c5ffe332872ee1e7ae"
+      "size_bytes": 15072,
+      "sha256": "c7770813fa2ec14170483f326aac5c748f1651064c75bc6e682d81db05ebe08e"
     },
     {
       "path": "guides/operator/support-access.md",

@@ -5,7 +5,7 @@ area: op-install
 tickets: [FOUND-05]
 modes: [cloud, byom, sovereign]
 status: written_untested
-sources: [infrastructure/compose/compose.yaml, infrastructure/compose/postgres/10-provision.sh, infrastructure/compose/temporal/temporal-start.sh, infrastructure/scripts/generate-test-secrets.mjs, packages/config/src/index.ts, packages/secrets/src/broker.ts, packages/workflows/src/codec.ts, packages/auth/src/index.ts, apps/web/start.mjs, apps/web/src/server/runtime.ts, workers/workflow/src/connector-worker.ts, workers/workflow/src/main.ts, docs/00-foundation/adr/ADR-024-build-start-runtime-contracts.md, docs/00-foundation/adr/ADR-025-m1-implementation-decisions.md, docs/00-foundation/adr/ADR-026-tombstones-survive-restore.md, docs/specifications/implementation-backlog.csv, apps/web/src/server/api.ts]
+sources: [infrastructure/compose/compose.yaml, infrastructure/compose/postgres/10-provision.sh, infrastructure/compose/temporal/temporal-start.sh, infrastructure/scripts/generate-install-secrets.mjs, infrastructure/scripts/check-compose-secrets.mjs, infrastructure/scripts/generate-test-secrets.mjs, packages/config/src/index.ts, packages/secrets/src/broker.ts, packages/workflows/src/codec.ts, packages/auth/src/index.ts, apps/web/start.mjs, apps/web/src/server/runtime.ts, workers/workflow/src/connector-worker.ts, workers/workflow/src/main.ts, docs/00-foundation/adr/ADR-024-build-start-runtime-contracts.md, docs/00-foundation/adr/ADR-025-m1-implementation-decisions.md, docs/00-foundation/adr/ADR-026-tombstones-survive-restore.md, docs/specifications/implementation-backlog.csv, apps/web/src/server/api.ts]
 tests: []
 ---
 
@@ -13,7 +13,7 @@ tests: []
 
 > **Not yet tested end to end.** This page was written from the code, and nobody has followed it on a running system yet.
 
-The stack reads 22 secret files. This page says what each one is for, how to make it, how to change it, and **which ones cannot be changed safely today**. Read that part before you rely on any of them.
+This page covers the secret files used by the base stack and optional Compose profiles, including **which keys cannot be rotated safely today**.
 
 ## Do not store real provider credentials yet
 
@@ -31,7 +31,7 @@ Every file sits in `.local/secrets`, in the repository's top folder. `compose.ya
 chmod 700 .local/secrets
 ```
 
-That folder setting has not been tried on a running system. If a container reports that it cannot read a secret, this is the first thing to look at.
+If a container reports that it cannot read a secret, check the mode on the mounted file.
 
 Anyone who can run Docker on this host can read every one of these files, from the host or through a container. Limit who has that.
 
@@ -41,79 +41,49 @@ Anyone who can run Docker on this host can read every one of these files, from t
 |---|---|---|---|
 | `db_superuser_password` | `postgres` | The `postgres` superuser. Used only to create the database, on an empty data folder | Hex |
 | `db_migrator_password`, `db_migrator_url` | `postgres`, `migrate` | Schema owner | Hex, and a URL |
-| `db_app_password`, `db_app_url` | `postgres`, `web`, `worker` | Tenant data through row-level security | Hex, and a URL |
+| `db_app_password`, `db_app_url` | `postgres`, `web` | Tenant data through row-level security | Hex, and a URL |
+| `db_agent_password`, `db_agent_url` | `postgres`, `provision-roles`, `agent-worker` | Agent worker's database login | Hex, and a URL |
+| `db_worker_password`, `db_worker_url` | `postgres`, `provision-roles`, `worker`, `federation-worker` | Workflow worker's database login | Hex, and a URL |
+| `db_connector_password`, `db_connector_url` | `postgres`, `provision-roles`, `connector-worker` | Connector worker's database login | Hex, and a URL |
+| `db_knowledge_password`, `db_knowledge_url` | `postgres`, `provision-roles`, `knowledge-worker` | Knowledge worker's database login | Hex, and a URL |
+| `db_mailer_password`, `db_mailer_url` | `provision-roles`, `mail-worker` | Mail worker's database login | Hex, and a URL |
+| `db_federation_password`, `db_federation_url` | `provision-federation`, `federation-worker` | Federation worker's separate database login | Hex, and a URL |
+| `mail_relay_password` | `mail-worker` | Relay password supplied by its operator | Provider-supplied text |
 | `db_auth_password`, `db_auth_url` | `postgres`, `web` | Sign-in tables | Hex, and a URL |
 | `db_dispatcher_password`, `db_dispatcher_url` | `postgres`, `dispatcher` | Outbox | Hex, and a URL |
-| `db_secrets_password`, `db_secrets_url` | `postgres`, `worker` | The `secrets` schema. Only the connector worker's code reads it | Hex, and a URL |
+| `db_secrets_password`, `db_secrets_url` | `postgres`, `worker`, `agent-worker`, `connector-worker` | The `secrets` schema | Hex, and a URL |
 | `db_temporal_password` | `postgres`, `temporal`, `temporal-schema` | Temporal's database | Hex |
-| `objects_access_key`, `objects_secret_key` | `web`, `worker`, `migrate` | The store's main identity, which is an administrator of the whole store | Hex |
+| `objects_access_key`, `objects_secret_key` | `migrate`, `web`, workflow and processing workers | The store's main identity, which is an administrator of the whole store | Hex |
 | `objects_ledger_access_key`, `objects_ledger_secret_key` | `dispatcher` | Reaches only the `tombstone-ledger/` prefix. See [After a restore](after-a-restore.md) | Hex |
-| `objects_identity.json` | `objects` | Lists both identities above and what each may do | JSON |
+| `objects_backup_access_key`, `objects_backup_secret_key` | `pg-backup-offsite` | Can read, write and list only the backup bucket | Hex |
+| `objects_identity.json` | `objects` | Lists the object-store identities and what each may do | JSON |
 | `auth_secret` | `web` | Signs session cookies, and encrypts provider tokens from sign-in | 32 bytes, base64 |
 | `next_server_actions_key` | `web` | Encrypts Server Action data for this deployment, in place of the key built into the image | 32 bytes, base64 |
-| `temporal_codec_key` | `worker`, `dispatcher` | Encrypts what Temporal stores | 32 bytes, base64. Anything else stops the process |
+| `temporal_codec_key` | Temporal workers and `dispatcher` | Encrypts what Temporal stores | 32 bytes, base64. Anything else stops the process |
 | `sealing_public_key.pem` | `web` | Seals credentials people submit | RSA 3072, SPKI PEM |
-| `sealing_private_key.pem` | `worker` | Unseals them. Only the connector worker's code reads it | RSA 3072, PKCS8 PEM |
+| `sealing_private_key.pem` | `worker`, `agent-worker`, `connector-worker`, `mail-worker` | Unseals credentials | RSA 3072, PKCS8 PEM |
 
-## Making them
+## Creating secrets for a new installation
 
-These commands make all 22 files. Run them from the repository's top folder, on the host, with a shell such as `bash`:
+From the repository root, run this with Node.js 24:
 
 ```sh
-mkdir -p .local/secrets
-cd .local/secrets
-
-for role in superuser migrator app auth dispatcher secrets temporal; do
-  openssl rand -hex 24 | tr -d '\r\n' > "db_${role}_password"
-done
-
-for role in migrator app auth dispatcher secrets; do
-  printf 'postgres://ensemus_%s:%s@postgres:5432/ensemus' "$role" "$(cat "db_${role}_password")" > "db_${role}_url"
-done
-
-openssl rand -hex 12 | tr -d '\r\n' > objects_access_key
-openssl rand -hex 24 | tr -d '\r\n' > objects_secret_key
-openssl rand -hex 12 | tr -d '\r\n' > objects_ledger_access_key
-openssl rand -hex 24 | tr -d '\r\n' > objects_ledger_secret_key
-
-cat > objects_identity.json <<EOF
-{
-  "identities": [
-    {
-      "name": "ensemus",
-      "credentials": [
-        { "accessKey": "$(cat objects_access_key)", "secretKey": "$(cat objects_secret_key)" }
-      ],
-      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
-    },
-    {
-      "name": "ensemus-ledger",
-      "credentials": [
-        { "accessKey": "$(cat objects_ledger_access_key)", "secretKey": "$(cat objects_ledger_secret_key)" }
-      ],
-      "actions": ["Read:ensemus/tombstone-ledger/*", "Write:ensemus/tombstone-ledger/*"]
-    }
-  ]
-}
-EOF
-
-openssl rand -base64 32 | tr -d '\r\n' > auth_secret
-openssl rand -base64 32 | tr -d '\r\n' > temporal_codec_key
-openssl rand -base64 32 | tr -d '\r\n' > next_server_actions_key
-
-openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out sealing_private_key.pem
-openssl pkey -in sealing_private_key.pem -pubout -out sealing_public_key.pem
-
-chmod 644 ./*
-cd ../..
-chmod 700 .local/secrets
+node infrastructure/scripts/generate-install-secrets.mjs
 ```
 
-**How to tell it worked.** `ls .local/secrets | wc -l` prints `22`. These commands were run on a machine with no containers, and the results had the file names `compose.yaml` asks for and the forms the code reads. That does not show that a stack starts with them.
+The command requires a new `.local/secrets` directory. It generates the database passwords and matching connection URLs, three runtime keys, the RSA sealing pair, and credentials for the main object store, tombstone ledger and optional backup bucket. It creates the directory with mode `700` and sets each file to `644` so the containers can read their own mounts. An existing directory is preserved. Keep its keys to retain access to existing encrypted data.
 
-**Use hex for your own passwords.** Passwords go inside a URL, so any character that means something in a URL has to be percent-encoded, in the URL and not in the password file. If the `_url` and `_password` files disagree, the role is created with one password and the service tries another.
+If you enable the optional mail profile, set `ENSEMUS_MAIL_PASSWORD_FILE` in the Compose settings to the absolute path of the relay password file. The generator supplies the mailer database credentials. The relay password comes from your relay operator.
 
-**The generator.** `node infrastructure/scripts/generate-test-secrets.mjs` makes the same files for test stacks. Its own header says they are test values only. It leaves any existing file alone, apart from `objects_identity.json`, which it rewrites from the current keys every time.
+Before starting the stack, check the mounts for the Compose files and profiles you intend to use. The same `compose` helper is defined in [Installing with Docker Compose](install-compose.md).
+
+```sh
+compose config --format json | node infrastructure/scripts/check-compose-secrets.mjs
+```
+
+For disposable trials and CI fixtures, use `node infrastructure/scripts/generate-test-secrets.mjs`. That command can fill missing fixture files and rewrites the object-store identity file.
+
+**Use hex for your own passwords.** Percent-encode any characters that have meaning in a URL. The raw password in the password file and the decoded password in the URL must match.
 
 ## Keep a copy, away from this host
 
@@ -160,15 +130,21 @@ compose exec postgres psql -U postgres -d postgres
 Then put the same value in `.local/secrets/db_app_password`, change the password in `.local/secrets/db_app_url`, and recreate what uses it:
 
 ```sh
-compose up -d --no-deps --force-recreate --wait web worker
+compose up -d --no-deps --force-recreate --wait web
 ```
 
 | Role | Files to change | Recreate |
 |---|---|---|
-| `ensemus_app` | `db_app_password`, `db_app_url` | `web`, `worker` |
+| `ensemus_app` | `db_app_password`, `db_app_url` | `web` |
+| `ensemus_agent` | `db_agent_password`, `db_agent_url` | `agent-worker` |
+| `ensemus_worker` | `db_worker_password`, `db_worker_url` | `worker`, and `federation-worker` if enabled |
+| `ensemus_connector` | `db_connector_password`, `db_connector_url` | `connector-worker` if enabled |
+| `ensemus_knowledge` | `db_knowledge_password`, `db_knowledge_url` | `knowledge-worker` |
+| `ensemus_mailer` | `db_mailer_password`, `db_mailer_url` | `mail-worker` if enabled |
+| `ensemus_federation` | `db_federation_password`, `db_federation_url` | `federation-worker` if enabled |
 | `ensemus_auth` | `db_auth_password`, `db_auth_url` | `web` |
 | `ensemus_dispatcher` | `db_dispatcher_password`, `db_dispatcher_url` | `dispatcher` |
-| `ensemus_secrets` | `db_secrets_password`, `db_secrets_url` | `worker`, and the connector worker if you run it |
+| `ensemus_secrets` | `db_secrets_password`, `db_secrets_url` | `worker`, `agent-worker`, and `connector-worker` if enabled |
 | `ensemus_migrator` | `db_migrator_password`, `db_migrator_url` | Nothing. `migrate` reads it on its next run |
 | `temporal` | `db_temporal_password` | `temporal`, then `worker` and `dispatcher` |
 | `postgres` | `db_superuser_password` | Nothing. It is only read on an empty data folder |
@@ -177,11 +153,11 @@ compose up -d --no-deps --force-recreate --wait web worker
 
 ### File storage keys
 
-`objects` reads its identities when it starts. To change either pair, write the new values to the two key files, rewrite `objects_identity.json` using the block above, then recreate the store first and everything using the key after it:
+`objects` reads its identities when it starts. To change a pair, write the new values to its two key files and update the matching identity's `credentials` in `objects_identity.json`. Keep the other identities and the existing `actions`. Recreate the store first and the services that use the key after it. For example, to rotate the ledger pair:
 
 ```sh
 compose up -d --no-deps --force-recreate --wait objects
-compose up -d --no-deps --force-recreate --wait web worker dispatcher
+compose up -d --no-deps --force-recreate --wait dispatcher
 ```
 
 **How to tell it worked:** `https://localhost:8443/api/health/ready` does not cover the store, so upload a file to a work item, then download it. For the ledger pair, delete a test file, then see that the backlog stays at zero:
