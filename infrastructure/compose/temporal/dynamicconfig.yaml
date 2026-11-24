@@ -5,3 +5,15 @@
 # compose.yaml, so replacing this file cannot silently turn it back on.
 frontend.enableServerVersionCheck:
   - value: false
+
+# Bound caches by bytes in this single-process deployment. Shard-local defaults multiply memory
+# by the number of owned shards. These are read again when the server is restarted.
+# Keys verified against the pinned server 1.32.2 common/dynamicconfig/constants.go.
+history.cacheSizeBasedLimit:
+  - value: true
+history.hostLevelCacheMaxSizeBytes:
+  - value: 67108864
+history.enableHostLevelEventsCache:
+  - value: true
+history.eventsHostLevelCacheMaxSizeBytes:
+  - value: 16777216

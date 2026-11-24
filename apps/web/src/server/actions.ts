@@ -1,9 +1,14 @@
 'use server';
 
-import { idSchema } from '@ensemus/application';
+import { idSchema, pgCode } from '@ensemus/application';
 import type { CredentialForm } from '@ensemus/auth';
+import { loadTenancyConfig } from '@ensemus/config';
 import { organizationNameSchema } from '@ensemus/contracts';
-import { createOrganization, isRestoreAdmissionDenied } from '@ensemus/database';
+import {
+  createOrganization,
+  DedicatedOrganizationClaimRefused,
+  isRestoreAdmissionDenied,
+} from '@ensemus/database';
 import { errorCode } from '@ensemus/telemetry';
 import { parseSetCookieHeader, toCookieOptions } from 'better-auth/cookies';
 import { cookies, headers } from 'next/headers';
@@ -20,6 +25,13 @@ const field = (form: FormData, name: string) => {
   return typeof value === 'string' ? value : '';
 };
 
+async function applyCredentialCookies(setCookie: string | null) {
+  const jar = await cookies();
+  for (const [name, value] of parseSetCookieHeader(setCookie ?? '')) {
+    jar.set(name, value.value, toCookieOptions(value));
+  }
+}
+
 /**
  * Submits the form through the same limit as /api/auth, passes on any session it made, and says which
  * error the page should show. A failure says nothing more than a refusal would.
@@ -29,10 +41,7 @@ async function submitForm(form: CredentialForm, event: string): Promise<string |
   try {
     const { outcome, status, setCookie } = await submitCredentials(form, await headers());
     if (outcome === 'accepted' || outcome === 'two_factor') {
-      const jar = await cookies();
-      for (const [name, value] of parseSetCookieHeader(setCookie ?? '')) {
-        jar.set(name, value.value, toCookieOptions(value));
-      }
+      await applyCredentialCookies(setCookie);
       return outcome === 'two_factor' ? 'two_factor' : null;
     }
     log.info(event, { errorCode: `HTTP_${status}` });
@@ -80,6 +89,44 @@ export async function signUpAction(form: FormData) {
   redirect(error ? withReturnPath(`/sign-up?error=${error}`, next) : (next ?? '/'));
 }
 
+/** Registers only the live invitation's recipient. Both identity and membership are checked again
+ * on the invitation page before it can be claimed. */
+export async function registerInvitedAccountAction(form: FormData) {
+  const token = field(form, 'token');
+  const here = safeReturnPath(`/invite/${token}`);
+  if (!here) redirect('/sign-in');
+  const runtime = getRuntime();
+  const incoming = await headers();
+  let target = `${here}?registration=refused`;
+  try {
+    if (await runtime.readInteractiveSession(incoming)) {
+      target = here;
+    } else {
+      const result = await runtime.registerInvitedAccount(
+        {
+          token,
+          name: field(form, 'name'),
+          email: field(form, 'email'),
+          password: field(form, 'password'),
+        },
+        incoming,
+      );
+      if (result?.outcome === 'accepted' && result.setCookie) {
+        await applyCredentialCookies(result.setCookie);
+        target = here;
+      } else if (result?.outcome === 'restore_pending') {
+        target = '/restoring';
+      } else if (result?.outcome === 'rate_limited') {
+        target = `${here}?registration=rate`;
+      }
+    }
+  } catch (error) {
+    if (isRestoreAdmissionDenied(error)) target = '/restoring';
+    else runtime.log.error('auth.invitation_registration_failed', { errorCode: errorCode(error) });
+  }
+  redirect(target);
+}
+
 /**
  * Makes one account from a setup code the operator issued, whether or not sign-up is open (ID-01). The
  * code goes in the form and never in a URL, where it would stay in history and in proxy logs.
@@ -124,16 +171,22 @@ export async function createOrganizationAction(form: FormData) {
   const requestKey = idSchema.safeParse(field(form, 'requestKey'));
   let target = '/?error=UNEXPECTED';
   try {
+    const { pinnedOrganizationId } = loadTenancyConfig();
     const { organizationId } = await createOrganization(app, {
       userId: actor.userId,
       name: name.data,
       commercialMode: config.mode,
+      ...(pinnedOrganizationId ? { pinnedOrganizationId } : {}),
       ...(requestKey.success ? { requestKey: requestKey.data } : {}),
     });
     log.info('organization.created', { organizationId, userId: actor.userId });
     target = `/o/${organizationId}`;
   } catch (error) {
-    log.error('organization.create_failed', { errorCode: errorCode(error) });
+    if (error instanceof DedicatedOrganizationClaimRefused || pgCode(error) === 'EN701') {
+      target = '/?error=TENANCY_SINGLE_ORGANIZATION';
+    } else {
+      log.error('organization.create_failed', { errorCode: errorCode(error) });
+    }
   }
   redirect(target);
 }

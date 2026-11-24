@@ -15,6 +15,7 @@ const config: NextConfig = {
     '@ensemus/contracts',
     '@ensemus/database',
     '@ensemus/domain',
+    '@ensemus/department-packs',
     '@ensemus/policy',
     '@ensemus/knowledge',
     '@ensemus/packs',
@@ -26,11 +27,16 @@ const config: NextConfig = {
   ],
   serverExternalPackages: ['pg'],
   poweredByHeader: false,
+  // Keep the development overlay clear of the mobile workspace shortcuts.
+  devIndicators: false,
   // Artifacts are uploaded through Server Actions. The service enforces the same limit.
   experimental: { serverActions: { bodySizeLimit: '26mb' } },
   // Nothing may be fetched from an outside host at runtime (ADR-021).
   images: { unoptimized: true },
   ...(release ? { deploymentId: release } : {}),
+  // The default is random, and it is written into the image, so no two builds could ever match
+  // (ADR-037 D1).
+  generateBuildId: async () => release ?? 'local',
   async headers() {
     return [
       {

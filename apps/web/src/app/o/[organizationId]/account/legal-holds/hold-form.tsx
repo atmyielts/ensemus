@@ -1,4 +1,8 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
+
 import { useActionState } from 'react';
 import { placeLegalHoldFormAction } from '@/server/lifecycle-actions';
 import { AccountActionNotice } from '@/components/account-action-notice';
@@ -33,9 +37,9 @@ export function LegalHoldForm({
           Legal hold placed. Records within its scope must be preserved until it is released.
         </p>
       )}
-      <label>
+      <Label>
         Matter reference
-        <input
+        <Input
           name="matterRef"
           required
           maxLength={120}
@@ -45,10 +49,10 @@ export function LegalHoldForm({
         <small id="hold-matter-help">
           Use a reference only. Do not enter details of the matter.
         </small>
-      </label>
-      <label>
+      </Label>
+      <Label>
         Records to preserve
-        <select
+        <NativeSelect
           name="scopes"
           multiple
           required
@@ -66,13 +70,13 @@ export function LegalHoldForm({
               ))}
             </optgroup>
           ))}
-        </select>
+        </NativeSelect>
         <small id="hold-scope-help">
           Select one or more records. A client or project also preserves its related files. This
           list shows up to 100 records per category; the entire-organization option covers all
           records.
         </small>
-      </label>
+      </Label>
       <div>
         <SubmitButton working="Placing hold">Place legal hold</SubmitButton>
       </div>

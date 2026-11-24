@@ -90,6 +90,8 @@ export const STOP_CODES = [
   'MODEL_UNAVAILABLE',
   'CREDENTIAL_UNAVAILABLE',
   'INVALID_OUTPUT',
+  /** The request did not fit the model's input even after the oldest parts were left out once. */
+  'CONTEXT_TOO_LONG',
   'HALTED',
   'STOPPED_BY_PERSON',
   'WORK_STOPPED',
@@ -165,6 +167,10 @@ export const STEP_LABEL_CODES = [
   'WAITING_FOR_CHILD',
   'CHECKING_RESULT',
   'STOPPING',
+  // Suite tools (ADR-038 D6).
+  'READING_ACCOUNT',
+  'WRITING_DRAFT',
+  'PROPOSING_CHANGE',
 ] as const;
 export type StepLabelCode = (typeof STEP_LABEL_CODES)[number];
 
@@ -175,11 +181,24 @@ export const PROVIDER_KINDS = [
   'anthropic_hosted',
   'openai_compatible',
   'local_openai_compatible',
+  'gemini_hosted',
+  'azure_openai',
+  'bedrock_hosted',
+  'cohere_hosted',
+  'voyage_hosted',
 ] as const;
 export type ProviderKind = (typeof PROVIDER_KINDS)[number];
 
 /** Kinds that send to a provider's own hosts. A real key for one needs the review interlock. */
-export const HOSTED_PROVIDER_KINDS: readonly ProviderKind[] = ['openai_hosted', 'anthropic_hosted'];
+export const HOSTED_PROVIDER_KINDS: readonly ProviderKind[] = [
+  'openai_hosted',
+  'anthropic_hosted',
+  'gemini_hosted',
+  'azure_openai',
+  'bedrock_hosted',
+  'cohere_hosted',
+  'voyage_hosted',
+];
 
 export function isHostedProviderKind(kind: ProviderKind): boolean {
   return HOSTED_PROVIDER_KINDS.includes(kind);
@@ -241,6 +260,7 @@ export const AI_REASON_CODES = [
   'PURPOSE_NOT_ON_PROFILE',
   'WRONG_REGION',
   'REGION_REQUIRED',
+  'RESIDENCY_DENIED',
   'CONTRACT_MISSING',
   'PROFILE_NOT_ACTIVE',
   'PROFILE_CHANGED',
@@ -267,6 +287,10 @@ export const AI_REASON_CODES = [
   'DELEGATION_WIDENED',
   'DELEGATION_DEPTH',
   'DELEGATION_FANOUT',
+  // A tool's connection (ADR-038 D6). Each is audited with the tool's proposal.
+  'SCOPE_NOT_GRANTED',
+  'CONNECTION_NOT_YOURS',
+  'CONNECTION_TYPE_MISMATCH',
 ] as const;
 export type AiReasonCode = (typeof AI_REASON_CODES)[number];
 

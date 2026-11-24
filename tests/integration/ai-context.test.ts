@@ -198,18 +198,16 @@ describe('context and prompt assembly, as the real roles', () => {
     messages.map((message) => message.text).join('\n');
 
   describe('the initiator’s access decides', () => {
-    it('gives nothing on restricted work, even though the agent role could read the row', async () => {
+    it('withholds restricted work from the service binding and from an unassigned initiator', async () => {
       const work = await makeWork(a, { classification: 'restricted' });
       const artifactId = await attach(a, work, 'restricted words');
       const { ref, context } = await startRun(a, work, 'member');
 
-      // This is the trap: bound to the tenant as the service actor its worker also runs as, the agent
-      // role sees the row. Only the ACL stops it. (Since 0411 a Work row needs an active membership or
-      // the service actor, so a bare tenant binding with neither sees no Work at all.)
+      // The agent login cannot acquire material visibility by binding the service actor.
       const seen = await withTenantTx(agent.db, createServiceContext(a.organizationId), (tx) =>
         tx.select({ id: workUnits.id }).from(workUnits).where(eq(workUnits.id, work)),
       );
-      expect(seen).toEqual([{ id: work }]);
+      expect(seen).toEqual([]);
 
       const reads = store.reads.length;
       const member = await context();

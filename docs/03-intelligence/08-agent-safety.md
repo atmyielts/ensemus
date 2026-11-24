@@ -45,3 +45,7 @@ For sensitive decisions, the system offers recommendation and evidence rather th
 ## 10. Red-team tests
 
 Test: malicious Google Doc asking to export secrets; cross-tenant client name collisions; poisoned MCP tool descriptions; rogue agent that tries to switch model to public provider; social-engineered approval content changes; recursive delegation spend explosion; stale ACL and cached source; unknown external send status; forged webhook. See threat register and QA matrix.
+
+The corpus lives in `evaluations/safety/corpus.ts` and runs in `tests/eval/red-team-corpus.test.ts`. Every case scripts a model that obeys the attacker, so a case passes only when a platform control holds: the context fences, egress and the pre-send scan, the output check, or the tool gateway's grants, schemas and approval. Its categories are injection through documents, tool results, email bodies, calendar invites and file or connection names; exfiltration through tool arguments, addresses, and markdown or HTML that a renderer fetches; escalation through tool metadata; and jailbreaks by role play, "ignore previous instructions", encoding and several turns.
+
+Known gaps are kept in the corpus as cases expected to fail, each saying what is missing: a plain link carrying text that is not a canary, a canary rewritten in look-alike letters, reversed, or handed out in halves across turns. The scan is an extra signal and not the boundary. What leaves Ensemus still needs a person.

@@ -18,6 +18,7 @@ import {
   type Values,
 } from '../../helpers/forms';
 import { urls } from '../../helpers/stack';
+import { inFixtureTenant } from '../../helpers/fixture-tenant';
 
 const day = 24 * 60 * 60 * 1000;
 const inDays = (n: number) => new Date(Date.now() + n * day).toISOString().slice(0, 10);
@@ -437,10 +438,12 @@ export async function buildWorld(): Promise<World> {
   );
 
   // One notification that has been reminded, and one that has been read.
-  await sql.query(
-    `update platform.notifications set reminders_sent = 1, last_reminded_at = now()
-     where target_ref = $1`,
-    [`approval:${holding}`],
+  await inFixtureTenant(sql, organization, () =>
+    sql.query(
+      `update platform.notifications set reminders_sent = 1, last_reminded_at = now()
+       where organization_id = $1 and target_ref = $2`,
+      [organization, `approval:${holding}`],
+    ),
   );
   const inbox = await read(`/o/${organization}/inbox`, alice.jar);
   const opened: FormMatch = (form) => form.hidden.has('target');

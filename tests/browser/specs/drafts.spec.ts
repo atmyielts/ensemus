@@ -28,6 +28,15 @@ const signIn = async (page: Page, person: Person) => {
   await page.getByRole('button', { name: 'Sign in' }).click();
 };
 
+async function openWorkFromList(page: Page, organization: string, id: string, title: string) {
+  await page.getByRole('link', { name: 'Work', exact: true }).click();
+  // Home also shows a link with this title, but it opens an inline preview.
+  await expect(page.getByRole('heading', { level: 1, name: 'Work', exact: true })).toBeVisible();
+  await page.getByRole('table').getByRole('link', { name: title, exact: true }).click();
+  await expect(page).toHaveURL(workPath(organization, id));
+  await expect(page.getByRole('heading', { level: 1, name: title, exact: true })).toBeVisible();
+}
+
 /** People of its own, because signing out ends a session that the shared world's people depend on. */
 async function twoPeople() {
   const first = await signUp('Dana First');
@@ -52,9 +61,7 @@ test.describe('the next person in the same tab', () => {
     await page.getByRole('button', { name: 'Sign out' }).click();
     await expect(page.getByRole('heading', { name: 'Sign in to Ensemus' })).toBeVisible();
     await signIn(page, next);
-    await page.getByRole('link', { name: 'Work', exact: true }).click();
-    await page.getByRole('link', { name: title }).click();
-    await expect(page.getByRole('heading', { name: title })).toBeVisible();
+    await openWorkFromList(page, organization, id, title);
 
     await page.locator('summary', { hasText: 'Stop this work' }).click();
     await expect(page.getByLabel('Why is this being stopped?')).toHaveValue('');
@@ -74,8 +81,7 @@ test.describe('the next person in the same tab', () => {
 
     await page.getByRole('button', { name: 'Sign out' }).click();
     await signIn(page, first);
-    await page.getByRole('link', { name: 'Work', exact: true }).click();
-    await page.getByRole('link', { name: title }).click();
+    await openWorkFromList(page, organization, id, title);
     await page.locator('summary', { hasText: 'Stop this work' }).click();
     await expect(page.getByLabel('Why is this being stopped?')).toHaveValue('');
     expect(await sameDocument(page)).toBe(true);
@@ -87,7 +93,7 @@ test.describe('the next person in the same tab', () => {
     await page.goto('/sign-in');
     await markDocument(page);
     await signIn(page, first);
-    await expect(page.getByRole('heading', { name: /^Hello/ })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'My work' })).toBeVisible();
 
     await page.getByRole('button', { name: 'Sign out' }).click();
     await expect(page.getByRole('heading', { name: 'Sign in to Ensemus' })).toBeVisible();
@@ -103,13 +109,13 @@ test.describe('editing the details', () => {
     const page = await open(alice);
     await page.goto(workPath(organization, id));
     await page.getByText('Edit the details').click();
-    await page.getByLabel('Objective').fill('Half an objective that must survive');
+    await page.getByLabel('Details').fill('Half an objective that must survive');
 
     await page.getByRole('button', { name: 'Mark ready' }).click();
     await expect(page.locator('dt:text-is("Status") + dd .badge')).toHaveText('Ready');
 
-    await expect(page.getByLabel('Objective')).toBeVisible();
-    await expect(page.getByLabel('Objective')).toHaveValue('Half an objective that must survive');
+    await expect(page.getByLabel('Details')).toBeVisible();
+    await expect(page.getByLabel('Details')).toHaveValue('Half an objective that must survive');
 
     // The version moved underneath it, and that was the person's own doing, so it still saves.
     await page.getByRole('button', { name: 'Save changes' }).click();
@@ -123,7 +129,7 @@ test.describe('editing the details', () => {
     const page = await open(alice);
     await page.goto(workPath(organization, id));
     await page.getByText('Edit the details').click();
-    await page.getByLabel('Objective').fill('Saved and finished with');
+    await page.getByLabel('Details').fill('Saved and finished with');
     await page.getByRole('button', { name: 'Save changes' }).click();
     await expect(savedObjective(page)).toHaveText('Saved and finished with');
 
@@ -140,7 +146,7 @@ test.describe('editing the details', () => {
     const page = await open(alice);
     await page.goto(workPath(organization, id));
     await page.getByText('Edit the details').click();
-    await page.getByLabel('Objective').fill('Saved before it was marked ready');
+    await page.getByLabel('Details').fill('Saved before it was marked ready');
 
     // The save waits here for as long as the test says, so this happens inside it every time.
     let letItLand: () => void = () => undefined;

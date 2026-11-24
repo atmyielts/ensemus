@@ -12,7 +12,7 @@ import { expect, test } from '../support/fixtures';
 import { axeFindings, sidewaysOverflow } from '../support/look';
 
 const EMPTY_WORDS = 'You have not handed anything to an assistant yet';
-const UNAVAILABLE = 'Assistants are not available on this deployment yet';
+const UNAVAILABLE = 'Assistants are not available here yet';
 const NOT_STOPPED = 'has not stopped yet';
 
 test('says plainly that nothing has been handed to an assistant, and offers no control', async ({

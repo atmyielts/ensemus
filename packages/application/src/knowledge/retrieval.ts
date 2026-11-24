@@ -9,7 +9,15 @@ import {
   type TenantContext,
   type Tx,
 } from '@ensemus/database';
-import { MAX_QUESTION_CHARS, RETRIEVAL_CANDIDATES } from '@ensemus/domain/knowledge';
+import {
+  EXACT_VECTOR_SEARCH_MAX_ROWS,
+  HNSW_INDEXED_DIMENSIONS,
+  HNSW_SEARCH_SETTINGS,
+  MAX_QUESTION_CHARS,
+  RETRIEVAL_CANDIDATES,
+  vectorSearchMode,
+  type VectorSearchMode,
+} from '@ensemus/domain/knowledge';
 import type { Classification } from '@ensemus/domain/policy';
 import { fuseRanks } from '@ensemus/knowledge/fusion';
 import { and, eq, sql, type SQL } from 'drizzle-orm';
@@ -55,9 +63,12 @@ export async function searchLexical(
 }
 
 /**
- * Full-text and exact vector search inside one space, fused by rank. A null vector, or a space with no
- * vectors for what is authorized, falls back to lexical and says so in `mode`. Vectors of another space
- * are never compared (QA-017). Only current, searchable documents of active sources qualify.
+ * Full-text and vector search inside one space, fused by rank. A null vector, or a space with no vectors
+ * for what is authorized, falls back to lexical and says so in `mode`. Vectors of another space are never
+ * compared (QA-017). Only current, searchable documents of active sources qualify. Vector search is exact
+ * over the authorized rows unless the space has an HNSW index and the person can read more than
+ * EXACT_VECTOR_SEARCH_MAX_ROWS of its vectors; then it walks the index with pgvector's iterative scan,
+ * with the same ACL inside the same statement (ADR-029 D6 addendum). `vectorSearch` says which ran.
  */
 export async function retrieveHybrid(
   database: AppDatabase,
@@ -69,7 +80,11 @@ export async function retrieveHybrid(
     sourceIds?: readonly string[];
     maxClassification?: Classification;
   },
-): Promise<{ mode: 'hybrid' | 'lexical'; passages: readonly RetrievedPassage[] }> {
+): Promise<{
+  mode: 'hybrid' | 'lexical';
+  vectorSearch?: VectorSearchMode;
+  passages: readonly RetrievedPassage[];
+}> {
   if (context.actorType === 'service') throw new AppError('FORBIDDEN');
   const query = searchQuery(input.query);
   const limit = searchLimit(input.limit);
@@ -113,6 +128,9 @@ export async function retrieveHybrid(
         approvedVector = { spaceId: space.id, vector: vector.vector };
       }
     }
+    const vectorSearch = approvedVector
+      ? await chooseVectorSearch(tx, context, approvedVector)
+      : undefined;
     // Both rankings and the words they name come from one statement, so a concurrent revoke cannot
     // leave a rank, count or passage from an older ACL paired with a newer one.
     const rows = await rankedPassages(
@@ -122,6 +140,7 @@ export async function retrieveHybrid(
       sourceIds,
       approvedVector,
       input.maxClassification,
+      vectorSearch,
     );
     const lexical = rows.filter((row) => row.channel === 'lexical');
     const vectors = rows.filter((row) => row.channel === 'vector');
@@ -131,8 +150,71 @@ export async function retrieveHybrid(
       vectors.map((row) => ({ chunkId: row.chunkId, rank: Number(row.rank) })),
       { limit },
     ).map((hit) => toRetrievedPassage(byId.get(hit.chunkId)!, hit));
-    return { mode: vectors.length ? 'hybrid' : 'lexical', passages };
+    return {
+      mode: vectors.length ? 'hybrid' : 'lexical',
+      ...(vectorSearch ? { vectorSearch } : {}),
+      passages,
+    };
   });
+}
+
+/** Whether this database's pgvector has iterative index scans (0.8.0 and later). Read once a process. */
+let iterativeScanSupported: boolean | undefined;
+
+export function pgvectorHasIterativeScan(version: string | null | undefined): boolean {
+  const match = /^(\d+)\.(\d+)\./.exec(`${version ?? ''}.`);
+  if (!match) return false;
+  const [major, minor] = [Number(match[1]), Number(match[2])];
+  return major > 0 || minor >= 8;
+}
+
+/**
+ * Exact unless approximate is both available and worth it. The count is bounded, so deciding costs at most
+ * EXACT_VECTOR_SEARCH_MAX_ROWS + 1 index reads, and it uses the same ACL as the search.
+ */
+async function chooseVectorSearch(
+  tx: Tx,
+  context: TenantContext,
+  vector: { spaceId: string; vector: readonly number[] },
+): Promise<VectorSearchMode> {
+  const dimension = vector.vector.length;
+  if (!Object.hasOwn(HNSW_INDEXED_DIMENSIONS, dimension)) return 'exact';
+  if (iterativeScanSupported === undefined) {
+    const found = await tx.execute<{ version: string }>(
+      sql`select extversion as version from pg_catalog.pg_extension where extname = 'vector'`,
+    );
+    iterativeScanSupported = pgvectorHasIterativeScan(found.rows[0]?.version);
+  }
+  if (!iterativeScanSupported) return 'exact';
+  const counted = await tx.execute<{ rows: number }>(sql`
+    select count(*)::integer as rows from (
+      select 1 from knowledge.embeddings e
+       where e.organization_id = ${context.organizationId}::uuid and e.space_id = ${vector.spaceId}::uuid
+         and e.source_id in (select knowledge.readable_source_ids(app.current_membership_id()))
+       limit ${EXACT_VECTOR_SEARCH_MAX_ROWS + 1}) authorized`);
+  const mode = vectorSearchMode({ dimension, authorizedRows: Number(counted.rows[0]?.rows ?? 0) });
+  if (mode === 'approximate') {
+    // Transaction-local: these never outlive this search, and never reach another tenant's session.
+    await tx.execute(sql`select
+      set_config('hnsw.iterative_scan', ${HNSW_SEARCH_SETTINGS.iterativeScan}, true),
+      set_config('hnsw.ef_search', ${String(HNSW_SEARCH_SETTINGS.efSearch)}, true),
+      set_config('hnsw.max_scan_tuples', ${String(HNSW_SEARCH_SETTINGS.maxScanTuples)}, true),
+      set_config('hnsw.scan_mem_multiplier', ${String(HNSW_SEARCH_SETTINGS.scanMemMultiplier)}, true)`);
+  }
+  return mode;
+}
+
+/**
+ * The approximate query's distance expression: the index's own cast, so the planner can use it. The width
+ * and type come only from HNSW_INDEXED_DIMENSIONS, never from input, so they are safe to write as SQL.
+ */
+export function hnswDistance(column: SQL, vectorText: string, dimension: number): SQL {
+  const index = Object.hasOwn(HNSW_INDEXED_DIMENSIONS, dimension)
+    ? HNSW_INDEXED_DIMENSIONS[dimension]
+    : undefined;
+  if (!index || !Number.isInteger(dimension)) throw new AppError('INVALID_STATE');
+  const cast = sql.raw(`public.${index.type}(${dimension})`);
+  return sql`(${column}::${cast}) <=> (${vectorText}::${cast})`;
 }
 
 /**
@@ -219,6 +301,7 @@ async function rankedPassages(
   sourceIds: readonly string[] | undefined,
   vector: { spaceId: string; vector: readonly number[] } | null,
   maxClassification?: Classification,
+  vectorSearch?: VectorSearchMode,
 ): Promise<readonly RankedPassage[]> {
   const scope = sourceIds
     ? sql`and c.source_id in (${sql.join(
@@ -226,8 +309,32 @@ async function rankedPassages(
         sql`, `,
       )})`
     : sql``;
-  const vectorQuery: SQL = vector
-    ? sql`
+  const approximate = vector && vectorSearch === 'approximate' ? vector : null;
+  const distance = approximate
+    ? hnswDistance(sql`e.embedding`, JSON.stringify(approximate.vector), approximate.vector.length)
+    : null;
+  const vectorQuery: SQL =
+    approximate && distance
+      ? // The ACL and every visibility rule are in the WHERE clause, so pgvector's iterative scan keeps
+        // walking the graph past rows this person may not read, instead of returning fewer of them.
+        sql`
+    select n."chunkId", 'vector'::text as channel,
+           row_number() over (order by n.distance, n."chunkId")::integer as rank
+      from (
+        select e.chunk_id as "chunkId", ${distance} as distance
+          from knowledge.embeddings e
+         where e.organization_id = ${context.organizationId}::uuid
+           and e.space_id = ${approximate.spaceId}::uuid
+           and e.dimension = ${sql.raw(String(approximate.vector.length))}
+           and e.source_id in (select knowledge.readable_source_ids(app.current_membership_id()))
+           and exists (select 1 from knowledge.embedding_spaces sp
+                        where sp.organization_id = ${context.organizationId}::uuid
+                          and sp.id = ${approximate.spaceId}::uuid and sp.state = 'active')
+           and exists (select 1 from visible v where v."chunkId" = e.chunk_id and v."sourceId" = e.source_id)
+         order by ${distance}
+         limit ${RETRIEVAL_CANDIDATES}) n`
+      : vector
+        ? sql`
     select v."chunkId", 'vector'::text as channel,
            row_number() over (order by e.embedding <=> ${JSON.stringify(vector.vector)}::vector, v."chunkId")::integer as rank
       from visible v
@@ -236,7 +343,7 @@ async function rankedPassages(
      where e.space_id = ${vector.spaceId}::uuid and e.dimension = ${vector.vector.length}
      order by e.embedding <=> ${JSON.stringify(vector.vector)}::vector, v."chunkId"
      limit ${RETRIEVAL_CANDIDATES}`
-    : sql`select null::uuid as "chunkId", 'vector'::text as channel, 0::integer as rank where false`;
+        : sql`select null::uuid as "chunkId", 'vector'::text as channel, 0::integer as rank where false`;
   const result = await tx.execute<RankedPassage>(sql`
     with visible as not materialized (
       select c.id as "chunkId", c.document_id as "documentId", c.source_id as "sourceId",

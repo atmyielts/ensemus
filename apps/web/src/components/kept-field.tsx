@@ -1,4 +1,6 @@
 'use client';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 
 import { usePathname } from 'next/navigation';
 import {
@@ -65,7 +67,7 @@ export function KeptInput({
   ...props
 }: Named & Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'>) {
   const [value, change] = useDraft(keep);
-  return <input {...props} value={value} onChange={(event) => change(event.target.value)} />;
+  return <Input {...props} value={value} onChange={(event) => change(event.target.value)} />;
 }
 
 export function KeptTextarea({
@@ -79,7 +81,7 @@ export function KeptTextarea({
     if (field.current?.value) field.current.closest('details')?.setAttribute('open', '');
   }, []);
   return (
-    <textarea
+    <Textarea
       {...props}
       ref={field}
       value={value}

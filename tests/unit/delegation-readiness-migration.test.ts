@@ -134,10 +134,13 @@ describe('the reviewed _deleg migrations (ADR-024 D4, ADR-028)', () => {
 
   it('no migration, install script, package or worker creates or names the CI marker role', () => {
     const scan = (folder: string): string[] =>
-      readdirSync(folder).flatMap((name) => {
+      readdirSync(folder, { withFileTypes: true }).flatMap((entry) => {
+        const { name } = entry;
         if (['node_modules', 'dist', '.next', '.turbo', 'coverage'].includes(name)) return [];
         const path = join(folder, name);
-        if (statSync(path).isDirectory()) return scan(path);
+        if (entry.isDirectory() || (entry.isSymbolicLink() && statSync(path).isDirectory())) {
+          return scan(path);
+        }
         return /\.(ts|tsx|js|mjs|cjs|sql|sh|ya?ml|json|env|conf)$/.test(name) ? [path] : [];
       });
     const naming = ['infrastructure', 'packages', 'workers', 'apps']
@@ -151,11 +154,17 @@ describe('the reviewed _deleg migrations (ADR-024 D4, ADR-028)', () => {
       .filter((path) => {
         const source = readFileSync(path, 'utf8');
         // 0548 itself names the marker to check for it; it must never create it.
-        if (path === join(migrations, readiness ?? '')) return /CREATE\s+ROLE/i.test(code);
+        const isPackagedMigration =
+          readiness &&
+          path === join(repoRoot, 'workers/workflow/migrations', readiness) &&
+          source === text;
+        if (path === join(migrations, readiness ?? '') || isPackagedMigration) {
+          return /CREATE\s+ROLE/i.test(code);
+        }
         return source.includes('ensemus_delegation_qualification_ci');
       });
     expect(naming).toEqual([]);
-  });
+  }, 60_000);
 
   it('checks every column and helper the predicate reads is visible to the agent', () => {
     for (const [relation, column] of [

@@ -1,0 +1,27 @@
+{
+  "schema": "ensemus.local-qualification/1",
+  "slice": "native suite connector fixture and web-login denial",
+  "releaseReady": false,
+  "validation": {
+    "nativeSuiteTools": {
+      "passed": 24,
+      "seconds": 25.06
+    },
+    "testTypes": "passed",
+    "focusedLint": "passed",
+    "webServiceDispatchDeniedBeforeAttempt": true
+  },
+  "productionCodeChanged": false,
+  "providerContact": false,
+  "currentCandidateCiQualified": false,
+  "sourceSha256": {
+    "tests/integration/suite-tools.test.ts": "0857c7e36ebd38a12319cd941fca5c9c5bc4b6293c5f590bc5130472dd654036"
+  },
+  "localEvidenceSha256": {
+    ".local/rc-suite-tools-native-current.log": "bf575be12fe622ad8c0333bf8839802e059eef0e1669c03c291addccf795bd87",
+    ".local/rc-suite-tools-native-correct-role.log": "5b95fb20978eccd3a9a872e059668b49af57684fe35afc59abf32131e99680e8",
+    ".local/rc-suite-tools-native-final.log": "6bb8de8cca3453ec8c1971542a4a25057ce00f8f164ae0e9ae3481635ec10e16",
+    ".local/rc-suite-tools-test-types.log": "1d5b04d16c49c8c9cad76e7c5012bb207093c2ddb24665de0709467436f13771",
+    ".local/rc-suite-tools-lint.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

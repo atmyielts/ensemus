@@ -1,0 +1,60 @@
+# Explicitly opt in to the operator's regional profile after the schema is ready.
+x-residency-profile: &residency-profile
+  ENSEMUS_HOME_REGION: ${ENSEMUS_HOME_REGION:?Set the home region for this deployment}
+  ENSEMUS_TENANCY_TIER:
+  ENSEMUS_DEDICATED_ORGANIZATION_ID:
+  ENSEMUS_CROSS_ORG_ENABLED:
+
+x-residency-policy: &residency-policy
+  type: bind
+  source: ${ENSEMUS_RESIDENCY_POLICY_HOST_FILE:?Set the path to the operator declarations JSON}
+  target: /run/ensemus/residency-policy.json
+  read_only: true
+  bind:
+    create_host_path: false
+
+services:
+  residency-profile:
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    command: ['node', 'dist/apply-deployment-profile.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks: [data]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.10
+    environment:
+      <<: *residency-profile
+      DATABASE_URL_MIGRATOR_FILE: /run/secrets/db_migrator_url
+    secrets: [db_migrator_url]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  web:
+    environment:
+      <<: *residency-profile
+      ENSEMUS_RESIDENCY_POLICY_FILE: /run/ensemus/residency-policy.json
+    volumes:
+      - *residency-policy
+    depends_on:
+      residency-profile: { condition: service_completed_successfully }
+
+  worker:
+    environment:
+      <<: *residency-profile
+      ENSEMUS_RESIDENCY_POLICY_FILE: /run/ensemus/residency-policy.json
+    volumes:
+      - *residency-policy
+    depends_on:
+      residency-profile: { condition: service_completed_successfully }
+
+  agent-worker:
+    environment:
+      <<: *residency-profile
+      ENSEMUS_RESIDENCY_POLICY_FILE: /run/ensemus/residency-policy.json
+    volumes:
+      - *residency-policy
+    depends_on:
+      residency-profile: { condition: service_completed_successfully }

@@ -30,7 +30,7 @@ import {
 } from './router/doubles.test-support';
 import { createModelRouter } from './router/index';
 import type { ScriptStep } from './testing/scripted-adapter';
-import type { CompiledTurn, VerifiedEndpoint } from './types';
+import type { CompiledTurn, TurnOptions, VerifiedEndpoint } from './types';
 import { ceilingFor, costOf } from './router/cost';
 
 // endpoint.ts is the transport slice's, and is tested there. Here it is one more stage in the order, so
@@ -103,6 +103,7 @@ function setup(options: Options = {}) {
   const endpoints: VerifiedEndpoint[] = [];
   const router = createModelRouter({ profiles: store, egress });
   const deps: GatewayDeps = {
+    residency: { check: async () => ({ allowed: true, requiredRegion: null }) },
     entitlements: entitlements(log),
     ledger,
     withTx: async <T>(_context: AgentContext, fn: (tx: Tx) => Promise<T>) => {
@@ -130,8 +131,11 @@ function setup(options: Options = {}) {
     ...options.deps,
   };
   const gateway = createInferenceGateway(deps);
-  const run = (compiled: CompiledTurn = compiledTurn(), signal = new AbortController().signal) =>
-    gateway.turn(agentContext(), step, compiled, signal);
+  const run = (
+    compiled: CompiledTurn = compiledTurn(),
+    signal = new AbortController().signal,
+    turnOptions?: TurnOptions,
+  ) => gateway.turn(agentContext(), step, compiled, signal, turnOptions);
   return { log, key, store, egress, ledger, adapter, lender, turns, endpoints, run };
 }
 
@@ -150,6 +154,75 @@ const internal = (overrides: Partial<CompiledTurn> = {}) =>
 
 const pinnedTo = (profileId: string, profileVersion = 1) =>
   compiledTurn({ task: task({ pinned: { profileId, profileVersion } }) });
+
+describe('regional model dispatch', () => {
+  const refused = {
+    allowed: false,
+    requiredRegion: 'test-region-a',
+    code: 'TARGET_OUTSIDE_REGION',
+  } as const;
+  it('records a regional denial before reserving spend, opening a key or calling the adapter', async () => {
+    const check = vi.fn<GatewayDeps['residency']['check']>().mockResolvedValue(refused);
+    const harness = setup({
+      profiles: [byomProfile({ region: 'test-region-b' })],
+      deps: { residency: { check } },
+    });
+    expect(await harness.run(internal())).toMatchObject({
+      outcome: 'policy_denied',
+      decisionCode: 'RESIDENCY_DENIED',
+    });
+    expect(check).toHaveBeenCalledWith(expect.anything(), {
+      surface: 'inference',
+      classification: 'internal',
+      targetRegion: 'test-region-b',
+    });
+    expect(harness.egress.rows.at(-1)).toMatchObject({
+      decision: 'deny',
+      reasonCode: 'RESIDENCY_DENIED',
+    });
+    expect(harness.log).not.toContain('ledger.reserve');
+    expectNothingLeft(harness);
+  });
+  it('checks a fallback model’s own region before a second call', async () => {
+    const check = vi.fn<GatewayDeps['residency']['check']>(async (_context, request) =>
+      request.targetRegion === 'test-region-a'
+        ? { allowed: true, requiredRegion: 'test-region-a' }
+        : refused,
+    );
+    const harness = setup({
+      profiles: [
+        byomProfile({ alias: 'a', region: 'test-region-a', fallbackProfileIds: ['second'] }),
+        byomProfile({ id: 'second', alias: 'b', region: 'test-region-b' }),
+      ],
+      script: [{ kind: 'failure', failure: 'auth_failed' }],
+      deps: { residency: { check } },
+    });
+    expect(await harness.run(internal())).toMatchObject({ decisionCode: 'RESIDENCY_DENIED' });
+    expect(check).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ targetRegion: 'test-region-b' }),
+    );
+    expect(harness.egress.rows.at(-1)).toMatchObject({
+      profileId: 'second',
+      reasonCode: 'RESIDENCY_DENIED',
+    });
+    expect(harness.adapter.hits).toBe(1);
+    expect(harness.lender.asked).toHaveLength(1);
+  });
+
+  it('releases its reservation when requirements change before dispatch', async () => {
+    const check = vi
+      .fn<GatewayDeps['residency']['check']>()
+      .mockResolvedValueOnce({ allowed: true, requiredRegion: null })
+      .mockResolvedValueOnce(refused);
+    const harness = setup({ deps: { residency: { check } } });
+    expect(await harness.run(internal())).toMatchObject({ decisionCode: 'RESIDENCY_DENIED' });
+    expect(check).toHaveBeenCalledTimes(2);
+    expect(harness.log).toContain('ledger.release');
+    expect(harness.log).not.toContain('ledger.settle');
+    expect(harness.adapter.hits).toBe(0);
+  });
+});
 
 describe('the fixed order (FD-8)', () => {
   it('refuses freshly exhausted run headroom before a reservation, key or provider call', async () => {
@@ -947,14 +1020,15 @@ describe('the ledger (FD-6, FD-12)', () => {
   it('reserves what the call could cost, rounded up', async () => {
     const harness = setup();
     await harness.run();
-    // 190 bytes of actual SDK input framing at 1 per token, plus 200 output at 2. Test-only rates.
+    // 144 input tokens: the estimate for a provider with no public tokenizer, half again the o200k count
+    // of the 190-byte SDK request plus the fixed allowance. Plus 200 output at 2. Test-only rates.
     expect(harness.ledger.reservations).toEqual([
       {
         runId: step.runId,
         stepId: 'step-1',
         attempt: 1,
         agentVersionId: 'version-1',
-        amountMicros: 590,
+        amountMicros: 544,
       },
     ]);
   });
@@ -1018,13 +1092,13 @@ describe('the ledger (FD-6, FD-12)', () => {
     const harness = setup({ script: [{ kind: 'final', text: 'Done.', usage: null }] });
     harness.adapter.generate = async () => ({ kind: 'final', text: 'Done.', usage: null });
     const outcome = await harness.run();
-    expect(outcome.usage.costMicros).toBe(590);
-    expect(harness.ledger.settled).toEqual([{ reservationId: 'reservation-1', actualMicros: 590 }]);
+    expect(outcome.usage.costMicros).toBe(544);
+    expect(harness.ledger.settled).toEqual([{ reservationId: 'reservation-1', actualMicros: 544 }]);
     expect(harness.ledger.entries).toEqual([
       expect.objectContaining({
         idempotencyKey: `model:${step.runId}:3:1`,
         status: 'estimated',
-        costMicros: 590,
+        costMicros: 544,
       }),
     ]);
   });
@@ -1036,10 +1110,10 @@ describe('the ledger (FD-6, FD-12)', () => {
     const outcome = await harness.run();
     expect(outcome).toMatchObject({
       outcome: 'model_unavailable',
-      usage: { costMicros: 590 },
+      usage: { costMicros: 544 },
     });
     expect(harness.ledger.entries).toEqual([
-      expect.objectContaining({ status: 'estimated', costMicros: 590 }),
+      expect.objectContaining({ status: 'estimated', costMicros: 544 }),
     ]);
     expect(harness.ledger.released).toEqual([]);
   });
@@ -1058,7 +1132,7 @@ describe('the ledger (FD-6, FD-12)', () => {
     const harness = setup({ script: [{ kind: 'throw' }] });
     const outcome = await harness.run();
     expect(outcome).toMatchObject({ outcome: 'model_unavailable', stopCode: 'MODEL_UNAVAILABLE' });
-    expect(outcome.usage.costMicros).toBe(590);
+    expect(outcome.usage.costMicros).toBe(544);
     expect(JSON.stringify(outcome)).not.toContain('scripted bug');
   });
 
@@ -1328,7 +1402,7 @@ describe('an allowed fallback (FD-9)', () => {
       `model:${step.runId}:3:${1 + FALLBACK_ATTEMPT_STRIDE}`,
       `model:${step.runId}:3:${1 + FALLBACK_ATTEMPT_STRIDE}:output`,
     ]);
-    expect(outcome.usage.costMicros).toBe(590 + 20);
+    expect(outcome.usage.costMicros).toBe(544 + 20);
     const sum = harness.ledger.entries.reduce((total, entry) => total + entry.costMicros, 0);
     expect(sum).toBe(outcome.usage.costMicros);
   });
@@ -1582,5 +1656,431 @@ describe('internal data, end to end', () => {
   it('is allowed to an outside provider with a region and a purpose', async () => {
     expect((await harness.run(internal())).outcome).toBe('final_output');
     expect(harness.egress.rows[0]).toMatchObject({ dataClass: 'internal', decision: 'allow' });
+  });
+});
+
+describe('passing outages, held for a durable retry', () => {
+  const withFallback = () => [
+    byomProfile({ fallbackProfileIds: ['second'] }),
+    byomProfile({
+      id: 'second',
+      alias: 'b',
+      endpointUrl: 'https://second.example.invalid/v1',
+      secretRef: 'secret-second',
+    }),
+  ];
+  const hold: TurnOptions = { transient: 'hold' };
+
+  it('hands a rate limit back with the provider wait, without touching the fallback list', async () => {
+    const harness = setup({
+      profiles: withFallback(),
+      script: [{ kind: 'failure', failure: 'rate_limited', retryAfterMs: 7_000 }],
+    });
+    const outcome = await harness.run(compiledTurn(), undefined, hold);
+    expect(outcome).toMatchObject({
+      outcome: 'model_unavailable',
+      stopCode: 'MODEL_UNAVAILABLE',
+      decisionCode: null,
+      retry: { afterMs: 7_000 },
+    });
+    expect(harness.adapter.hits).toBe(1);
+    expect(harness.lender.asked.map((asked) => asked.profileId)).toEqual(['byom']);
+    // Turned away unbilled, so the hold goes back and nothing is charged for the wait.
+    expect(harness.ledger.released).toEqual(['reservation-1']);
+    expect(harness.ledger.entries).toEqual([]);
+  });
+
+  it('charges a 5xx that may have run, once, and still hands it back for a retry', async () => {
+    const harness = setup({
+      script: [{ kind: 'failure', failure: 'server_error', mayHaveBilled: true }],
+    });
+    const outcome = await harness.run(compiledTurn(), undefined, hold);
+    expect(outcome.retry).toEqual({ afterMs: null });
+    expect(harness.ledger.entries).toEqual([
+      expect.objectContaining({ status: 'estimated', idempotencyKey: `model:${step.runId}:3:1` }),
+    ]);
+  });
+
+  it.each(['timeout', 'connect_failed'] as const)('holds %s as well', async (failure) => {
+    const harness = setup({ script: [{ kind: 'failure', failure }] });
+    expect((await harness.run(compiledTurn(), undefined, hold)).retry).toEqual({ afterMs: null });
+  });
+
+  it('moves a refused key down the list at once, since waiting cannot cure it', async () => {
+    const harness = setup({
+      profiles: withFallback(),
+      script: [
+        { kind: 'failure', failure: 'auth_failed' },
+        { kind: 'final', text: 'From the second.' },
+      ],
+    });
+    const outcome = await harness.run(compiledTurn(), undefined, hold);
+    expect(outcome).toMatchObject({ outcome: 'final_output', profile: { id: 'second' } });
+    expect(outcome.retry).toBeUndefined();
+  });
+
+  it('on the last round, falls back through the list as before', async () => {
+    const harness = setup({
+      profiles: withFallback(),
+      script: [
+        { kind: 'failure', failure: 'rate_limited', retryAfterMs: 7_000 },
+        { kind: 'final', text: 'From the second.' },
+      ],
+    });
+    const outcome = await harness.run(compiledTurn(), undefined, { transient: 'fall_back' });
+    expect(outcome).toMatchObject({ outcome: 'final_output', profile: { id: 'second' } });
+    expect(outcome.retry).toBeUndefined();
+  });
+
+  it('without options, behaves exactly as it always has', async () => {
+    const harness = setup({
+      script: [{ kind: 'failure', failure: 'rate_limited', retryAfterMs: 7_000 }],
+    });
+    const outcome = await harness.run();
+    expect(outcome).toMatchObject({
+      outcome: 'model_unavailable',
+      decisionCode: 'FALLBACK_NOT_ALLOWED',
+    });
+    expect(outcome.retry).toBeUndefined();
+  });
+
+  it.each(['bad_request', 'endpoint_refused', 'unknown'] as const)(
+    'never offers a retry for %s',
+    async (failure) => {
+      const harness = setup({ script: [{ kind: 'failure', failure }] });
+      expect((await harness.run(compiledTurn(), undefined, hold)).retry).toBeUndefined();
+    },
+  );
+});
+
+describe('one repair turn for an answer whose shape was wrong', () => {
+  const allow: TurnOptions = { repair: { allowed: true, tokensLeft: 100_000 } };
+  const tool = {
+    id: 'work.read',
+    version: '1',
+    description: 'Reads the work.',
+    parameters: { type: 'object', properties: { id: { type: 'string' } } },
+  };
+  const schemaTurn = () =>
+    compiledTurn({
+      responseSchema: {
+        type: 'object',
+        properties: { ok: { type: 'boolean' } },
+        required: ['ok'],
+        additionalProperties: false,
+      },
+      task: task({ required: ['text', 'structured_output'] }),
+    });
+
+  it('asks once, with a fixed correction, and takes the second answer', async () => {
+    const harness = setup({
+      script: [
+        { kind: 'failure', failure: 'malformed_response', malformation: 'multiple_tool_calls' },
+        { kind: 'tool_call', toolId: 'work.read', args: { id: 'w1' } },
+      ],
+    });
+    const outcome = await harness.run(compiledTurn({ tools: [tool] }), undefined, allow);
+    expect(outcome).toMatchObject({
+      outcome: 'tool_proposed',
+      toolCall: { toolId: 'work.read', args: { id: 'w1' } },
+      repairs: 1,
+    });
+    const second = harness.adapter.calls[1]!.messages;
+    expect(second.at(-1)).toMatchObject({ role: 'task', partId: 'repair:multiple_tool_calls' });
+    expect(second.at(-1)!.text).toMatch(/at most one tool call/);
+    expect(second.slice(0, -1)).toEqual(harness.adapter.calls[0]!.messages);
+    // Its own hold and its own key, so neither call hides the other.
+    expect(harness.ledger.reservations.map((each) => each.attempt)).toEqual([
+      1,
+      1 + FALLBACK_ATTEMPT_STRIDE,
+    ]);
+    const keys = harness.ledger.entries.map((entry) => entry.idempotencyKey);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(harness.turns.bound).toHaveLength(1);
+  });
+
+  it('repairs output that is not the JSON the schema asks for, and never echoes it', async () => {
+    const leaked = 'NOT-JSON generated reply text';
+    const harness = setup({
+      script: [
+        { kind: 'final', text: leaked },
+        { kind: 'final', text: '{"ok":true}' },
+      ],
+    });
+    const outcome = await harness.run(schemaTurn(), undefined, allow);
+    expect(outcome).toMatchObject({ outcome: 'final_output', text: '{"ok":true}', repairs: 1 });
+    const sent = JSON.stringify(harness.adapter.calls[1]!.messages);
+    expect(sent).toContain('repair:output_not_json');
+    expect(sent).not.toContain(leaked);
+    expect(JSON.stringify(harness.log)).not.toContain(leaked);
+  });
+
+  it('repairs a document that parses but does not match the schema', async () => {
+    const harness = setup({
+      script: [
+        { kind: 'final', text: '{"ok":"yes"}' },
+        { kind: 'final', text: '{"ok":false}' },
+      ],
+    });
+    const outcome = await harness.run(schemaTurn(), undefined, allow);
+    expect(outcome).toMatchObject({ outcome: 'final_output', repairs: 1 });
+    expect(harness.adapter.calls[1]!.messages.at(-1)!.partId).toBe('repair:output_schema_mismatch');
+  });
+
+  it('fails as before when the repaired answer is wrong too, after exactly two calls', async () => {
+    const harness = setup({
+      script: [
+        { kind: 'failure', failure: 'malformed_response', malformation: 'tool_args_not_json' },
+        { kind: 'failure', failure: 'malformed_response', malformation: 'tool_args_not_json' },
+      ],
+    });
+    const outcome = await harness.run(compiledTurn({ tools: [tool] }), undefined, allow);
+    expect(outcome).toMatchObject({
+      outcome: 'invalid_output',
+      stopCode: 'INVALID_OUTPUT',
+      repairs: 1,
+    });
+    expect(harness.adapter.hits).toBe(2);
+  });
+
+  it('does not repair when the run has no turn left for it', async () => {
+    const harness = setup({
+      script: [{ kind: 'failure', failure: 'malformed_response', malformation: 'empty_output' }],
+    });
+    const outcome = await harness.run(compiledTurn(), undefined, {
+      repair: { allowed: false, tokensLeft: 100_000 },
+    });
+    expect(outcome).toMatchObject({ outcome: 'invalid_output', stopCode: 'INVALID_OUTPUT' });
+    expect(outcome.repairs).toBeUndefined();
+    expect(harness.adapter.hits).toBe(1);
+  });
+
+  it('does not repair when the run has too few tokens left for one', async () => {
+    const harness = setup({
+      script: [{ kind: 'failure', failure: 'malformed_response', malformation: 'empty_output' }],
+    });
+    const outcome = await harness.run(compiledTurn(), undefined, {
+      repair: { allowed: true, tokensLeft: 20 },
+    });
+    expect(outcome).toMatchObject({ outcome: 'invalid_output', stopCode: 'INVALID_OUTPUT' });
+    expect(harness.adapter.hits).toBe(1);
+  });
+
+  it('does not repair without being asked, which is every caller written before repairs', async () => {
+    const harness = setup({
+      script: [{ kind: 'failure', failure: 'malformed_response', malformation: 'empty_output' }],
+    });
+    expect((await harness.run()).outcome).toBe('invalid_output');
+    expect(harness.adapter.hits).toBe(1);
+  });
+
+  it.each([
+    ['a secret in the answer', (canary: string) => `Here it is: ${canary}`],
+    ['markup that fetches on display', () => '![x](https://collector.example.invalid/x.png)'],
+  ])('never repairs a refusal for what an answer holds: %s', async (_label, text) => {
+    const canary = tenantCanary();
+    const harness = setup({
+      canaries: async () => [canary],
+      script: [
+        { kind: 'final', text: text(canary) },
+        { kind: 'final', text: 'A second try.' },
+      ],
+    });
+    const outcome = await harness.run(compiledTurn(), undefined, allow);
+    expect(outcome.outcome).toBe('invalid_output');
+    expect(outcome.repairs).toBeUndefined();
+    expect(harness.adapter.hits).toBe(1);
+  });
+
+  it.each(['partial_response', 'malformed_response'] as const)(
+    'never repairs %s without a malformation code',
+    async (failure) => {
+      const harness = setup({ script: [{ kind: 'failure', failure, mayHaveBilled: true }] });
+      expect((await harness.run(compiledTurn(), undefined, allow)).outcome).toBe('invalid_output');
+      expect(harness.adapter.hits).toBe(1);
+    },
+  );
+});
+
+describe('fitting the input: compaction and context_too_long', () => {
+  const words = (seed: string, count: number) =>
+    Array.from({ length: count }, (_, index) => `${seed}${index}`).join(' ');
+  const long = () =>
+    compiledTurn({
+      messages: [
+        message({ role: 'policy', partId: 'policy', text: 'Follow the rules.' }),
+        message({ role: 'task', partId: 'work:w1', text: 'Summarise the work.' }),
+        message({ role: 'evidence', partId: 'artifact:a1', text: words('evidence', 300) }),
+        message({ role: 'tool_output', partId: 'step:1:tool_output:0', text: words('one', 300) }),
+        message({ role: 'tool_output', partId: 'step:2:tool_output:1', text: words('two', 300) }),
+        message({
+          role: 'tool_output',
+          partId: 'step:3:tool_output:2',
+          text: words('three', 300),
+        }),
+      ],
+    });
+  const sizeOf = (messages: CompiledTurn['messages']) =>
+    ceilingFor({
+      messages,
+      tools: [],
+      responseSchema: null,
+      maxOutputTokens: 200,
+      modelId: 'test-model',
+      providerKind: 'openai_compatible',
+    }).inputTokens;
+  const notice = (count: number) =>
+    message({
+      role: 'task',
+      partId: 'compaction',
+      text: `Note: ${count} earlier part${count === 1 ? '' : 's'} of this run ${
+        count === 1 ? 'was' : 'were'
+      } left out so that the request fits the model's input limit.`,
+    });
+  const limited = (maxInputTokens: number) => [
+    byomProfile({ limits: { maxInputTokens, maxOutputTokens: 512 } }),
+  ];
+
+  it('leaves out the oldest tool output first, and says how much', async () => {
+    const all = long().messages;
+    const withoutFirst = [...all.slice(0, 3), ...all.slice(4), notice(1)];
+    const harness = setup({ profiles: limited(sizeOf(withoutFirst)) });
+    expect((await harness.run(long())).outcome).toBe('final_output');
+    expect(harness.adapter.calls[0]!.messages.map((each) => each.partId)).toEqual([
+      'policy',
+      'work:w1',
+      'artifact:a1',
+      'step:2:tool_output:1',
+      'step:3:tool_output:2',
+      'compaction',
+    ]);
+  });
+
+  it('keeps the policy, the task and the newest step, and drops evidence after older steps', async () => {
+    const all = long().messages;
+    const floor = [all[0]!, all[1]!, all[5]!, notice(3)];
+    const harness = setup({ profiles: limited(sizeOf(floor)) });
+    expect((await harness.run(long())).outcome).toBe('final_output');
+    expect(harness.adapter.calls[0]!.messages.map((each) => each.partId)).toEqual([
+      'policy',
+      'work:w1',
+      'step:3:tool_output:2',
+      'compaction',
+    ]);
+  });
+
+  it('receipts only the knowledge passages sent after fitting the actual request', async () => {
+    const packageId = '068aa73e-019b-46eb-9db0-6a2bbe6dedc0';
+    const messages = [
+      message({ role: 'policy', partId: 'policy', text: 'Follow the rules.' }),
+      message({ role: 'task', partId: 'work:w1', text: 'Summarise the work.' }),
+      message({ role: 'evidence', partId: `knowledge:${packageId}:S1`, text: '[S1]\nOne.' }),
+      message({
+        role: 'evidence',
+        partId: `knowledge:${packageId}:S2`,
+        text: `[S2]\n${words('discard', 300)}`,
+      }),
+    ];
+    const admit = vi.fn<NonNullable<GatewayDeps['admitInTx']>>().mockResolvedValue(null);
+    const harness = setup({
+      deps: { admitInTx: admit },
+      profiles: limited(sizeOf([...messages.slice(0, 3), notice(1)])),
+    });
+    expect((await harness.run(compiledTurn({ messages }))).outcome).toBe('final_output');
+    expect(harness.adapter.calls[0]?.messages.map((value) => value.partId)).toEqual([
+      'policy',
+      'work:w1',
+      `knowledge:${packageId}:S1`,
+      'compaction',
+    ]);
+    expect(admit.mock.calls.map(([, , input]) => input.snapshot?.presentedKnowledge)).toEqual([
+      { packageId, ordinals: [1] },
+      { packageId, ordinals: [1] },
+    ]);
+  });
+
+  it('fails with CONTEXT_TOO_LONG, holding nothing, when the policy and task alone do not fit', async () => {
+    const harness = setup({ profiles: limited(10) });
+    expect(await harness.run(long())).toMatchObject({
+      outcome: 'model_unavailable',
+      stopCode: 'CONTEXT_TOO_LONG',
+    });
+    expectNothingLeft(harness);
+    expect(harness.ledger.reservations).toEqual([]);
+  });
+
+  it('when the provider says too long, compacts once to three quarters and sends again', async () => {
+    const harness = setup({
+      profiles: limited(100_000),
+      script: [
+        { kind: 'failure', failure: 'context_too_long' },
+        { kind: 'final', text: 'Fits now.' },
+      ],
+    });
+    const outcome = await harness.run(long());
+    expect(outcome).toMatchObject({ outcome: 'final_output', text: 'Fits now.' });
+    const [first, second] = harness.adapter.calls.map((call) => call.messages);
+    expect(sizeOf(second!)).toBeLessThanOrEqual(Math.floor(sizeOf(first!) * 0.75));
+    expect(second!.map((each) => each.partId)).toContain('compaction');
+    expect(second!.map((each) => each.partId)).toContain('policy');
+    expect(harness.ledger.reservations.map((each) => each.attempt)).toEqual([
+      1,
+      1 + FALLBACK_ATTEMPT_STRIDE,
+    ]);
+  });
+
+  it('fails with CONTEXT_TOO_LONG when the provider refuses the compacted request too', async () => {
+    const harness = setup({
+      profiles: limited(100_000),
+      script: [
+        { kind: 'failure', failure: 'context_too_long' },
+        { kind: 'failure', failure: 'context_too_long' },
+      ],
+    });
+    expect(await harness.run(long())).toMatchObject({
+      outcome: 'model_unavailable',
+      stopCode: 'CONTEXT_TOO_LONG',
+    });
+    expect(harness.adapter.hits).toBe(2);
+  });
+
+  it('fails with CONTEXT_TOO_LONG at once when there is nothing it may leave out', async () => {
+    const harness = setup({ script: [{ kind: 'failure', failure: 'context_too_long' }] });
+    expect(await harness.run()).toMatchObject({
+      outcome: 'model_unavailable',
+      stopCode: 'CONTEXT_TOO_LONG',
+    });
+    expect(harness.adapter.hits).toBe(1);
+  });
+});
+
+describe('reported usage against the counted bound', () => {
+  it('believes and charges input above the estimate but within one token a byte', async () => {
+    const probe = setup();
+    await probe.run();
+    // The reservation is input at 1 a token plus 200 output at 2, so this is the estimate in tokens.
+    const estimate = probe.ledger.reservations[0]!.amountMicros - 400;
+    const harness = setup({
+      script: [
+        { kind: 'final', text: 'Done.', usage: { inputTokens: estimate + 10, outputTokens: 5 } },
+      ],
+    });
+    const outcome = await harness.run();
+    expect(outcome.outcome).toBe('final_output');
+    expect(outcome.usage.inputTokens).toBe(estimate + 10);
+  });
+
+  it('refuses input beyond one token a byte, after charging it', async () => {
+    const harness = setup({
+      script: [
+        { kind: 'final', text: 'Done.', usage: { inputTokens: 1_000_000, outputTokens: 5 } },
+      ],
+    });
+    const outcome = await harness.run();
+    expect(outcome).toMatchObject({
+      outcome: 'budget_exhausted',
+      decisionCode: 'BUDGET_EXHAUSTED',
+    });
+    expect(harness.ledger.entries.length).toBeGreaterThan(0);
   });
 });

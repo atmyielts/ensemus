@@ -42,7 +42,33 @@ Set `ENSEMUS_ALLOW_SIGNUP=true` only if anyone who can reach this deployment sho
 
 ## Notifications
 
-In-app is the only channel for now. Approval requests and reminders appear in the person's inbox, and each reminder moves the item back to the top, up to three reminders a day apart. Someone who does not open Ensemus hears nothing until they do. This works the same in an air-gapped install. Notification email is not built, and has consent questions of its own. What M3 adds is different: outbound email as an action someone approves, and only with the connectors profile on (see [Connectors and outbound actions](#connectors-and-outbound-actions)). No approval request or reminder goes by email.
+Every notification appears in the person's inbox, and each approval reminder moves the item back to the top, up to three reminders a day apart. This works the same in an air-gapped install.
+
+**Email is off by default, and no install needs it.** Without it, nobody is promised an email: password reset by email is not offered, an invitation is a link to copy, and every notification stays in the inbox. Notification mail still queues in PostgreSQL either way, and expires unsent after three days if no mail worker comes.
+
+### Turning on platform email
+
+Ensemus's own email (password reset, email verification and change, invitations, and notifications) is not a connector and is not an action anyone approves. The web tier only queues it. The `mail-worker` sends it, from the internal `mail` network, through its own `mail-gateway` to the one relay you name. The worker has the relay password and no route out; the gateway has the route and no password. Why, and the reviewed SQL, are in `packages/database/migrations/0571_platform_mail_security.sql`, which is **flagged for human security review** like ADR-027's. Until it is reviewed, use test values against a test relay only.
+
+| Setting | What it does |
+|---|---|
+| `COMPOSE_PROFILES=mail`, or `--profile mail` | Starts `mail-worker` and `mail-gateway`. Use it on every Compose command |
+| `ENSEMUS_MAIL_ENABLED=true` | Lets `web` offer password reset, email verification and change, and email invitations. Leave it false unless the worker is running |
+| `ENSEMUS_MAIL_RELAY_TARGET=host:port` | The relay's submission port, such as `smtp.example.com:587`. The gateway refuses to start without it |
+| `ENSEMUS_MAIL_TLS_SERVER_NAME` | The name on the relay's certificate. TLS is required, and a relay that does not offer STARTTLS is refused |
+| `ENSEMUS_MAIL_TLS=none` | Only for a relay on a trusted site network. The test overlay is the only place in this repository that sets it |
+| `ENSEMUS_MAIL_FROM_ADDRESS`, `ENSEMUS_MAIL_FROM_NAME` | Who the mail is from. The name defaults to Ensemus |
+| `ENSEMUS_MAIL_USERNAME` | Who to log in to the relay as, when that is not the sender |
+| `ENSEMUS_MAIL_PASSWORD_FILE` | A file holding the relay password, mounted as a secret. Only `mail-worker` reads it |
+| `ENSEMUS_MAIL_MESSAGE_ID_DOMAIN` | The domain in each Message-ID, `<{message id}@{domain}>`, which is what someone searches the relay's log for. Empty means the host of `ENSEMUS_PUBLIC_URL` |
+
+The `ensemus_mailer` database role is created by `provision-roles`, from `.local/secrets/db_mailer_password` and `db_mailer_url` on a test stack (`pnpm stack:secrets`), or the same file names in a site's secrets folder.
+
+**What is sent, and to whom.** Account mail goes to the person's own address, at most five an hour to one address, and a reset to someone with no password (company sign-in only) is not sent. Notifications go only to confirmed addresses of active members, at the time the person chose on **Email notifications**: as it happens, once a day in the morning, or not at all. Decisions, answers, billing and support replies come at once by default, and everything else once a day. A person who gets more than twenty in an hour, or a company that sends more than five hundred, gets the rest in the next daily summary. An email never carries a company's content beyond its name: it says what happened and links to Ensemus, which checks access when the link is opened. Mail someone chose carries a one-click unsubscribe link; mail about a company's access to Ensemus does not.
+
+**When something goes wrong.** Each message is a row in `platform.mail_outbox` (tenant mail) or `platform.account_mail_outbox` (account mail). A relay that is busy or unreachable before the message is finished is tried again, up to six times over about an hour. A relay that refuses the address marks it bounced, and notification mail stops going to it until the person confirms it again. A message the relay may have taken, but did not say, is `unknown` and is never sent again: search the relay's log for its Message-ID. Settled rows are kept thirty days. The worker checks restore admission on every pass, so after a restore it sends nothing until the restore is admitted.
+
+**Testing locally.** `pnpm stack:mail:up` with `ENSEMUS_MAIL_ENABLED=true` runs a local Mailpit mailbox in the test overlay instead of a relay. Every message lands at http://127.0.0.1:58125, and nothing leaves the machine.
 
 ## Web process
 
@@ -54,7 +80,7 @@ Temporal pollers authenticate independently to Temporal service. Agent/ingestion
 
 ## Security and network flows
 
-Ingress: HTTPS only to reverse proxy → web. Internal: web → PostgreSQL, object store and local auth; dispatcher → PostgreSQL, Temporal, and the object store's tombstone ledger alone, with its own scoped identity (ADR-026); worker → PostgreSQL, Temporal, object store and key material as policy. Valkey shares the data network and no code connects to it yet (ADR-025 D9). With the connectors profile on: connector worker → PostgreSQL, Temporal and the egress gateway, on an internal network with no route out; egress gateway → the one relay an operator named, holding no secret. External egress only for approved provider/connector profiles; explicit blocked-by-default in Sovereign air gap. Do not expose object storage secrets or model API keys to browsers, traces, or generic worker job bodies.
+Ingress: HTTPS only to reverse proxy â†’ web. Internal: web â†’ PostgreSQL, object store and local auth; dispatcher â†’ PostgreSQL, Temporal, and the object store's tombstone ledger alone, with its own scoped identity (ADR-026); worker â†’ PostgreSQL, Temporal, object store and key material as policy. Valkey shares the data network and no code connects to it yet (ADR-025 D9). With the connectors profile on: connector worker â†’ PostgreSQL, Temporal and the egress gateway, on an internal network with no route out; egress gateway â†’ the one relay an operator named, holding no secret. External egress only for approved provider/connector profiles; explicit blocked-by-default in Sovereign air gap. Do not expose object storage secrets or model API keys to browsers, traces, or generic worker job bodies.
 
 Internal service names are pinned to fixed addresses in `compose.yaml`. Docker forwards the name of a stopped container to the host resolver, so without the pins an outage would send internal names off the network. The default range is `172.30.0.0/16`. If your site already uses it, set `ENSEMUS_NETWORK_PREFIX` (for example `172.29`) before the first start; changing it later recreates the networks. The air-gap gate stops each service in turn and fails on any lookup that leaves. It also fails if requests through the proxy to either web replica do not get the answer that outage should give, or if the running stack is not on the watched range. Valkey has no client yet, so its round only shows that nothing else breaks.
 
@@ -80,6 +106,22 @@ When you set it:
 
 `node infrastructure/scripts/check-proxy.mjs` runs the deployed `Caddyfile` in containers with no network and proves what this proxy does with both settings and with a forged address, whether or not the connection is listed. It cannot prove what your own proxy does. It runs in CI.
 
+## Publishing agents: signed evaluation reports
+
+An agent version publishes only with an evaluation report that an evaluator signed (AGENT-16). The evaluator, which is CI's harness today and the agent worker later, holds an Ed25519 private key. `web` holds only public keys, so it can check a report and never make one. With no public key set, no report is accepted and nothing can be published.
+
+| Setting | Read by | What it does |
+|---|---|---|
+| `ENSEMUS_EVALUATION_PUBLIC_KEYS`, or `ENSEMUS_EVALUATION_PUBLIC_KEYS_FILE` | `web` | The evaluators this deployment trusts, as `key-id:<public key>` separated by commas or lines. The public key is the 32-byte Ed25519 key in base64url (a JWK's `x`). A file wins over the variable. A value that cannot be read stops publishing with an error, and never means "trust anything" |
+| `ENSEMUS_EVALUATION_REPORT_MAX_AGE_HOURS` | `web` | How old a report may be. 168 (a week) when unset, at most 8784. A change of policy already voids a report. This also bounds how long a retired key's reports still count |
+| `ENSEMUS_EVALUATION_SIGNING_KEY_ID`, `ENSEMUS_EVALUATION_SIGNING_KEY_FILE` | CI, and later `agent-worker` | The signer's key id and its PKCS#8 PEM private key, as a mounted file. Never give either to `web` |
+
+**Rotating a key.** Add the new key to `ENSEMUS_EVALUATION_PUBLIC_KEYS` beside the old one, switch the signer to it, and remove the old key once its last reports are older than the maximum age. Removing a key refuses every report it signed, at once.
+
+**Scripted reports.** A report from a scripted model proves the gates and not a model. It can publish only an agent whose spec says `sandbox: true`, and publish lint holds a sandbox agent to tools that read or draft inside Ensemus, with no delegation. Refusals are `AGENT_EVALUATION_UNVERIFIED` (unsigned, unknown key, changed or inconsistent), `AGENT_EVALUATION_STALE`, `AGENT_EVALUATION_SCRIPTED` and `AGENT_EVALUATION_REQUIRED` (not passing, or bound to another spec, suite or policy).
+
+The test stack generates its own evaluator key with `pnpm stack:secrets` and mounts only the public half into `web`.
+
 ## Outbox and stuck work
 
 An outage of Temporal costs events no attempts, so they wait and are delivered when it returns. An event at fault itself goes dead after 12 attempts. One that keeps getting gRPC UNKNOWN or INTERNAL could be either, so it is given 288 attempts, about a day, before it goes dead the same way. The dispatcher logs each failure as an error code. Once the cause is fixed, put dead events back in the queue with `docker compose exec dispatcher node dist/redrive.js [organization-id]`, which prints a count and no content. The dispatcher also checks every tenant's reminder schedule when it starts. Each tenant's 15-minute upkeep expires overdue approvals, finishes byte deletions the object store refused, removes uploads whose row never arrived, marks work failed when Temporal says the run holding it has closed, and asks again for any plan run nothing has claimed after 5 minutes. Byte deletions that keep failing wait longer each time, up to a day, so they cannot keep others waiting.
@@ -94,7 +136,7 @@ Set these in the environment Compose reads, and start the stack with the profile
 
 | Setting | What it does |
 |---|---|
-| `COMPOSE_PROFILES=connectors`, or `--profile connectors` | Starts `connector-worker` and `egress-gateway`. Use it on every Compose command, because a command without it does not see those two services |
+| `COMPOSE_PROFILES=connectors`, or `--profile connectors` | Starts `connector-worker` and its SMTP `egress-gateway`. Office-suite and Paddle relays have separate optional profiles below. Use it on every Compose command, because a command without it does not see those services |
 | `ENSEMUS_CONNECTORS_ENABLED=true` | Lets `web` create connections and answer the webhook route. Leave it false unless the worker is running, so that no row waits for a worker that is not coming |
 | `ENSEMUS_EGRESS_TARGET=host:port` | The one relay the gateway forwards to. The gateway refuses to start without it, and it is the only way out of the stack |
 | `ENSEMUS_SMTP_TLS` | Anything but `none` means TLS is required, and a relay that does not offer it is refused rather than used in the clear. Set `none` only for a relay on a trusted site network. The test overlay is the only place in this repository that sets it |
@@ -103,6 +145,70 @@ Set these in the environment Compose reads, and start the stack with the profile
 **Who can reach what.** `connector-worker` holds the credentials and sits on the `connectors` network alone, which is internal, so it reaches PostgreSQL, Temporal and the gateway and nothing else. `egress-gateway` holds no secrets and is on `connectors` and `outbound`. `web` is on neither. On a Sovereign site, make the target an on-site relay, and have the site's firewall limit `outbound` to it. An air-gapped install with no relay runs no profile.
 
 **Turning it off.** Remove the profile and set `ENSEMUS_CONNECTORS_ENABLED` back to false. Unsent actions stay `ready`, and they wait until it is on again. Nothing goes out.
+
+### Google Workspace and Microsoft 365
+
+An admin connects these by consent, from the connections page ([ADR-038](../00-foundation/adr/ADR-038-workspace-suites.md)). **That ADR, and migrations `0560` to `0562`, need an outside security review before any real Google or Microsoft account, client or token is used.** Until then, use generated values against local fakes only. Enable `--profile suite-google` alongside `--profile connectors` for Google, or `--profile suite-microsoft` alongside it for Microsoft. These optional profiles start one gateway per provider route; without them those relays do not start. Each works like `egress-gateway`: no secret, no database, one target, ciphertext only.
+
+| Setting | Read by | What it does |
+|---|---|---|
+| `ENSEMUS_EGRESS_GOOGLE_API_TARGET`, `ENSEMUS_EGRESS_GOOGLE_OAUTH_TARGET` | `egress-google-api`, `egress-google-oauth` | `www.googleapis.com:443` and `oauth2.googleapis.com:443`, or a site relay to each. Empty means that gateway does not start, and requests on its route fail with a code |
+| `ENSEMUS_EGRESS_MS_GRAPH_TARGET`, `ENSEMUS_EGRESS_MS_LOGIN_TARGET` | `egress-ms-graph`, `egress-ms-login` | `graph.microsoft.com:443` and `login.microsoftonline.com:443`, or a site relay to each. The same rule |
+| `ENSEMUS_EGRESS_GOOGLE_GMAIL_TARGET`, `ENSEMUS_EGRESS_GOOGLE_DOCS_TARGET`, `ENSEMUS_EGRESS_GOOGLE_SHEETS_TARGET` | `egress-google-gmail`, `egress-google-docs`, `egress-google-sheets` | `gmail.googleapis.com:443`, `docs.googleapis.com:443` and `sheets.googleapis.com:443`, or a site relay to each, for agents' suite tools (ADR-038 D6). The same rule |
+| `ENSEMUS_GOOGLE_CLIENT_ID`, `ENSEMUS_MICROSOFT_CLIENT_ID` | `web`, `connector-worker` | Your own app's public client ID for each provider. Empty by default, and then admins can only connect with an app of their own. Compose hands the same value to the worker as `ENSEMUS_OAUTH_GOOGLE_CLIENT_ID` and `ENSEMUS_OAUTH_MICROSOFT_CLIENT_ID`, because the code exchange must name the app the consent screen named |
+| `ENSEMUS_OAUTH_GOOGLE_CLIENT_SECRET_FILE`, `ENSEMUS_OAUTH_MICROSOFT_CLIENT_SECRET_FILE` | `connector-worker` only | The path, inside the container, of a file holding that app's client secret. Mount the file into `connector-worker` with a Compose overlay of your own. Never put the secret in the environment and never give it to `web`. A client ID with no secret stops the worker at start |
+| `ENSEMUS_PUBLIC_URL` | `web`, `connector-worker` | Providers send the admin back to `ENSEMUS_PUBLIC_URL` followed by `/api/v1/oauth/callback`, for example `https://ensemus.example.com/api/v1/oauth/callback`. Register exactly that address as the redirect URI in each app. The worker names the same address when it redeems the code, and a provider refuses the exchange if the two differ |
+| `ENSEMUS_MAIL_ID_DOMAIN` | `connector-worker` | The domain in the Message-ID of each mail an agent sends or drafts through Gmail or Outlook, `<{intent}@{domain}>`. It is how a send that timed out is found again in Sent, and recipients' mail systems see it. Empty means the host of `ENSEMUS_PUBLIC_URL`. Set it to a domain you control, never a reserved one such as `.invalid`. A value that is not a host name stops the worker at start; with neither set, agents' mail is refused and nothing is sent |
+
+Turn on `ENSEMUS_CONNECTORS_ENABLED` as for any connector. Microsoft issues a new refresh token on every refresh; the worker reseals it in place under the connection's existing secret, and a refresh that loses a race to another one is refused rather than written.
+
+### Hosted checkout: Paddle, Payme and Click
+
+The owner chose these on 2026-11-11 ([ADR-032 D4a](../00-foundation/adr/ADR-032-saas-operations-and-billing.md#d4a-hosted-checkout-paddle-payme-and-click-addendum-2026-11-11)): Payme and Click for invoices in so'm, and Paddle, as merchant of record, for card payments in USD or EUR. The customer pays on the provider's own page; Ensemus never holds a card number and never starts a charge. **Migration `0580` and the three adapters need an outside security review before any real merchant account, key or customer is used.** Until then, use each provider's sandbox with generated test values only.
+
+Nothing is offered unless you name it. Everything below is off by default, and a Sovereign install refuses all of it.
+
+| Setting | Read by | What it does |
+|---|---|---|
+| `ENSEMUS_BILLING_ENABLED=true` | `web`, `worker`, `connector-worker` | Required for any checkout. Naming a provider with billing off stops the process at start |
+| `ENSEMUS_BILLING_ORGANIZATION_ID` | `web`, `connector-worker` | The deployment's own organization, which holds the three checkout addresses. Set with an overlay; an empty value is refused |
+| `ENSEMUS_CHECKOUT_PROVIDERS` | `web`, `connector-worker` | Comma list of `paddle`, `payme`, `click`. Empty offers none. Both services must agree |
+| `ENSEMUS_PAYME_ENVIRONMENT`, `ENSEMUS_PAYME_MERCHANT_ID` | `web`, `connector-worker` | `sandbox` or `live`, and the merchant ID from the Payme Business cabinet. The checkout link goes to `test.paycom.uz` or `checkout.paycom.uz` |
+| `ENSEMUS_CLICK_ENVIRONMENT`, `ENSEMUS_CLICK_SERVICE_ID`, `ENSEMUS_CLICK_MERCHANT_ID` | `web`, `connector-worker` | The service and merchant IDs from Click's merchant cabinet. Every Click call must name this service ID, or it is refused |
+| `ENSEMUS_PADDLE_ENVIRONMENT`, `ENSEMUS_PADDLE_TAX_CATEGORY` | `web`, `connector-worker` | `sandbox` or `live`, and Paddle's tax category for what Ensemus sells. The category is a tax decision for the owner and adviser; there is no default |
+| `ENSEMUS_PADDLE_API_KEY_FILE` | `connector-worker` only | A mounted file holding a Paddle API key. A `pdl_live_apikey_` key is refused in sandbox and the other way round. Never put it in the environment and never give it to `web` |
+| `ENSEMUS_EGRESS_PADDLE_TARGET` | `egress-paddle` | `api.paddle.com:443` for live or `sandbox-api.paddle.com:443` for sandbox, or a site relay to it. The TLS name is fixed in code by the environment. Empty means the gateway does not start, and opening a Paddle checkout fails closed |
+| `ENSEMUS_CHECKOUT_REPLY_WAIT_MS` | `web` | How long the checkout door waits for the connector worker's answer to Payme or Click, 1000 to 25000, 8000 by default. A technical bound, not a commitment: neither provider publishes its own limit. Past it, Payme hears `-32400` and Click `-7`, and both try again |
+
+Payme and Click need no egress route: they call us, and we never call them. Paddle needs both `--profile connectors` and `--profile checkout-paddle`, because the connector worker makes each Paddle transaction through its dedicated relay. The Paddle relay is absent when its profile is off; selecting it with an empty target still refuses startup. Enabling the ordinary connectors profile does not require a payment provider.
+
+**The three addresses.** Each provider gets one address in the deployment's own organization: a connection of type `payment_checkout_paddle`, `payment_checkout_payme` or `payment_checkout_click` with one webhook endpoint whose signing secret is the provider's key (Paddle's notification secret, the Payme merchant key, the Click secret key) and whose scheme is `paddle_signature_v1`, `payme_basic_v1` or `click_md5_v1`. The click connection's settings are `{"serviceId": "<ENSEMUS_CLICK_SERVICE_ID>"}`. **This release has no command that creates them**: the existing connection and endpoint services require an interactive, privileged person and a shipped connector type, and adding a reviewed path is listed as owed in ADR-032 D4a. Register the URLs with each provider once they exist:
+
+- Paddle: `ENSEMUS_PUBLIC_URL/api/webhooks/<token>` as a notification destination, with at least `transaction.completed`, `transaction.paid`, `transaction.canceled`, `adjustment.created` and `adjustment.updated`. Set a default payment link in Paddle, since the checkout link Paddle returns is built on it.
+- Payme: `ENSEMUS_PUBLIC_URL/api/payments/payme/<token>` as the Merchant API endpoint, with one account field named `order_id`.
+- Click: `ENSEMUS_PUBLIC_URL/api/payments/click/<token>` as both the Prepare and the Complete URL.
+
+**Keys.** Rotating the Payme key means changing it in the Payme cabinet and the endpoint's signing secret together. Ensemus answers Payme's `ChangePassword` with "method not found", so the cabinet cannot change it for us. Payme's `SetFiscalData` gets the same answer: fiscal receipts are an owner decision this release does not make.
+
+**What the customer sees.** On an open invoice, `Pay this invoice` offers only the providers this server names that take the invoice's currency. The customer is sent to the provider's page and comes back to a status page that says waiting, processing, paid, not paid or refunded, and shows paid only once the provider's word has been verified. A payment under way blocks a second one for the same invoice.
+
+**What can need a person.** Each of these is audited as `payment.flagged` in the tenant, the tenant's owners are notified, and the connector worker logs `checkout.needs_person` with a reason code and no reference:
+
+| Reason | What it means | What to do |
+|---|---|---|
+| `CHECKOUT_MISMATCH_REPORTED` | Paddle reported an amount, currency or order that is not this checkout's, usually because the customer changed their address and Paddle's tax with it | Nothing was settled. Compare in Paddle's dashboard; refund there if the customer paid, and let them pay again |
+| `CHECKOUT_PAID_AFTER_CLOSE` | Paddle took money for a checkout we had already closed | Refund it in Paddle |
+| `CHECKOUT_PAID_INVOICE_CLOSED` | The money arrived after the invoice was voided | Decide with the customer: refund at the provider, or apply it by hand |
+| `PROCESSOR_REFUND_REPORTED`, `PROCESSOR_DISPUTE_REPORTED` | A refund or a chargeback at the provider | Recorded only. Nothing is taken away automatically (ADR-032 D4) |
+
+A Paddle checkout whose notification never comes is looked up against Paddle's own transaction 15 minutes, 1 hour, 6 hours, 1 day and 3 days after it opens. A Payme transaction Payme created but never performed is cancelled by Payme itself after 12 hours, which is Payme's protocol, not our setting.
+
+```sh
+compose exec postgres psql -U postgres -d ensemus -c \
+  "select processor, state, count(*), min(updated_at) from billing.checkout_sessions group by 1, 2"
+```
+
+A row in `opening` for more than a few minutes means the connector worker or the Paddle route is down. A row in `reserved` means Payme or Click started a payment and has not finished it; never close it by hand.
 
 ### The `unknown` queue, and who watches it
 
@@ -300,6 +406,40 @@ If a run did cross that migration, its work is left `running` or `awaiting_appro
 `pnpm test:upgrade` is how a release proves it can take over paused work. It builds the images of an earlier commit (the merge-base with `main`, or `--from <ref>`) in a temporary worktree, opens a plan through that release's own pages until its approval is paused, upgrades to the current images with their migrations, approves, and checks that the same run reaches Checking and that a person can finish it. It runs as its own Compose project on port 18443 and removes everything it made. It refuses a base that has no stack, no page that can run a plan, or that is older than migration 0004.
 
 Dry-run migration and replay tests in staging using production-like data/roles; back up; release compatible DB changes; deploy compatible workers and web versions; canary and verify; delay destructive schema contraction. Rollbacks can be limited by irreversible database changes and Temporal workflow history version compatibility; an operator must receive those limitations before upgrade.
+
+## Cross-organization collaboration
+
+Federation is off on a default installation. Both organizations must be on the same shared
+deployment. Qualify it with generated workspaces and obtain independent security review before
+enabling it for customers.
+
+1. Set `ENSEMUS_CROSS_ORG_ENABLED=true` in the deployment environment and select the
+   Compose `federation` profile. Supply `db_federation_password` and `db_federation_url` in the
+   installation's secret directory. The URL uses the `ensemus_federation` login with that password
+   and connects to `postgres:5432/ensemus`. Percent-encode any reserved characters in the URL.
+   Disposable development stacks can generate these files with
+   `node infrastructure/scripts/generate-test-secrets.mjs --federation`.
+2. Start the stack with `docker compose --profile federation -f infrastructure/compose/compose.yaml up -d --build --wait`.
+   Sovereign operators use the installed bundle's base and Sovereign Compose files with the same
+   profile and the worker image supplied in the bundle.
+3. Confirm `provision-federation` and `migrate` finished successfully and `federation-worker`
+   is healthy. Confirm a generated sender and receiver can deliver, open, withdraw, and physically
+   purge a file through the normal workspace flow. Each organization still opts in under its own
+   owner authority.
+
+The provisioner creates or rotates the bridge login. The migration job applies its scoped object
+grants and then records the enabled deployment profile. The worker also holds the native worker
+login to prepare sender files and record receipts under the correct tenant. The bridge login alone
+has its own restricted grants.
+
+To retire the profile, have owners turn off collaboration in every participating workspace while
+the worker is running. Wait for grant endings, withdrawal, and physical file cleanup. Then apply
+the deployment profile with `ENSEMUS_CROSS_ORG_ENABLED=false` and the same tier and region settings.
+Recreate web with that setting and stop the federation worker. The deployment switch closes grant
+access on commit. Ending the grants and draining the worker ensures their outstanding cleanup is
+recorded before shutdown.
+In an emergency, apply the off switch immediately and finish ending affected grants before
+reenabling collaboration.
 
 ## Performance and cost validation
 

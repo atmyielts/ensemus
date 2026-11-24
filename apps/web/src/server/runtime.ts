@@ -1,5 +1,5 @@
 import 'server-only';
-import { createRestoreGate } from '@ensemus/application';
+import { createRestoreGate, withInvitationRegistration } from '@ensemus/application';
 import { withRawKnowledgeObjects } from '@ensemus/application/knowledge/raw-objects';
 import {
   authorizeSsoIdentity,
@@ -9,6 +9,7 @@ import {
 import { createAuth, type OidcProvider } from '@ensemus/auth';
 import { loadWebConfig, readSecret } from '@ensemus/config';
 import { openAppDatabase } from '@ensemus/database';
+import { sealSecret } from '@ensemus/secrets/seal';
 import { S3ObjectStore } from '@ensemus/storage';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import { nextCookies } from 'better-auth/next-js';
@@ -24,32 +25,63 @@ function loadOidc(): OidcProvider | undefined {
   };
 }
 
+/**
+ * Seals a link in an email to the mail worker's key (0571). Only where the mail worker runs: without it,
+ * nothing queues mail, so nothing is promised that no worker will send.
+ */
+function loadMailSealer(enabled: boolean) {
+  if (!enabled) return null;
+  const publicKeyPem = readSecret('SECRET_SEALING_PUBLIC_KEY');
+  return (input: {
+    organizationId: string;
+    secretId: string;
+    purpose: string;
+    plaintext: string;
+  }) => sealSecret({ ...input, publicKeyPem });
+}
+
 function build() {
   const config = loadWebConfig();
   const oidc = loadOidc();
   const app = openAppDatabase(readSecret('DATABASE_URL_APP')).db;
-  const { auth, mfa, sso, redeemSetupToken, submitCredentials, readInteractiveSession } =
-    createAuth({
-      databaseUrl: readSecret('DATABASE_URL_AUTH'),
-      secret: readSecret('AUTH_SECRET'),
-      baseURL: config.publicUrl,
-      allowSignup: config.allowSignup,
-      ...(oidc ? { oidc } : {}),
-      sso: {
-        authorizeIdentity: (input) => authorizeSsoIdentity(app, input),
-        completeIdentity: async (input) => (await completeSsoSignIn(app, input)).outcome,
-        currentPrimary: (input) => isSsoPrimaryCurrent(app, input),
-      },
-      plugins: [nextCookies()],
-    });
+  const sealMailLink = loadMailSealer(config.mailEnabled);
+  const {
+    auth,
+    mfa,
+    sso,
+    redeemSetupToken,
+    registerInvitedAccount,
+    submitCredentials,
+    readInteractiveSession,
+    account,
+  } = createAuth({
+    databaseUrl: readSecret('DATABASE_URL_AUTH'),
+    secret: readSecret('AUTH_SECRET'),
+    baseURL: config.publicUrl,
+    allowSignup: config.allowSignup,
+    withInvitationRegistration: (input, create) => withInvitationRegistration(app, input, create),
+    ...(oidc ? { oidc } : {}),
+    sso: {
+      authorizeIdentity: (input) => authorizeSsoIdentity(app, input),
+      completeIdentity: async (input) => (await completeSsoSignIn(app, input)).outcome,
+      currentPrimary: (input) => isSsoPrimaryCurrent(app, input),
+    },
+    plugins: [nextCookies()],
+    ...(sealMailLink ? { mail: { seal: sealMailLink } } : {}),
+  });
   return {
     config,
     auth,
     mfa,
     sso,
     redeemSetupToken,
+    registerInvitedAccount,
     submitCredentials,
     readInteractiveSession,
+    /** Password reset, email verification and change, through Better Auth's router (0571). */
+    account,
+    /** For an invitation's email. Null where the mail worker does not run. */
+    invitationMail: sealMailLink ? { seal: sealMailLink, publicUrl: config.publicUrl } : null,
     app,
     log: createLogger('web'),
   };

@@ -1,6 +1,6 @@
 // Safe for the web tier: holds a public key only, so it can store a secret but never read one back
 // (ADR-024 D5). Uses AES-256-GCM with a fresh data key, wrapped with RSA-OAEP-SHA-256.
-import { constants, createCipheriv, publicEncrypt, randomBytes, randomUUID } from 'node:crypto';
+import { constants, publicEncrypt, randomBytes, randomUUID } from 'node:crypto';
 import {
   appendAudit,
   sealedSecrets,
@@ -8,7 +8,7 @@ import {
   type AppDatabase,
   type TenantContext,
 } from '@ensemus/database';
-import { additionalData, keyIdOf, type SealedValue } from './format';
+import { encryptBound, keyIdOf, type SealedValue } from './format';
 
 export function sealSecret(input: {
   publicKeyPem: string;
@@ -19,10 +19,13 @@ export function sealSecret(input: {
 }): SealedValue {
   const dataKey = randomBytes(32);
   try {
-    const iv = randomBytes(12);
-    const cipher = createCipheriv('aes-256-gcm', dataKey, iv);
-    cipher.setAAD(additionalData(input.organizationId, input.secretId, input.purpose));
-    const ciphertext = Buffer.concat([cipher.update(input.plaintext, 'utf8'), cipher.final()]);
+    const plaintext = Buffer.from(input.plaintext, 'utf8');
+    let encrypted: ReturnType<typeof encryptBound>;
+    try {
+      encrypted = encryptBound(dataKey, input, plaintext);
+    } finally {
+      plaintext.fill(0);
+    }
     const wrappedKey = publicEncrypt(
       {
         key: input.publicKeyPem,
@@ -34,9 +37,7 @@ export function sealSecret(input: {
     return {
       keyId: keyIdOf(input.publicKeyPem),
       wrappedKey,
-      iv,
-      ciphertext,
-      authTag: cipher.getAuthTag(),
+      ...encrypted,
     };
   } finally {
     dataKey.fill(0);

@@ -68,6 +68,6 @@ test('when the whole organization cannot load, the top-level error page takes ov
     await world.sql.query('alter table org.memberships_broken_by_test rename to memberships');
   }
   await page.getByRole('button', { name: 'Try again' }).click();
-  await expect(page.getByRole('heading', { name: 'Hello, Alice' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'My work' })).toBeVisible();
   scriptErrors.length = 0;
 });

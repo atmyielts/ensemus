@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { preparePublication } from '@ensemus/application/ai-agents';
-import { evaluationReportSchema } from '@ensemus/contracts/ai';
+import { evaluationReportV2Schema } from '@ensemus/contracts/ai';
 import { canonicalJson } from '@ensemus/domain/approval';
 import { NO_POLICY_AGENT_LIMITS } from '@ensemus/policy/agent-spec-lint';
 import {
@@ -13,21 +13,43 @@ import {
   syntheticCases,
 } from '../../evaluations/agents/fixtures';
 import { evaluateScripted, LIMITATION } from '../../evaluations/agents/harness';
+import { signEvaluationReport } from '../../packages/application/src/ai/evaluation-attestation';
+import {
+  TEST_SIGNER,
+  TEST_TRUST,
+} from '../../packages/application/src/ai/evaluation-attestation.test-support';
+import type { EvaluationReportV2 } from '../../packages/contracts/src/ai';
 
 const policyVersion = 'synthetic-policy-1';
+const ISSUED_AT = new Date();
+/** Each reading one millisecond after the last, so latency is measured and two runs still compare. */
+const steadyClock = () => {
+  let tick = 0;
+  return () => tick++;
+};
 const evaluate = (overrides: Partial<Parameters<typeof evaluateScripted>[0]> = {}) =>
-  evaluateScripted({ spec: assuranceSpec, policyVersion, cases: syntheticCases(), ...overrides });
-const publish = (report: unknown, spec = assuranceSpec) =>
+  evaluateScripted({
+    spec: assuranceSpec,
+    policyVersion,
+    cases: syntheticCases(),
+    signer: TEST_SIGNER,
+    clock: steadyClock(),
+    issuedAt: ISSUED_AT,
+    ...overrides,
+  });
+/** What a publisher would present: the report under the harness's signature. */
+const publish = (report: EvaluationReportV2, spec: unknown = assuranceSpec) =>
   preparePublication(
-    { spec, evaluationReport: report, policyVersion },
+    { spec, evaluationReport: signEvaluationReport(report, TEST_SIGNER), policyVersion },
     NO_POLICY_AGENT_LIMITS,
     policyVersion,
+    { trust: TEST_TRUST, now: new Date() },
   );
 
 describe('versioned scripted evaluation', () => {
   it('runs real gateway composition and produces a publishable strict-schema report', async () => {
     const artifact = await evaluate();
-    expect(evaluationReportSchema.parse(artifact.report)).toEqual(artifact.report);
+    expect(evaluationReportV2Schema.parse(artifact.report)).toEqual(artifact.report);
     expect(artifact.report).toMatchObject({
       scripted_model: true,
       passed: true,
@@ -41,6 +63,7 @@ describe('versioned scripted evaluation', () => {
       true,
     );
     expect(publish(artifact.report).reportSha256).toBe(artifact.report_sha256);
+    expect(artifact.attestation?.report).toEqual(artifact.report);
     expect(artifact.experiment_sha256).toBe(
       createHash('sha256').update(canonicalJson(artifact.experiment)).digest('hex'),
     );
@@ -188,5 +211,76 @@ describe('versioned scripted evaluation', () => {
         spec: { ...assuranceSpec, evaluation: { suite_ref: 'other', min_pass_rate: 1 } },
       }),
     ).rejects.toThrow('EVAL_SUITE_MISMATCH');
+  });
+
+  it('records the model each case reached, its cost from the ledger and its latency', async () => {
+    const artifact = await evaluate();
+    const reached = artifact.report.case_results.filter((item) => item.model !== null);
+    // Three cases reach the scripted adapter through a test double's profile; the restricted one is
+    // refused before any model, so it names none and costs nothing.
+    expect(reached.map((item) => item.id)).toEqual([
+      'grounded-budget',
+      'grounded-deadline',
+      'malformed-output',
+    ]);
+    expect(reached[0]?.model).toEqual({
+      profile_id: 'byom',
+      profile_version: 1,
+      provider_kind: 'openai_compatible',
+      model_id: 'test-model',
+    });
+    const refused = artifact.report.case_results.find(
+      (item) => item.id === 'restricted-public-export',
+    );
+    expect(refused).toMatchObject({ model: null, cost_micros: 0 });
+    // Priced by the double's own rate card. The figure is the test's, and the point is that it adds up.
+    expect(reached.every((item) => item.cost_micros > 0)).toBe(true);
+    expect(artifact.report.cost_micros).toBe(
+      artifact.report.case_results.reduce((sum, item) => sum + item.cost_micros, 0),
+    );
+    expect(artifact.report.case_results.map((item) => item.latency_ms)).toEqual([1, 1, 1, 1]);
+    expect(artifact.report.latency_ms).toBe(4);
+    expect(artifact.report.issued_at).toBe(ISSUED_AT.toISOString());
+  });
+
+  it('measures latency with a real clock when none is given', async () => {
+    const artifact = await evaluateScripted({
+      spec: assuranceSpec,
+      policyVersion,
+      cases: syntheticCases(),
+    });
+    expect(artifact.report.case_results.every((item) => item.latency_ms >= 0)).toBe(true);
+    expect(artifact.attestation).toBeNull();
+  });
+
+  it('cannot publish a production agent: a scripted model proves the gates and not a model', async () => {
+    const { sandbox: _sandbox, ...production } = assuranceSpec;
+    const artifact = await evaluate({ spec: production });
+    expect(artifact.report.passed).toBe(true);
+    expect(() => publish(artifact.report, production)).toThrow(
+      expect.objectContaining({ code: 'AGENT_EVALUATION_SCRIPTED' }),
+    );
+  });
+
+  it('cannot publish its report unsigned, nor with a field changed after signing', async () => {
+    const artifact = await evaluate();
+    const bare = () =>
+      preparePublication(
+        { spec: assuranceSpec, evaluationReport: artifact.report, policyVersion },
+        NO_POLICY_AGENT_LIMITS,
+        policyVersion,
+        { trust: TEST_TRUST, now: new Date() },
+      );
+    expect(bare).toThrow(expect.objectContaining({ code: 'AGENT_EVALUATION_UNVERIFIED' }));
+    const signed = artifact.attestation!;
+    const raised = { ...signed, report: { ...signed.report, scripted_model: false } };
+    expect(() =>
+      preparePublication(
+        { spec: assuranceSpec, evaluationReport: raised, policyVersion },
+        NO_POLICY_AGENT_LIMITS,
+        policyVersion,
+        { trust: TEST_TRUST, now: new Date() },
+      ),
+    ).toThrow(expect.objectContaining({ code: 'AGENT_EVALUATION_UNVERIFIED' }));
   });
 });

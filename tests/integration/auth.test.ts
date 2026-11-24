@@ -347,11 +347,17 @@ describe('setup codes, where sign-up is off (ID-01)', () => {
 
 describe('OIDC sign-in', () => {
   let oidc: ReturnType<typeof createAuth>;
-  const issuer = 'http://127.0.0.1:58080/default';
+  const project = `ensemus-oidc-${randomUUID()}`;
+  const fixture = (...args: string[]) =>
+    compose('--project-name', project, '--profile', 'test-oidc', ...args);
 
   beforeAll(async () => {
-    compose('--profile', 'test-oidc', 'up', '-d', 'oidc-mock');
-    await waitFor(`${issuer}/.well-known/openid-configuration`);
+    fixture('up', '-d', '--no-deps', 'oidc-mock');
+    const published = fixture('port', 'oidc-mock', '8080').trim();
+    if (!/^127\.0\.0\.1:[1-9][0-9]*$/.test(published))
+      throw new Error(`Expected a loopback port for the OIDC fixture, received ${published}`);
+    const discoveryUrl = `http://${published}/default/.well-known/openid-configuration`;
+    await waitFor(discoveryUrl);
     oidc = createAuth({
       databaseUrl: urls.auth(),
       secret: 'test-only-secret-'.padEnd(40, 'y'),
@@ -361,14 +367,17 @@ describe('OIDC sign-in', () => {
         providerId: 'company-sso',
         clientId: 'ensemus',
         clientSecret: 'test-only-client-secret',
-        discoveryUrl: `${issuer}/.well-known/openid-configuration`,
+        discoveryUrl,
       },
     });
   });
 
   afterAll(async () => {
-    await oidc?.close();
-    compose('--profile', 'test-oidc', 'rm', '-f', '-s', 'oidc-mock');
+    try {
+      await oidc?.close();
+    } finally {
+      fixture('down');
+    }
   });
 
   it('completes a full authorization-code round trip with PKCE', async () => {

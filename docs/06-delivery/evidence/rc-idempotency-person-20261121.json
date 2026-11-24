@@ -1,0 +1,129 @@
+{
+  "schema": "ensemus.local-qualification/1",
+  "slice": "caller-private native API replay response reads/inserts",
+  "releaseReady": false,
+  "migrations": [
+    "0750_idempotency_person_boundary"
+  ],
+  "freshMigration": {
+    "database": "ensemus_rc_idempotency_person_20261121205541084",
+    "appliedMigrations": 160,
+    "matchingMigrationHashes": 160,
+    "functions": [
+      {
+        "name": "integrations.business_change_reader(uuid,text,jsonb,text)",
+        "prosecdef": false,
+        "proconfig": [
+          "search_path=pg_catalog"
+        ],
+        "owner": "ensemus_migrator",
+        "public_execute": false
+      },
+      {
+        "name": "integrations.business_team_lock_scope()",
+        "prosecdef": false,
+        "proconfig": [
+          "search_path=pg_catalog"
+        ],
+        "owner": "ensemus_migrator",
+        "public_execute": false
+      },
+      {
+        "name": "integrations.lock_business_proposal_record(uuid,text,text,text)",
+        "prosecdef": true,
+        "proconfig": [
+          "search_path=pg_catalog"
+        ],
+        "owner": "ensemus_migrator",
+        "public_execute": false
+      },
+      {
+        "name": "integrations.lock_business_proposal_team(uuid,uuid,uuid)",
+        "prosecdef": true,
+        "proconfig": [
+          "search_path=pg_catalog"
+        ],
+        "owner": "ensemus_migrator",
+        "public_execute": false
+      }
+    ],
+    "policies": [
+      {
+        "schemaname": "platform",
+        "tablename": "idempotency_keys",
+        "policyname": "idempotency_person_insert",
+        "permissive": "RESTRICTIVE",
+        "roles": "{ensemus_app}",
+        "cmd": "INSERT"
+      },
+      {
+        "schemaname": "platform",
+        "tablename": "idempotency_keys",
+        "policyname": "idempotency_person_read",
+        "permissive": "RESTRICTIVE",
+        "roles": "{ensemus_app}",
+        "cmd": "SELECT"
+      }
+    ],
+    "completedAt": "2026-11-21T20:55:45.438Z"
+  },
+  "validation": {
+    "nativeReplayAndBusiness": {
+      "passed": 22,
+      "seconds": 26.5
+    },
+    "finalPrivateReplay": {
+      "passed": 10
+    },
+    "erasureRegression": {
+      "failed": 7,
+      "reason": "Joined expansion content inventory lacks erasure classification/grants; first failing table integrations.business_record_actions",
+      "qualified": false
+    },
+    "productionHttp": {
+      "passed": 5,
+      "seconds": 15.73
+    },
+    "testTypes": "passed",
+    "focusedLint": "passed",
+    "completeUnit": {
+      "passed": 9669,
+      "failed": 2,
+      "expectedFailures": 4,
+      "skipped": 43,
+      "files": 379,
+      "seconds": 53.48,
+      "remainingFailures": [
+        "66 planned API operations",
+        "30-table complete portability inventory"
+      ]
+    }
+  },
+  "privacy": {
+    "generatedMarkerOnly": true,
+    "realStoredResponseInspected": false,
+    "tenantErasureExecuted": false
+  },
+  "limitations": [
+    "Human SQL security review pending",
+    "Joined expansion erasure inventory incomplete and refuses erasure",
+    "Per-person response isolation does not independently establish source-aware cache invalidation for every API operation",
+    "Full release gates and hosted/provider/worker acceptance remain open"
+  ],
+  "sourceSha256": {
+    "packages/database/migrations/0750_idempotency_person_boundary.sql": "0ffaac587f0688955d4afee346df2cb15b708a47b687e0fe8cf3cce82b80cc76",
+    "packages/database/migrations/meta/_journal.json": "e68d869102fdc82fc35cadbf46098e99bb0a18743132eae1d800815636f0ead6",
+    "tests/integration/idempotency-private-readers.test.ts": "a49d2bc2284de394a3628eb13d27ce5e8c14289cbdf380ed4c8b7b96a7a7ad8d"
+  },
+  "localEvidenceSha256": {
+    ".local/rc-idempotency-private-red.log": "041bab3b9828a5bd486950bc7f1dd8ff66f871194f5e84090f17415d0954a5c3",
+    ".local/rc-idempotency-person-native.log": "73c53f4016d0e843135899dab2a3692c51f43f7cdc5d906a747768bb22a5b860",
+    ".local/rc-idempotency-person-lifecycle-native.log": "2fb02735125a1a87ea2fb6a401e16ae4c3a80e313fd2abc28149706a7d1da872",
+    ".local/rc-idempotency-person-production-http.log": "9701c85153ffb907fb69026555d1dfccf9661d623d6e1eea9215c9c34ca8a9fe",
+    ".local/rc-idempotency-person-lint.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".local/rc-idempotency-person-types.log": "1d5b04d16c49c8c9cad76e7c5012bb207093c2ddb24665de0709467436f13771",
+    ".local/rc-idempotency-person-fresh-migration.json": "aebd96e8ea627fd0ecde2b631117a33cd66a9b0dea77e1f0dc50ea29d4ef05b0",
+    ".local/rc-idempotency-person-fresh.log": "cfe1fab4f27a02005c763a2a81951ac0a64240e1430eeb25d03ba8f74e9b6ebd",
+    ".local/rc-idempotency-person-full-unit.log": "ed4d0770012448fd78dd44e7fba2e41e9b44a789ccd353077a6877a1c72b86f8"
+  }
+}

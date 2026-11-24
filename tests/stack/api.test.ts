@@ -1130,7 +1130,7 @@ describe('public API', () => {
       const stream = await follow(person.jar, events(org, work.id));
       await expect.poll(() => lastId(stream), POLL).toBe('1');
       const cookie = person.jar.cookie;
-      const out = await submit(`/o/${org}`, person.jar, />Sign out</);
+      const out = await submit(`/o/${org}`, person.jar, /aria-label="Sign out"/);
       expect(out.status).toBe(303);
       // The session is checked less often than the membership, by design.
       await expect.poll(() => stream.ended(), { timeout: 45_000, interval: 250 }).toBe(true);
@@ -1275,7 +1275,7 @@ describe('public API', () => {
       it('says why on the page, and refuses the form there the same way', async () => {
         const shown = await read(page(company), founder.jar);
         expect(shown.status).toBe(200);
-        expect(shown.html).toContain('Connectors are not turned on for this deployment');
+        expect(shown.html).toContain('Email sending is switched off for this Ensemus installation');
         const body = start();
         const response = await submit(page(company), founder.jar, /Start onboarding/, {
           dealRef: body.deal_ref,
@@ -1298,6 +1298,99 @@ describe('public API', () => {
       });
     },
   );
+
+  // Members' own Google and Microsoft accounts (ADR-038 D5). What members may connect, and whose own
+  // connection exists, answer with connectors off as well, so API-12's coverage of those three operations is
+  // here. Starting a consent, the callback and a member's own connections need connectors on: those are
+  // proven in tests/stack/slice-2.test.ts, which asserts their coverage, and this shows the starts refused
+  // where they are off. A tenant of its own, so the setting it changes is in no other test's way.
+  describe('members’ own connections (ADR-038 D5)', () => {
+    const base = (organization: string) => `/api/v1/organizations/${organization}`;
+    let founder: Person;
+    let company: string;
+    let colleague: Person;
+
+    beforeAll(async () => {
+      founder = await signUp('Pia Personal Owner');
+      company = await createOrganization(founder, `Personal ${randomUUID()}`);
+      colleague = await join(founder, company, 'Cal Personal Member');
+    });
+
+    it('lets anyone read what members may connect, and only a manager change it', async () => {
+      const path = `${base(company)}/member-connection-capabilities`;
+      const before = await call(colleague, 'GET', path);
+      expect(before.status, before.text).toBe(200);
+      expect([...(before.json as { capabilities: string[] }).capabilities].sort()).toEqual([
+        'calendar',
+        'mail',
+      ]);
+      expectError(
+        await call(colleague, 'PUT', path, { body: { capabilities: ['documents'] } }),
+        403,
+        'FORBIDDEN',
+      );
+      const changed = await call(founder, 'PUT', path, {
+        body: { capabilities: ['mail', 'documents'] },
+      });
+      expect(changed.status, changed.text).toBe(200);
+      expect([...(changed.json as { capabilities: string[] }).capabilities].sort()).toEqual([
+        'documents',
+        'mail',
+      ]);
+      const after = await call(colleague, 'GET', path);
+      expect([...(after.json as { capabilities: string[] }).capabilities].sort()).toEqual([
+        'documents',
+        'mail',
+      ]);
+      // A capability only the organization may own is not one members can be given.
+      expectError(await call(founder, 'PUT', path, { body: { capabilities: ['files'] } }), 400);
+      expectError(await call(rival, 'GET', `${base(company)}/member-connection-capabilities`), 404);
+    });
+
+    it('shows a manager whose own connections exist, and nobody else', async () => {
+      const path = `${base(company)}/member-connections`;
+      const listed = await call(founder, 'GET', path);
+      expect(listed.status, listed.text).toBe(200);
+      expect(listed.json).toEqual({ items: [] });
+      expectError(await call(colleague, 'GET', path), 403, 'FORBIDDEN');
+      expectError(await call(rival, 'GET', path), 404);
+    });
+
+    it.skipIf(process.env.ENSEMUS_CONNECTORS_ENABLED === 'true')(
+      'refuses to start a consent where connectors are off, before anything is sealed',
+      async () => {
+        expectError(
+          await call(founder, 'POST', `${base(company)}/oauth-authorizations`, {
+            body: {
+              connector_type: 'google_workspace',
+              display_name: 'Generated workspace',
+              config: {},
+              capabilities: ['files'],
+              client: { kind: 'platform' },
+            },
+          }),
+          409,
+          'CONNECTOR_NOT_AVAILABLE',
+        );
+        expectError(
+          await call(colleague, 'POST', `${base(company)}/my-connections`, {
+            body: {
+              connector_type: 'google_workspace',
+              display_name: 'Mine',
+              capabilities: ['mail'],
+            },
+          }),
+          409,
+          'CONNECTOR_NOT_AVAILABLE',
+        );
+        const { rows } = await su.query(
+          'select count(*)::int as n from integrations.oauth_authorizations where organization_id = $1',
+          [company],
+        );
+        expect(rows[0].n).toBe(0);
+      },
+    );
+  });
 
   describe('what the contract promises (API-12)', () => {
     const WORK = '/organizations/{organization_id}/work-units';
@@ -1366,10 +1459,11 @@ describe('public API', () => {
     });
 
     it('has validated a real response from every operation that exists', () => {
-      // These operations have their own successful-response coverage assertion. client-onboardings succeed only
-      // with connectors on, so theirs is in tests/stack/slice-2.test.ts, which the connectors job runs.
+      // These operations have their own successful-response coverage assertion. client-onboardings, consent to
+      // Google and Microsoft (oauth-authorizations, the callback) and members' own connections succeed only with
+      // connectors on, so theirs is in tests/stack/slice-2.test.ts, which the connectors job runs.
       const ownCoverage = (path: string) =>
-        /\/(external-actions|connections|client-onboardings|agent-runs|agent-versions|model-profiles|budgets|usage|entitlements|object-types|object-records|studio|process-specs|process-runs|outcome-drafts|onboarding)(\/|$)/.test(
+        /\/(external-actions|connections|client-onboardings|agent-runs|agent-versions|model-profiles|budgets|usage|entitlements|object-types|object-records|studio|process-specs|process-runs|outcome-drafts|onboarding|oauth-authorizations|my-connections)(\/|$)|^\/oauth\/callback$/.test(
           path,
         );
       const implemented = operations()

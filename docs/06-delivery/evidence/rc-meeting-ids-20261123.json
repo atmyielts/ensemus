@@ -1,0 +1,71 @@
+{
+  "schema": "ensemus.local-qualification/1",
+  "slice": "canonical meeting IDs and selectable qualification database",
+  "recordedAt": "2026-11-23T12:42:49.246377+00:00",
+  "baseCommit": "097358dd7b8fa7a20abac451f390e6bf83a23df4",
+  "releaseReady": false,
+  "validation": {
+    "nativeMeetingCasesPassed": 19,
+    "idSourceGuardsPassed": 3,
+    "affectedLint": "passed",
+    "applicationTypes": "passed",
+    "webTypes": "passed",
+    "testTypes": "passed",
+    "productionWebRebuild": "not run; preserve the running owner preview"
+  },
+  "behavior": [
+    "Meeting form IDs use the standard form helper and all service UUID schemas use the canonical lowercase schema.",
+    "The native regression refuses an uppercase duplicate organizer as INVALID_STATE and correctly adds a distinct uppercase member ID.",
+    "Test URLs may select an already provisioned qualification database with ENSEMUS_TEST_DATABASE. The URL encodes the database name, and defaults remain unchanged."
+  ],
+  "qualificationScope": {
+    "setup": "Private local Vitest configuration replaced Compose bootstrap with creation/migration of a dedicated qualification database in the existing task-owned test PostgreSQL cluster. No user-facing database fixtures were changed by these tests.",
+    "roles": "Actual app/auth/platform-worker logins, forced RLS and native session verification. PostgreSQL roles remain cluster-wide; role mutation/restore tests still require a dedicated cluster.",
+    "failureRecorded": "Initial fresh Compose startup stalled during network creation and was cancelled before tests. The focused native command passed after the alternate bootstrap.",
+    "remaining": "Exploratory artifact-grounding integration remains failing and outside this checkpoint. Prior API, portability, erasure, CI and human review gates remain open."
+  },
+  "source": [
+    {
+      "path": "apps/web/src/app/o/[organizationId]/meetings/actions.ts",
+      "sha256": "5621701e6cecc27630622a672f96224933ab52154e260c69f3c920b7acd95b35"
+    },
+    {
+      "path": "packages/application/src/meeting-manual.ts",
+      "sha256": "9a84689bab415eaedabde904df178010a16b40525217df2c98b8be0fca7cbea2"
+    },
+    {
+      "path": "tests/helpers/stack.ts",
+      "sha256": "5a715743ae64c5f42d1134c20bcd78cc30f6a18ef11962d4cea0fd4a563afdc6"
+    },
+    {
+      "path": "tests/integration/meeting-manual.test.ts",
+      "sha256": "ae28f10a11b6cf854d85e51cf09dd1272af642861bc23a82bf190fc7192e669f"
+    }
+  ],
+  "localEvidence": [
+    {
+      "path": ".local/rc-native-id-unit-20261123.log",
+      "sha256": "0028c1f6a3986c4edbd882678b7eda8ac53742a947f085b12b85f45df59cb7bf"
+    },
+    {
+      "path": ".local/rc-meeting-ids-native-qualified-20261123.log",
+      "sha256": "4c2a52bd09662a3ecb1ee7fe9f1653f6a0354500d76ffca1354b5b6540cba2c1"
+    },
+    {
+      "path": ".local/rc-meeting-ids-lint-20261123.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": ".local/rc-meeting-ids-application-types-20261123.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": ".local/rc-meeting-ids-web-types-20261123.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": ".local/rc-meeting-ids-tests-types-20261123.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ]
+}

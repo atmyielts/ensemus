@@ -24,6 +24,8 @@ import { and, asc, eq, inArray, lte, ne, sql } from 'drizzle-orm';
 import { AppError } from './errors';
 import { eraseTombstonedArtifact } from './saas/object-deletion';
 import { emit } from './events';
+import { withdrawItemsForSourceInTx } from './federation-items';
+import { lockFederationFileSource } from './federation-source-files';
 import type { RawKnowledgeObjectPort } from './knowledge/raw-objects';
 import { idFromRequest } from './request-id';
 import { closeOutdatedReviews, loadChangeable, loadReadable, type WorkRow } from './work';
@@ -37,14 +39,14 @@ export interface ObjectStore {
   /** Installed only by the actual native raw storage composition; absence refuses mutation. */
   rawKnowledge?: RawKnowledgeObjectPort;
   put(key: string, body: Buffer, mimeType: string): Promise<void>;
-  /** Native raw Knowledge protocol only: exactly one mutation transport. Rejection/timeout is
+  /** Exactly one mutation transport for a durable write admission. Rejection/timeout is
    * unknown, never evidence that the key is absent or that a second PUT is safe. */
   putSingleAttempt?(
     key: string,
     body: Buffer,
     mimeType: string,
   ): Promise<{ transport: 'written' | 'unknown' }>;
-  get(key: string): Promise<Buffer>;
+  get(key: string, maxBytes?: number): Promise<Buffer>;
   delete(key: string): Promise<void>;
   exists(key: string): Promise<boolean>;
   /** Positive physical absence, including actual backend versioning capability. Missing support
@@ -432,6 +434,7 @@ export async function recordArtifactTombstoneInTx(
     if (!link) throw new AppError('NOT_FOUND');
     classification = work.classification;
   }
+  await lockFederationFileSource(tx, context.organizationId, input.artifactId);
   // No row lock: the app role holds no UPDATE on work.artifacts (0003), and PostgreSQL requires it
   // for every locking clause, so FOR UPDATE refused every deletion. The unique tombstone insert below
   // is the serialization point: a racing deleter waits on it, then finds the tombstone and adds none.
@@ -442,6 +445,7 @@ export async function recordArtifactTombstoneInTx(
   // bound by it, so removing the row after the tombstone matched nothing and left it alive. The
   // tombstone still commits in this same transaction, so access is blocked exactly as before.
   if (beforeTombstone) await beforeTombstone();
+  await withdrawItemsForSourceInTx(tx, context, { sourceType: 'artifact', sourceId: artifact.id });
   const marked = await tx
     .insert(tombstones)
     .values({

@@ -57,6 +57,10 @@ const STOP_REASONS = new Map<string, string>([
   ['MODEL_UNAVAILABLE', 'The model it uses could not be reached.'],
   ['CREDENTIAL_UNAVAILABLE', 'The access details for the model it uses were not available.'],
   ['INVALID_OUTPUT', 'The model gave back something Ensemus could not use.'],
+  [
+    'CONTEXT_TOO_LONG',
+    'What it had to read did not fit the model, even after its oldest steps were left out.',
+  ],
   ['HALTED', 'Assistants were switched off here by someone responsible for them.'],
   ['STOPPED_BY_PERSON', 'Someone asked it to stop.'],
   ['WORK_STOPPED', 'The work it was helping with was stopped.'],

@@ -15,12 +15,15 @@ import { eq, sql } from 'drizzle-orm';
 import { makeTwoTenants, proveSecondFactor } from '../helpers/product';
 import { urls } from '../helpers/stack';
 describe('company setup from actual records and explicit confirmation', () => {
+  let worker: ReturnType<typeof openAppDatabase>;
   let app: ReturnType<typeof openAppDatabase>;
   beforeAll(() => {
     app = openAppDatabase(urls.app(), { max: 3 });
+    worker = openAppDatabase(urls.worker());
   });
   afterAll(async () => {
     await app?.close();
+    await worker?.close();
   });
   it('refuses members, service callers and direct SQL completion without actual required facts', async () => {
     const { a } = await makeTwoTenants(app.db),
@@ -66,7 +69,7 @@ describe('company setup from actual records and explicit confirmation', () => {
     if (!key) throw new Error('ACTUAL_BUNDLED_CATALOG_MISSING');
     const run = await startFirstSimulation(app.db, a.owner.context, { processKey: key });
     expect(run.status).toBe('queued');
-    await runSimulationStep(app.db, createServiceContext(a.organizationId), {
+    await runSimulationStep(worker.db, createServiceContext(a.organizationId), {
       simulationId: run.id,
     });
     const status = await getOnboarding(app.db, a.owner.context, createRuntimeProductPorts(app.db));
@@ -103,7 +106,7 @@ describe('company setup from actual records and explicit confirmation', () => {
     const key = BUNDLED_WORKFLOWS[0]?.key;
     if (!key) throw new Error('ACTUAL_BUNDLED_CATALOG_MISSING');
     const simulation = await startFirstSimulation(app.db, a.owner.context, { processKey: key });
-    await runSimulationStep(app.db, createServiceContext(a.organizationId), {
+    await runSimulationStep(worker.db, createServiceContext(a.organizationId), {
       simulationId: simulation.id,
     });
     const ready = await getOnboarding(app.db, a.owner.context, ports);

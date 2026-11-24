@@ -8,9 +8,11 @@ import {
 } from '@ensemus/database';
 import { assertServing, type AccountSurface } from '@ensemus/application/saas/standing';
 import { errorCode } from '@ensemus/telemetry';
+import { headers } from 'next/headers';
 import { notFound, redirect } from 'next/navigation';
 import { cache } from 'react';
 import { requireActor } from './actor';
+import { noteClientAddress } from './client-address';
 import { getRestoreGate, getRuntime } from './runtime';
 
 /**
@@ -23,6 +25,7 @@ const resolveFor = async (
   sso: 'redirect' | 'throw' = 'redirect',
 ) => {
   const actor = await requireActor();
+  noteClientAddress((await headers()).get('x-forwarded-for'), actor.userId);
   const { app } = getRuntime();
   try {
     const context = await resolveInteractiveTenantContext(

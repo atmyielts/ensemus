@@ -32,6 +32,8 @@ export const mainInputSnapshots = aiSchema.table(
     viewerMembershipId: uuid().notNull(),
     inputInventory: jsonb().notNull(),
     inventorySha256: text().notNull(),
+    /** Citation keys carried by the actual network request after compaction. */
+    presentedKnowledge: jsonb().$type<{ packageId: string; ordinals: number[] }>(),
     state: text().notNull().default('prepared'),
     resultKind: text(),
     resultToolId: text(),

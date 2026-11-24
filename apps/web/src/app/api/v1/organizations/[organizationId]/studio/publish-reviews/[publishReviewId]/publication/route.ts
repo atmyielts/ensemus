@@ -1,12 +1,18 @@
+import { publishReviewedSnapshotSchema } from '@ensemus/contracts/studio';
 import { publishApproved, getPublishReview } from '@ensemus/application/publish-reviews';
-import { apiRoute, readIfMatch, etag } from '@/server/api';
+import { apiRoute, readIfMatch, etag, readOptionalJson } from '@/server/api';
 import { publishReviewDto, publishReviewParams, studioOnce } from '@/server/studio-api';
 import { webProductPorts } from '@/server/product-ports';
 export const dynamic = 'force-dynamic';
 export const POST = apiRoute(
   publishReviewParams,
   async ({ database, context, params, request, sessionId }) => {
-    const input = { reviewId: params.publishReviewId, expectedVersion: readIfMatch(request) };
+    const body = (await readOptionalJson(request, publishReviewedSnapshotSchema)) ?? {};
+    const input = {
+      reviewId: params.publishReviewId,
+      expectedVersion: readIfMatch(request),
+      ...(body.evaluation_report ? { evaluationReport: body.evaluation_report } : {}),
+    };
     const id = await studioOnce(
       database,
       context,

@@ -1,3 +1,4 @@
+import { workerTierPostcondition } from '../helpers/worker-tier-postcondition';
 // 0555 (CI repair round 13, check findings 1, 2 and 3). FLAGGED FOR HUMAN SECURITY REVIEW (ADR-032 D7),
 // not yet reviewed by a person. 0554 gave ensemus_app one way to write a typed-record purge completion
 // (ai.record_purge_jobs.completed_restore_generation): the UPDATE policy record_purge_completion_attest and
@@ -50,17 +51,19 @@ import { repoRoot, urls } from '../helpers/stack';
 
 type Kind = 'work_unit' | 'project';
 
-/** The last statement of a migration file: its postcondition DO block, exactly as migrated. */
+/** The historical DO block, comparing current worker-tier projections in its original role spelling. */
 const postconditionOf = (file: string) =>
-  readFileSync(join(repoRoot, 'packages/database/migrations', file), 'utf8')
-    .split('--> statement-breakpoint')
-    .at(-1)!;
+  workerTierPostcondition(
+    readFileSync(join(repoRoot, 'packages/database/migrations', file), 'utf8')
+      .split('--> statement-breakpoint')
+      .at(-1)!,
+  );
 const POSTCONDITION_0554 = postconditionOf('0554_record_purge_completion_r12purge.sql');
 const POSTCONDITION_0555 = postconditionOf('0555_record_purge_completion_attest_r13purge.sql');
 
 /** 0554:85-86 and 0419:2028-2029, as PostgreSQL 17 deparses them with search_path=pg_catalog. */
 const deparsed = (role: 'ensemus_app' | 'ensemus_agent') =>
-  `((organization_id = app.current_organization_id()) AND (CURRENT_USER = '${role}'::name) AND (SESSION_USER = '${role}'::name) AND (app.current_actor_type() = 'service'::text))`;
+  `((organization_id = app.current_organization_id()) AND (${role === 'ensemus_app' ? 'app.tier_current_user()' : 'CURRENT_USER'} = '${role}'::name) AND (${role === 'ensemus_app' ? 'app.tier_session_user()' : 'SESSION_USER'} = '${role}'::name) AND (app.current_actor_type() = 'service'::text))`;
 
 describe('a typed-record purge completion is written only by PostgreSQL proof (0554, 0555)', () => {
   const app = openAppDatabase(urls.app(), { max: 4 }),

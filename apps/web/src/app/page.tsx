@@ -1,3 +1,4 @@
+import { Label } from '@/components/ui/label';
 import { randomUUID } from 'node:crypto';
 import type { CommercialMode } from '@ensemus/config';
 import Link from 'next/link';
@@ -13,40 +14,43 @@ import { getRuntime } from '@/server/runtime';
 
 export const metadata = { title: 'Your organizations | Ensemus' };
 
-// The honest version of each commercial mode (docs/01-product/05-commercial-modes.md). No claims
-// about certifications here, and none about AI features that do not run yet.
+// What each commercial mode controls before a workspace is created.
 const RESPONSIBILITY: Record<CommercialMode, { name: string; points: string[] }> = {
   cloud: {
     name: 'Ensemus Cloud',
     points: [
       'Ensemus hosts this service and stores your organization’s data. The data stays yours.',
-      'When AI features are available, Ensemus supplies the approved AI model providers. Your content may then be sent to them, under disclosed terms and your organization’s policy.',
+      'Ensemus supplies the approved AI model providers. Content may be sent to those providers under the applicable terms and your organization’s policy.',
     ],
   },
   byom: {
     name: 'Ensemus with your own models',
     points: [
       'Ensemus hosts this service and stores your organization’s data. The data stays yours.',
-      'When AI features are available, they use the AI model providers you choose, with your own keys, and you pay those providers directly.',
-      'This is not zero-knowledge. Using your own models does not keep your data from Ensemus, because Ensemus still processes it in the hosted service.',
+      'For third-party providers, you connect models with your own keys and pay those providers directly.',
+      'Ensemus still processes your data in the hosted service.',
     ],
   },
   sovereign: {
     name: 'Ensemus Sovereign',
     points: [
-      'Your organization runs this deployment on infrastructure it controls, including the database, the file storage and the AI models.',
-      'It does not rely on services hosted by Ensemus to keep running. Diagnostics leave only if you choose to send them.',
-      'Your organization is responsible for operating, securing and backing up this deployment, and for what its models cost.',
+      'Your organization runs Ensemus on infrastructure it controls, including the database, the file storage and the AI models.',
+      'This installation can run independently of Ensemus-hosted services. Diagnostics leave only if you choose to send them.',
+      'Your organization is responsible for operating, securing and backing up this installation, and for what its models cost.',
     ],
   },
 };
 
-const ROLE_LABEL: Record<string, string> = { owner: 'Owner', admin: 'Admin', member: 'Member' };
+const ROLE_LABEL: Record<string, string> = {
+  owner: 'You are an owner',
+  admin: 'You are an admin',
+  member: 'You are a member',
+};
 
 function Account({ email }: { email: string }) {
   return (
     <div className="account-bar">
-      <span>{email}</span>
+      <span>Signed in as {email}</span>
       <form action={signOutAction}>
         <button className="link" type="submit">
           Sign out
@@ -87,12 +91,29 @@ export default async function HomePage({
   if (only) {
     return (
       <Page actor={actor}>
-        <h1>Your organizations</h1>
-        <ul className="list">
+        <h1 id="organizations-heading">Your organizations</h1>
+        <p className="lede">
+          An organization is the shared space for one company: its work, people and approvals.
+          Choose the one you want to open.
+        </p>
+        <ul
+          className="destination-list organization-choices"
+          aria-labelledby="organizations-heading"
+        >
           {organizations.map((organization) => (
             <li key={organization.id}>
-              <Link href={`/o/${organization.id}`}>{organization.name}</Link>
-              <span className="badge">{ROLE_LABEL[organization.role] ?? organization.role}</span>
+              <Link className="destination-row" href={`/o/${organization.id}`}>
+                <span className="destination-icon organization-initial" aria-hidden="true">
+                  {Array.from(organization.name.trim())[0]?.toUpperCase() ?? ''}
+                </span>
+                <span className="destination-copy">
+                  <strong>{organization.name}</strong>
+                  <span>{ROLE_LABEL[organization.role] ?? organization.role}</span>
+                </span>
+                <span className="destination-arrow" aria-hidden="true">
+                  →
+                </span>
+              </Link>
             </li>
           ))}
         </ul>
@@ -105,9 +126,9 @@ export default async function HomePage({
   return (
     <Page actor={actor}>
       <h1>Set up your organization</h1>
-      <p className="muted">
-        Your organization is where your work, people and approvals live. You can invite people as
-        soon as it exists.
+      <p className="lede">
+        An organization is your company’s shared space in Ensemus. Your work, people and approvals
+        live there, and you can invite colleagues as soon as it exists.
       </p>
       {error === 'name' ? (
         <p className="notice error" role="alert">
@@ -119,7 +140,7 @@ export default async function HomePage({
       <form className="fields" action={createOrganizationAction}>
         {/* One rendered form makes one organization, however many times it is sent. */}
         <input type="hidden" name="requestKey" value={randomUUID()} />
-        <label>
+        <Label>
           Organization name
           <KeptInput
             keep="organization-name"
@@ -128,16 +149,18 @@ export default async function HomePage({
             required
             maxLength={120}
           />
-        </label>
+        </Label>
         <section className="panel" aria-labelledby="responsibility-heading">
           <h2 id="responsibility-heading">Who is responsible for your data</h2>
-          <p>This deployment is {responsibility.name}.</p>
-          {responsibility.points.map((point) => (
-            <p key={point}>{point}</p>
-          ))}
+          <p>You are using {responsibility.name}.</p>
+          <ul className="responsibility-points">
+            {responsibility.points.map((point) => (
+              <li key={point}>{point}</li>
+            ))}
+          </ul>
           <p>
-            AI features are not active yet, so nothing in your organization is sent to an AI model
-            today.
+            AI features use models approved for your organization. Your organization’s policy
+            controls what data those models can receive.
           </p>
         </section>
         <div>

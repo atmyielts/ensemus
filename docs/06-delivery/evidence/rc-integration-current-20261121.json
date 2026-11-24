@@ -1,0 +1,229 @@
+{
+  "schema": "ensemus.local-qualification/1",
+  "slice": "bounded joined integration diagnostic and native restore activity fixture",
+  "releaseReady": false,
+  "diagnostic": {
+    "command": "pnpm exec vitest run --project integration --bail=15 --reporter verbose",
+    "sourceCommit": "0122faaefc81ece2f2879756908201704a6af19a",
+    "completedFullSuite": false,
+    "seconds": 129.43,
+    "passed": 30,
+    "failed": 10,
+    "registeredFiles": 179,
+    "reportedCases": 43,
+    "reportedPassedFiles": 1,
+    "reportedFailedFiles": 3,
+    "hnswAuthorizedAndHiddenNearestPassed": true,
+    "hnswSeconds": 58.869,
+    "hnswTestTimeoutChanged": false
+  },
+  "nativeRestoreAfterFixtureFix": {
+    "passed": 11,
+    "failed": 2,
+    "seconds": 28.55,
+    "remainingFailures": [
+      "Joined expansion erasure inventory refuses admission",
+      "Dependent erasure-witness assertion after that refused erasure"
+    ],
+    "webActivityPreparationDenied": true,
+    "actualWorkerActivityPreparationAndProduction": true,
+    "types": "passed",
+    "focusedLint": "passed"
+  },
+  "unclassifiedErasureTables": [
+    {
+      "table_ref": "federation.inbound_items",
+      "retained": false,
+      "deletable": false,
+      "relrowsecurity": true,
+      "relforcerowsecurity": true
+    },
+    {
+      "table_ref": "federation.org_settings",
+      "retained": false,
+      "deletable": false,
+      "relrowsecurity": true,
+      "relforcerowsecurity": true
+    },
+    {
+      "table_ref": "federation.outbound_items",
+      "retained": false,
+      "deletable": false,
+      "relrowsecurity": true,
+      "relforcerowsecurity": true
+    },
+    {
+      "table_ref": "integrations.business_record_actions",
+      "retained": false,
+      "deletable": false,
+      "relrowsecurity": true,
+      "relforcerowsecurity": true
+    },
+    {
+      "table_ref": "integrations.business_records",
+      "retained": false,
+      "deletable": false,
+      "relrowsecurity": true,
+      "relforcerowsecurity": true
+    },
+    {
+      "table_ref": "marketplace.installations",
+      "retained": false,
+      "deletable": false,
+      "relrowsecurity": true,
+      "relforcerowsecurity": true
+    },
+    {
+      "table_ref": "marketplace.publishers",
+      "retained": false,
+      "deletable": false,
+      "relrowsecurity": true,
+      "relforcerowsecurity": true
+    },
+    {
+      "table_ref": "marketplace.submissions",
+      "retained": false,
+      "deletable": false,
+      "relrowsecurity": true,
+      "relforcerowsecurity": true
+    },
+    {
+      "table_ref": "meetings.consent_records",
+      "retained": false,
+      "deletable": false,
+      "relrowsecurity": true,
+      "relforcerowsecurity": true
+    },
+    {
+      "table_ref": "meetings.derivation_runs",
+      "retained": false,
+      "deletable": false,
+      "relrowsecurity": true,
+      "relforcerowsecurity": true
+    },
+    {
+      "table_ref": "meetings.import_requests",
+      "retained": false,
+      "deletable": false,
+      "relrowsecurity": true,
+      "relforcerowsecurity": true
+    },
+    {
+      "table_ref": "meetings.meetings",
+      "retained": false,
+      "deletable": false,
+      "relrowsecurity": true,
+      "relforcerowsecurity": true
+    },
+    {
+      "table_ref": "meetings.notes",
+      "retained": false,
+      "deletable": false,
+      "relrowsecurity": true,
+      "relforcerowsecurity": true
+    },
+    {
+      "table_ref": "meetings.participants",
+      "retained": false,
+      "deletable": false,
+      "relrowsecurity": true,
+      "relforcerowsecurity": true
+    },
+    {
+      "table_ref": "meetings.proposed_items",
+      "retained": false,
+      "deletable": false,
+      "relrowsecurity": true,
+      "relforcerowsecurity": true
+    },
+    {
+      "table_ref": "meetings.provider_approvals",
+      "retained": false,
+      "deletable": false,
+      "relrowsecurity": true,
+      "relforcerowsecurity": true
+    },
+    {
+      "table_ref": "meetings.settings",
+      "retained": false,
+      "deletable": false,
+      "relrowsecurity": true,
+      "relforcerowsecurity": true
+    },
+    {
+      "table_ref": "meetings.summaries",
+      "retained": false,
+      "deletable": false,
+      "relrowsecurity": true,
+      "relforcerowsecurity": true
+    },
+    {
+      "table_ref": "sandbox.runs",
+      "retained": false,
+      "deletable": false,
+      "relrowsecurity": true,
+      "relforcerowsecurity": true
+    },
+    {
+      "table_ref": "skills.package_versions",
+      "retained": false,
+      "deletable": false,
+      "relrowsecurity": true,
+      "relforcerowsecurity": true
+    },
+    {
+      "table_ref": "skills.packages",
+      "retained": false,
+      "deletable": false,
+      "relrowsecurity": true,
+      "relforcerowsecurity": true
+    },
+    {
+      "table_ref": "skills.test_runs",
+      "retained": false,
+      "deletable": false,
+      "relrowsecurity": true,
+      "relforcerowsecurity": true
+    },
+    {
+      "table_ref": "skills.trusted_signers",
+      "retained": false,
+      "deletable": false,
+      "relrowsecurity": true,
+      "relforcerowsecurity": true
+    },
+    {
+      "table_ref": "tenancy.residency_requirements",
+      "retained": false,
+      "deletable": false,
+      "relrowsecurity": true,
+      "relforcerowsecurity": true
+    }
+  ],
+  "limitations": [
+    "Full joined suite not completed",
+    "24 joined content tables need deliberate erasure integration including private object bytes and global catalog references",
+    "Frozen /3 archive does not cover M11 data; 30-table new-profile gate remains",
+    "66 planned API operations remain",
+    "Current candidate Actions/hosted/provider/durable worker/human/security acceptance remain open"
+  ],
+  "cleanup": {
+    "deletedOriginalSource": false,
+    "deletedVolumes": false,
+    "diskCleanupNeeded": false,
+    "freeGiB": 27.8,
+    "taskBrowserSessionsClosed": true,
+    "taskProductionWebServerStopped": true,
+    "fixturesAndEvidenceRetained": true
+  },
+  "sourceSha256": {
+    "tests/integration/raw-restore-requalify.test.ts": "0885f6367aee25aab765c15d08dd0d86896ef96b901fee92c22dd8cc49dd5e7b"
+  },
+  "localEvidenceSha256": {
+    ".local/rc-integration-current-bail15.log": "78e13f5aeb9516b78335a144fa3a87aa2a897ab403a76cf047c769633858e6d4",
+    ".local/rc-raw-restore-worker-native.log": "b74a861c26566e8f2227e6ff770ba95c30c1ad36fb0c8b71d014a43aad602100",
+    ".local/rc-raw-restore-worker-types.log": "1d5b04d16c49c8c9cad76e7c5012bb207093c2ddb24665de0709467436f13771",
+    ".local/rc-raw-restore-worker-lint.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".local/rc-joined-erasure-missing-inventory.json": "bd30797575afa3e4cf4f180169dc0820f9f48b0a7d06b022d2b4a5a0845118d2"
+  }
+}

@@ -621,6 +621,7 @@ describe('model profiles', () => {
       const adapter = new ScriptedModelAdapter(script);
       const lender = new RecordingLender(randomBytes(16));
       const probe = createProfileProber({
+        allowsResidency: async () => true,
         load: (input) => loadProfileForProbe(agent.db, input),
         adapter,
         guard: { fetchFor: () => fetch },

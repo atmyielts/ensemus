@@ -63,11 +63,20 @@ function check(label, actual, expected) {
   }
 }
 
-/** The proxy service as Compose resolves it. Empty beats a .env file, and counts as not set. */
-function resolvedProxy(hostname, trusted) {
+/** Empty beats a .env file, and counts as not set. */
+function resolvedServices(hostname, trusted, publicIngress = false) {
+  const overlays = publicIngress ? ['-f', 'infrastructure/compose/compose.public.yaml'] : [];
   const output = execFileSync(
     'docker',
-    ['compose', '-f', 'infrastructure/compose/compose.yaml', 'config', '--format', 'json'],
+    [
+      'compose',
+      '-f',
+      'infrastructure/compose/compose.yaml',
+      ...overlays,
+      'config',
+      '--format',
+      'json',
+    ],
     {
       cwd: root,
       encoding: 'utf8',
@@ -78,7 +87,7 @@ function resolvedProxy(hostname, trusted) {
       },
     },
   );
-  return JSON.parse(output).services.proxy;
+  return JSON.parse(output).services;
 }
 
 const runArguments = (proxy) => {
@@ -98,6 +107,66 @@ const runArguments = (proxy) => {
     ]),
   ];
 };
+
+function checkPublicIngress(name) {
+  const services = resolvedServices(name, FORGED, true);
+  const { proxy } = services;
+  check(
+    'Public proxy discards configured upstream trust',
+    proxy.environment.ENSEMUS_TRUSTED_PROXIES,
+    '',
+  );
+  check(
+    'Public proxy publishes HTTP for redirects',
+    proxy.ports.some(
+      (port) => port.published === '80' && port.target === 80 && port.protocol === 'tcp',
+    ),
+    true,
+  );
+  check(
+    'Public proxy publishes HTTPS',
+    proxy.ports.some(
+      (port) => port.published === '443' && port.target === 443 && port.protocol === 'tcp',
+    ),
+    true,
+  );
+  check('Public proxy publishes only two ports', proxy.ports.length, 2);
+  check(
+    'Application services publish no ports',
+    Object.entries(services).some(
+      ([name, service]) => name !== 'proxy' && (service.ports?.length ?? 0) > 0,
+    ),
+    false,
+  );
+  check(
+    'Public web origin matches the certificate name',
+    services.web.environment.ENSEMUS_PUBLIC_URL,
+    `https://${name}`,
+  );
+
+  // Adapt the pinned config without running the proxy or requesting certificates.
+  const adapted = execFileSync(
+    'docker',
+    [
+      'run',
+      '--rm',
+      ...runArguments(proxy),
+      proxy.image,
+      'caddy',
+      'adapt',
+      '--config',
+      CADDYFILE,
+      '--adapter',
+      'caddyfile',
+    ],
+    { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+  );
+  const policies = JSON.parse(adapted).apps.tls?.automation?.policies ?? [];
+  const policy = policies.find((candidate) => candidate.subjects?.includes(name));
+  const issuer = policy?.issuers?.[0];
+  check(`${name} uses ACME`, issuer?.module, 'acme');
+  check(`${name} uses short-lived certificates`, issuer?.profile, 'shortlived');
+}
 
 function request(container, host, headers = []) {
   const result = spawnSync(
@@ -160,7 +229,7 @@ async function untilAnswered(container, host) {
 
 /** Starts one proxy and removes it whatever happens. */
 async function withProxy({ hostname = '', trusted = '', answersAs }, work) {
-  const proxy = resolvedProxy(hostname, trusted);
+  const { proxy } = resolvedServices(hostname, trusted);
   const label = `hostname "${hostname}", trusted "${trusted}"`;
   check(`${label}: Compose hands over the name`, proxy.environment?.ENSEMUS_HOSTNAME, answersAs);
   check(
@@ -203,6 +272,9 @@ async function withProxy({ hostname = '', trusted = '', answersAs }, work) {
     spawnSync('docker', ['rm', '-f', '-v', container], { stdio: 'ignore' });
   }
 }
+
+checkPublicIngress(NAME);
+checkPublicIngress('203.0.113.47');
 
 // Nothing set: a direct client, and every claim it makes is discarded.
 await withProxy({ answersAs: 'localhost' }, (container, label) => {
@@ -299,7 +371,7 @@ await withProxy(
 
 // A setting Caddy cannot read stops the proxy, rather than leaving it to run with a different list.
 function accepts(trusted) {
-  const proxy = resolvedProxy('', trusted);
+  const { proxy } = resolvedServices('', trusted);
   const validated = spawnSync(
     'docker',
     [

@@ -7,6 +7,7 @@ import { eq, sql } from 'drizzle-orm';
 import {
   artifacts,
   invoices,
+  offboardings,
   openAppDatabase,
   sealedSecrets,
   ticketMessages,
@@ -26,7 +27,28 @@ import {
   inspectErasure,
 } from '@ensemus/application/saas/offboarding';
 import { placeLegalHold, releaseLegalHold } from '@ensemus/application/saas/legal-holds';
-import { createWorkUnit, purgeDueBlobs, updateWorkUnit } from '@ensemus/application';
+import {
+  addTrustedSigner,
+  createMeeting,
+  createSkillPackage,
+  createWorkUnit,
+  getMeeting,
+  getSkillPackage,
+  importMeetingNotes,
+  listTrustedSigners,
+  purgeDueBlobs,
+  recordMeetingConsent,
+  revokeTrustedSigner,
+  updateMeetingSettings,
+  updateWorkUnit,
+} from '@ensemus/application';
+import { generateTestSigner } from '../helpers/skills';
+import {
+  clearDeploymentProfile,
+  enableFederation,
+  seedGrant,
+  setDeploymentProfile,
+} from '../helpers/federation';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { asRole, seedTaxTreatment } from '../helpers/saas';
@@ -66,23 +88,361 @@ describe('restricted erasure independently verifies every tenant-content table',
     await auth.end();
     await database.close();
   });
-  it('classifies every tenant table as explicitly retained or actually reachable by the eraser role', async () => {
+  it('registers tenant-local expansion records for restricted erasure without granting body reads', async () => {
+    const tables = [
+      'federation.org_settings',
+      'integrations.business_record_actions',
+      'integrations.business_records',
+      'marketplace.installations',
+      'meetings.consent_records',
+      'meetings.derivation_runs',
+      'meetings.import_requests',
+      'meetings.meetings',
+      'meetings.notes',
+      'meetings.participants',
+      'meetings.proposed_items',
+      'meetings.provider_approvals',
+      'meetings.settings',
+      'meetings.summaries',
+      'sandbox.runs',
+      'skills.bundle_uploads',
+      'skills.package_versions',
+      'skills.packages',
+      'skills.test_runs',
+      'skills.trusted_signers',
+      'tenancy.residency_requirements',
+    ];
+    await asRole('ensemus_eraser', async (client) => {
+      const { rows } = await client.query(
+        `select ref,
+            has_table_privilege(current_user, ref, 'DELETE') as deletable,
+            has_column_privilege(current_user, ref, 'organization_id', 'SELECT') as countable,
+            has_any_column_privilege(current_user, ref, 'INSERT,UPDATE') as writable,
+            exists (select 1 from pg_attribute a where a.attrelid=ref::regclass and a.attnum>0
+              and not a.attisdropped and a.attname<>'organization_id'
+              and has_column_privilege(current_user,ref::regclass,a.attnum,'SELECT')) as body_readable,
+            exists (select 1 from pg_trigger where tgrelid=ref::regclass
+              and tgname='lifecycle_erasure_birth_fence' and tgenabled='O') as birth_fenced,
+            exists (select 1 from pg_policy where polrelid=ref::regclass
+              and polname='auth_restore_0422_eraser' and not polpermissive) as restore_fenced,
+            strpos(pg_get_functiondef('lifecycle.erasure_table_rows(text,uuid)'::regprocedure),
+              quote_literal(ref))>0 as reportable
+         from unnest($1::text[]) as refs(ref) order by ref collate "C"`,
+        [tables],
+      );
+      expect(rows).toEqual(
+        tables.map((ref) => ({
+          ref,
+          deletable: true,
+          countable: true,
+          writable: false,
+          body_readable: false,
+          birth_fenced: true,
+          restore_fenced: true,
+          reportable: true,
+        })),
+      );
+    });
+    await expect(
+      asRole('ensemus_eraser', (client) =>
+        client.query('delete from integrations.business_records where organization_id=$1', [
+          randomUUID(),
+        ]),
+      ),
+    ).rejects.toMatchObject({ code: '42501', message: 'ERASURE_NOT_OPEN' });
+    await expect(
+      asRole('ensemus_eraser', (client) => client.query('select body from meetings.notes')),
+    ).rejects.toMatchObject({ code: '42501' });
+    await expect(
+      asRole('ensemus_eraser', (client) =>
+        client.query('select public_key from skills.trusted_signers'),
+      ),
+    ).rejects.toMatchObject({ code: '42501' });
+    await asRole('ensemus_eraser', async (client) => {
+      const { rows } = await client.query(
+        `select n.nspname||'.'||c.relname as ref,
+           (has_table_privilege(current_user,c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE')
+             or has_any_column_privilege(current_user,c.oid,'SELECT,INSERT,UPDATE')) as reachable
+         from pg_class c join pg_namespace n on c.relnamespace=n.oid
+         where (n.nspname,c.relname)=('federation','outbound_items')
+           or (n.nspname='marketplace' and c.relname<>'installations' and c.relkind in ('r','p'))
+         order by (n.nspname||'.'||c.relname) collate "C"`,
+      );
+      expect(rows).toEqual([
+        { ref: 'federation.outbound_items', reachable: false },
+        { ref: 'marketplace.listing_object_reservations', reachable: false },
+        { ref: 'marketplace.listings', reachable: false },
+        { ref: 'marketplace.publishers', reachable: false },
+        { ref: 'marketplace.security_reviews', reachable: false },
+        { ref: 'marketplace.submissions', reachable: false },
+      ]);
+    });
+  });
+
+  it('erases catalog metadata through the restricted role and leaves the other tenant untouched', async () => {
+    const owner = await lifecycleTenant(database.db, auth);
+    const other = await lifecycleTenant(database.db, auth);
+    const gate = { isEnabled: async () => true };
+    const signer = generateTestSigner();
+    const seed = async (tenant: typeof owner) => {
+      await addTrustedSigner(database.db, tenant, gate, {
+        displayName: 'Generated test publisher',
+        publicKey: signer.publicKey,
+      });
+      return createSkillPackage(database.db, tenant, gate, {
+        name: 'generated-catalog-erasure',
+        displayName: 'Generated test package',
+      });
+    };
+    await seed(owner);
+    const revoked = await addTrustedSigner(database.db, owner, gate, {
+      displayName: 'Generated revoked publisher',
+      publicKey: generateTestSigner().publicKey,
+    });
+    await revokeTrustedSigner(database.db, owner, {
+      signerId: revoked.id,
+      expectedVersion: revoked.version,
+    });
+    const otherPackage = await seed(other);
+    const ready = await readyToErase(database.db, owner);
+    const counts = () =>
+      withAccountTx(database.db, ready.service, async (tx) => {
+        const result = await tx.execute<{ packages: string; signers: string }>(sql`
+          select lifecycle.erasure_table_rows('skills.packages', ${ready.offboardingId}::uuid)::text packages,
+                 lifecycle.erasure_table_rows('skills.trusted_signers', ${ready.offboardingId}::uuid)::text signers
+        `);
+        return result.rows[0];
+      });
+
+    expect(await counts()).toEqual({ packages: '1', signers: '2' });
+    // Other protocols still prevent the operator from entering erasure. Exercise this module
+    // through the native lifecycle gate that the full command uses after its inventory check.
+    await withAccountTx(database.db, ready.service, (tx) =>
+      tx
+        .update(offboardings)
+        .set({
+          state: 'erasing',
+          erasureStartedAt: new Date(),
+          erasureStartedByRef: 'test-operator@example.invalid',
+          version: sql`${offboardings.version}+1`,
+          updatedAt: new Date(),
+        })
+        .where(eq(offboardings.id, ready.offboardingId)),
+    );
+    await eraserClient.query('begin');
+    try {
+      await eraserClient.query("select set_config('app.organization_id', $1, true)", [
+        owner.organizationId,
+      ]);
+      await eraserClient.query("select set_config('app.actor_type', 'service', true)");
+      for (const table of ['skills.packages', 'skills.trusted_signers']) {
+        const result = await eraserClient.query(
+          `delete from ${table} where organization_id in ($1,$2)`,
+          [owner.organizationId, other.organizationId],
+        );
+        expect(result.rowCount).toBe(table === 'skills.packages' ? 1 : 2);
+      }
+      await eraserClient.query('commit');
+    } catch (error) {
+      await eraserClient.query('rollback');
+      throw error;
+    }
+    expect(await counts()).toEqual({ packages: '0', signers: '0' });
+    expect(await getSkillPackage(database.db, other, otherPackage.id)).toEqual(otherPackage);
+    expect(await listTrustedSigners(database.db, other)).toHaveLength(1);
+  });
+
+  it('erases standalone federation settings and fences new settings after readiness', async () => {
+    const owner = await lifecycleTenant(database.db, auth);
+    const other = await lifecycleTenant(database.db, auth);
+    const late = await lifecycleTenant(database.db, auth);
+    const registerFederationSettings = (tenant: typeof owner) =>
+      withAccountTx(database.db, tenant, (tx) =>
+        tx.execute(sql`
+          insert into federation.org_settings(organization_id, changed_by_membership_id)
+          values (${tenant.organizationId}::uuid, ${tenant.membershipId}::uuid)
+        `),
+      );
+
+    await withAccountTx(database.db, createServiceContext(late.organizationId), async (tx) => {
+      await tx.execute(sql`select id from org.organizations
+        where id=${late.organizationId}::uuid for no key update`);
+      await expect(registerFederationSettings(late)).rejects.toMatchObject({
+        cause: { code: '55P03' },
+      });
+    });
+    const lateReady = await readyToErase(database.db, late);
+    await expect(registerFederationSettings(late)).rejects.toMatchObject({
+      cause: { code: 'EN850', message: 'TENANT_ERASURE_IN_PROGRESS' },
+    });
+    const webProof = await withAccountTx(database.db, late, (tx) =>
+      tx.execute(
+        sql`select lifecycle.deferred_erasure_clear(${lateReady.offboardingId}::uuid) as clear`,
+      ),
+    );
+    expect(webProof.rows).toEqual([{ clear: false }]);
+
+    await registerFederationSettings(owner);
+    await registerFederationSettings(other);
+    const ready = await readyToErase(database.db, owner);
+    const operatorRef = 'test-operator@example.invalid';
+    await beginErasure(database.db, ready.service, { ...ready, operatorRef });
+    await seal(ready);
+    const removed = await eraseTenantRows(eraser, owner.organizationId);
+    expect(removed.find((table) => table.tableRef === 'federation.org_settings')).toEqual({
+      tableRef: 'federation.org_settings',
+      rowsRemoved: 1,
+      rowsLeft: 0,
+    });
+    const otherSettings = await withTenantTx(database.db, other, (tx) =>
+      tx.execute(
+        sql`select enabled from federation.org_settings where organization_id=${other.organizationId}::uuid`,
+      ),
+    );
+    expect(otherSettings.rows).toEqual([{ enabled: false }]);
+  });
+
+  it('blocks either party of a federation grant before erasing standalone settings', async () => {
+    const sharing = await lifecycleTenant(database.db, auth);
+    const receiving = await lifecycleTenant(database.db, auth);
+    await setDeploymentProfile({ crossOrgEnabled: true });
+    try {
+      await enableFederation(database.db, sharing);
+      await enableFederation(database.db, receiving);
+      await seedGrant(database.db, sharing, receiving);
+      for (const owner of [sharing, receiving]) {
+        const ready = await readyToErase(database.db, owner);
+        await expect(
+          beginErasure(database.db, ready.service, {
+            ...ready,
+            operatorRef: 'test-operator@example.invalid',
+          }),
+        ).rejects.toMatchObject({ code: 'PREREQUISITES_INCOMPLETE' });
+        expect((await getOffboarding(database.db, owner))?.state).toBe('ready_for_erasure');
+      }
+    } finally {
+      await clearDeploymentProfile();
+    }
+  });
+
+  it('still refuses an unknown tenant table in the operator inventory', async () => {
+    const observer = new pg.Client({ connectionString: urls.superuser() });
+    await observer.connect();
+    const schema = `generated_erasure_inventory_${randomUUID().replaceAll('-', '')}`;
+    try {
+      await observer.query(`create schema ${schema}`);
+      try {
+        await observer.query(`create table ${schema}.unknown_content(organization_id uuid)`);
+        await expect(listErasableTables(eraser)).rejects.toThrow('ERASURE_GRANTS_INCOMPLETE');
+      } finally {
+        await observer.query(`drop table if exists ${schema}.unknown_content`);
+        await observer.query(`drop schema ${schema}`);
+      }
+    } finally {
+      await observer.end();
+    }
+  });
+
+  it('classifies all tenant tables as retained, absence-proved, or physically erasable', async () => {
     const rows = await asRole('ensemus_eraser', (client) =>
-      client.query<{ table_ref: string; retained: boolean; deletable: boolean }>(
-        `select n.nspname||'.'||c.relname as table_ref,lifecycle.retained_table(n.nspname::text,c.relname::text) as retained,has_table_privilege(current_user,c.oid,'DELETE') as deletable from pg_class c join pg_namespace n on n.oid=c.relnamespace join pg_attribute a on a.attrelid=c.oid and a.attname='organization_id' and not a.attisdropped where c.relkind in ('r','p') and not c.relispartition and n.nspname not like 'pg_%' and n.nspname<>'information_schema'`,
+      client.query<{
+        table_ref: string;
+        retained: boolean;
+        requires_empty: boolean;
+        deletable: boolean;
+      }>(
+        `select n.nspname||'.'||c.relname as table_ref,lifecycle.retained_table(n.nspname::text,c.relname::text) as retained,lifecycle.erasure_requires_empty(n.nspname::text,c.relname::text) as requires_empty,has_table_privilege(current_user,c.oid,'DELETE') as deletable from pg_class c join pg_namespace n on n.oid=c.relnamespace join pg_attribute a on a.attrelid=c.oid and a.attname='organization_id' and not a.attisdropped where c.relkind in ('r','p') and not c.relispartition and n.nspname not like 'pg_%' and n.nspname<>'information_schema'`,
       ),
     );
     expect(rows.rows.length).toBeGreaterThan(0);
     for (const row of rows.rows)
       expect(row.deletable, `${row.table_ref} classification and role grants disagree`).toBe(
-        !row.retained,
+        !row.retained && !row.requires_empty,
       );
     expect(await listErasableTables(eraser)).toEqual(
       rows.rows
-        .filter((row) => !row.retained)
+        .filter((row) => !row.retained && !row.requires_empty)
         .map((row) => row.table_ref)
         .sort(),
     );
+  });
+
+  it('erases a meeting and its consent history through the restricted role while preserving the other tenant', async () => {
+    const owner = await lifecycleTenant(database.db, auth);
+    const other = await lifecycleTenant(database.db, auth);
+    const notice = 'generated-erasure-notice';
+    const fixture = async (tenant: typeof owner) => {
+      await updateMeetingSettings(database.db, tenant, {
+        enabled: true,
+        noticeRef: notice,
+        expectedVersion: 1,
+      });
+      const meeting = await createMeeting(database.db, tenant, {
+        title: 'Generated erasure meeting',
+        occurredAt: new Date(),
+      });
+      await recordMeetingConsent(database.db, tenant, {
+        meetingId: meeting.id,
+        participantId: meeting.participants[0]!.id,
+        decision: 'granted',
+        noticeRef: notice,
+      });
+      await importMeetingNotes(database.db, tenant, {
+        meetingId: meeting.id,
+        text: 'Generated erasure notes',
+      });
+      return meeting.id;
+    };
+    await fixture(owner);
+    const otherMeeting = await fixture(other);
+    const ready = await readyToErase(database.db, owner);
+    const tables = ['consent_records', 'notes', 'participants', 'meetings', 'settings'] as const;
+    const counts = () =>
+      withAccountTx(database.db, ready.service, async (tx) => {
+        const result = await tx.execute<{ n: string }>(sql`
+        select lifecycle.erasure_table_rows('meetings.'||name, ${ready.offboardingId}::uuid)::text n
+        from unnest(array[${sql.join(
+          tables.map((table) => sql`${table}::text`),
+          sql`,`,
+        )}]) with ordinality as names(name, idx)
+        order by idx`);
+        return result.rows.map(({ n }) => Number(n));
+      });
+    expect(await counts()).toEqual([1, 1, 1, 1, 1]);
+    // Enter the native state machine to test this module's deletion. The complete operator
+    // command separately requires coverage of every module before opening erasure.
+    await withAccountTx(database.db, ready.service, (tx) =>
+      tx
+        .update(offboardings)
+        .set({
+          state: 'erasing',
+          erasureStartedAt: new Date(),
+          erasureStartedByRef: 'test-operator@example.invalid',
+          version: sql`${offboardings.version}+1`,
+          updatedAt: new Date(),
+        })
+        .where(eq(offboardings.id, ready.offboardingId)),
+    );
+    await eraserClient.query('begin');
+    try {
+      await eraserClient.query("select set_config('app.organization_id', $1, true)", [
+        owner.organizationId,
+      ]);
+      await eraserClient.query("select set_config('app.actor_type', 'service', true)");
+      for (const table of tables) {
+        const removed = await eraserClient.query(
+          `delete from meetings.${table} where organization_id in ($1,$2)`,
+          [owner.organizationId, other.organizationId],
+        );
+        expect(removed.rowCount).toBe(1);
+      }
+      await eraserClient.query('commit');
+    } catch (error) {
+      await eraserClient.query('rollback');
+      throw error;
+    }
+    expect(await counts()).toEqual([0, 0, 0, 0, 0]);
+    expect((await getMeeting(database.db, other, otherMeeting)).currentNotes).not.toBeNull();
   });
   it('cannot erase with no open request or read content, and cannot silently report a hold-filtered zero', async () => {
     const owner = await lifecycleTenant(database.db, auth);

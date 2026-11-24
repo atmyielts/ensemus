@@ -13,6 +13,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
 import { assertDiskHeadroom } from './disk-headroom.mjs';
+import { NETSHOOT } from './tool-images.mjs';
 import { disposableAirgapProject } from './test-stack-settings.mjs';
 import {
   containersOffTheSubnet,
@@ -44,16 +45,15 @@ process.env.ENSEMUS_PUBLIC_URL = ORIGIN;
 process.env.ENSEMUS_TEST_BASE = ORIGIN; // tests/helpers/forms.ts reads this when it loads.
 
 const connectorsRound = process.argv.includes('--connectors');
-if (connectorsRound) {
-  // Every compose call below inherits these. The other rounds run with no profile, as they always did.
-  process.env.COMPOSE_PROFILES = 'connectors';
-  process.env.ENSEMUS_CONNECTORS_ENABLED = 'true';
-}
+// This disposable stack uses the selected test profile, independent of the operator's local settings.
+process.env.COMPOSE_PROFILES = connectorsRound ? 'connectors' : '';
+process.env.ENSEMUS_CROSS_ORG_ENABLED = '';
+if (connectorsRound) process.env.ENSEMUS_CONNECTORS_ENABLED = 'true';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CHAIN = 'DOCKER-USER';
 // A pinned image that includes iptables. It needs host networking to reach the engine's firewall.
-const TOOLS = 'nicolaka/netshoot:v0.14';
+const TOOLS = NETSHOOT.image;
 const composeFiles = [
   'infrastructure/compose/compose.yaml',
   'infrastructure/compose/compose.test.yaml',
@@ -154,8 +154,8 @@ function down() {
 }
 
 /** A result that says zero attempts means nothing for a container the rule cannot see. */
-function refuseUnlessOnTheWatchedSubnet() {
-  const containers = compose('ps', '-q')
+function refuseUnlessOnTheWatchedSubnet(env = {}) {
+  const containers = composeWith(env, 'ps', '-q')
     .trim()
     .split(/\s+/)
     .filter(Boolean)
@@ -333,6 +333,13 @@ const HOSTED_SUITES = [
   'tests/stack/saas-hosted-coverage.test.ts',
   'tests/stack/ai-canary.test.ts',
 ];
+const BUSINESS_PROPOSAL_ENV = { ENSEMUS_CONNECTORS_ENABLED: 'true' };
+const BUSINESS_PROPOSAL_SUITES = [
+  'tests/stack/business-actions-api.test.ts',
+  'tests/stack/business-connection-setup.test.ts',
+];
+const FEDERATION_ENV = { COMPOSE_PROFILES: 'federation', ENSEMUS_CROSS_ORG_ENABLED: 'true' };
+const FEDERATION_SUITE = 'tests/stack/federation-api.test.ts';
 const MODE_SERVICES = ['web', 'web-2', 'worker', 'agent-worker'];
 const recreate = (env) =>
   composeWith(env, 'up', '-d', '--no-deps', '--force-recreate', '--wait', ...MODE_SERVICES);
@@ -358,6 +365,7 @@ function showServerProblems(label) {
 
 // API-12's check reads what every other suite recorded, so its file runs after all of them, both modes included.
 const API_SUITE = 'tests/stack/api.test.ts';
+const PROCESS_SUITE = 'tests/stack/process-runs.test.ts';
 // The drill stops the whole stack and restores its databases over it, leaving authentication fenced until an
 // operator acknowledges (backup-and-restore.md). Nothing may run after it, so it is the last thing the gate does.
 const RESTORE_SUITE = 'tests/stack/restore-drill.test.ts';
@@ -447,10 +455,83 @@ try {
     }
   } else {
     if (!outagesOnly) {
-      const everyOther = ['--exclude', API_SUITE, '--exclude', RESTORE_SUITE];
+      // Establish real process publication and execution on a fresh stack before other suites
+      // stop or restore individual services. The same API coverage record includes this run.
+      if (!stackTests('process publication and execution', [PROCESS_SUITE])) {
+        failed = true;
+        showServerProblems('process publication and execution');
+      }
+      const everyOther = [
+        '--exclude',
+        API_SUITE,
+        '--exclude',
+        RESTORE_SUITE,
+        '--exclude',
+        PROCESS_SUITE,
+        '--exclude',
+        FEDERATION_SUITE,
+      ];
       if (!stackTests('the stack test suite', everyOther)) {
         failed = true;
         showServerProblems('the stack test suite');
+      }
+
+      // Only the web replicas need enabled connector admission. The proposal tests write generated
+      // attempts under the connector database role, so they need no adapter or connector worker.
+      composeWith(
+        BUSINESS_PROPOSAL_ENV,
+        'up',
+        '-d',
+        '--no-deps',
+        '--force-recreate',
+        '--wait',
+        'web',
+        'web-2',
+      );
+      if (
+        !stackTests(
+          'business connector proposal and setup tests',
+          BUSINESS_PROPOSAL_SUITES,
+          BUSINESS_PROPOSAL_ENV,
+        )
+      ) {
+        failed = true;
+        showServerProblems('business connector proposal and setup tests');
+      }
+
+      // Provision the restricted bridge role and apply its grants through the same jobs as an opt-in install.
+      try {
+        composeWith(FEDERATION_ENV, 'run', '--rm', '--no-deps', 'provision-federation');
+        composeWith(FEDERATION_ENV, 'run', '--rm', '--no-deps', 'migrate');
+        composeWith(
+          FEDERATION_ENV,
+          'up',
+          '-d',
+          '--no-deps',
+          '--force-recreate',
+          '--wait',
+          '--wait-timeout',
+          '180',
+          'federation-worker',
+          'web',
+          'web-2',
+        );
+        refuseUnlessOnTheWatchedSubnet(FEDERATION_ENV);
+        if (!stackTests('the federation workflow', [FEDERATION_SUITE], FEDERATION_ENV)) {
+          failed = true;
+          console.error(composeWith(FEDERATION_ENV, 'logs', '--tail', '70', 'federation-worker'));
+        }
+      } finally {
+        composeWith(FEDERATION_ENV, 'rm', '-s', '-f', 'federation-worker');
+        composeWith(
+          { ENSEMUS_CROSS_ORG_ENABLED: 'false' },
+          'run',
+          '--rm',
+          '--no-deps',
+          'migrate',
+          'node',
+          'dist/apply-deployment-profile.js',
+        );
       }
 
       console.log(

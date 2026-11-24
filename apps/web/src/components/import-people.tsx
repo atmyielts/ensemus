@@ -1,3 +1,5 @@
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
 import type { ImportedPersonView } from '@ensemus/application';
 import { linkImportedPersonAction } from '@/server/sovereign-actions';
 import { SubmitButton } from './submit-button';
@@ -52,9 +54,9 @@ export function ImportPeople({
               <form className="inline-form gap-above" action={linkImportedPersonAction}>
                 <input type="hidden" name="organizationId" value={organizationId} />
                 <input type="hidden" name="sourceMembershipId" value={person.sourceMembershipId} />
-                <label>
+                <Label>
                   Member here
-                  <select name="membershipId" required defaultValue="">
+                  <NativeSelect name="membershipId" required defaultValue="">
                     <option value="" disabled>
                       Choose someone
                     </option>
@@ -63,9 +65,13 @@ export function ImportPeople({
                         {personLabel(candidate)}
                       </option>
                     ))}
-                  </select>
-                </label>
-                <SubmitButton label={`Link ${person.displayName}`} working="Linking">
+                  </NativeSelect>
+                </Label>
+                <SubmitButton
+                  className="secondary"
+                  label={`Link ${person.displayName}`}
+                  working="Linking"
+                >
                   Link
                 </SubmitButton>
               </form>

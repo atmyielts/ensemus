@@ -25,3 +25,25 @@ Scenarios B–L require an explicit reviewed local `--controls <path.mjs>` modul
 Optional `readVerifiedOutcomeCost({runRef,organizationIds,scenario})` must read the actual M4 ledger for that exact generated run/cohort and return `{source:"actual_m4_ledger",runRef,currency,totalCostMicros,verifiedOutcomes}` with the matching run reference. Until a reviewed binding exists the report says `owed`; no price/FX/credit conversion is assumed. The report preserves the exact money numerator and outcome denominator rather than rounding an invented unit price. Queue wait and cost are separate from HTTP latency.
 
 Output is reserved with exclusive creation and private permissions before any requests. Existing evidence is never overwritten. Exit 0 means this bounded measurement finished with no failed web requests and no failed scenario verification; it is not production acceptance. Exit 1 retains a report showing request/scenario failures, and exit 2 means configuration/execution refused or failed. Preserve release, hardware, traffic, control-code reference and independent fixture evidence beside the report. No production capacity claim is made.
+
+## Running against a local stack
+
+`tests/load/local.mjs` is `seed-fixture.mjs` then `run.mjs`, for a stack on this machine. It refuses anything but a loopback origin, makes a new private folder (and refuses one that exists), writes the measurement context from this machine (`environmentRef: local-stack`, `networkLocality: loopback`, its CPU model, logical CPUs, memory and OS), seeds the fixture into that folder and runs the profile. The fixture holds session cookies: never commit it or attach it. The context describes the machine the harness ran on, which on a local stack is also the machine the stack ran on, so the report measures both competing for one machine. That is what a local run is: a check that the harness and the stack work together, and a comparison between two local runs on the same machine. It is not a capacity figure.
+
+1. Start the stack and generate its secrets: `pnpm stack:secrets` then `pnpm stack:up` (the test overlay, which serves `https://localhost:8443` with the local test certificate). Agents are not needed for scenario A.
+2. Run a profile:
+
+   ```text
+   pnpm load:local --profile small --base-url https://localhost:8443 --dir .local/load/<new-run-name> --profile-file tests/load/profiles/local-smoke.json
+   ```
+
+3. Read `.local/load/<new-run-name>/report.json`. Exit 0 means no failed request; 1 means the report records failures; 2 means it refused or could not run.
+
+The profile files only override generated test inputs on top of a built-in profile, and every one of them is validated by `validateProfile` against every built-in profile in `tests/unit/load-local.test.ts`:
+
+| File                   | What it is for                                                                                                                                        |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `local-smoke.json`     | Two sessions per tenant, 40 reads each, 20 Work Units seeded. Minutes, not hours: proves the harness, the fixture and the stack agree.                |
+| `local-sustained.json` | Eight sessions per tenant, 2,000 reads each, 100 Work Units seeded. Long enough for the p95 and the harness's event-loop delay to settle on a laptop. |
+
+Without `--profile-file`, the built-in profile runs as declared in `profiles.mjs`; `medium` and `growing` seed their full persona headcounts through the forms, which takes a long time on one machine. `pnpm load:seed` and `pnpm load:run` are the two halves on their own, for a fixture you seed once and measure many times. The release reference in the context is `--release`, else `ENSEMUS_RELEASE`, else `local`. None of this has been run by the work that added it.

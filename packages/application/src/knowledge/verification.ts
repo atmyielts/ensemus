@@ -18,7 +18,6 @@ import {
   type TenantContext,
   type Tx,
 } from '@ensemus/database';
-import { createDelegatedContext } from '@ensemus/database/service';
 import type { Classification } from '@ensemus/domain/policy';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { objectKey, type ObjectStore } from '../artifacts';
@@ -425,6 +424,59 @@ export type GroundingVerdict = {
   reasonCode: string | null;
   citations: number;
 };
+async function groundArtifact(
+  database: AppDatabase,
+  store: ObjectStore,
+  context: TenantContext,
+  input: Input,
+  first: Snapshot,
+): Promise<GroundingVerdict> {
+  const viewer = recordedViewer(first.citations);
+  let code: Code | null = first.citations.length ? 'CITATION_INVALID' : 'NOT_GROUNDED';
+  let bytes: Buffer | null = null;
+  if (viewer) {
+    try {
+      // Keep the native worker identity. A delegated-person context is not a content grant.
+      // live() independently checks both named people against the current Work, full artifact
+      // lineage and source ACLs before any bytes are read; the final transaction repeats it.
+      code = await withTenantTx(database, context, async (tx) => {
+        const current = await snapshot(tx, context, input);
+        same(first, current);
+        return (await live(tx, current, viewer)).code;
+      });
+    } catch (error) {
+      if (error instanceof AppError && error.code === 'VERSION_CONFLICT') throw error;
+      if (error instanceof AppError && !['FORBIDDEN', 'NOT_FOUND'].includes(error.code))
+        throw error;
+      if (
+        !(error instanceof AppError) &&
+        !(error instanceof Error && error.name === 'TenantAccessDenied')
+      )
+        throw error;
+      code = 'SOURCE_CLOSED';
+    }
+    if (!code) {
+      bytes = await store.get(first.artifact.objectKey);
+      code = bytesCode(bytes, first);
+    }
+  }
+  return withTenantTx(database, context, async (tx) => {
+    const current = await snapshot(tx, context, input);
+    same(first, current);
+    const latest = await live(tx, current, viewer);
+    code = latest.code ?? code;
+    if (bytes) code = latest.code ?? bytesCode(bytes, current);
+    const verdict = code ? ('failed' as const) : ('passed' as const);
+    await writeProof(tx, context, current, {
+      kind: 'grounding',
+      verdict,
+      reasonCode: code,
+      reason: null,
+    });
+    return { verdict, reasonCode: code, citations: current.citations.length };
+  });
+}
+
 export async function checkArtifactGrounding(
   database: AppDatabase,
   store: ObjectStore,
@@ -435,48 +487,41 @@ export async function checkArtifactGrounding(
   const input = ids(raw);
   return safe(async () => {
     const first = await withTenantTx(database, context, (tx) => snapshot(tx, context, input));
-    const viewer = recordedViewer(first.citations);
-    let code: Code | null = first.citations.length ? 'CITATION_INVALID' : 'NOT_GROUNDED';
-    let bytes: Buffer | null = null;
-    if (viewer) {
-      try {
-        const delegated = await createDelegatedContext(database, context.organizationId, viewer);
-        code = await withTenantTx(database, delegated, async (tx) => {
-          const current = await snapshot(tx, delegated, input);
-          same(first, current);
-          return (await live(tx, current, viewer)).code;
-        });
-      } catch (error) {
-        if (error instanceof AppError && error.code === 'VERSION_CONFLICT') throw error;
-        if (error instanceof AppError && !['FORBIDDEN', 'NOT_FOUND'].includes(error.code))
-          throw error;
-        if (
-          !(error instanceof AppError) &&
-          !(error instanceof Error && error.name === 'TenantAccessDenied')
-        )
-          throw error;
-        code = 'SOURCE_CLOSED';
-      }
-      if (!code) {
-        bytes = await store.get(first.artifact.objectKey);
-        code = bytesCode(bytes, first);
-      }
-    }
-    return withTenantTx(database, context, async (tx) => {
+    return groundArtifact(database, store, context, input, first);
+  });
+}
+
+/** Ground a recorded batch once before review. Publishing an empty proof would freeze that batch. */
+export async function groundArtifactForReview(
+  database: AppDatabase,
+  store: ObjectStore,
+  context: TenantContext,
+  raw: Input,
+): Promise<void> {
+  if (context.actorType !== 'service') throw new AppError('FORBIDDEN');
+  const input = ids(raw);
+  await safe(async () => {
+    const pending = await withTenantTx(database, context, async (tx) => {
       const current = await snapshot(tx, context, input);
-      same(first, current);
-      const latest = await live(tx, current, viewer);
-      code = latest.code ?? code;
-      if (bytes) code = latest.code ?? bytesCode(bytes, current);
-      const verdict = code ? ('failed' as const) : ('passed' as const);
-      await writeProof(tx, context, current, {
-        kind: 'grounding',
-        verdict,
-        reasonCode: code,
-        reason: null,
-      });
-      return { verdict, reasonCode: code, citations: current.citations.length };
+      if (!current.citations.length) return null;
+      const [proof] = await tx
+        .select({ id: verifications.id })
+        .from(verifications)
+        .where(
+          and(
+            eq(verifications.artifactId, input.artifactId),
+            eq(verifications.workUnitId, input.workUnitId),
+            eq(verifications.artifactSha256, current.artifact.sha256),
+            eq(verifications.objectiveSha256, current.objective),
+            eq(verifications.citationsSha256, current.digest),
+            eq(verifications.kind, 'grounding'),
+            sql`${verifications.proofOrder} is not null`,
+          ),
+        )
+        .limit(1);
+      return proof ? null : current;
     });
+    if (pending) await groundArtifact(database, store, context, input, pending);
   });
 }
 

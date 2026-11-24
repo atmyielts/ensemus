@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import {
   getOrganizationImport,
   listDirectory,
@@ -48,17 +49,22 @@ export default async function DataPage({
     return (
       <>
         <PageHead title="Export and import" />
-        <section className="panel" data-denied="data">
-          <h2>Only an owner can do this</h2>
-          <p>
-            An archive holds nearly everything in an organization, so only an owner can export one,
-            import one or link the people in it. Ask an owner of this organization if you need one.
-          </p>
-          <p>{historyLink}</p>
-          <p>
-            <Link href={`/o/${organizationId}/data/definitions`}>Review imported definitions</Link>
-          </p>
-        </section>
+        <Card asChild>
+          <section className="card" data-denied="data">
+            <h2>Only an owner can do this</h2>
+            <p>
+              An archive holds nearly everything in an organization, so only an owner can export
+              one, import one or link the people in it. Ask an owner of this organization if you
+              need one.
+            </p>
+            <p>{historyLink}</p>
+            <p>
+              <Link href={`/o/${organizationId}/data/definitions`}>
+                Review imported definitions
+              </Link>
+            </p>
+          </section>
+        </Card>
       </>
     );
   }
@@ -91,79 +97,89 @@ export default async function DataPage({
       />
       <ErrorNotice code={typeof error === 'string' ? error : undefined} />
       <div className="stack">
-        <section className="panel" aria-labelledby="data-export">
-          <h2 id="data-export">Export this organization</h2>
-          <p>
-            An archive is sealed to a key you hold, so nobody running this deployment can read it.
-            Restricted work is left out, because it is limited to the people on it, and each export
-            says how much was left out.
-          </p>
-          <ExportRequestForm organizationId={organizationId} />
-          <h3 className="gap-above-large">Your exports</h3>
-          <ExportList organizationId={organizationId} exports={exports} />
-        </section>
+        <Card asChild>
+          <section className="card" aria-labelledby="data-export">
+            <h2 id="data-export">Export this organization</h2>
+            <p>
+              An archive is sealed to a key you hold, so not even whoever runs Ensemus for your
+              company can read it. Restricted work is left out, because it is limited to the people
+              on it, and each export says how much was left out.
+            </p>
+            <ExportRequestForm organizationId={organizationId} />
+            <h3 className="gap-above-large">Your exports</h3>
+            <ExportList organizationId={organizationId} exports={exports} />
+          </section>
+        </Card>
 
-        <section className="panel" aria-labelledby="data-import">
-          <h2 id="data-import">Import an archive</h2>
-          {importView ? (
-            <ImportSummary organizationId={organizationId} view={importView} />
-          ) : (
-            <>
-              <p>
-                An archive goes into a new, empty organization, and an organization takes only one.
-                If this one already holds work, clients, projects, teams, files or other members,
-                create a new organization for it.
-              </p>
-              <p>
-                Bringing one in starts nothing: no work runs, nothing is sent, and approvals come
-                across as history. Nobody gets an account from it.
-              </p>
-              <ConfirmForm
-                action={requestImportAction}
-                fields={<input type="hidden" name="organizationId" value={organizationId} />}
-                summary="Take an archive into this organization"
-                consequence="This organization will take one archive, and it cannot take a second."
-                confirmLabel="Get this organization ready"
-              />
-            </>
-          )}
-        </section>
+        <Card asChild>
+          <section className="card" aria-labelledby="data-import">
+            <h2 id="data-import">Import an archive</h2>
+            {importView ? (
+              <ImportSummary organizationId={organizationId} view={importView} />
+            ) : (
+              <>
+                <p>
+                  An archive goes into a new, empty organization, and an organization takes only
+                  one. If this one already holds work, clients, projects, teams, files or other
+                  members, create a new organization for it.
+                </p>
+                <p>
+                  Bringing one in starts nothing: no work runs, nothing is sent, and approvals come
+                  across as history. Nobody gets an account from it.
+                </p>
+                <ConfirmForm
+                  action={requestImportAction}
+                  fields={<input type="hidden" name="organizationId" value={organizationId} />}
+                  summary="Take an archive into this organization"
+                  consequence="This organization will take one archive, and it cannot take a second."
+                  confirmLabel="Get this organization ready"
+                />
+              </>
+            )}
+          </section>
+        </Card>
 
-        <section className="panel" aria-labelledby="data-people">
-          <h2 id="data-people">People from the archive</h2>
-          <ImportPeople
-            organizationId={organizationId}
-            people={people}
-            candidates={candidates}
-            everyone={directory}
-          />
-        </section>
-
-        {importId && (
-          <section className="panel" id="data-files" aria-labelledby="data-file-heading">
-            <h2 id="data-file-heading">Files awaiting review</h2>
-            <ImportedArchiveFiles
+        <Card asChild>
+          <section className="card" aria-labelledby="data-people">
+            <h2 id="data-people">People from the archive</h2>
+            <ImportPeople
               organizationId={organizationId}
-              importId={importId}
-              files={archivedFiles}
-              {...(cursor?.success ? { after: cursor.data } : {})}
+              people={people}
+              candidates={candidates}
+              everyone={directory}
             />
           </section>
+        </Card>
+
+        {importId && (
+          <Card asChild>
+            <section className="card" id="data-files" aria-labelledby="data-file-heading">
+              <h2 id="data-file-heading">Files awaiting review</h2>
+              <ImportedArchiveFiles
+                organizationId={organizationId}
+                importId={importId}
+                files={archivedFiles}
+                {...(cursor?.success ? { after: cursor.data } : {})}
+              />
+            </section>
+          </Card>
         )}
 
         {importView && FINISHED.has(importView.status) && (
-          <section className="panel" aria-labelledby="data-history">
-            <h2 id="data-history">History</h2>
-            <p>
-              <Link href={`/o/${organizationId}/data/definitions`}>
-                Review imported definitions and settings
-              </Link>
-            </p>
-            <p>
-              Approvals, decisions and status changes from the archive are kept as a record, by
-              work. {historyLink}.
-            </p>
-          </section>
+          <Card asChild>
+            <section className="card" aria-labelledby="data-history">
+              <h2 id="data-history">History</h2>
+              <p>
+                <Link href={`/o/${organizationId}/data/definitions`}>
+                  Review imported definitions and settings
+                </Link>
+              </p>
+              <p>
+                Approvals, decisions and status changes from the archive are kept as a record, by
+                work. {historyLink}.
+              </p>
+            </section>
+          </Card>
         )}
       </div>
     </>

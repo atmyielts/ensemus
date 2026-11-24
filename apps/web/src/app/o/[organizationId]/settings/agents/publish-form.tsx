@@ -1,4 +1,6 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 
 import type { SpecLintCode } from '@ensemus/policy/agent-spec-lint';
 import { useActionState } from 'react';
@@ -56,10 +58,12 @@ export function PublishForm({ organizationId }: { organizationId: string }) {
       )}
       <form className="fields gap-above" action={action}>
         <input type="hidden" name="organizationId" value={organizationId} />
-        <label>
+        <Label>
           Agent manifest
-          <small>The agent&apos;s definition, as JSON. A version cannot be changed later.</small>
-          <textarea
+          <small>
+            The assistant&apos;s definition, as JSON. A published version cannot be changed.
+          </small>
+          <Textarea
             name="manifest"
             required
             rows={14}
@@ -68,14 +72,14 @@ export function PublishForm({ organizationId }: { organizationId: string }) {
             maxLength={256 * 1024}
             defaultValue={state.values?.manifest ?? ''}
           />
-        </label>
-        <label>
+        </Label>
+        <Label>
           Evaluation report
           <small>
             The passing report for exactly this manifest, as JSON. Changing the manifest needs a new
             report.
           </small>
-          <textarea
+          <Textarea
             name="report"
             required
             rows={8}
@@ -84,8 +88,10 @@ export function PublishForm({ organizationId }: { organizationId: string }) {
             maxLength={256 * 1024}
             defaultValue={state.values?.report ?? ''}
           />
-        </label>
-        <SubmitButton working="Checking and publishing">Publish this version</SubmitButton>
+        </Label>
+        <div>
+          <SubmitButton working="Checking and publishing">Publish this version</SubmitButton>
+        </div>
       </form>
     </>
   );

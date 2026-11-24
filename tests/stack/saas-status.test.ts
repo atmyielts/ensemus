@@ -21,7 +21,7 @@ describe('public status requires no session', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('location')).toBeNull();
     expect(html).toContain(publicTitle);
-    expect(html).toContain('Model provider');
+    expect(html).toContain('AI model service');
     expect(html).not.toContain(canary);
     expect(html).not.toContain('uptime percentage');
   });

@@ -103,7 +103,7 @@ export function exchangeHttpOverRelay(
   validateLimits(request.timeoutMs, request.maxResponseBytes);
   if (
     !/^[-a-z0-9.]{1,253}$/i.test(name) ||
-    !['GET', 'POST', 'DELETE'].includes(request.method) ||
+    !['GET', 'POST', 'PATCH', 'PUT', 'DELETE'].includes(request.method) ||
     request.path.length > 8192 ||
     unsafeAscii(request.path, 33) ||
     !/^\/(?!\/)[^\\#]*$/.test(request.path)

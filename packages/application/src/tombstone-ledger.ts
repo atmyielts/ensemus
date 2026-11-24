@@ -8,6 +8,7 @@ import {
   artifactLineage,
   blobLifecycle,
   organizations,
+  meetings,
   tombstones,
   withNewTenantTx,
   withTenantTx,
@@ -28,6 +29,7 @@ import type { DerivedArtifactLifecycle } from './knowledge/artifact-provenance';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { objectKey, type ObjectStore } from './artifacts';
 import { AppError } from './errors';
+import { purgeMeetingContentInTx } from './meeting-manual';
 import { closeOutdatedReviews, loadChangeable } from './work';
 import { reapplyKnowledgeSourceEntry } from './knowledge/purge';
 import { observePhysicalAbsence } from './restore-reconcile';
@@ -93,6 +95,36 @@ async function countMissing(store: Pick<LedgerReader, 'listPages'>, tenant: Gate
           ),
       );
       for (const row of unresolved) found.delete(`artifact/${row.id}`);
+    }
+    const meetingIds = named
+      .filter((entry) => entry.targetType === 'meeting')
+      .map((entry) => entry.targetId);
+    if (meetingIds.length) {
+      const live = await tenant.bound((tx) =>
+        tx.execute<{ id: string }>(sql`
+        select id from meetings.meetings where organization_id=${tenant.organizationId}::uuid
+          and id in (${sql.join(
+            meetingIds.map((id) => sql`${id}::uuid`),
+            sql`,`,
+          )}) and status<>'purged'
+        union select meeting_id from meetings.notes where organization_id=${tenant.organizationId}::uuid
+          and meeting_id in (${sql.join(
+            meetingIds.map((id) => sql`${id}::uuid`),
+            sql`,`,
+          )}) and body is not null
+        union select meeting_id from meetings.summaries where organization_id=${tenant.organizationId}::uuid
+          and meeting_id in (${sql.join(
+            meetingIds.map((id) => sql`${id}::uuid`),
+            sql`,`,
+          )}) and body is not null
+        union select meeting_id from meetings.proposed_items where organization_id=${tenant.organizationId}::uuid
+          and meeting_id in (${sql.join(
+            meetingIds.map((id) => sql`${id}::uuid`),
+            sql`,`,
+          )}) and (title is not null or detail is not null or decision_reason is not null)
+      `),
+      );
+      for (const row of live.rows) found.delete(`meeting/${row.id}`);
     }
     missing += named.filter((entry) => !found.has(`${entry.targetType}/${entry.targetId}`)).length;
   }
@@ -577,6 +609,46 @@ export async function reapplyTombstoneLedger(
         if (!entry) {
           result.invalid += 1;
           options.onInvalid?.(parseLedgerKey(key));
+          continue;
+        }
+        if (entry.targetType === 'meeting') {
+          const context = contextFor(entry.organizationId);
+          const applied = await withTenantTx(database, context, async (tx) => {
+            const native = await tx.execute<{ allowed: boolean }>(
+              sql`select session_user='ensemus_worker' and current_user=session_user as allowed`,
+            );
+            if (context.actorType !== 'service' || native.rows[0]?.allowed !== true)
+              throw new AppError('FORBIDDEN');
+            const [organization] = await tx
+              .select({ id: organizations.id })
+              .from(organizations)
+              .where(eq(organizations.id, entry.organizationId));
+            if (!organization) return null;
+            const [meeting] = await tx
+              .select({ id: meetings.id })
+              .from(meetings)
+              .where(eq(meetings.id, entry.targetId))
+              .for('update');
+            const added = await tx
+              .insert(tombstones)
+              .values({
+                organizationId: entry.organizationId,
+                targetType: 'meeting',
+                targetId: entry.targetId,
+                createdAt: entry.deletedAt,
+                reasonCode: 'CONSENT_WITHDRAWN',
+              })
+              .onConflictDoNothing()
+              .returning({ id: tombstones.targetId });
+            if (meeting)
+              await purgeMeetingContentInTx(tx, context, {
+                meetingId: meeting.id,
+                reasonCode: 'CONSENT_WITHDRAWN',
+              });
+            return added.length;
+          });
+          if (applied === null) result.organizationsMissing++;
+          else result.tombstonesAdded += applied;
           continue;
         }
         if (entry.targetType === 'knowledge_source') {

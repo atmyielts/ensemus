@@ -39,9 +39,11 @@ for (const javaScriptEnabled of [true, false])
     await expect(page.getByRole('heading', { name: 'Company Pulse', exact: true })).toBeVisible();
     const row = page.getByRole('article', { name: title, exact: true });
     await expect(row).toContainText('The due date has passed');
-    await row.getByRole('link', { name: 'Work record', exact: true }).click();
+    await row.getByRole('link', { name: `Open the work: ${title}`, exact: true }).click();
     await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
     await page.goto(`${base}/pulse`);
+    // Snoozing and dismissing are tucked away under one quiet control on each row.
+    await row.getByText('Snooze or dismiss', { exact: true }).click();
     await row.getByRole('button', { name: /^Dismiss / }).click();
     await expect(page.getByRole('article', { name: title, exact: true })).toHaveCount(0);
     const other = await open(world.bob, { javaScriptEnabled });
@@ -53,6 +55,7 @@ for (const javaScriptEnabled of [true, false])
     await expect(row).toContainText('Dismissed only for you');
     await row.getByRole('button', { name: /^Restore / }).click();
     await expect(row).toBeVisible();
+    await row.getByText('Snooze or dismiss', { exact: true }).click();
     await row.getByLabel('Snooze for', { exact: true }).selectOption('7');
     await row.getByRole('button', { name: /^Snooze / }).click();
     await expect(row).toContainText('Snoozed until');

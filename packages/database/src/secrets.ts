@@ -1,6 +1,6 @@
 // For the secret broker in workers only (enforced by lint). This role can read sealed secrets for
 // the bound tenant and nothing else.
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { openDatabase, type EnsemusDrizzle } from './connection';
 import { sealedSecrets } from './schema';
 
@@ -51,6 +51,72 @@ export function replaceWrappedKey(
 ) {
   return bound(db, organizationId, (tx) =>
     tx.update(sealedSecrets).set(wrapped).where(eq(sealedSecrets.id, secretId)),
+  );
+}
+
+/** A whole new seal for one secret: a fresh data key, wrapped, and the value under it. */
+export type ResealedFields = {
+  keyId: string;
+  wrappedKey: Buffer;
+  iv: Buffer;
+  ciphertext: Buffer;
+  authTag: Buffer;
+};
+
+/**
+ * Replaces a live secret's sealed value in place, under the same ID, tenant and purpose (0562). The row
+ * is locked first, so two refreshes that both rotated cannot both write: the second sees the first's
+ * value, and `reseal` answers null for it. `reseal` runs inside the lock and decides from the row it is
+ * handed. 'missing' covers gone, revoked and another purpose alike.
+ */
+export function resealSecret(
+  db: EnsemusDrizzle,
+  binding: { organizationId: string; secretId: string; purpose: string },
+  reseal: (row: SealedSecretRow) => ResealedFields | null,
+): Promise<'stored' | 'stale' | 'missing'> {
+  return bound(db, binding.organizationId, async (tx) => {
+    const live = and(
+      eq(sealedSecrets.id, binding.secretId),
+      eq(sealedSecrets.purpose, binding.purpose),
+      isNull(sealedSecrets.revokedAt),
+    );
+    const [row] = await tx.select().from(sealedSecrets).where(live).for('update');
+    if (!row) return 'missing';
+    const next = reseal(row);
+    if (!next) return 'stale';
+    const written = await tx
+      .update(sealedSecrets)
+      .set(next)
+      .where(live)
+      .returning({ id: sealedSecrets.id });
+    return written.length === 1 ? 'stored' : 'missing';
+  });
+}
+
+/** One sweep's worth. A tenant with more is caught up by the sweeps after it. */
+const LIVE_SECRET_LIST_LIMIT = 1000;
+
+/**
+ * The tenant's sealed values of these purposes that are not yet revoked: IDs, purposes and when each was
+ * sealed, never a value. The consent sweep reads what is still live here, because the application role
+ * sees no more of this table than its tenant column.
+ */
+export function listLiveSecretsByPurpose(
+  db: EnsemusDrizzle,
+  organizationId: string,
+  purposes: readonly string[],
+): Promise<{ id: string; purpose: string; createdAt: Date }[]> {
+  if (purposes.length === 0) return Promise.resolve([]);
+  return bound(db, organizationId, (tx) =>
+    tx
+      .select({
+        id: sealedSecrets.id,
+        purpose: sealedSecrets.purpose,
+        createdAt: sealedSecrets.createdAt,
+      })
+      .from(sealedSecrets)
+      .where(and(inArray(sealedSecrets.purpose, [...purposes]), isNull(sealedSecrets.revokedAt)))
+      .limit(LIVE_SECRET_LIST_LIMIT),
   );
 }
 
@@ -186,6 +252,63 @@ export function attestNativePaymentLookup(
       ${input.organizationId}::uuid,${input.paymentId}::uuid,${input.attemptId}::uuid,${input.executionBindingId}::uuid,
       ${input.lookupOperationId}::uuid,${input.restoreGeneration}::uuid,${input.authoritySha256},
       ${input.requestKeySha256},${input.factCanonical})`);
+    return paymentAttestation(result.rows);
+  });
+}
+
+/** ADR-032 D4a. A hosted checkout provider's call this worker verified, for one stored delivery. */
+export function attestCheckoutCallback(
+  db: EnsemusDrizzle,
+  input: {
+    organizationId: string;
+    deliveryId: string;
+    rowVersion: string;
+    restoreGeneration: string;
+    endpointId: string;
+    connectionId: string;
+    signingSecretId: string;
+    processor: string;
+    bodySha256: string;
+    requestDigest: string;
+    action: string;
+    routeSha256: string | null;
+    txnRef: string | null;
+    amountMinor: bigint | null;
+    currency: string | null;
+  },
+): Promise<PaymentAttestation> {
+  return db.transaction(async (tx) => {
+    await assertPaymentGeneration(tx, input.restoreGeneration);
+    await tx.execute(sql`select set_config('app.organization_id',${input.organizationId},true)`);
+    const result =
+      await tx.execute<PaymentAttestationRow>(sql`select * from billing.attest_checkout_callback(
+      ${input.deliveryId}::uuid,${input.rowVersion},${input.endpointId}::uuid,${input.connectionId}::uuid,${input.signingSecretId}::uuid,
+      ${input.processor},${input.bodySha256},${input.requestDigest},${input.action},${input.routeSha256},${input.txnRef},
+      ${input.amountMinor === null ? null : input.amountMinor.toString()}::bigint,${input.currency},${input.restoreGeneration}::uuid)`);
+    return paymentAttestation(result.rows);
+  });
+}
+
+/** ADR-032 D4a. What Paddle's own transaction said, read by this worker for one open checkout. */
+export function attestCheckoutLookup(
+  db: EnsemusDrizzle,
+  input: {
+    organizationId: string;
+    sessionId: string;
+    restoreGeneration: string;
+    action: 'paddle.lookup_paid' | 'paddle.lookup_cancelled';
+    txnRef: string;
+    amountMinor: bigint | null;
+    currency: string | null;
+  },
+): Promise<PaymentAttestation> {
+  return db.transaction(async (tx) => {
+    await assertPaymentGeneration(tx, input.restoreGeneration);
+    await tx.execute(sql`select set_config('app.organization_id',${input.organizationId},true)`);
+    const result =
+      await tx.execute<PaymentAttestationRow>(sql`select * from billing.attest_checkout_lookup(
+      ${input.sessionId}::uuid,${input.action},${input.txnRef},
+      ${input.amountMinor === null ? null : input.amountMinor.toString()}::bigint,${input.currency},${input.restoreGeneration}::uuid)`);
     return paymentAttestation(result.rows);
   });
 }

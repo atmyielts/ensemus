@@ -37,13 +37,13 @@ export default async function SsoComplete({
             ? 'Ask to join your company'
             : 'Company sign-in needs attention'}
         </h1>
-        <p>
+        <p className="lede">
           {result.outcome === 'no_membership'
-            ? 'Your identity was confirmed. A company administrator still needs to invite you before you can open this workspace.'
-            : 'Your company access or sign-in configuration changed. Ask your company administrator to check it before signing in again.'}
+            ? 'Your company confirmed who you are, but you are not a member of its organization in Ensemus yet. Ask your company administrator to invite you, then sign in again.'
+            : 'Something about your company access or its sign-in settings has changed, so we could not sign you in. Ask your company administrator to check it, then try again.'}
         </p>
         <Link className="button" href="/">
-          View your companies
+          Go to your organizations
         </Link>
       </div>
     </main>

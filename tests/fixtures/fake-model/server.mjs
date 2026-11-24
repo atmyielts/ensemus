@@ -1,6 +1,7 @@
 // A fake model server, for tests only: deterministic, on a loopback port, and it reaches nothing. It speaks
-// OpenAI's Chat Completions and Embeddings (also what an OpenAI-compatible server speaks) and Anthropic's
-// Messages, in the shapes those providers document. It proves what our adapters do with those shapes, and it proves nothing
+// OpenAI's Chat Completions and Embeddings (also what an OpenAI-compatible server speaks, and Azure OpenAI's
+// deployment URLs), Anthropic's Messages, Gemini's generateContent and embeddings, and Bedrock's Converse
+// with a SigV4 check (./sigv4.mjs), in the shapes those providers document. It proves what our adapters do with those shapes, and it proves nothing
 // about a live provider, so a hosted kind stays qualified=NO until a real run. `tests` is in .dockerignore,
 // so this can never reach a shipped image.
 //
@@ -9,7 +10,13 @@
 import { createServer } from 'node:http';
 import { resolve as resolvePath } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { fileURLToPath, URL } from 'node:url';
+import { fileURLToPath, URL, URLSearchParams } from 'node:url';
+import { verifySigV4 } from './sigv4.mjs';
+
+/** The Azure api-versions the adapter may send. Any other is refused, as Azure refuses an unknown one. */
+const AZURE_API_VERSIONS = ['2024-10-21'];
+/** The region the fake's Bedrock host names, which a signature has to be scoped to. */
+const BEDROCK_REGION = 'us-east-1';
 
 export const SCENARIOS = [
   'text',
@@ -53,8 +60,24 @@ const json = (res, status, body, headers = {}) => {
   res.end(text);
 };
 
+/** Tool names in each wire format: OpenAI and Anthropic, Gemini's declarations and Bedrock's tool specs. */
 const toolNames = (body) =>
-  (body?.tools ?? []).map((tool) => tool?.function?.name ?? tool?.name).filter(Boolean);
+  [
+    ...(body?.tools ?? []).flatMap((tool) =>
+      Array.isArray(tool?.functionDeclarations)
+        ? tool.functionDeclarations.map((declaration) => declaration?.name)
+        : [tool?.function?.name ?? tool?.name],
+    ),
+    ...(body?.toolConfig?.tools ?? []).map((tool) => tool?.toolSpec?.name),
+  ].filter(Boolean);
+
+const parsedArgs = (args) => {
+  try {
+    return JSON.parse(args);
+  } catch {
+    return args;
+  }
+};
 
 /** What the model "said", common to both wire formats. */
 function modelReply(scenario, body, scripted) {
@@ -89,7 +112,7 @@ function modelReply(scenario, body, scripted) {
   }
 }
 
-const quoted = (body) => JSON.stringify(body?.messages ?? []);
+const quoted = (body) => JSON.stringify(body?.messages ?? body?.contents ?? []);
 
 function replyOpenAI(res, scenario, body, seen, scripted) {
   const reply = modelReply(scenario, body, scripted);
@@ -176,6 +199,81 @@ function replyAnthropic(res, scenario, body, seen, scripted) {
   json(res, 200, answer);
 }
 
+/** Gemini's generateContent shape. A function call's arguments are an object on this wire. */
+function replyGemini(res, scenario, body, _seen, scripted) {
+  const reply = modelReply(scenario, body, scripted);
+  const parts = reply.tools
+    ? reply.tools.map((tool) => ({
+        functionCall: { name: tool.name, args: parsedArgs(tool.args) },
+      }))
+    : reply.text
+      ? [{ text: reply.text }]
+      : [];
+  const finish =
+    scenario === 'truncated' ? 'MAX_TOKENS' : scenario === 'content_filter' ? 'SAFETY' : 'STOP';
+  const answer = {
+    candidates: [{ content: { role: 'model', parts }, finishReason: finish, index: 0 }],
+    modelVersion: 'fake',
+    responseId: 'fake-response',
+  };
+  if (scenario === 'usage_garbage') {
+    answer.usageMetadata = {
+      promptTokenCount: -5,
+      candidatesTokenCount: 1.5,
+      totalTokenCount: -3.5,
+    };
+  } else if (scenario !== 'usage_missing') {
+    answer.usageMetadata = {
+      promptTokenCount: USAGE.input,
+      candidatesTokenCount: USAGE.output,
+      totalTokenCount: USAGE.input + USAGE.output,
+    };
+  }
+  json(res, 200, answer);
+}
+
+/** Bedrock's Converse shape. Without native structured output the package asks for a `json` tool. */
+function replyBedrock(res, scenario, body, _seen, scripted) {
+  const reply = modelReply(scenario, body, scripted);
+  const wantsJsonTool =
+    toolNames(body).includes('json') && body?.toolConfig?.toolChoice?.tool?.name === 'json';
+  let content;
+  if (reply.tools) {
+    content = reply.tools.map((tool, index) => ({
+      toolUse: { toolUseId: `tooluse_${index}`, name: tool.name, input: parsedArgs(tool.args) },
+    }));
+  } else if (wantsJsonTool && scenario !== 'structured_broken') {
+    content = [
+      { toolUse: { toolUseId: 'tooluse_json', name: 'json', input: JSON.parse(reply.text) } },
+    ];
+  } else {
+    content = reply.text ? [{ text: reply.text }] : [];
+  }
+  const stop =
+    scenario === 'truncated'
+      ? 'max_tokens'
+      : scenario === 'content_filter'
+        ? 'content_filtered'
+        : reply.tools || (wantsJsonTool && scenario !== 'structured_broken')
+          ? 'tool_use'
+          : 'end_turn';
+  const answer = {
+    output: { message: { role: 'assistant', content } },
+    stopReason: stop,
+    metrics: { latencyMs: 1 },
+  };
+  if (scenario === 'usage_garbage') {
+    answer.usage = { inputTokens: -5, outputTokens: 1.5, totalTokens: -3.5 };
+  } else if (scenario !== 'usage_missing') {
+    answer.usage = {
+      inputTokens: USAGE.input,
+      outputTokens: USAGE.output,
+      totalTokens: USAGE.input + USAGE.output,
+    };
+  }
+  json(res, 200, answer);
+}
+
 /**
  * A deterministic vector of the requested size for each text: the same text always gives the same unit
  * vector, so a stack test's embedding space is repeatable. It encodes nothing about meaning.
@@ -221,14 +319,76 @@ function replyEmbeddings(res, body) {
   });
 }
 
+/** Gemini's embedContent and batchEmbedContents shapes: no index, one vector per request, in order. */
+function replyGeminiEmbeddings(res, body, batch) {
+  const requests = batch ? body?.requests : body ? [body] : null;
+  const dimension = requests?.[0]?.outputDimensionality;
+  const texts = Array.isArray(requests)
+    ? requests.map((request) => request?.content?.parts?.[0]?.text)
+    : null;
+  if (
+    !texts ||
+    texts.length < 1 ||
+    !texts.every((text) => typeof text === 'string' && text.length > 0) ||
+    !Number.isInteger(dimension) ||
+    dimension < 1
+  ) {
+    json(
+      res,
+      400,
+      errorBody('gemini', 'INVALID_ARGUMENT', 'content and outputDimensionality are required'),
+    );
+    return;
+  }
+  const vectors = texts.map((text) => ({ values: fakeEmbedding(text, dimension) }));
+  json(res, 200, batch ? { embeddings: vectors } : { embedding: vectors[0] });
+}
+
 function errorBody(format, type, message, code) {
-  return format === 'anthropic'
-    ? { type: 'error', error: { type, message }, request_id: 'req_fake' }
-    : { error: { message, type, param: null, code: code ?? null } };
+  if (format === 'anthropic')
+    return { type: 'error', error: { type, message }, request_id: 'req_fake' };
+  if (format === 'gemini') return { error: { code: code ?? 400, message, status: type } };
+  if (format === 'bedrock') return { message };
+  return { error: { message, type, param: null, code: code ?? null } };
+}
+
+const REPLIES = {
+  openai: replyOpenAI,
+  anthropic: replyAnthropic,
+  gemini: replyGemini,
+  bedrock: replyBedrock,
+};
+
+/** What each provider says when a prompt is longer than the model takes, in its own words. */
+function contextTooLong(format) {
+  switch (format) {
+    case 'anthropic':
+      return errorBody(
+        format,
+        'invalid_request_error',
+        'prompt is too long: 999 tokens > 10 maximum',
+      );
+    case 'gemini':
+      return errorBody(
+        format,
+        'INVALID_ARGUMENT',
+        'The input token count (999) exceeds the maximum number of tokens allowed (10).',
+        400,
+      );
+    case 'bedrock':
+      return errorBody(format, 'ValidationException', 'Input is too long for requested model.');
+    default:
+      return errorBody(
+        format,
+        'invalid_request_error',
+        "This model's maximum context length is 10 tokens.",
+        'context_length_exceeded',
+      );
+  }
 }
 
 async function respond(req, res, scenario, format, body, seen, state) {
-  const reply = format === 'anthropic' ? replyAnthropic : replyOpenAI;
+  const reply = REPLIES[format];
   switch (scenario) {
     case 'malformed_json':
       res.writeHead(200, { 'content-type': 'application/json' });
@@ -238,27 +398,12 @@ async function respond(req, res, scenario, format, body, seen, state) {
       json(res, 200, { unexpected: true });
       return;
     case 'context_too_long':
-      json(
-        res,
-        400,
-        format === 'anthropic'
-          ? errorBody(
-              format,
-              'invalid_request_error',
-              'prompt is too long: 999 tokens > 10 maximum',
-            )
-          : errorBody(
-              format,
-              'invalid_request_error',
-              "This model's maximum context length is 10 tokens.",
-              'context_length_exceeded',
-            ),
-      );
+      json(res, 400, contextTooLong(format));
       return;
     case 'rate_limited':
       // Says when to come back, which a client that retries would obey. The hit count catches it.
       json(res, 429, errorBody(format, 'rate_limit_error', `Slow down. ${quoted(body)}`), {
-        'retry-after': '0',
+        'retry-after': '7',
       });
       return;
     case 'server_error':
@@ -267,7 +412,12 @@ async function respond(req, res, scenario, format, body, seen, state) {
       return;
     case 'auth_echo': {
       // Echoes the key in the body, and in a header, as a badly behaved proxy would.
-      const key = req.headers.authorization ?? req.headers['x-api-key'] ?? '';
+      const key =
+        req.headers.authorization ??
+        req.headers['x-api-key'] ??
+        req.headers['x-goog-api-key'] ??
+        req.headers['api-key'] ??
+        '';
       json(
         res,
         401,
@@ -354,6 +504,7 @@ export async function startFakeModel(options = {}) {
     hits: 0,
     scriptBytes: 0,
     redirectTo: options.redirectTo,
+    awsSecrets: new Map(),
   };
   const server = createServer(async (req, res) => {
     const path = req.url ?? '';
@@ -421,24 +572,68 @@ export async function startFakeModel(options = {}) {
       json(res, 201, { model: body.model, replies: body.replies.length });
       return;
     }
-    requests.push({ method: req.method, path, headers: { ...req.headers }, raw, body });
+    const entry = { method: req.method, path, headers: { ...req.headers }, raw, body };
+    requests.push(entry);
     if (requests.length > MAX_REQUESTS) requests.shift();
     const seen = ++state.hits;
     const scripted = scripts.get(body?.model);
     if (scripted) scripted.hits += 1;
 
-    if (req.method === 'POST' && path.endsWith('/embeddings')) {
+    const [route, search = ''] = path.split('?');
+    if (req.method === 'POST' && route.endsWith('/embeddings')) {
       replyEmbeddings(res, body);
       return;
     }
-    const format = path.endsWith('/messages')
-      ? 'anthropic'
-      : path.endsWith('/chat/completions')
-        ? 'openai'
-        : null;
+    if (
+      req.method === 'POST' &&
+      /^\/v1beta\/models\/[^/:]+:(embedContent|batchEmbedContents)$/.test(route)
+    ) {
+      replyGeminiEmbeddings(res, body, route.endsWith(':batchEmbedContents'));
+      return;
+    }
+    const azure = /^\/openai\/deployments\/[^/]+\/chat\/completions$/.test(route);
+    const format = /^\/v1beta\/models\/[^/:]+:generateContent$/.test(route)
+      ? 'gemini'
+      : /^\/model\/[^/]+\/converse$/.test(route)
+        ? 'bedrock'
+        : route.endsWith('/messages')
+          ? 'anthropic'
+          : route.endsWith('/chat/completions')
+            ? 'openai'
+            : null;
     if (req.method !== 'POST' || !format) {
       json(res, 404, errorBody('openai', 'not_found_error', 'No such route'));
       return;
+    }
+    // Azure takes only a deployment URL with a known api-version, and nothing else in the query.
+    if (
+      azure &&
+      (search.split('&').length !== 1 ||
+        !AZURE_API_VERSIONS.includes(new URLSearchParams(search).get('api-version') ?? ''))
+    ) {
+      json(res, 404, errorBody('openai', 'not_found_error', 'Resource not found'));
+      return;
+    }
+    // Bedrock takes a bearer API key, or a request signed by a key the test trusted, for this region.
+    // An echo scenario answers first, so a test can see what a badly behaved server would repeat.
+    if (format === 'bedrock' && !String(req.headers.authorization ?? '').startsWith('Bearer ')) {
+      entry.sigv4 = verifySigV4(entry, {
+        secrets: state.awsSecrets,
+        region: BEDROCK_REGION,
+        service: 'bedrock',
+      });
+      if (entry.sigv4 !== 'valid' && (state.scenario ?? 'text') !== 'auth_echo') {
+        json(
+          res,
+          403,
+          errorBody(
+            'bedrock',
+            'InvalidSignatureException',
+            'The request signature we calculated does not match the signature you provided.',
+          ),
+        );
+        return;
+      }
     }
     const script = scripts.get(body?.model);
     if (script) {
@@ -448,13 +643,7 @@ export async function startFakeModel(options = {}) {
       } else if (scripted.error) {
         json(res, scripted.error.status, errorBody(format, 'api_error', scripted.error.message));
       } else {
-        (format === 'anthropic' ? replyAnthropic : replyOpenAI)(
-          res,
-          'scripted',
-          body,
-          seen,
-          scripted,
-        );
+        REPLIES[format](res, 'scripted', body, seen, scripted);
       }
       return;
     }
@@ -486,6 +675,10 @@ export async function startFakeModel(options = {}) {
     setRedirectTo(origin) {
       state.redirectTo = origin;
     },
+    /** A signing key the Bedrock route accepts until the next reset. */
+    trustAwsKey(accessKeyId, secretAccessKey) {
+      state.awsSecrets.set(accessKeyId, secretAccessKey);
+    },
     reset() {
       requests.length = 0;
       scripts.clear();
@@ -493,6 +686,7 @@ export async function startFakeModel(options = {}) {
       state.hits = 0;
       state.scriptBytes = 0;
       state.scenario = options.scenario ?? null;
+      state.awsSecrets.clear();
     },
     close() {
       return new Promise((resolve) => {

@@ -2,8 +2,6 @@
 // bytes, starts nothing, and leaves every other tenant alone. Real PostgreSQL and real roles, with a store in
 // memory, and archives from fixtures/archive-builder.ts until `export` lands.
 //
-// Written and typechecked, and unverified: it needs migrations 0300 and 0301 in the journal, which the final merge
-// stitches, and a database. Nobody should read this as having passed.
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -81,9 +79,11 @@ class MemoryStore {
 
 describe('importing an organization archive', () => {
   let app: ReturnType<typeof openAppDatabase>;
+  let serviceDatabase: ReturnType<typeof openAppDatabase>;
   let su: pg.Client;
   let auth: pg.Client;
   const db = () => app.db;
+  const workerDb = () => serviceDatabase.db;
   const recipient = testRecipient();
 
   const makeUser = async (label: string) => {
@@ -132,7 +132,7 @@ describe('importing an organization archive', () => {
     const view = await requestOrganizationImport(db(), owner);
     const built = buildArchive(recipient, spec);
     const result = await runOrganizationImport(
-      db(),
+      workerDb(),
       createServiceContext(owner.organizationId),
       {
         importId: view.id,
@@ -149,6 +149,7 @@ describe('importing an organization archive', () => {
 
   beforeAll(async () => {
     app = openAppDatabase(urls.app());
+    serviceDatabase = openAppDatabase(urls.worker());
     su = new pg.Client({ connectionString: urls.superuser() });
     auth = new pg.Client({ connectionString: urls.auth() });
     await su.connect();
@@ -157,6 +158,7 @@ describe('importing an organization archive', () => {
 
   afterAll(async () => {
     await app.close();
+    await serviceDatabase.close();
     await su.end();
     await auth.end();
   });
@@ -388,7 +390,7 @@ describe('importing an organization archive', () => {
       await store.put(ledgerKeyFor(entry), serializeLedgerEntry(entry));
       const view = await requestOrganizationImport(db(), owner);
       const result = await runOrganizationImport(
-        db(),
+        workerDb(),
         createServiceContext(owner.organizationId),
         {
           importId: view.id,
@@ -490,7 +492,7 @@ describe('importing an organization archive', () => {
         ).rejects.toMatchObject({ code: 'FORBIDDEN' });
         await expect(
           runOrganizationImport(
-            db(),
+            workerDb(),
             context,
             {
               importId,
@@ -517,7 +519,7 @@ describe('importing an organization archive', () => {
       const { view, built } = await imported(owner, spec);
       await expect(
         runOrganizationImport(
-          db(),
+          workerDb(),
           createServiceContext(owner.organizationId),
           {
             importId: view.id,
@@ -530,6 +532,24 @@ describe('importing an organization archive', () => {
       await expect(requestOrganizationImport(db(), owner)).rejects.toMatchObject({
         code: 'IMPORT_ALREADY_USED',
       });
+    });
+
+    it('refuses a populated target when the owner cannot read the Work Unit rows', async () => {
+      const owner = await makeOwner('owner');
+      await createWorkUnit(db(), owner, { title: 'Hidden Work Unit' });
+      await su.query(
+        'create policy test_import_hidden_work on work.work_units as restrictive for select to ensemus_app using (false)',
+      );
+      try {
+        expect(await rows(owner, (tx) => tx.select({ id: workUnits.id }).from(workUnits))).toEqual(
+          [],
+        );
+        await expect(requestOrganizationImport(db(), owner)).rejects.toMatchObject({
+          code: 'IMPORT_TARGET_NOT_EMPTY',
+        });
+      } finally {
+        await su.query('drop policy test_import_hidden_work on work.work_units');
+      }
     });
 
     it('a target with anything in it, when asked and again when run', async () => {
@@ -550,7 +570,7 @@ describe('importing an organization archive', () => {
       await createWorkUnit(db(), late, { title: 'Arrived in between' });
       const { spec } = sourceTenant('Late');
       const result = await runOrganizationImport(
-        db(),
+        workerDb(),
         createServiceContext(late.organizationId),
         {
           importId: view.id,
@@ -572,7 +592,7 @@ describe('importing an organization archive', () => {
       });
       await expect(
         runOrganizationImport(
-          db(),
+          workerDb(),
           createServiceContext(owner.organizationId),
           {
             importId,
@@ -597,7 +617,7 @@ describe('importing an organization archive', () => {
       const built = buildArchive(recipient, spec);
       const store = new MemoryStore();
       const failing = await runOrganizationImport(
-        db(),
+        workerDb(),
         createServiceContext(owner.organizationId),
         {
           importId: view.id,
@@ -624,7 +644,7 @@ describe('importing an organization archive', () => {
         code: 'IMPORT_TARGET_NOT_EMPTY',
       });
       const resumed = await runOrganizationImport(
-        db(),
+        workerDb(),
         createServiceContext(owner.organizationId),
         {
           importId: view.id,

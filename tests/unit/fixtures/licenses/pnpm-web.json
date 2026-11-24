@@ -1,0 +1,53 @@
+{
+  "MIT": [
+    {
+      "name": "shared-lib",
+      "versions": ["1.0.0", "2.0.0"],
+      "paths": [
+        "C:\\Users\\Fixture.Person\\repo\\node_modules\\.pnpm\\shared-lib@1.0.0\\node_modules\\shared-lib",
+        "C:\\Users\\Fixture.Person\\repo\\node_modules\\.pnpm\\shared-lib@2.0.0\\node_modules\\shared-lib"
+      ],
+      "license": "MIT",
+      "homepage": "https://example.invalid/shared-lib",
+      "description": "A generated package with two versions."
+    }
+  ],
+  "Unknown": [
+    {
+      "name": "no-metadata",
+      "versions": ["0.1.0"],
+      "paths": [
+        "C:\\Users\\Fixture.Person\\repo\\node_modules\\.pnpm\\no-metadata@0.1.0\\node_modules\\no-metadata"
+      ],
+      "license": "Unknown",
+      "homepage": "file:///C:/Users/Fixture.Person/repo/no-metadata",
+      "description": "Its homepage is a path on the machine that built it."
+    },
+    {
+      "name": "unionfs",
+      "versions": ["4.6.0"],
+      "paths": [
+        "C:\\Users\\Fixture.Person\\repo\\node_modules\\.pnpm\\unionfs@4.6.0\\node_modules\\unionfs"
+      ],
+      "license": "Unknown"
+    }
+  ],
+  "LGPL-3.0-or-later": [
+    {
+      "name": "@img/fixture-native",
+      "versions": ["1.2.3"],
+      "paths": [
+        "C:\\Users\\Fixture.Person\\repo\\node_modules\\.pnpm\\@img+fixture-native@1.2.3\\node_modules\\@img\\fixture-native"
+      ],
+      "license": "LGPL-3.0-or-later"
+    }
+  ],
+  "Internal": [
+    {
+      "name": "@ensemus/fixture-first-party",
+      "versions": ["0.0.0"],
+      "paths": ["/home/fixture.person/repo/packages/fixture-first-party"],
+      "license": "UNLICENSED"
+    }
+  ]
+}

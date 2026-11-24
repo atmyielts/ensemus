@@ -211,8 +211,9 @@ test.describe('company sign-in changing while a custom editor is open', () => {
       await page.goto(`/o/${f.organization}/objects/new`);
       await page.getByLabel('Type name', { exact: true }).fill('My held new type');
       await page
-        .getByRole('combobox', { name: 'Minimum sensitivity', exact: true })
-        .selectOption('internal');
+        .getByRole('group', { name: 'Who can see its records', exact: true })
+        .getByRole('radio', { name: /^Internal\b/ })
+        .check();
       await page
         .getByRole('group', { name: 'Field 1', exact: true })
         .getByLabel('Label', { exact: true })
@@ -253,7 +254,7 @@ test.describe('company sign-in changing while a custom editor is open', () => {
         .getByRole('group', { name: 'Field 2', exact: true })
         .getByLabel('Label', { exact: true })
         .fill('Second field');
-      await page.getByRole('button', { name: 'Create type', exact: true }).click();
+      await page.getByRole('button', { name: 'Create record type', exact: true }).click();
       await expect(
         page.getByRole('heading', { name: 'My held new type', exact: true }),
       ).toBeVisible();

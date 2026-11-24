@@ -49,7 +49,7 @@ describe('what the pages say', () => {
   afterAll(() => su?.end());
 
   const page = (id: string) => workPage(org, id);
-  const home = (person: Person) => read(`/o/${org}`, person.jar);
+  const home = (person: Person, view = 'assigned') => read(`/o/${org}?view=${view}`, person.jar);
 
   async function askForReview(id: string) {
     const here = page(id);
@@ -69,12 +69,12 @@ describe('what the pages say', () => {
       const { status, html } = await read(`/o/${own}`, person.jar);
       expect(status).toBe(200);
       const main = mainOf(html);
-      expect(main).toContain('Hello, Nia');
+      expect(main).toContain('My work');
       expect(main).toContain(
         'You are not on any open work. Start by describing the outcome you want.',
       );
       expect(main).toContain(`href="/o/${own}/work/new"`);
-      expect(main).not.toContain('Needs attention');
+      expect(main).not.toContain('Needs you');
       expect(main).not.toContain('Waiting for your approval');
     });
 
@@ -93,22 +93,21 @@ describe('what the pages say', () => {
       const done = await make('Finished', { dueAt: '2020-01-02' });
       await move(person, org, done, 'ready', 'running', 'verifying', 'completed');
 
-      const { html } = await home(person);
-      const attention = sectionOf(html, 'attention-heading');
+      const attention = mainOf((await home(person, 'attention')).html);
       for (const title of ['Blocked', 'Failed', 'Late']) {
         expect(attention).toContain(`${title} ${suffix}`);
       }
-      expect(attention).toContain('Was due 2 Jan 2020');
+      expect(attention).toContain('aria-label="Was due 2 Jan 2020"');
       expect(attention).toContain('You own this');
       for (const title of ['Later', 'Quiet', 'Finished']) {
         expect(attention).not.toContain(`${title} ${suffix}`);
       }
-      const mine = sectionOf(html, 'mine-heading');
-      for (const title of ['Later', 'Quiet']) {
+      const mine = mainOf((await home(person)).html);
+      for (const title of ['Blocked', 'Failed', 'Late', 'Later', 'Quiet']) {
         expect(mine).toContain(`${title} ${suffix}`);
       }
-      // Already listed under Needs attention, straight above, or finished.
-      for (const title of ['Blocked', 'Failed', 'Late', 'Finished']) {
+      // Each view is independent; completed work belongs in the full work history.
+      for (const title of ['Finished']) {
         expect(mine).not.toContain(`${title} ${suffix}`);
       }
     });
@@ -124,19 +123,47 @@ describe('what the pages say', () => {
       expect((await home(owner)).html).toContain(title);
       const seen = await home(member);
       expect(seen.html).not.toContain(title);
-      expect(sectionOf(seen.html, 'attention-heading')).not.toContain(internal.slice(-20));
+      expect(mainOf(seen.html)).not.toContain(internal);
+      expect(mainOf((await home(member, 'attention')).html)).not.toContain(internal);
     });
 
     it('lists an approval waiting on this person, and not on anyone else', async () => {
       const title = `Decide me ${randomUUID()}`;
       const id = await createWork(owner, org, { title });
       const { path } = await askForReview(id);
-      const waiting = sectionOf((await home(reviewer)).html, 'approvals-heading');
+      const waiting = sectionOf((await home(reviewer, 'reviews')).html, 'review-queue-heading');
       expect(waiting).toContain(title);
       expect(waiting).toContain(`href="${path}"`);
-      expect(waiting).toContain('Expires ');
-      expect(sectionOf((await home(member)).html, 'approvals-heading')).not.toContain(title);
-      expect(sectionOf((await home(owner)).html, 'approvals-heading')).not.toContain(title);
+      expect(waiting).toContain('Decide by ');
+      expect(mainOf((await home(member, 'reviews')).html)).not.toContain(title);
+      expect(mainOf((await home(owner, 'reviews')).html)).not.toContain(title);
+    });
+  });
+
+  describe('work queue previews', () => {
+    it('serves an authorized selection without scripts and refuses other queues or tenants', async () => {
+      const title = `Preview ${randomUUID()}`;
+      const id = await createWork(owner, org, { title, classification: 'restricted' });
+      const selected = `/o/${org}?view=assigned&selected=${id}`;
+      const own = await read(selected, owner.jar);
+      expect(own.status).toBe(200);
+      expect(mainOf(own.html)).toContain('aria-label="Selected work"');
+      expect(mainOf(own.html)).toContain(title);
+      expect(mainOf(own.html)).toContain(`href="${page(id)}"`);
+      const foreignPerson = await signUp('Foreign Preview Reader');
+      const foreign = await createOrganization(foreignPerson, `Other ${randomUUID()}`);
+      for (const [path, person] of [
+        [selected, member],
+        [`/o/${foreign}?selected=${id}`, foreignPerson],
+        [`/o/${org}?view=reviews&selected=${id}`, owner],
+        [`/o/${org}?selected=invalid`, owner],
+        [`/o/${org}?selected=${randomUUID()}`, owner],
+      ] as const) {
+        const refused = await read(path, person.jar);
+        expect(refused.status).toBe(404);
+        expect(refused.html).not.toContain(title);
+        expect(refused.html).not.toContain('aria-label="Selected work"');
+      }
     });
   });
 
@@ -194,7 +221,7 @@ describe('what the pages say', () => {
       const refused = await post(page(b), owner.jar, form, { prerequisiteId: a });
       expect(locationOf(refused)).toBe(`${page(b)}?error=DEPENDENCY_CYCLE`);
       expect((await read(locationOf(refused), owner.jar)).html).toContain(
-        'That dependency would create a loop.',
+        'That would make these pieces of work wait for each other forever, so it was not added.',
       );
     });
 
@@ -204,7 +231,7 @@ describe('what the pages say', () => {
       expect(status).toBe(200);
       const main = sectionOf(html, 'dependencies-heading');
       // The section is there and only its controls are not, rather than the page being something else.
-      expect(main).toContain('Has to finish first');
+      expect(main).toContain('Waits for');
       expect(main).not.toContain('Add dependency');
     });
   });
@@ -290,7 +317,9 @@ describe('what the pages say', () => {
         [approvalId],
       );
       const open = await read(path, reviewer.jar);
-      expect(summary(open.html)).toContain('<dt>Valid until</dt><dd>4 Mar 2031, 05:06 UTC</dd>');
+      expect(summary(open.html)).toMatch(
+        /<dt>Decide by<\/dt><dd><time[^>]*>4 Mar 2031, 05:06 UTC<\/time><\/dd>/,
+      );
       expect(statusOn(open.html)).toBe('Waiting');
 
       await su.query(
@@ -298,7 +327,9 @@ describe('what the pages say', () => {
         [approvalId],
       );
       const late = await read(path, reviewer.jar);
-      expect(summary(late.html)).toContain('<dt>Expired</dt><dd>4 Mar 2021, 05:06 UTC</dd>');
+      expect(summary(late.html)).toMatch(
+        /<dt>Expired<\/dt><dd><time[^>]*>4 Mar 2021, 05:06 UTC<\/time><\/dd>/,
+      );
       expect(statusOn(late.html)).toBe('Expired');
       expect(mainOf(late.html)).toContain('this can no longer be approved');
       expect(formsWithDecision(late.html)).toBe(false);
@@ -386,10 +417,14 @@ describe('what the pages say', () => {
       expect(top).toContain('>New<');
     });
 
-    it('says nothing goes out by email yet', async () => {
-      expect((await read(`/o/${org}/inbox`, reviewer.jar)).html).toContain(
-        'nothing is sent by email yet',
-      );
+    it('links to email settings and explains when mail delivery is unavailable', async () => {
+      const destination = `/o/${org}/notifications`;
+      const inbox = mainOf((await read(`/o/${org}/inbox`, reviewer.jar)).html);
+      expect(inbox).toMatch(new RegExp(`<a[^>]*href="${destination}"[^>]*>Email settings</a>`));
+      const settings = await read(destination, reviewer.jar);
+      expect(settings.status).toBe(200);
+      if (process.env.ENSEMUS_MAIL_ENABLED !== 'true')
+        expect(mainOf(settings.html)).toContain('Email isn’t set up here yet');
     });
   });
 });

@@ -1,4 +1,7 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 
 import { useActionState, useEffect, useRef, useState } from 'react';
 import { sameContent, type WorkDraft, type WorkFormState } from '@/lib/form-state';
@@ -104,26 +107,26 @@ export function EditWorkForm({
           <dl>
             <dt>Title</dt>
             <dd>{conflict.title}</dd>
-            <dt>Objective</dt>
+            <dt>Details</dt>
             <dd className="pre-wrap">{conflict.objective || 'None'}</dd>
             <dt>Due date</dt>
             <dd>{conflict.dueAt || 'None'}</dd>
           </dl>
           {changedUnderneath && (
-            <button className="quiet" type="button" onClick={() => setBase(current)}>
+            <button className="secondary" type="button" onClick={() => setBase(current)}>
               Keep my text
             </button>
           )}
         </div>
       )}
-      <label>
+      <Label>
         Title
         {state.field === 'title' && (
           <small className="field-error" id="edit-title-error">
             Write what should be true when this is done.
           </small>
         )}
-        <input
+        <Input
           name="title"
           required
           maxLength={300}
@@ -132,25 +135,25 @@ export function EditWorkForm({
           aria-invalid={state.field === 'title'}
           aria-describedby={state.field === 'title' ? 'edit-title-error' : undefined}
         />
-      </label>
-      <label>
-        Objective
-        <textarea
+      </Label>
+      <Label>
+        Details
+        <Textarea
           name="objective"
           maxLength={10000}
           value={draft.objective}
           onChange={set('objective')}
         />
-      </label>
-      <label>
+      </Label>
+      <Label>
         Due date
-        <small>The whole of that day, in UTC.</small>
+        <small>Optional.</small>
         {state.field === 'dueAt' && (
           <small className="field-error" id="edit-due-error">
             That is not a date.
           </small>
         )}
-        <input
+        <Input
           name="dueAt"
           type="date"
           value={draft.dueAt}
@@ -158,7 +161,7 @@ export function EditWorkForm({
           aria-invalid={state.field === 'dueAt'}
           aria-describedby={state.field === 'dueAt' ? 'edit-due-error' : undefined}
         />
-      </label>
+      </Label>
       <div>
         <SubmitButton>Save changes</SubmitButton>
       </div>

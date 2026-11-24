@@ -133,6 +133,17 @@ export const test = base.extend<
         // per address are not shared between tests.
         extraHTTPHeaders: { 'x-ensemus-test-client': aClientAddress() },
       });
+      // Theme is an explicit app preference. Emulating only the OS color scheme would silently
+      // audit the light interface twice. Scripting-off pages retain the documented light fallback.
+      if (options.javaScriptEnabled !== false && options.colorScheme)
+        await context.addInitScript(
+          ({ theme, origin }) => {
+            // Audit-created blank/sandboxed frames have no storage and are not app documents.
+            if (window.top === window && location.origin === origin)
+              localStorage.setItem('ensemus.ui.theme', theme);
+          },
+          { theme: options.colorScheme, origin: ORIGIN },
+        );
       contexts.push(context);
       await guard(context, outsideRequests, scriptErrors);
       if (person) await addSession(context, person);

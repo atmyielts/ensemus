@@ -19,14 +19,11 @@ import {
   type Values,
   visit,
 } from '../helpers/forms';
+import { statusOn } from '../helpers/rendered-status';
 import { compose, urls } from '../helpers/stack';
 
 const PLAN_TIMEOUT = 45_000;
 const BASE_URL = 'https://x.invalid';
-
-/** Status as the page states it to a person, not as the database holds it. */
-const statusOn = (html: string) =>
-  /<dt>Status<\/dt><dd><span class="badge[^"]*">([^<]+)</.exec(html)?.[1];
 
 const locationOf = (response: Response) => response.headers.get('location') ?? '';
 
@@ -137,11 +134,11 @@ describe('the product through its forms', () => {
       const { status, html } = await read('/', person.jar);
       expect(status).toBe(200);
       expect(html).toContain('Who is responsible for your data');
-      expect(html).toContain('AI features are not active yet');
+      expect(html).toContain('AI features use models approved for your organization.');
       const mode = process.env.ENSEMUS_MODE ?? 'sovereign';
       const expected: Record<string, string> = {
         cloud: 'Ensemus supplies the approved AI model providers',
-        byom: 'This is not zero-knowledge',
+        byom: 'Ensemus still processes your data in the hosted service',
         sovereign: 'on infrastructure it controls',
       };
       expect(html).toContain(expected[mode]);
@@ -155,7 +152,7 @@ describe('the product through its forms', () => {
       const home = await read(`/o/${id}`, person.jar);
       expect(home.status).toBe(200);
       expect(home.html).toContain(name);
-      expect(home.html).toContain('Hello, Second');
+      expect(home.html).toContain('My work');
       expect(await visit(`/o/${id}/work/new`, person.jar).then((r) => r.status)).toBe(200);
     });
 
@@ -176,7 +173,7 @@ describe('the product through its forms', () => {
       expect(html).toContain(first);
       expect(html).toContain(second);
       expect(html).toContain(`href="${locationOf(created)}"`);
-      expect(html).toContain('>Owner<');
+      expect(html).toContain('You are an owner');
     });
 
     it('makes one organization from one form, however many times it is sent', async () => {
@@ -478,7 +475,7 @@ describe('the product through its forms', () => {
       // With nothing asked for, the record says plainly whose word it rests on.
       const done = mainOf((await read(page, owner.jar)).html).replaceAll('<!-- -->', '');
       expect(done).toContain(
-        `Confirmed by ${owner.name} as accountable owner. No evidence was requested.`,
+        `Confirmed by ${owner.name} as owner. No file or review was asked for.`,
       );
       expect(done).not.toContain('Its results are under Files');
     });
@@ -499,7 +496,7 @@ describe('the product through its forms', () => {
       const theirs = await read(page, member.jar);
       expect(theirs.html).not.toContain('Confirm this is done');
       expect(mainOf(theirs.html).replaceAll('<!-- -->', '')).toContain(
-        `Only ${owner.name}, as accountable owner, can confirm this is done.`,
+        `Only ${owner.name}, as owner, can confirm this is done.`,
       );
       const back = await formOn(page, member.jar, toStatus('running'));
       const forged = await post(page, member.jar, back, { to: 'completed' });
@@ -531,7 +528,9 @@ describe('the product through its forms', () => {
       for (const to of ['ready', 'running', 'verifying', 'completed']) await move(owner, id, to);
       const api = await visit(`/api/v1/organizations/${org}/work-units/${id}`, owner.jar);
       expect(await api.json()).toMatchObject({ completion: { basis: 'evidence' } });
-      expect((await read(workPage(id), owner.jar)).html).not.toContain('No evidence was requested');
+      expect((await read(workPage(id), owner.jar)).html).not.toContain(
+        'No file or review was asked for',
+      );
     });
 
     it('needs a reason to try failed work again, even from a forged form', async () => {
@@ -677,7 +676,7 @@ describe('the product through its forms', () => {
       const title = `Title ${randomUUID()}`;
       const id = await createWork(owner, { title });
       for (const [path, expected] of [
-        [`/o/${org}`, 'Home | Ensemus'],
+        [`/o/${org}`, 'My work | Ensemus'],
         [`/o/${org}/work`, 'Work | Ensemus'],
         [`/o/${org}/approvals`, 'Approvals | Ensemus'],
         [people(org), 'People and teams | Ensemus'],
@@ -697,8 +696,7 @@ describe('the product through its forms', () => {
           .replace(/\s+/g, ' ')
           .trim(),
       }));
-      // Work is a group in the one navigation model (navigation-model.ts); its list is "All work".
-      expect(currentLinks).toContainEqual({ href: `/o/${org}/work`, label: 'All work' });
+      expect(currentLinks).toContainEqual({ href: `/o/${org}/work`, label: 'Work' });
     });
 
     it('does not offer switching organization to someone with only one', async () => {
@@ -1051,8 +1049,8 @@ describe('the product through its forms', () => {
       expect(statusOn(shown.html)).toBe('Waiting');
       // In plain words: the work by name, and what is at stake. Internal names only on request.
       const visible = mainOf(shown.html).replace(/<details[\s\S]*?<\/details>/g, '');
-      expect(visible).toMatch(/<dt>Destination<\/dt><dd>[\s\S]*?<a[^>]*>[^<]*Approve /);
-      expect(visible).toContain('<dt>Risk</dt>');
+      expect(visible).toMatch(/<dt>Applies to<\/dt><dd>[\s\S]*?<a[^>]*>[^<]*Approve /);
+      expect(visible).toContain('<dt>What could happen</dt>');
       expect(visible).toContain('<dt>What this affects</dt>');
       expect(visible).not.toContain(`work_unit:${id}`);
       expect(visible).not.toContain('work.review');
@@ -1161,7 +1159,9 @@ describe('the product through its forms', () => {
         const { html } = await read(page, owner.jar);
         expect(statusOn(html)).toBe('Waiting for approval');
         expect(html).toContain('so it stops at the next periodic check');
-        expect(html).toContain('To keep it going, ask someone else below before then.');
+        expect(html).toContain(
+          'To keep it going, ask someone else under Checks and reviews before then.',
+        );
         expect(html).not.toContain('It stays paused until someone decides');
         expect((await read(approval, owner.jar)).html).toContain(
           'unless someone asks for a new review first',
@@ -1181,7 +1181,7 @@ describe('the product through its forms', () => {
         const { page } = await overdueHold();
         const { html } = await read(page, reviewer.jar);
         expect(html).toContain('so it stops at the next periodic check');
-        expect(html).not.toContain('ask someone else below');
+        expect(html).not.toContain('ask someone else under Checks and reviews');
       });
     });
 

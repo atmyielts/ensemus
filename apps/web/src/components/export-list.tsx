@@ -112,7 +112,7 @@ export function ExportList({
               <p className="gap-above">
                 {/* A plain link, so it works with no JavaScript, and is never fetched ahead of time. */}
                 <a
-                  className="button"
+                  className="button secondary"
                   href={`/api/v1/organizations/${organizationId}/exports/${item.id}/archive`}
                   download
                 >

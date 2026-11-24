@@ -80,6 +80,7 @@ function ledgerTransport(objects: Map<string, Buffer>): ObjectStore & LedgerRead
 
 describe('knowledge source ledger reapply', () => {
   let database: ReturnType<typeof openAppDatabase>,
+    worker: ReturnType<typeof openAppDatabase>,
     agent: ReturnType<typeof openAgentDatabase>,
     auth: pg.Client,
     owner: TenantContext;
@@ -88,6 +89,8 @@ describe('knowledge source ledger reapply', () => {
   let store: ObjectStore & LedgerReader;
   beforeAll(async () => {
     database = openAppDatabase(urls.app());
+    // Restore and Work activities use the native platform-worker login in production.
+    worker = openAppDatabase(urls.worker());
     agent = openAgentDatabase(urls.agent());
     store = nativeKnowledgeStore(database.db, transport);
     auth = new pg.Client({ connectionString: urls.auth() });
@@ -108,6 +111,7 @@ describe('knowledge source ledger reapply', () => {
   afterAll(async () => {
     await auth?.end();
     await agent?.close();
+    await worker?.close();
     await database?.close();
   });
   const fixture = async () => {
@@ -129,7 +133,7 @@ describe('knowledge source ledger reapply', () => {
   };
   const reapply = (confirmed?: ReadonlySet<string>) =>
     reapplyTombstoneLedger(
-      database.db,
+      worker.db,
       store,
       createServiceContext,
       (error) => {
@@ -249,7 +253,7 @@ describe('knowledge source ledger reapply', () => {
     });
     await requestExecution(database.db, owner, work.id);
     const run = { organizationId: owner.organizationId, workUnitId: work.id, runId: randomUUID() },
-      activities = createActivities({ database: database.db, store });
+      activities = createActivities({ database: worker.db, store });
     expect(await activities.prepareWork(run)).toMatchObject({ status: 'running' });
     const artifact = { id: (await activities.produceChecklistArtifact(run)).artifactId };
     const entry: LedgerEntry = {
@@ -271,7 +275,7 @@ describe('knowledge source ledger reapply', () => {
     const confirmed = new Set([ledgerRef(entry)]),
       perform = (derivedArtifacts?: DerivedArtifactLifecycle) =>
         reapplyTombstoneLedger(
-          database.db,
+          worker.db,
           store,
           createServiceContext,
           (error) => failures.push(error),
@@ -339,7 +343,7 @@ describe('knowledge source ledger reapply', () => {
       isPhysicallyAbsent: async (objectKey) => !objects.has(objectKey),
     };
     const production = createObjectDeletionLifecycle({
-      database: database.db,
+      database: worker.db,
       store: purgeCapable,
     });
     expect((await perform(production.derived)).failed).toBe(1);
@@ -436,7 +440,7 @@ describe('knowledge source ledger reapply', () => {
     });
     await requestExecution(database.db, tenant, work.id);
     const run = { organizationId: tenant.organizationId, workUnitId: work.id, runId: randomUUID() },
-      activities = createActivities({ database: database.db, store: local });
+      activities = createActivities({ database: worker.db, store: local });
     expect(await activities.prepareWork(run)).toMatchObject({ status: 'running' });
     const artifactId = (await activities.produceChecklistArtifact(run)).artifactId;
     const key = `${tenant.organizationId}/artifacts/${artifactId}`;
@@ -448,11 +452,11 @@ describe('knowledge source ledger reapply', () => {
       deletedAt: new Date(),
     };
     await local.put(ledgerKeyFor(entry), serializeLedgerEntry(entry), 'application/json');
-    const production = createObjectDeletionLifecycle({ database: database.db, store: transport });
+    const production = createObjectDeletionLifecycle({ database: worker.db, store: transport });
     const failures: unknown[] = [];
     const perform = (derivedArtifacts?: DerivedArtifactLifecycle) =>
       reapplyTombstoneLedger(
-        database.db,
+        worker.db,
         local,
         createServiceContext,
         (error) => failures.push(error),
@@ -600,7 +604,7 @@ describe('knowledge source ledger reapply', () => {
     };
     const performWith = (reader: ObjectStore & LedgerReader) =>
       reapplyTombstoneLedger(
-        database.db,
+        worker.db,
         reader,
         createServiceContext,
         (error) => failures.push(error),

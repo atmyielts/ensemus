@@ -36,6 +36,7 @@ import { PORTABILITY_INVENTORY, PORTABILITY_INVENTORY_VERSION } from '@ensemus/d
 
 describe('joined portable definitions and restore audits', () => {
   let app: ReturnType<typeof openAppDatabase>, auth: pg.Client;
+  let serviceDatabase: ReturnType<typeof openAppDatabase>;
   const owner = async () => {
     const user = randomUUID();
     await auth.query('insert into identity.users(id,name,email) values($1,$2,$3)', [
@@ -52,11 +53,13 @@ describe('joined portable definitions and restore audits', () => {
   };
   beforeAll(async () => {
     app = openAppDatabase(urls.app());
+    serviceDatabase = openAppDatabase(urls.worker());
     auth = new pg.Client({ connectionString: urls.auth() });
     await auth.connect();
   });
   afterAll(async () => {
     await app.close();
+    await serviceDatabase.close();
     await auth.end();
   });
   const importRecords = async (
@@ -422,21 +425,23 @@ describe('joined portable definitions and restore audits', () => {
       sourceRelease: 'test-only',
       retentionHours: 1,
     };
-    await beginExport(app.db, service, { exportId }, deps);
+    await beginExport(serviceDatabase.db, service, { exportId }, deps);
     expect(
       await withTenantTx(app.db, service, (tx) => isExportEpochCurrent(tx, service, exportId)),
     ).toBe(true);
-    await withTenantTx(app.db, service, (tx) =>
+    const statusUpdate = await withTenantTx(serviceDatabase.db, service, (tx) =>
       tx.execute(
         sql`update work.work_units set status='ready',version=version+1,updated_at=now() where id=${work.id}::uuid`,
       ),
     );
+    expect(statusUpdate.rowCount).toBe(1);
     expect((await read()).rows[0]?.epoch).toBe(before);
-    await withTenantTx(app.db, service, (tx) =>
+    const classificationUpdate = await withTenantTx(serviceDatabase.db, service, (tx) =>
       tx.execute(
         sql`update work.work_units set classification='restricted',version=version+1,updated_at=now() where id=${work.id}::uuid`,
       ),
     );
+    expect(classificationUpdate.rowCount).toBe(1);
     expect(
       await withTenantTx(app.db, service, (tx) => isExportEpochCurrent(tx, service, exportId)),
     ).toBe(false);
@@ -467,11 +472,16 @@ describe('joined portable definitions and restore audits', () => {
         if (!bytes) throw new Error('test missing');
         if (revoke) {
           revoke = false;
-          await withTenantTx(app.db, service, async (tx) => {
-            await tx.execute(sql`set local statement_timeout='5s'`);
-            await tx.execute(sql`update work.work_units set classification='restricted',version=version+1,updated_at=now()
+          const classificationUpdate = await withTenantTx(
+            serviceDatabase.db,
+            service,
+            async (tx) => {
+              await tx.execute(sql`set local statement_timeout='5s'`);
+              return tx.execute(sql`update work.work_units set classification='restricted',version=version+1,updated_at=now()
             where id=${work.id}::uuid`);
-          });
+            },
+          );
+          expect(classificationUpdate.rowCount).toBe(1);
         }
         return bytes;
       },
@@ -491,13 +501,13 @@ describe('joined portable definitions and restore audits', () => {
       sourceRelease: 'test-only',
       retentionHours: 1,
     };
-    let step = await beginExport(app.db, service, { exportId }, deps);
+    let step = await beginExport(serviceDatabase.db, service, { exportId }, deps);
     while (step.state === 'continue')
-      step = await exportNextBatch(app.db, store, service, { exportId }, deps);
+      step = await exportNextBatch(serviceDatabase.db, store, service, { exportId }, deps);
     expect(step.state).toBe('finished');
-    step = await finishExport(app.db, store, service, { exportId }, deps);
+    step = await finishExport(serviceDatabase.db, store, service, { exportId }, deps);
     while (step.state === 'continue')
-      step = await finishExport(app.db, store, service, { exportId }, deps);
+      step = await finishExport(serviceDatabase.db, store, service, { exportId }, deps);
     expect(step.state).toBe('finished');
     const download = await openExportArchive(app.db, store, a, exportId);
     revoke = true;

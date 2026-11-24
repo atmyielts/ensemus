@@ -2,7 +2,7 @@
 // JavaScript off, against built images.
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createWork, locationOf, move, sectionOf, workPage } from '../helpers/flows';
+import { createWork, locationOf, mainOf, move, sectionOf, workPage } from '../helpers/flows';
 import {
   createOrganization,
   type Form,
@@ -124,10 +124,10 @@ describe('what forms and pages do', () => {
     for (let i = 0; i < 13; i += 1) {
       await createWork(person, org, { title: `Late ${i} ${randomUUID()}`, dueAt: '2020-01-02' });
     }
-    const mine = sectionOf((await read(`/o/${org}`, person.jar)).html, 'mine-heading');
+    const mine = mainOf((await read(`/o/${org}`, person.jar)).html);
     expect(mine).not.toContain('Everything you are on is listed above');
-    expect(mine).toContain('there is more');
-    expect(mine).toContain(`href="/o/${org}/work"`);
+    expect(mine).toContain('More work is available.');
+    expect(mine).toMatch(new RegExp(`<a[^>]*href="/o/${org}/work"[^>]*>Open all work</a>`));
   });
 
   describe('the sentence about a plan', () => {
@@ -163,11 +163,11 @@ describe('what forms and pages do', () => {
       new RegExp(`<tr[^>]*>(?:(?!</tr>)[\\s\\S])*/work/${id}"(?:(?!</tr>)[\\s\\S])*</tr>`)
         .exec(html)?.[0]
         .replaceAll('<!-- -->', '');
-    expect(html).toContain('>Owner</th>');
-    expect(html).toContain('>Evidence</th>');
-    expect(row(none)).toContain('Olive Owner');
-    expect(row(none)).toContain('None asked for');
-    expect(row(asked)).toContain('Mia Member');
+    // The owner is named under each title, labelled for screen readers; Done when has its own column.
+    expect(html).toMatch(/>\s*Done when\s*<\/th>/);
+    expect(row(none)).toContain('Owner: </span>Olive Owner');
+    expect(row(none)).toContain('Owner confirms');
+    expect(row(asked)).toContain('Owner: </span>Mia Member');
     expect(row(asked)).toContain('1 of 1 still needed');
 
     await submit(workPage(org, asked), member.jar, /name="file"/, {

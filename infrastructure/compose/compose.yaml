@@ -16,6 +16,10 @@
 # Sending email adds a way out, and only for installs that ask for it (ADR-027 D5). One service has
 # credentials and no route out, one has a route out and no credentials, and neither exists without
 # the `connectors` profile. With no profile nothing here can make an outbound attempt.
+#
+# Ensemus's own email (account recovery, invitations, notifications) follows the same rule under the
+# `mail` profile: the mail worker holds the relay credential and has no route out, and its gateway has a
+# route to one relay and no credential. The web tier only queues mail in PostgreSQL.
 name: ensemus
 
 x-secret-file: &restart
@@ -59,16 +63,59 @@ services:
       - valkey:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.11
       - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.12
     environment:
+      # The deployment's own OTLP/HTTP collector base. Empty keeps all exporters off.
+      ENSEMUS_OTEL_ENDPOINT: ${ENSEMUS_OTEL_ENDPOINT:-}
+      ENSEMUS_OTEL_SAMPLE_RATIO: ${ENSEMUS_OTEL_SAMPLE_RATIO:-}
+      ENSEMUS_OTEL_METRIC_INTERVAL_SECONDS: ${ENSEMUS_OTEL_METRIC_INTERVAL_SECONDS:-}
       ENSEMUS_MODE: ${ENSEMUS_MODE:-sovereign}
       ENSEMUS_PUBLIC_URL: ${ENSEMUS_PUBLIC_URL:-https://localhost:8443}
+      ENSEMUS_RELEASE:
+      ENSEMUS_TENANCY_TIER:
+      ENSEMUS_DEDICATED_ORGANIZATION_ID:
+      ENSEMUS_HOME_REGION:
+      ENSEMUS_CROSS_ORG_ENABLED: ${ENSEMUS_CROSS_ORG_ENABLED:-false}
       ENSEMUS_ALLOW_SIGNUP: ${ENSEMUS_ALLOW_SIGNUP:-false}
       ENSEMUS_CONNECTORS_ENABLED: ${ENSEMUS_CONNECTORS_ENABLED:-false}
+      # Business adapter metadata only in web; sockets remain confined to the connector worker.
+      ENSEMUS_EGRESS_GATEWAY_CRM: ${ENSEMUS_EGRESS_GATEWAY_CRM:-}
+      ENSEMUS_EGRESS_GATEWAY_TICKETING: ${ENSEMUS_EGRESS_GATEWAY_TICKETING:-}
+      ENSEMUS_EGRESS_GATEWAY_ACCOUNTING: ${ENSEMUS_EGRESS_GATEWAY_ACCOUNTING:-}
+      ENSEMUS_EGRESS_GATEWAY_MEETING_NOTES: ${ENSEMUS_EGRESS_GATEWAY_MEETING_NOTES:-}
+      # The public keys of the evaluators whose reports may publish an agent (AGENT-16). Unset means no
+      # report is accepted. Public only: the signing key belongs to CI or the agent worker, never to web.
+      ENSEMUS_EVALUATION_PUBLIC_KEYS: ${ENSEMUS_EVALUATION_PUBLIC_KEYS:-}
+      ENSEMUS_EVALUATION_REPORT_MAX_AGE_HOURS: ${ENSEMUS_EVALUATION_REPORT_MAX_AGE_HOURS:-}
+      # On only when the mail worker runs (the `mail` profile). Off, nobody is promised an email: password
+      # reset by email is not offered and an invitation is a link to copy. Mail queued either way waits
+      # in PostgreSQL and expires unsent if no worker comes.
+      ENSEMUS_MAIL_ENABLED: ${ENSEMUS_MAIL_ENABLED:-false}
+      # The operator's own Google and Microsoft apps, by public client ID only, to build the consent URL
+      # (ADR-038 D2). Unset offers only an admin's own app. The secrets go to the connector worker alone.
+      # Providers send the admin back to ENSEMUS_PUBLIC_URL/api/v1/oauth/callback, which must be registered.
+      ENSEMUS_GOOGLE_CLIENT_ID: ${ENSEMUS_GOOGLE_CLIENT_ID:-}
+      ENSEMUS_MICROSOFT_CLIENT_ID: ${ENSEMUS_MICROSOFT_CLIENT_ID:-}
       # Billing is for a hosted mode that names it on, and a Sovereign deployment refuses to start with it
       # (ADR-032 D1). Off unless set, here and in the worker, which must agree.
       ENSEMUS_BILLING_ENABLED: ${ENSEMUS_BILLING_ENABLED:-false}
+      # Catalog admission also checks the current company entitlement. Off until the operator enables it.
+      ENSEMUS_SKILL_CATALOG_ENABLED: ${ENSEMUS_SKILL_CATALOG_ENABLED:-false}
+      ENSEMUS_MARKETPLACE_ENABLED: ${ENSEMUS_MARKETPLACE_ENABLED:-false}
+      ENSEMUS_SANDBOX_ENABLED: ${ENSEMUS_SANDBOX_ENABLED:-false}
+      # Hosted checkout (ADR-032 D4a): public identifiers only, and none unless named. Keys are mounted files
+      # the connector worker alone reads. The web tier and the connector worker must agree.
+      ENSEMUS_CHECKOUT_PROVIDERS: ${ENSEMUS_CHECKOUT_PROVIDERS:-}
+      ENSEMUS_PAYME_ENVIRONMENT: ${ENSEMUS_PAYME_ENVIRONMENT:-}
+      ENSEMUS_PAYME_MERCHANT_ID: ${ENSEMUS_PAYME_MERCHANT_ID:-}
+      ENSEMUS_CLICK_ENVIRONMENT: ${ENSEMUS_CLICK_ENVIRONMENT:-}
+      ENSEMUS_CLICK_SERVICE_ID: ${ENSEMUS_CLICK_SERVICE_ID:-}
+      ENSEMUS_CLICK_MERCHANT_ID: ${ENSEMUS_CLICK_MERCHANT_ID:-}
+      ENSEMUS_PADDLE_ENVIRONMENT: ${ENSEMUS_PADDLE_ENVIRONMENT:-}
+      ENSEMUS_PADDLE_TAX_CATEGORY: ${ENSEMUS_PADDLE_TAX_CATEGORY:-}
+      # How long the checkout door waits for the connector worker's answer to Payme or Click.
+      ENSEMUS_CHECKOUT_REPLY_WAIT_MS: ${ENSEMUS_CHECKOUT_REPLY_WAIT_MS:-8000}
       DATABASE_URL_APP_FILE: /run/secrets/db_app_url
       OBJECT_STORAGE_ENDPOINT: http://objects:8333
-      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-ensemus}
       OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
       OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
       DATABASE_URL_AUTH_FILE: /run/secrets/db_auth_url
@@ -103,22 +150,30 @@ services:
       - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.12
       - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10
     environment:
+      # The deployment's own OTLP/HTTP collector base. Empty keeps all exporters off.
+      ENSEMUS_OTEL_ENDPOINT: ${ENSEMUS_OTEL_ENDPOINT:-}
+      ENSEMUS_OTEL_SAMPLE_RATIO: ${ENSEMUS_OTEL_SAMPLE_RATIO:-}
+      ENSEMUS_OTEL_METRIC_INTERVAL_SECONDS: ${ENSEMUS_OTEL_METRIC_INTERVAL_SECONDS:-}
       TEMPORAL_ADDRESS: temporal:7233
-      TEMPORAL_NAMESPACE: default
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
       TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
-      DATABASE_URL_APP_FILE: /run/secrets/db_app_url
+      # Its own login, a member of ensemus_app (ADR-039). The name keeps the code unchanged.
+      DATABASE_URL_APP_FILE: /run/secrets/db_worker_url
       OBJECT_STORAGE_ENDPOINT: http://objects:8333
-      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-ensemus}
       OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
       OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
       DATABASE_URL_SECRETS_FILE: /run/secrets/db_secrets_url
       SECRET_SEALING_PRIVATE_KEY_FILE: /run/secrets/sealing_private_key.pem
+      ENSEMUS_MARKETPLACE_ENABLED: ${ENSEMUS_MARKETPLACE_ENABLED:-false}
+      ENSEMUS_SANDBOX_ENABLED: ${ENSEMUS_SANDBOX_ENABLED:-false}
+      ENSEMUS_MARKETPLACE_REVIEW_KEYS: ${ENSEMUS_MARKETPLACE_REVIEW_KEYS:-}
       # The same mode and billing setting as web, so loadSaasConfig refuses billing on Sovereign here too.
       ENSEMUS_MODE: ${ENSEMUS_MODE:-sovereign}
       ENSEMUS_BILLING_ENABLED: ${ENSEMUS_BILLING_ENABLED:-false}
     secrets:
       - temporal_codec_key
-      - db_app_url
+      - db_worker_url
       - db_secrets_url
       - sealing_private_key.pem
       - objects_access_key
@@ -128,6 +183,53 @@ services:
       migrate: { condition: service_completed_successfully }
     deploy:
       resources: { limits: { memory: 2G } }
+
+  federation-worker:
+    <<: *restart
+    profiles: ['federation']
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    command: ['node', 'dist/federation-worker.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks: [federation]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.9.10
+      - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.9.11
+      - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.9.12
+    environment:
+      ENSEMUS_CROSS_ORG_ENABLED: ${ENSEMUS_CROSS_ORG_ENABLED:-false}
+      ENSEMUS_TENANCY_TIER:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+      TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
+      DATABASE_URL_APP_FILE: /run/secrets/db_worker_url
+      DATABASE_URL_FEDERATION_FILE: /run/secrets/db_federation_url
+      OBJECT_STORAGE_ENDPOINT: http://objects:8333
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-ensemus}
+      OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
+      OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
+    secrets:
+      [temporal_codec_key, db_worker_url, db_federation_url, objects_access_key, objects_secret_key]
+    depends_on:
+      provision-federation: { condition: service_completed_successfully }
+      migrate: { condition: service_completed_successfully }
+      temporal-namespace: { condition: service_completed_successfully }
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "process.exit(Date.now()-Number(require('node:fs').readFileSync('/tmp/worker-alive','utf8'))<15000?0:1)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    deploy:
+      resources: { limits: { memory: 512M } }
 
   # Document parsing and ingestion have neither model keys nor an outbound network.
   knowledge-worker:
@@ -146,16 +248,17 @@ services:
       - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10
     environment:
       TEMPORAL_ADDRESS: temporal:7233
-      TEMPORAL_NAMESPACE: default
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
       TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
-      DATABASE_URL_APP_FILE: /run/secrets/db_app_url
+      # Its own login, a member of ensemus_app (ADR-039). The name keeps the code unchanged.
+      DATABASE_URL_APP_FILE: /run/secrets/db_knowledge_url
       OBJECT_STORAGE_ENDPOINT: http://objects:8333
-      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-ensemus}
       OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
       OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
     secrets:
       - temporal_codec_key
-      - db_app_url
+      - db_knowledge_url
       - objects_access_key
       - objects_secret_key
     depends_on:
@@ -180,13 +283,13 @@ services:
       - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.7.12
     environment:
       TEMPORAL_ADDRESS: temporal:7233
-      TEMPORAL_NAMESPACE: default
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
       TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
       DATABASE_URL_AGENT_FILE: /run/secrets/db_agent_url
       DATABASE_URL_SECRETS_FILE: /run/secrets/db_secrets_url
       SECRET_SEALING_PRIVATE_KEY_FILE: /run/secrets/sealing_private_key.pem
       OBJECT_STORAGE_ENDPOINT: http://objects:8333
-      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-ensemus}
       OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
       OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
       ENSEMUS_PRIVATE_MODEL_ENDPOINTS: ${ENSEMUS_PRIVATE_MODEL_ENDPOINTS:-}
@@ -225,13 +328,17 @@ services:
       - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.12
       - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10
     environment:
+      # The deployment's own OTLP/HTTP collector base. Empty keeps all exporters off.
+      ENSEMUS_OTEL_ENDPOINT: ${ENSEMUS_OTEL_ENDPOINT:-}
+      ENSEMUS_OTEL_SAMPLE_RATIO: ${ENSEMUS_OTEL_SAMPLE_RATIO:-}
+      ENSEMUS_OTEL_METRIC_INTERVAL_SECONDS: ${ENSEMUS_OTEL_METRIC_INTERVAL_SECONDS:-}
       TEMPORAL_ADDRESS: temporal:7233
-      TEMPORAL_NAMESPACE: default
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
       TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
       DATABASE_URL_DISPATCHER_FILE: /run/secrets/db_dispatcher_url
       # Writes the tombstone ledger (ADR-026). This identity reaches that prefix and nothing else.
       OBJECT_STORAGE_ENDPOINT: http://objects:8333
-      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-ensemus}
       OBJECT_STORAGE_LEDGER_ACCESS_KEY_FILE: /run/secrets/objects_ledger_access_key
       OBJECT_STORAGE_LEDGER_SECRET_KEY_FILE: /run/secrets/objects_ledger_secret_key
     secrets:
@@ -262,19 +369,84 @@ services:
       - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.10
       - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.11
       - egress-gateway:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.12
+      - egress-google-api:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.13
+      - egress-google-oauth:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.14
+      - egress-ms-graph:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.15
+      - egress-ms-login:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.16
+      - egress-google-gmail:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.17
+      - egress-google-docs:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.18
+      - egress-google-sheets:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.19
+      - egress-paddle:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.20
+      - egress-crm:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.21
+      - egress-ticketing:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.22
+      - egress-accounting:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.23
+      - egress-meeting-notes:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.24
     environment:
       TEMPORAL_ADDRESS: temporal:7233
-      TEMPORAL_NAMESPACE: default
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
       TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
-      DATABASE_URL_APP_FILE: /run/secrets/db_app_url
+      # Its own login (ADR-039). Only this login answers a suite read or exchanges a consent (0701).
+      DATABASE_URL_APP_FILE: /run/secrets/db_connector_url
       DATABASE_URL_SECRETS_FILE: /run/secrets/db_secrets_url
       SECRET_SEALING_PRIVATE_KEY_FILE: /run/secrets/sealing_private_key.pem
       ENSEMUS_EGRESS_GATEWAY: egress-gateway:2525
+      # Business adapter metadata only in web; sockets remain confined to the connector worker.
+      ENSEMUS_EGRESS_GATEWAY_CRM: ${ENSEMUS_EGRESS_GATEWAY_CRM:-}
+      ENSEMUS_EGRESS_GATEWAY_TICKETING: ${ENSEMUS_EGRESS_GATEWAY_TICKETING:-}
+      ENSEMUS_EGRESS_GATEWAY_ACCOUNTING: ${ENSEMUS_EGRESS_GATEWAY_ACCOUNTING:-}
+      ENSEMUS_EGRESS_GATEWAY_MEETING_NOTES: ${ENSEMUS_EGRESS_GATEWAY_MEETING_NOTES:-}
+      ENSEMUS_MODE: ${ENSEMUS_MODE:-sovereign}
+      ENSEMUS_BUSINESS_TLS: ${ENSEMUS_BUSINESS_TLS:-required}
+      ENSEMUS_BUSINESS_CA_PEM: ${ENSEMUS_BUSINESS_CA_PEM:-}
       # `none` is for a relay on a trusted site network, and only if an operator says so.
       ENSEMUS_SMTP_TLS: ${ENSEMUS_SMTP_TLS:-required}
       ENSEMUS_SMTP_MESSAGE_ID_DOMAIN: ${ENSEMUS_SMTP_MESSAGE_ID_DOMAIN:-ensemus.invalid}
+      # One gateway per provider route (ADR-038, ADR-029 D11). TLS names are fixed in code, so a gateway
+      # can only ever carry a request to the host its route names.
+      ENSEMUS_EGRESS_GOOGLE_API: egress-google-api:2525
+      ENSEMUS_EGRESS_GOOGLE_OAUTH: egress-google-oauth:2525
+      ENSEMUS_EGRESS_MS_GRAPH: egress-ms-graph:2525
+      ENSEMUS_EGRESS_MS_LOGIN: egress-ms-login:2525
+      # Suite tools for agents (ADR-038 D6). Gmail, Docs and Sheets have hosts of their own.
+      ENSEMUS_EGRESS_GOOGLE_GMAIL: egress-google-gmail:2525
+      ENSEMUS_EGRESS_GOOGLE_DOCS: egress-google-docs:2525
+      ENSEMUS_EGRESS_GOOGLE_SHEETS: egress-google-sheets:2525
+      # Connecting by consent (ADR-038 D1). The exchange names the same redirect URI the web tier did.
+      ENSEMUS_PUBLIC_URL: ${ENSEMUS_PUBLIC_URL:-https://localhost:8443}
+      # The domain in the Message-ID of mail agents send through Gmail or Outlook (ADR-038 D6). Empty
+      # means the host of ENSEMUS_PUBLIC_URL. A value that is not a host name stops the worker.
+      ENSEMUS_MAIL_ID_DOMAIN: ${ENSEMUS_MAIL_ID_DOMAIN:-}
+      # The operator's own apps (ADR-038 D2). Unset means none: an admin connects with their own app.
+      # The client ID comes from the same setting web reads, because the code exchange must name the app
+      # the consent URL named. The secret is a file an operator mounts with an overlay, and only this
+      # service ever reads it. A client ID with no secret stops this worker at start, rather than failing
+      # every connection later.
+      ENSEMUS_OAUTH_GOOGLE_CLIENT_ID: ${ENSEMUS_GOOGLE_CLIENT_ID:-}
+      ENSEMUS_OAUTH_GOOGLE_CLIENT_SECRET_FILE: ${ENSEMUS_OAUTH_GOOGLE_CLIENT_SECRET_FILE:-}
+      ENSEMUS_OAUTH_MICROSOFT_CLIENT_ID: ${ENSEMUS_MICROSOFT_CLIENT_ID:-}
+      ENSEMUS_OAUTH_MICROSOFT_CLIENT_SECRET_FILE: ${ENSEMUS_OAUTH_MICROSOFT_CLIENT_SECRET_FILE:-}
+      ENSEMUS_BILLING_ENABLED: ${ENSEMUS_BILLING_ENABLED:-false}
+      # ENSEMUS_BILLING_ORGANIZATION_ID, the deployment's own organization that holds the checkout
+      # addresses, is set with an overlay: an empty value is refused, so it has no line here.
+      # Hosted checkout (ADR-032 D4a): public identifiers only, and none unless named. Keys are mounted files
+      # the connector worker alone reads. The web tier and the connector worker must agree.
+      ENSEMUS_CHECKOUT_PROVIDERS: ${ENSEMUS_CHECKOUT_PROVIDERS:-}
+      ENSEMUS_PAYME_ENVIRONMENT: ${ENSEMUS_PAYME_ENVIRONMENT:-}
+      ENSEMUS_PAYME_MERCHANT_ID: ${ENSEMUS_PAYME_MERCHANT_ID:-}
+      ENSEMUS_CLICK_ENVIRONMENT: ${ENSEMUS_CLICK_ENVIRONMENT:-}
+      ENSEMUS_CLICK_SERVICE_ID: ${ENSEMUS_CLICK_SERVICE_ID:-}
+      ENSEMUS_CLICK_MERCHANT_ID: ${ENSEMUS_CLICK_MERCHANT_ID:-}
+      ENSEMUS_PADDLE_ENVIRONMENT: ${ENSEMUS_PADDLE_ENVIRONMENT:-}
+      ENSEMUS_PADDLE_TAX_CATEGORY: ${ENSEMUS_PADDLE_TAX_CATEGORY:-}
+      # Paddle's API key: a file an operator mounts with an overlay, read by this service only. Naming
+      # Paddle without it stops this worker at start. Its one way out is the egress-paddle route.
+      ENSEMUS_PADDLE_API_KEY_FILE: ${ENSEMUS_PADDLE_API_KEY_FILE:-}
+      ENSEMUS_EGRESS_PADDLE: egress-paddle:2525
+      # Activities at once (worker-limits.ts). Whole number from 1 to 32; anything else stops the worker.
+      # Its database pool is this plus two, so raise PostgreSQL's max_connections with it.
+      ENSEMUS_CONNECTOR_ACTIVITY_SLOTS: ${ENSEMUS_CONNECTOR_ACTIVITY_SLOTS:-8}
     secrets:
-      - db_app_url
+      - db_connector_url
       - db_secrets_url
       - sealing_private_key.pem
       - temporal_codec_key
@@ -305,6 +477,226 @@ services:
     deploy:
       resources: { limits: { memory: 128M } }
 
+  # Google Workspace and Microsoft 365 (ADR-038). One gateway per route, each with no target until an
+  # operator enables its suite profile and sets one, so an install that uses neither starts no relay. The connector worker
+  # does not wait for them: a route whose gateway is not running fails that request with a code.
+  # The www.googleapis.com route. Same image, same rules: no secret, no database, one target, ciphertext only.
+  egress-google-api:
+    <<: *restart
+    profiles: ['suite-google']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.13' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. www.googleapis.com:443, or a site's relay to it.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_GOOGLE_API_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  # The oauth2.googleapis.com route. Same image, same rules: no secret, no database, one target, ciphertext only.
+  egress-google-oauth:
+    <<: *restart
+    profiles: ['suite-google']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.14' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. oauth2.googleapis.com:443, or a site's relay to it.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_GOOGLE_OAUTH_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  # The graph.microsoft.com route. Same image, same rules: no secret, no database, one target, ciphertext only.
+  egress-ms-graph:
+    <<: *restart
+    profiles: ['suite-microsoft']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.15' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. graph.microsoft.com:443, or a site's relay to it.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_MS_GRAPH_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  # The login.microsoftonline.com route. Same image, same rules: no secret, no database, one target, ciphertext only.
+  egress-ms-login:
+    <<: *restart
+    profiles: ['suite-microsoft']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.16' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. login.microsoftonline.com:443, or a site's relay to it.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_MS_LOGIN_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  # The gmail.googleapis.com route (ADR-038 D6). Same image, same rules: no secret, no database, one target, ciphertext only.
+  egress-google-gmail:
+    <<: *restart
+    profiles: ['suite-google']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.17' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. gmail.googleapis.com:443, or a site's relay to it.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_GOOGLE_GMAIL_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  # The docs.googleapis.com route (ADR-038 D6). Same image, same rules: no secret, no database, one target, ciphertext only.
+  egress-google-docs:
+    <<: *restart
+    profiles: ['suite-google']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.18' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. docs.googleapis.com:443, or a site's relay to it.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_GOOGLE_DOCS_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  # The sheets.googleapis.com route (ADR-038 D6). Same image, same rules: no secret, no database, one target, ciphertext only.
+  egress-google-sheets:
+    <<: *restart
+    profiles: ['suite-google']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.19' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. sheets.googleapis.com:443, or a site's relay to it.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_GOOGLE_SHEETS_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  egress-paddle:
+    <<: *restart
+    profiles: ['checkout-paddle']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.20' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. api.paddle.com:443 or sandbox-api.paddle.com:443, or a site's relay to it.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_PADDLE_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  mail-worker:
+    <<: *restart
+    profiles: ['mail']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/mail-worker.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks: [mail]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.8.10
+      - mail-gateway:${ENSEMUS_NETWORK_PREFIX:-172.30}.8.12
+    environment:
+      DATABASE_URL_MAILER_FILE: /run/secrets/db_mailer_url
+      SECRET_SEALING_PRIVATE_KEY_FILE: /run/secrets/sealing_private_key.pem
+      ENSEMUS_MAIL_GATEWAY: mail-gateway:2525
+      ENSEMUS_PUBLIC_URL: ${ENSEMUS_PUBLIC_URL:-https://localhost:8443}
+      # The relay's TLS certificate name. `none` is for a relay on a trusted site network only.
+      ENSEMUS_MAIL_TLS: ${ENSEMUS_MAIL_TLS:-required}
+      ENSEMUS_MAIL_TLS_SERVER_NAME: ${ENSEMUS_MAIL_TLS_SERVER_NAME:-}
+      ENSEMUS_MAIL_FROM_ADDRESS: ${ENSEMUS_MAIL_FROM_ADDRESS:-}
+      ENSEMUS_MAIL_FROM_NAME: ${ENSEMUS_MAIL_FROM_NAME:-Ensemus}
+      # Who to log in to the relay as, when that is not the sender.
+      ENSEMUS_MAIL_USERNAME: ${ENSEMUS_MAIL_USERNAME:-}
+      ENSEMUS_MAIL_PASSWORD_FILE: /run/secrets/mail_relay_password
+      # Empty means the host of ENSEMUS_PUBLIC_URL.
+      ENSEMUS_MAIL_MESSAGE_ID_DOMAIN: ${ENSEMUS_MAIL_MESSAGE_ID_DOMAIN:-}
+    secrets:
+      - db_mailer_url
+      - sealing_private_key.pem
+      - mail_relay_password
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      mail-gateway: { condition: service_healthy }
+    deploy:
+      resources: { limits: { memory: 256M } }
+
+  mail-gateway:
+    <<: *restart
+    profiles: ['mail']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      mail: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.8.12' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. The relay's submission port, such as smtp.example.com:587.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_MAIL_RELAY_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
   provision-roles:
     image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
     user: postgres
@@ -316,8 +708,36 @@ services:
     volumes:
       - ./postgres/upgrade-roles.sh:/provision/upgrade-roles.sh:ro
       - ./postgres/upgrade-roles.sql:/provision/upgrade-roles.sql:ro
+      - ./postgres/upgrade-roles-workers.sql:/provision/upgrade-roles-workers.sql:ro
       - ./postgres/upgrade-roles-m8.sql:/provision/upgrade-roles-m8.sql:ro
-    secrets: [db_superuser_password, db_agent_password]
+      - ./postgres/upgrade-roles-mail.sql:/provision/upgrade-roles-mail.sql:ro
+    secrets:
+      [
+        db_superuser_password,
+        db_agent_password,
+        db_mailer_password,
+        db_worker_password,
+        db_connector_password,
+        db_knowledge_password,
+      ]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  provision-federation:
+    profiles: ['federation']
+    image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
+    user: postgres
+    read_only: true
+    entrypoint: ['/bin/sh', '/provision/provision-federation.sh']
+    networks: [federation]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.9.10
+    environment:
+      ENSEMUS_CROSS_ORG_ENABLED: ${ENSEMUS_CROSS_ORG_ENABLED:-false}
+    volumes:
+      - ./postgres/provision-federation.sh:/provision/provision-federation.sh:ro
+      - ./postgres/provision-federation.sql:/provision/provision-federation.sql:ro
+    secrets: [db_superuser_password, db_federation_password]
     depends_on:
       postgres: { condition: service_healthy }
 
@@ -336,16 +756,52 @@ services:
       - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.12
     environment:
       OBJECT_STORAGE_ENDPOINT: http://objects:8333
-      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-ensemus}
       OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
       OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
       DATABASE_URL_MIGRATOR_FILE: /run/secrets/db_migrator_url
+      ENSEMUS_TENANCY_TIER:
+      ENSEMUS_DEDICATED_ORGANIZATION_ID:
+      ENSEMUS_HOME_REGION:
+      ENSEMUS_CROSS_ORG_ENABLED: ${ENSEMUS_CROSS_ORG_ENABLED:-}
     secrets: [db_migrator_url, objects_access_key, objects_secret_key]
     depends_on:
       postgres: { condition: service_healthy }
       # It creates the bucket too. Without this it loses the race whenever PostgreSQL is already up.
       objects: { condition: service_healthy }
       provision-roles: { condition: service_completed_successfully }
+      provision-federation: { condition: service_completed_successfully, required: false }
+
+  # Operator-run report for an already pinned installation.
+  isolation-report:
+    profiles: ['isolation']
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/isolation-report.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks: [data, temporal]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.10
+      - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.12
+      - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10
+    environment:
+      DATABASE_URL_DISPATCHER_FILE: /run/secrets/db_dispatcher_url
+      DATABASE_URL_MIGRATOR_FILE: /run/secrets/db_migrator_url
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+      OBJECT_STORAGE_ENDPOINT: http://objects:8333
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-ensemus}
+      OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
+      OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
+      ENSEMUS_RELEASE:
+      ENSEMUS_ISOLATION_FOREIGN_ENDPOINTS:
+      ENSEMUS_ISOLATION_FOREIGN_NAMESPACES:
+      ENSEMUS_ISOLATION_FOREIGN_BUCKETS:
+      ENSEMUS_ISOLATION_DECLARATIONS:
+    secrets: [db_dispatcher_url, db_migrator_url, objects_access_key, objects_secret_key]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      temporal-namespace: { condition: service_completed_successfully }
 
   # One-shot offline invalidation only. Ordinary workers never receive the native auth DB/key.
   # Run only after migrator begin has closed admission. No Temporal, object, vault or provider key.
@@ -387,18 +843,25 @@ services:
       - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10
     environment:
       TEMPORAL_ADDRESS: temporal:7233
-      TEMPORAL_NAMESPACE: default
-      DATABASE_URL_APP_FILE: /run/secrets/db_app_url
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+      # Its own login, a member of ensemus_app (ADR-039). The name keeps the code unchanged.
+      DATABASE_URL_APP_FILE: /run/secrets/db_worker_url
       DATABASE_URL_DISPATCHER_FILE: /run/secrets/db_dispatcher_url
+      # The two M4 contributors fence and purge private transcripts, which only the agent role may do
+      # (ADR-026, ADR-028). Without it they stay unbound and report attention, so nobody is admitted.
+      DATABASE_URL_AGENT_FILE: /run/secrets/db_agent_url
       OBJECT_STORAGE_ENDPOINT: http://objects:8333
-      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-ensemus}
       OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
       OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
-    secrets: [db_app_url, db_dispatcher_url, objects_access_key, objects_secret_key]
+    secrets:
+      [db_worker_url, db_dispatcher_url, db_agent_url, objects_access_key, objects_secret_key]
 
   postgres:
     <<: *restart
     image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
+    # The logical restore holds locks for the full schema until its single transaction completes.
+    command: ['postgres', '-c', 'max_locks_per_transaction=256']
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD_FILE: /run/secrets/db_superuser_password
@@ -411,11 +874,16 @@ services:
       temporal-db: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.4.10' }
       connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.10' }
       agents: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.10' }
+      mail: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.8.10' }
+      federation: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.9.10' }
     secrets:
       - db_superuser_password
       - db_migrator_password
       - db_app_password
       - db_agent_password
+      - db_worker_password
+      - db_connector_password
+      - db_knowledge_password
       - db_auth_password
       - db_dispatcher_password
       - db_secrets_password
@@ -446,6 +914,7 @@ services:
       temporal-db: {}
       connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.11' }
       agents: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.11' }
+      federation: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.9.11' }
     extra_hosts:
       - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.4.10
     entrypoint: ['/bin/sh', '/provision/temporal-start.sh']
@@ -458,6 +927,12 @@ services:
       BIND_ON_IP: 0.0.0.0
       # Stops the server calling version-info.temporal.io. See temporal/dynamicconfig.yaml.
       TEMPORAL_VERSION_CHECK_DISABLED: '1'
+      # Leave headroom for stacks, native allocations and the other all-in-one services.
+      GOMEMLIMIT: ${ENSEMUS_TEMPORAL_GO_MEMORY_LIMIT:-512MiB}
+    deploy:
+      resources:
+        limits:
+          memory: ${ENSEMUS_TEMPORAL_MEMORY_LIMIT:-1024M}
     volumes:
       - ./temporal/temporal-start.sh:/provision/temporal-start.sh:ro
       - ./temporal/dynamicconfig.yaml:/etc/temporal/config/dynamicconfig/docker.yaml:ro
@@ -465,8 +940,13 @@ services:
     depends_on:
       temporal-schema: { condition: service_completed_successfully }
     healthcheck:
-      # Listening on 7233 (0x1C41). The namespace job below proves the server really answers.
-      test: ['CMD-SHELL', "grep -q ':1C41 ' /proc/net/tcp /proc/net/tcp6"]
+      # Check the local endpoint in LISTEN state. An outbound or lingering socket on 7233
+      # cannot establish readiness. The namespace job below checks the RPC itself.
+      test:
+        - CMD-SHELL
+        - >-
+          awk '$$2 ~ /:1C41$$/ && $$4 == "0A" { found = 1 }
+          END { exit !found }' /proc/net/tcp /proc/net/tcp6
       interval: 5s
       timeout: 3s
       retries: 60
@@ -476,6 +956,12 @@ services:
     image: temporalio/admin-tools@sha256:4a95866efba29d7e17ab012df5232795e8b0ad0f7d5f9d1ec4df321f7792a754
     entrypoint: ['/bin/sh', '/provision/setup-namespace.sh']
     networks: [temporal]
+    environment:
+      # How long a closed run's history stays (ADR-037 D6). Whole hours of at least 24, written <n>h. The
+      # job applies it to an existing namespace too, and refuses anything else before touching Temporal.
+      # A technical default, not a promise: no safety property depends on it.
+      ENSEMUS_TEMPORAL_RETENTION: ${ENSEMUS_TEMPORAL_RETENTION:-72h}
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
     extra_hosts:
       - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10
     volumes:
@@ -526,6 +1012,7 @@ services:
     networks:
       data: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.2.12' }
       agents: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.12' }
+      federation: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.9.12' }
     healthcheck:
       test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:9333/cluster/status']
       interval: 5s
@@ -579,7 +1066,25 @@ networks:
             subnet: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.0/24',
             ip_range: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.128/25',
           }
-  # The way out, and only the gateway is on it. A sovereign site's firewall limits it to the relay.
+  # No gateway, so nothing on it has a route out. Only the mail worker, PostgreSQL and the mail gateway.
+  mail:
+    internal: true
+    ipam:
+      config:
+        - {
+            subnet: '${ENSEMUS_NETWORK_PREFIX:-172.30}.8.0/24',
+            ip_range: '${ENSEMUS_NETWORK_PREFIX:-172.30}.8.128/25',
+          }
+  # The optional federation worker can reach only PostgreSQL, Temporal and object storage.
+  federation:
+    internal: true
+    ipam:
+      config:
+        - {
+            subnet: '${ENSEMUS_NETWORK_PREFIX:-172.30}.9.0/24',
+            ip_range: '${ENSEMUS_NETWORK_PREFIX:-172.30}.9.128/25',
+          }
+  # The way out, and only the gateways are on it. A sovereign site's firewall limits it to the relays.
   outbound:
     ipam:
       config:
@@ -594,10 +1099,15 @@ volumes:
   objects-data: {}
 
 secrets:
+  db_federation_password: { file: ../../.local/secrets/db_federation_password }
+  db_federation_url: { file: ../../.local/secrets/db_federation_url }
   db_superuser_password: { file: ../../.local/secrets/db_superuser_password }
   db_migrator_password: { file: ../../.local/secrets/db_migrator_password }
   db_app_password: { file: ../../.local/secrets/db_app_password }
   db_agent_password: { file: ../../.local/secrets/db_agent_password }
+  db_worker_password: { file: ../../.local/secrets/db_worker_password }
+  db_connector_password: { file: ../../.local/secrets/db_connector_password }
+  db_knowledge_password: { file: ../../.local/secrets/db_knowledge_password }
   db_auth_password: { file: ../../.local/secrets/db_auth_password }
   db_dispatcher_password: { file: ../../.local/secrets/db_dispatcher_password }
   db_secrets_password: { file: ../../.local/secrets/db_secrets_password }
@@ -605,8 +1115,16 @@ secrets:
   db_migrator_url: { file: ../../.local/secrets/db_migrator_url }
   db_app_url: { file: ../../.local/secrets/db_app_url }
   db_agent_url: { file: ../../.local/secrets/db_agent_url }
+  db_worker_url: { file: ../../.local/secrets/db_worker_url }
+  db_connector_url: { file: ../../.local/secrets/db_connector_url }
+  db_knowledge_url: { file: ../../.local/secrets/db_knowledge_url }
   db_auth_url: { file: ../../.local/secrets/db_auth_url }
   db_dispatcher_url: { file: ../../.local/secrets/db_dispatcher_url }
+  db_mailer_password: { file: ../../.local/secrets/db_mailer_password }
+  db_mailer_url: { file: ../../.local/secrets/db_mailer_url }
+  # The relay's password, which an operator mounts. Only the mail worker reads it.
+  mail_relay_password:
+    { file: '${ENSEMUS_MAIL_PASSWORD_FILE:-../../.local/secrets/mail_relay_password}' }
   objects_access_key: { file: ../../.local/secrets/objects_access_key }
   objects_secret_key: { file: ../../.local/secrets/objects_secret_key }
   objects_ledger_access_key: { file: ../../.local/secrets/objects_ledger_access_key }

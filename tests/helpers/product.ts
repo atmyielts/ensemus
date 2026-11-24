@@ -212,7 +212,7 @@ export function fakePorts(overrides: Partial<ProductPorts> = {}): ProductPorts &
           definitionId: randomUUID(),
           versionId: randomUUID(),
           versionNumber: published.length,
-          specSha256: input.evaluationReport.spec_sha256,
+          specSha256: input.evaluationReport.report.spec_sha256,
         };
       },
     },

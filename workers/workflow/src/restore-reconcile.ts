@@ -1,9 +1,12 @@
 // Operator command, run after a restore and before anyone is let back in (ADR-030 D11). All it does itself is
 // open the connections: restore-reconcile-command.ts is the command.
+import { withRawKnowledgeObjects } from '@ensemus/application/knowledge/raw-objects';
 import { createObjectDeletionLifecycle } from '@ensemus/application/saas/object-deletion';
-import { readSecret } from '@ensemus/config';
+import { ConfigError, readSecret } from '@ensemus/config';
 import { openAppDatabase } from '@ensemus/database';
+import { openAgentDatabase } from '@ensemus/database/agent';
 import { listOrganizationIds, openDispatcherDatabase } from '@ensemus/database/dispatcher';
+import { assertLoginRole } from '@ensemus/database/service';
 import { S3ObjectStore } from '@ensemus/storage';
 import { errorCode } from '@ensemus/telemetry';
 import { workflowIdFor } from '@ensemus/workflows/schemas';
@@ -15,8 +18,25 @@ import { openDispatcherConnection } from './temporal-connection';
 /** One slow answer about one run may not hold up the rest. The same limit as main.ts. */
 const PROBE_DEADLINE_MS = 5_000;
 
+/**
+ * The agent role, when the operator gave this command its URL. Only that role may fence a run's inputs, purge
+ * a transcript or release a run's holds, so without it both M4 contributors stay unbound and report
+ * attention. Any other configuration error still stops the command.
+ */
+function openAgentRoleIfGiven() {
+  try {
+    return openAgentDatabase(readSecret('DATABASE_URL_AGENT'), { max: 2 });
+  } catch (error) {
+    if (error instanceof ConfigError && !process.env.DATABASE_URL_AGENT_FILE) return undefined;
+    throw error;
+  }
+}
+
 async function main() {
   const { db, close } = openAppDatabase(readSecret('DATABASE_URL_APP'));
+  // A web-tier login sees an empty material inventory under RLS. Refuse that configuration
+  // before an operator can mistake an empty report for a reconciled restore.
+  await assertLoginRole(db, 'ensemus_worker');
   // Only for the list of tenants, which event metadata alone can answer.
   const dispatcher = openDispatcherDatabase(readSecret('DATABASE_URL_DISPATCHER'));
   const store = new S3ObjectStore({
@@ -32,20 +52,28 @@ async function main() {
     connection,
     namespace: process.env.TEMPORAL_NAMESPACE ?? 'default',
   });
+  const probeRun = createRunProbe((input) =>
+    connection.withDeadline(Date.now() + PROBE_DEADLINE_MS, () =>
+      client.workflow.getHandle(workflowIdFor(input), input.runId).describe(),
+    ),
+  );
+  const agent = openAgentRoleIfGiven();
   const code = await restoreReconcileCommand(process.argv.slice(2), {
     database: db,
     store,
     listOrganizations: () => listOrganizationIds(dispatcher.db),
-    probeRun: createRunProbe((input) =>
-      connection.withDeadline(Date.now() + PROBE_DEADLINE_MS, () =>
-        client.workflow.getHandle(workflowIdFor(input), input.runId).describe(),
-      ),
-    ),
-    contributors: createLifecycleRestoreContributors(store),
+    probeRun,
+    contributors: createLifecycleRestoreContributors(store, {
+      ...(agent ? { agentDatabase: agent.db } : {}),
+      probeRun,
+      // The raw knowledge port, as the knowledge worker composes it, so a writer is settled on native proof.
+      knowledgeStore: withRawKnowledgeObjects({ database: db, store }),
+    }),
     // The production generated-file lifecycle (0508), as the knowledge worker composes it.
     derivedArtifacts: createObjectDeletionLifecycle({ database: db, store }).derived,
   });
   await close();
+  await agent?.close();
   await dispatcher.close();
   await connection.close();
   process.exit(code);

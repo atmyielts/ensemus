@@ -17,7 +17,16 @@ export function assertPortableDefinitionIntegrity(value: unknown): void {
   if (!value || typeof value !== 'object' || Array.isArray(value)) refuse();
   const record = value as Record<string, unknown>;
   try {
-    if (record.kind === 'custom_object_version' || record.kind === 'custom_object_record') {
+    if (record.kind === 'skill_signer_metadata') {
+      if (
+        typeof record.public_key_hex !== 'string' ||
+        !/^[0-9a-f]{64}$/.test(record.public_key_hex) ||
+        createHash('sha256').update(Buffer.from(record.public_key_hex, 'hex')).digest('hex') !==
+          record.key_id ||
+        (record.state === 'revoked') !== (record.revoked_at !== null)
+      )
+        refuse();
+    } else if (record.kind === 'custom_object_version' || record.kind === 'custom_object_record') {
       const fields = record.fields as readonly ObjectField[],
         relations = record.relations as readonly ObjectRelationDefinition[];
       if (

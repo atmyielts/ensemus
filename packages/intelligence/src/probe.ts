@@ -37,6 +37,7 @@ const PROBE_TIMEOUT_MS = 60_000;
 export type ProbeFailureCode =
   | 'NOT_PROBING'
   | 'ENDPOINT_REFUSED'
+  | 'RESIDENCY_DENIED'
   | 'NO_KEY'
   | 'THREW'
   | 'NOT_A_FINAL_ANSWER'
@@ -55,6 +56,7 @@ export function judgeProbeResult(result: AdapterResult): ProbeFailureCode | null
 export function createProfileProber(deps: {
   load: (input: { organizationId: string; profileId: string }) => Promise<RoutableProfile | null>;
   adapter: ModelAdapter;
+  allowsResidency: (organizationId: string, region: string | null) => Promise<boolean>;
   guard: EndpointGuard;
   credentials: CredentialLender;
   privateEndpoints: readonly string[];
@@ -71,6 +73,8 @@ export function createProfileProber(deps: {
       try {
         const profile = await deps.load(input);
         if (!profile) return failed('NOT_PROBING');
+        if (!(await deps.allowsResidency(input.organizationId, profile.region)))
+          return failed('RESIDENCY_DENIED');
 
         // Before any key is opened, and whatever the row says. The web tier checked this address when it
         // was entered, but the operator's list may have changed, and the row may not be what web wrote.
@@ -87,7 +91,8 @@ export function createProfileProber(deps: {
           protocol: new URL(profile.endpointUrl).protocol as VerifiedEndpoint['protocol'],
           viaPrivateAllowlist: check.viaPrivateAllowlist,
         };
-        const call = (apiKey: Buffer | null): Promise<AdapterResult> => {
+        const call = async (apiKey: Buffer | null): Promise<AdapterResult | null> => {
+          if (!(await deps.allowsResidency(input.organizationId, profile.region))) return null;
           const adapterCall: AdapterCall = {
             providerKind: profile.providerKind,
             modelId: profile.modelId,
@@ -117,6 +122,7 @@ export function createProfileProber(deps: {
                 (key) => call(key),
               );
 
+        if (result === null) return failed('RESIDENCY_DENIED');
         const problem = judgeProbeResult(result);
         return problem ? failed(problem) : 'passed';
       } catch {

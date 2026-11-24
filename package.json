@@ -2,7 +2,7 @@
   "name": "ensemus",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@10.17.0",
+  "packageManager": "pnpm@10.17.0+sha512.fce8a3dd29a4ed2ec566fb53efbb04d8c44a0f05bc6f24a73046910fb9c3ce7afa35a0980500668fa3573345bd644644fa98338fa168235c80f4aa17aa17fbef",
   "engines": {
     "node": ">=24.0.0 <25"
   },
@@ -17,16 +17,30 @@
     "test:stack": "vitest run --project stack",
     "test:browser": "pnpm --filter @ensemus/browser-tests test",
     "test:upgrade": "node infrastructure/scripts/upgrade-gate.mjs",
+    "test:parity": "vitest run --project parity",
     "check:backlog": "node docs/specifications/tools/check-backlog.mjs",
     "check:contracts": "pnpm --filter @ensemus/contracts generate && git diff --exit-code packages/contracts/generated",
     "check:licenses": "node infrastructure/scripts/check-licenses.mjs",
     "check:proxy": "node infrastructure/scripts/check-proxy.mjs",
+    "check:pins": "node infrastructure/scripts/check-pins.mjs",
+    "check:guides": "node docs/specifications/tools/check-guides.mjs",
+    "check:inventory": "node infrastructure/scripts/license-inventory.mjs --check",
+    "guides:build": "node docs/specifications/tools/build-help.mjs",
+    "licenses:inventory": "node infrastructure/scripts/license-inventory.mjs",
     "measure:m2": "vitest run --project measure",
+    "measure:knowledge-recall": "vitest run --project measure tests/measure/knowledge-recall.measure.ts",
+    "load:seed": "node tests/load/seed-fixture.mjs",
+    "load:run": "node tests/load/run.mjs",
+    "load:local": "node tests/load/local.mjs",
+    "backup:prune": "node infrastructure/scripts/pg-backup-prune.mjs",
+    "backup:drill": "node infrastructure/scripts/pg-pitr-drill.mjs",
     "stack:secrets": "node infrastructure/scripts/generate-test-secrets.mjs",
     "stack:up": "docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml up -d --build --wait",
     "stack:down": "docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml down -v",
     "stack:connectors:up": "docker compose --profile connectors -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml up -d --build --wait",
     "stack:connectors:down": "docker compose --profile connectors -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml down -v",
+    "stack:mail:up": "docker compose --profile mail -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml up -d --build --wait",
+    "stack:mail:down": "docker compose --profile mail -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml down -v",
     "stack:slice-2": "vitest run --project stack tests/stack/slice-2.test.ts",
     "db:generate": "pnpm --filter @ensemus/database generate"
   },
@@ -37,6 +51,7 @@
     "prettier": "3.9.10",
     "typescript": "5.9.3",
     "typescript-eslint": "8.72.1",
-    "vitest": "5.1.0"
+    "vitest": "5.1.0",
+    "yaml": "2.9.1"
   }
 }

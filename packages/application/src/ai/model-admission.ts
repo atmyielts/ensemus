@@ -96,6 +96,9 @@ export type MainModelAdmission = {
     id: string;
     writerToken: string;
     requestHash: string;
+    presentedKnowledge?: NonNullable<
+      (typeof mainInputSnapshots.$inferSelect)['presentedKnowledge']
+    >;
     phase: 'prepare' | 'dispatch';
   };
 };
@@ -143,6 +146,7 @@ async function admitMainInputSnapshotInTx(
         viewerMembershipId: context.membershipId,
         inputInventory: proof.inventory,
         inventorySha256: proof.hash,
+        presentedKnowledge: snapshot.presentedKnowledge ?? null,
       })
       .onConflictDoNothing()
       .returning({ id: mainInputSnapshots.id });

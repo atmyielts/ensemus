@@ -1,5 +1,5 @@
 {
-	# No outbound calls: no ACME, no update checks, no admin API.
+	# Local and offline installs use the internal issuer. Public ACME is an explicit overlay.
 	admin off
 	skip_install_trust
 
@@ -12,8 +12,20 @@
 	}
 }
 
-{$ENSEMUS_HOSTNAME:localhost} {
+(ensemus_internal_tls) {
 	tls internal
+}
+
+(ensemus_public_tls) {
+	tls {
+		issuer acme https://acme-v02.api.letsencrypt.org/directory {
+			profile shortlived
+		}
+	}
+}
+
+{$ENSEMUS_HOSTNAME:localhost} {
+	import {$ENSEMUS_TLS_PROFILE:ensemus_internal_tls}
 
 	# Anyone can post here with no session. The route counts bytes too, and this stops them sooner.
 	@webhooks path /api/webhooks/*

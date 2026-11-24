@@ -31,6 +31,8 @@ import {
 import {
   artifactPartPath,
   knowledgePartPath,
+  skillBundlePartPath,
+  carriesSkillBundleOriginals,
   matchesPortabilityInventory,
   PORTABILITY_INVENTORY_PROFILES,
   assertPortabilitySections,
@@ -48,6 +50,7 @@ import {
   type ImportWarningCode,
   type ImportedRecordType,
 } from '@ensemus/domain/portability';
+import { SKILL_BUNDLE_MAX_BYTES } from '@ensemus/domain/skill';
 import { can, canManageWork, type Classification } from '@ensemus/domain/policy';
 import {
   AGGREGATE_ORGANIZATION_IMPORT,
@@ -85,7 +88,11 @@ import {
 } from './portability-sections-import';
 import type { ImportScope, PortabilitySection } from './sovereign-ports';
 import type { LedgerReader } from './tombstone-ledger';
-import { assertJoinedPortabilitySchema, quarantinePortableRecord } from './portability-extensions';
+import {
+  assertJoinedPortabilitySchema,
+  quarantinePortableRecord,
+  PendingModuleData,
+} from './portability-extensions';
 import { queryRows } from './portability-sql';
 import { assertPortableDefinitionIntegrity } from '@ensemus/domain/portable-definition';
 import { withPrivilegeTx, assertInteractivePrivilege } from './product/privileged';
@@ -151,6 +158,8 @@ const countsOfContent = async (tx: Tx, importId?: string) => {
     tx,
     sql`
     select 'knowledge_source' as kind,count(*)::int as n from knowledge.sources
+    union all select 'work_unit',count(*)::int from knowledge.structured_record_catalog
+      where organization_id=app.current_organization_id() and record_kind='work_unit' and alive
     union all select 'knowledge_document',count(*)::int from knowledge.documents d
       ${importId ? sql`where d.id not in(select sovereign.reserved_import_document_ids(${importId}::uuid))` : sql``}
     union all select 'model_profile',count(*)::int from ai.model_profiles
@@ -159,7 +168,6 @@ const countsOfContent = async (tx: Tx, importId?: string) => {
     union all select 'archive_file',sovereign.archive_file_target_conflicts(${importId ?? null}::uuid)`,
   );
   return {
-    work_unit: await countOf(tx, workUnits),
     client: await countOf(tx, clients),
     project: await countOf(tx, projects),
     team: await countOf(tx, teams),
@@ -224,6 +232,7 @@ export async function requestOrganizationImport(
       return toView(row);
     });
   } catch (error) {
+    if (error instanceof PendingModuleData) throw new AppError('IMPORT_TARGET_NOT_EMPTY');
     // Two owners asking at once: the partial unique index lets one through.
     if (pgCode(error) === '23505') throw new AppError('IMPORT_ALREADY_USED');
     throw error;
@@ -399,6 +408,14 @@ function assertPartsAreExact(entries: ReadonlyMap<string, TarEntry>, manifest: E
     if (!isArchivePath(part.path) || part.path.split('/')[0] !== part.section) {
       throw new ImportFailure('MANIFEST_INVALID');
     }
+    if (
+      part.section === 'skills' &&
+      isBinaryPart(part) &&
+      (part.records !== 0 ||
+        manifest.schema_version !== 2 ||
+        !carriesSkillBundleOriginals(manifest.inventory_version))
+    )
+      throw new ImportFailure('MANIFEST_INVALID');
     listed.add(part.path);
   }
   for (const path of listed) if (!entries.has(path)) throw new ImportFailure('PART_MISSING');
@@ -501,7 +518,7 @@ function readLines(plain: Buffer, part: ManifestPart, inventoryVersion?: string)
   return lines;
 }
 
-const isArtifactBytes = (part: ManifestPart) => part.path.endsWith('.bin.sealed');
+const isBinaryPart = (part: ManifestPart) => part.path.endsWith('.bin.sealed');
 const tombstoneKey = (targetType: string, targetId: string) =>
   `${targetType}/${canonicalId(targetId)}`;
 
@@ -578,17 +595,25 @@ async function readArchiveTombstones(opened: OpenedArchive) {
  */
 async function verifyEveryPart(opened: OpenedArchive, tombstoned: TombstoneSet) {
   const bytesParts = new Map<string, ManifestPart>();
+  const skillFiles = new Map<string, number>();
+  const expectedSkillFiles = new Map<string, number>();
   for (const part of opened.manifest.parts) {
-    if (isArtifactBytes(part)) bytesParts.set(part.path, part);
+    if (isBinaryPart(part)) bytesParts.set(part.path, part);
   }
   for (const part of opened.manifest.parts) {
     if (part.section === 'tombstones') continue;
-    if (isArtifactBytes(part)) {
+    if (isBinaryPart(part)) {
       const artifactId = part.path.slice(part.section.length + 1, -'.bin.sealed'.length);
-      if (tombstoned.has(tombstoneKey('artifact', artifactId))) {
+      if (part.section === 'artifacts' && tombstoned.has(tombstoneKey('artifact', artifactId))) {
         await readSealedPart(opened, part);
       } else {
-        await readPart(opened, part);
+        if (
+          part.section === 'skills' &&
+          part.sealed_bytes > SKILL_BUNDLE_MAX_BYTES + SEALED_OVERHEAD_BYTES
+        )
+          throw new ImportFailure('PART_CHANGED');
+        const plain = await readPart(opened, part);
+        if (part.section === 'skills') skillFiles.set(part.path, plain.length);
       }
       continue;
     }
@@ -609,8 +634,24 @@ async function verifyEveryPart(opened: OpenedArchive, tombstoned: TombstoneSet) 
         if (!bytes || bytes.plaintext_sha256 !== record.content_sha256)
           throw new ImportFailure('PART_CHANGED');
       }
+      if (record.kind === 'skill_bundle_version') {
+        const path = skillBundlePartPath(record.id);
+        const binary = bytesParts.get(path);
+        if (
+          expectedSkillFiles.has(path) ||
+          !binary ||
+          binary.plaintext_sha256 !== record.bundle_sha256
+        )
+          throw new ImportFailure('PART_CHANGED');
+        expectedSkillFiles.set(path, record.size_bytes);
+      }
     }
   }
+  if (
+    skillFiles.size !== expectedSkillFiles.size ||
+    [...expectedSkillFiles].some(([path, size]) => skillFiles.get(path) !== size)
+  )
+    throw new ImportFailure('PART_CHANGED');
 }
 
 /** A file's record has to agree with the bytes listed for it. The bytes were hashed against the manifest. */
@@ -735,7 +776,7 @@ function partsInOrder(manifest: ExportManifest) {
     return rank === -1 ? SECTION_ORDER.length : rank;
   };
   return manifest.parts
-    .filter((part) => !isArtifactBytes(part))
+    .filter((part) => !isBinaryPart(part))
     .sort(
       (a, b) =>
         sectionRank(a.section) - sectionRank(b.section) ||
@@ -972,7 +1013,7 @@ async function applyParts(
 ) {
   const implemented = new Map(deps.sections.map((section) => [section.section as string, section]));
   const bytesParts = new Map(
-    opened.manifest.parts.filter(isArtifactBytes).map((part) => [part.path, part]),
+    opened.manifest.parts.filter(isBinaryPart).map((part) => [part.path, part]),
   );
   const ordered = partsInOrder(opened.manifest);
   const { row } = state;
@@ -1047,6 +1088,17 @@ async function applyParts(
       records = stored.keep;
       filesFinished = stored.finishedPaths;
       addWarnings(warnings, stored.warnings);
+    }
+    if (part.section === 'skills') {
+      // Preflight checked the bytes. Mark the parts reviewed without copying code into the target.
+      filesFinished = validatePart(part.section, lines, scope.inventoryVersion).flatMap(
+        (record) => {
+          if (record.kind !== 'skill_bundle_version') return [];
+          const binary = bytesParts.get(skillBundlePartPath(record.id));
+          if (!binary) throw new ImportFailure('PART_CHANGED');
+          return [binary];
+        },
+      );
     }
     const kind = (lines[0] as { kind?: unknown } | undefined)?.kind;
     const countKey = typeof kind === 'string' ? kind : part.section;
@@ -1388,6 +1440,8 @@ export async function runOrganizationImport(
       manifest.excluded.restricted_artifacts +
       manifest.excluded.restricted_clients;
     if (excluded > 0) state.warnings.RESTRICTED_EXCLUDED_AT_SOURCE = excluded;
+    if (manifest.schema_version === 2 && manifest.sandbox_receipts_excluded)
+      state.warnings.SANDBOX_RECEIPTS_EXCLUDED_AT_SOURCE = manifest.sandbox_receipts_excluded;
 
     const status = totalOf(state.warnings) > 0 ? 'completed_with_warnings' : 'completed';
     await settle(database, context, state, status, null);

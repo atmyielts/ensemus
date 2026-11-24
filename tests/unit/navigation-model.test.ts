@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   currentNavigation,
   isNavigationCurrent,
+  navigationCurrentState,
   visibleSettings,
   workspaceNavigation,
 } from '../../apps/web/src/components/navigation-model';
@@ -12,6 +13,17 @@ const base = '/o/00000000-0000-4000-8000-000000000001';
 const navigation = (role: string) => workspaceNavigation({ base, role, unread: 3, pending: 2 });
 
 describe('working workspace navigation', () => {
+  it('announces the exact destination as the current page and related pages as a location', () => {
+    const work = navigation('owner')
+      .flatMap((group) => group.items)
+      .find((item) => item.href === `${base}/work`);
+    expect(work).toBeDefined();
+    expect(navigationCurrentState(work!, `${base}/work`)).toBe('page');
+    expect(navigationCurrentState(work!, `${base}/work/a`)).toBe('location');
+    expect(navigationCurrentState(work!, `${base}/compose`)).toBe('location');
+    expect(navigationCurrentState(work!, `${base}/inbox`)).toBeUndefined();
+  });
+
   it('groups routine work, the builder and administration without future or dead destinations', () => {
     const groups = navigation('owner');
     expect(groups.map((group) => group.label)).toEqual([
@@ -20,16 +32,21 @@ describe('working workspace navigation', () => {
       'Organization',
       'Account',
     ]);
-    expect(groups.flatMap((group) => group.items)).toHaveLength(12);
+    expect(groups.flatMap((group) => group.items)).toHaveLength(17);
+    expect(groups.flatMap((group) => group.items)).toContainEqual(
+      expect.objectContaining({ href: base + '/skills', label: 'Skill catalog' }),
+    );
+    expect(groups.flatMap((group) => group.items)).toContainEqual(
+      expect.objectContaining({ href: `${base}/meetings`, label: 'Meetings' }),
+    );
     const items = groups.flatMap((group) =>
       group.items.flatMap((item) => [item, ...(item.children ?? [])]),
     );
     for (const item of items) {
-      const path = item.href.slice(base.length);
-      const page = new URL(
-        `../../apps/web/src/app/o/[organizationId]${path}/page.tsx`,
-        import.meta.url,
-      );
+      const path = item.href.startsWith(base)
+        ? `/o/[organizationId]${item.href.slice(base.length)}`
+        : item.href;
+      const page = new URL(`../../apps/web/src/app${path}/page.tsx`, import.meta.url);
       expect(existsSync(fileURLToPath(page)), item.href).toBe(true);
       expect(item.href).not.toBe(`${base}/agents`);
     }
@@ -58,6 +75,14 @@ describe('working workspace navigation', () => {
     },
   );
 
+  it.each(['owner', 'admin', 'member'])('%s sees where to connect their own account', (role) => {
+    const account = navigation(role).find((group) => group.label === 'Account');
+    expect(account?.items.map((item) => item.href)).toContain(`${base}/settings/connections`);
+    expect(currentNavigation(navigation(role), `${base}/settings/connections`)?.label).toBe(
+      'My connections',
+    );
+  });
+
   it('does not advertise privileged pages to members or unknown roles', () => {
     for (const role of ['member', 'not-a-role']) {
       expect(navigation(role).map((group) => group.label)).toEqual(
@@ -77,6 +102,7 @@ describe('working workspace navigation', () => {
     ['/compose/a', 'Work'],
     ['/pulse/work_overdue:a', 'Home'],
     ['/objects/types/a/records/b', 'Custom records'],
+    ['/records/a', 'Source records'],
     ['/get-started', 'Administration'],
     ['/approvals/a', 'Approvals'],
     ['/external-actions/a', 'Approvals'],
@@ -90,6 +116,7 @@ describe('working workspace navigation', () => {
     ['/security/sso', 'Administration'],
     ['/settings/models/a', 'Administration'],
     ['/connections', 'Administration'],
+    ['/settings/connections', 'My connections'],
     ['/knowledge/sources/a', 'Knowledge'],
     ['/knowledge/facts/a', 'Knowledge'],
     ['/search', 'Knowledge'],

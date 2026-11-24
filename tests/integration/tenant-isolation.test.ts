@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   createOrganization,
   getOrganization,
+  hasOtherAccessibleOrganization,
   listAuditEvents,
   listMembers,
   listMyOrganizations,
@@ -75,6 +76,9 @@ describe('tenant isolation', () => {
   it('shows a user only their own organizations, before any tenant is bound', async () => {
     const mine = await listMyOrganizations(database.db, alice);
     expect(mine.map((o) => o.id)).toEqual([orgA.organizationId]);
+    expect(await hasOtherAccessibleOrganization(database.db, alice, orgA.organizationId)).toBe(
+      false,
+    );
   });
 
   it('denies a tenant the user does not belong to, the same way as one that does not exist', async () => {
@@ -157,6 +161,7 @@ describe('tenant isolation', () => {
     expect((await getOrganization(database.db, ctx1))?.name).toBe('Carol One');
     expect((await getOrganization(database.db, ctx2))?.name).toBe('Carol Two');
     expect(await listMyOrganizations(database.db, carol)).toHaveLength(2);
+    expect(await hasOtherAccessibleOrganization(database.db, carol, c1.organizationId)).toBe(true);
 
     // Regression: inside one tenant, her membership in the other must not be visible.
     const members = await withTenantTx(database.db, ctx1, (tx) =>
@@ -189,10 +194,19 @@ describe('tenant isolation', () => {
       emailVerified: true,
     });
     const ctx = await resolveTenantContext(database.db, dave, org.organizationId);
+    const home = await createOrganization(database.db, {
+      userId: dave,
+      name: 'Dave Home',
+      commercialMode: 'cloud',
+    });
+    expect(await hasOtherAccessibleOrganization(database.db, dave, home.organizationId)).toBe(true);
     await disableMember(database.db, owner, { membershipId: ctx.membershipId });
     await expect(
       resolveTenantContext(database.db, dave, org.organizationId),
     ).rejects.toBeInstanceOf(TenantAccessDenied);
+    expect(await hasOtherAccessibleOrganization(database.db, dave, home.organizationId)).toBe(
+      false,
+    );
   });
 
   it('keeps the audit log append-only, even for its owner', async () => {
@@ -229,7 +243,7 @@ describe('role boundaries', () => {
   it('gives no runtime role superuser, CREATEROLE or BYPASSRLS', async () => {
     const { rows } = await su.query(
       `select rolname from pg_roles
-        where rolname in ('ensemus_app','ensemus_auth','ensemus_dispatcher','ensemus_secrets','ensemus_migrator')
+        where rolname in ('ensemus_app','ensemus_auth','ensemus_dispatcher','ensemus_secrets','ensemus_migrator','ensemus_marketplace')
           and (rolsuper or rolcreaterole or rolbypassrls or rolcreatedb)`,
     );
     expect(rows).toEqual([]);
@@ -241,7 +255,7 @@ describe('role boundaries', () => {
          from pg_class c join pg_namespace n on n.oid = c.relnamespace
         where c.relkind in ('r','p')
           and n.nspname in ('org','platform','governance','secrets','identity','work','integrations','ai','knowledge',
-                            'studio','objects','packs','experience')
+                            'studio','objects','packs','experience','meetings','skills','marketplace')
           and not (c.relrowsecurity and c.relforcerowsecurity)`,
     );
     expect(rows).toEqual([]);

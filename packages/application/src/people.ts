@@ -8,6 +8,8 @@ import {
   notifications,
   organizations,
   projects,
+  resolveTenantContext,
+  TenantAccessDenied,
   teamMemberships,
   teams,
   users,
@@ -18,7 +20,7 @@ import {
   type Tx,
 } from '@ensemus/database';
 import { can, type Capability } from '@ensemus/domain/policy';
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { AppError, foreignReference, pgCode } from './errors';
 import { emit } from './events';
@@ -26,6 +28,8 @@ import { idSchema } from './ids';
 import { idFromRequest } from './request-id';
 import { assertActiveMember, closeReviewsForLostAccess } from './work';
 import { assertInteractivePrivilege, withPrivilegeTx as withTenantTx } from './product/privileged';
+import { queueInvitationMail, type InvitationMail } from './platform-mail';
+import { rowLockTarget } from './row-lock';
 
 const FOREIGN_KEY_VIOLATION = '23503';
 const name = z.string().trim().min(1).max(200);
@@ -373,11 +377,71 @@ export async function disableMember(
 const INVITATION_DAYS = 7;
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 
-/** Returns the token once. Only its hash is stored, so it can never be read back. */
+/**
+ * Admit creation of a password account for the exact address on a live invitation.
+ * The shared lock orders account creation with invitation revocation. This does not claim the
+ * invitation or create a membership. An unverified account still needs an administrator's decision.
+ */
+export function withInvitationRegistration<T>(
+  database: AppDatabase,
+  input: { token: string; email: string },
+  create: (email: string) => Promise<T>,
+): Promise<T | null> {
+  const email = z.email().max(320).safeParse(input.email.trim().toLowerCase());
+  if (!/^[A-Za-z0-9_-]{43}$/.test(input.token) || !email.success) return Promise.resolve(null);
+  const tokenHash = hashToken(input.token);
+  const matches = and(
+    eq(invitations.tokenHash, tokenHash),
+    eq(invitations.email, email.data),
+    isNull(invitations.acceptedAt),
+    isNull(invitations.revokedAt),
+    isNull(invitations.claimedAt),
+    sql`${invitations.expiresAt} > clock_timestamp()`,
+  );
+  return withInvitationTx(database, tokenHash, async (tx) => {
+    const [invite] = await tx
+      .select({ id: invitations.id, organizationId: invitations.organizationId })
+      .from(invitations)
+      .where(matches);
+    if (!invite) return null;
+    // Derive the tenant from the token-selected row. Only the locked matching invite is used.
+    await tx.execute(sql`select set_config('app.organization_id',${invite.organizationId},true)`);
+    const [eligible] = await tx
+      .select({ id: invitations.id })
+      .from(invitations)
+      .innerJoin(organizations, eq(organizations.id, invitations.organizationId))
+      .innerJoin(
+        memberships,
+        and(
+          eq(memberships.organizationId, invitations.organizationId),
+          eq(memberships.id, invitations.invitedByMembershipId),
+        ),
+      )
+      .where(
+        and(
+          matches,
+          eq(invitations.organizationId, invite.organizationId),
+          eq(invitations.id, invite.id),
+          eq(organizations.lifecycle, 'active'),
+          eq(memberships.status, 'active'),
+          inArray(memberships.role, ['owner', 'admin']),
+        ),
+      )
+      .for('share', { of: rowLockTarget(invitations) });
+    return eligible ? create(email.data) : null;
+  });
+}
+
+/**
+ * Returns the token once. Only its hash is stored, so it can never be read back. Where the mail worker
+ * runs, the invitation is also emailed, its link sealed to the worker's key, and `emailed` says whether it
+ * will go; the token is still returned, so the person inviting can copy the link if it does not.
+ */
 export async function createInvitation(
   database: AppDatabase,
   context: TenantContext,
   raw: { email: string; role?: 'admin' | 'member' },
+  options: { mail?: InvitationMail } = {},
 ) {
   requireCapability(context, 'member.invite');
   const input = parse(
@@ -408,7 +472,15 @@ export async function createInvitation(
       targetRef: `invitation:${id}`,
       decision: 'allow',
     });
-    return { id, token };
+    const emailed = options.mail
+      ? await queueInvitationMail(
+          tx,
+          context,
+          { invitationId: id, email: input.email, token },
+          options.mail,
+        )
+      : false;
+    return { id, token, emailed };
   });
 }
 
@@ -465,6 +537,46 @@ export async function revokeInvitation(
 
 export type InvitationOutcome =
   { status: 'joined'; organizationId: string } | { status: 'awaiting_confirmation' };
+
+/** A claimant can resume from the link after confirmation while they still have access. */
+export async function readClaimedInvitation(
+  database: AppDatabase,
+  input: { token: string; userId: string; email: string },
+): Promise<InvitationOutcome | null> {
+  const tokenHash = hashToken(input.token);
+  const [invitation] = await withInvitationTx(database, tokenHash, (tx) =>
+    tx
+      .select({
+        organizationId: invitations.organizationId,
+        expiresAt: invitations.expiresAt,
+        acceptedAt: invitations.acceptedAt,
+      })
+      .from(invitations)
+      .where(
+        and(
+          eq(invitations.tokenHash, tokenHash),
+          eq(invitations.claimedByUserId, input.userId),
+          eq(invitations.email, input.email.trim().toLowerCase()),
+          isNull(invitations.revokedAt),
+        ),
+      ),
+  );
+  if (!invitation) return null;
+  if (!invitation.acceptedAt) {
+    return invitation.expiresAt > new Date() ? { status: 'awaiting_confirmation' } : null;
+  }
+  try {
+    const { organizationId } = await resolveTenantContext(
+      database,
+      input.userId,
+      invitation.organizationId,
+    );
+    return { status: 'joined', organizationId };
+  } catch (error) {
+    if (error instanceof TenantAccessDenied) return null;
+    throw error;
+  }
+}
 
 /**
  * Accepts an invitation. It grants only the organization and role it names, works once, and only
@@ -554,6 +666,8 @@ export async function acceptInvitation(
     }
 
     if (!existing && !input.emailVerified) {
+      // The row remains locked from the check above, so simultaneous retries leave one request.
+      if (current.claimedByUserId === input.userId) return { status: 'awaiting_confirmation' };
       await tx
         .update(invitations)
         .set({ claimedByUserId: input.userId, claimedAt: new Date() })

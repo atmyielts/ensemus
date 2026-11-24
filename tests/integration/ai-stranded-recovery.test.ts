@@ -43,6 +43,7 @@ const objects: ObjectStore = {
 
 describe('stranded agent recovery, under the real roles', () => {
   let app: ReturnType<typeof openAppDatabase>;
+  let worker: ReturnType<typeof openAppDatabase>;
   let agent: ReturnType<typeof openAgentTestDatabase>;
   let su: pg.Client;
   let a: AiTenant;
@@ -51,6 +52,7 @@ describe('stranded agent recovery, under the real roles', () => {
 
   beforeAll(async () => {
     app = openAppDatabase(urls.app(), { max: 3 });
+    worker = openAppDatabase(urls.worker(), { max: 3 });
     agent = openAgentTestDatabase(3);
     su = new pg.Client({ connectionString: urls.superuser() });
     await su.connect();
@@ -61,6 +63,7 @@ describe('stranded agent recovery, under the real roles', () => {
 
   afterAll(async () => {
     await app?.close();
+    await worker?.close();
     await agent?.close();
     await su?.end();
   });
@@ -126,7 +129,7 @@ describe('stranded agent recovery, under the real roles', () => {
     const run = await running();
     await age(run.workUnitId);
     await createActivities({
-      database: app.db,
+      database: worker.db,
       store: objects,
       probeWorkflow: async () => 'closed',
     }).sendReminders({ organizationId: a.organizationId });
@@ -143,7 +146,7 @@ describe('stranded agent recovery, under the real roles', () => {
     const newerId = randomUUID();
     expect(await reclaimRun(agent.db, context, { ...run, temporalRunId: newerId })).not.toBeNull();
     const before = await stored(run.agentRunId);
-    await closeStrandedRun(app.db, createServiceContext(a.organizationId), run);
+    await closeStrandedRun(worker.db, createServiceContext(a.organizationId), run);
     expect(await stored(run.agentRunId)).toEqual(before);
     expect(before?.temporalRunId).toBe(newerId);
     expect((await getWorkUnit(app.db, a.owner, run.workUnitId)).status).toBe('running');
@@ -195,7 +198,7 @@ describe('stranded agent recovery, under the real roles', () => {
     const newerId = randomUUID();
     await age(run.workUnitId);
     await createActivities({
-      database: app.db,
+      database: worker.db,
       store: objects,
       probeWorkflow: async () => {
         expect(
@@ -216,7 +219,7 @@ describe('stranded agent recovery, under the real roles', () => {
     const before = await stored(run.agentRunId);
     const context = createServiceContext(a.organizationId);
     await expect(
-      withTenantTx(app.db, context, async (tx) => {
+      withTenantTx(worker.db, context, async (tx) => {
         const work = await loadChangeable(tx, context, run.workUnitId);
         await failRun(tx, context, work);
         await closeStrandedRunInTx(tx, context, run);
@@ -230,7 +233,7 @@ describe('stranded agent recovery, under the real roles', () => {
   it("cannot close another tenant's run, even with its work and workflow IDs", async () => {
     const run = await running();
     const before = await stored(run.agentRunId);
-    await closeStrandedRun(app.db, createServiceContext(b.organizationId), run);
+    await closeStrandedRun(worker.db, createServiceContext(b.organizationId), run);
     expect(await stored(run.agentRunId)).toEqual(before);
   });
 
@@ -246,10 +249,10 @@ describe('stranded agent recovery, under the real roles', () => {
   it('does not rewrite a terminal run when a sweep is repeated', async () => {
     const run = await running();
     const context = createServiceContext(a.organizationId);
-    await closeStrandedRun(app.db, context, run);
+    await closeStrandedRun(worker.db, context, run);
     const after = await stored(run.agentRunId);
     expect(after).toMatchObject({ status: 'failed', stopCode: 'STRANDED' });
-    await closeStrandedRun(app.db, context, run);
+    await closeStrandedRun(worker.db, context, run);
     expect(await stored(run.agentRunId)).toEqual(after);
   });
 });

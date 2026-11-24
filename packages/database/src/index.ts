@@ -8,7 +8,9 @@ export {
 } from './audit';
 export {
   createOrganization,
+  DedicatedOrganizationClaimRefused,
   getOrganization,
+  hasOtherAccessibleOrganization,
   listAuditEvents,
   listMembers,
   listMyOrganizations,
@@ -21,7 +23,9 @@ export {
   resolveInteractiveTenantContext,
   interactiveSessionOf,
   TenantAccessDenied,
+  withGrantInvitationTx,
   withInvitationTx,
+  withMemberTenantTx,
   withNewTenantTx,
   withTenantTx,
   withUserTx,
@@ -35,6 +39,7 @@ export {
   type WebhookEndpointRow,
 } from './tenant';
 export type { VerifiedInteractiveIdentity } from './interactive-identity';
+export { withMailUnsubscribeTx } from './mail-tenant';
 export {
   RestoreAdmissionDenied,
   assertRestoreAdmission,
@@ -69,3 +74,8 @@ export * from './schema-artifact-provenance';
 export * from './schema-client-access';
 export * from './schema-sovereign';
 export * from './schema-saas';
+export * from './schema-mail';
+export * from './schema-expansion';
+export * from './schema-skills';
+export * from './schema-tenancy';
+export * from './schema-federation';

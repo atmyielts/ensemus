@@ -27,8 +27,21 @@ import {
   sourceDate,
   sourceUrl,
   type OAuthRotationPort,
+  type OAuthScopesPort,
 } from '../runtime/provider-oauth';
 import { createHash } from 'node:crypto';
+import {
+  createSuiteToolDispatch,
+  parseMailIdDomain,
+  type DirectoryCapableConnector,
+  type PlatformOAuthClients,
+  type SuiteCapableConnector,
+} from '../suites';
+import { MICROSOFT_ACTION_HANDLERS, MICROSOFT_READ_HANDLERS } from './tools';
+import { createMicrosoftDirectory } from './directory';
+import { graphLink } from './graph-link';
+
+export { DIRECTORY_SCOPES } from './directory';
 
 export type Microsoft365Config = {
   /** Drives to read, by Graph ID. Never a host. */
@@ -47,11 +60,24 @@ type Cursor = { v: 1; config: string; drive: number; drives: string[]; paths: st
 export function createMicrosoft365Connector(deps: {
   http: ProviderHttpClient;
   rotation?: OAuthRotationPort;
-}): KnowledgeConnector<Microsoft365Config> {
+  /** The operator's apps, for a credential that names `client: 'platform'` (ADR-038 D2). */
+  platformClients?: PlatformOAuthClients;
+  /** Hears the scopes each refresh reports, so a narrowing at the provider narrows the row (D3). */
+  scopes?: OAuthScopesPort;
+  /**
+   * The deployment's Message-ID domain for suite mail (`ENSEMUS_MAIL_ID_DOMAIN`). Checked as a host name
+   * here, so a bad one stops the worker. Absent means suite mail is refused, with nothing contacted.
+   */
+  messageIdDomain?: string | null;
+}): KnowledgeConnector<Microsoft365Config> &
+  DirectoryCapableConnector<Microsoft365Config> &
+  SuiteCapableConnector<Microsoft365Config> {
   const auth = createProviderAuth({
     http: deps.http,
     provider: 'microsoft',
     ...(deps.rotation ? { rotation: deps.rotation } : {}),
+    ...(deps.platformClients ? { platformClients: deps.platformClients } : {}),
+    ...(deps.scopes ? { scopes: deps.scopes } : {}),
   });
   const json = (context: ConnectorContext, token: string, path: string, expired = false) =>
     requestJson(
@@ -148,14 +174,31 @@ export function createMicrosoft365Connector(deps: {
     }
     return [];
   };
+  // Suite tools for agents (ADR-038 D6): reads through `suiteReads`, changes as M3 intents through
+  // `actions`. The handlers are microsoft-tools' to write, in ./tools.ts.
+  const messageIdDomain = deps.messageIdDomain ? parseMailIdDomain(deps.messageIdDomain) : null;
+  if (deps.messageIdDomain && !messageIdDomain) throw new Error('MAIL_ID_DOMAIN_INVALID');
+  const tools = createSuiteToolDispatch({
+    deps: { http: deps.http, withToken: auth.withToken, messageIdDomain },
+    connectorType: MICROSOFT_365_MANIFEST.type,
+    reads: MICROSOFT_READ_HANDLERS,
+    actions: MICROSOFT_ACTION_HANDLERS,
+  });
   return {
     manifest: MICROSOFT_365_MANIFEST,
+    suiteReads: tools.suiteReads,
+    actions: tools.actions,
     parseConfig(raw) {
       const parsed = driveConnectorConfigSchema.safeParse(raw);
       if (!parsed.success) throw new SyncUnavailable('CONFIG_INVALID');
       return { driveIds: [...new Set(parsed.data.drive_ids)] };
     },
     disposeAuthSession: auth.dispose,
+    directory: createMicrosoftDirectory({
+      http: deps.http,
+      withToken: auth.withToken,
+      dispose: (context) => auth.dispose(context.credentials),
+    }),
     sync: {
       async readPage(context, request) {
         scopes(context, 'drive_items');
@@ -364,28 +407,4 @@ function scopes(context: ConnectorContext, kind: keyof typeof SCOPES_BY_STREAM) 
     !SCOPES_BY_STREAM[kind].some((scope) => context.grantedScopes?.includes(scope))
   )
     throw new SyncUnavailable('SCOPES_MISSING');
-}
-function graphLink(value: unknown, paths: readonly string[]): string {
-  try {
-    const raw = requiredText(value, 16_384),
-      url = new URL(raw);
-    if (
-      url.protocol !== 'https:' ||
-      url.hostname !== 'graph.microsoft.com' ||
-      (url.port && url.port !== '443') ||
-      url.username ||
-      url.password ||
-      url.hash ||
-      !paths.some(
-        (path) =>
-          url.pathname === path ||
-          (url.pathname.startsWith(path + '(') &&
-            /^\([^/]*\)$/.test(url.pathname.slice(path.length))),
-      )
-    )
-      throw new Error('INVALID_LINK');
-    return url.pathname + url.search;
-  } catch {
-    throw new SyncUnavailable('PROVIDER_RESPONSE_INVALID');
-  }
 }

@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { PageHead } from '@/components/ui';
+import { ActionLink, PageHead } from '@/components/ui';
 import { FactorError } from '@/components/security/code-fields';
 import { IdentityConfirmationForm } from '@/components/security/identity-confirmation-form';
 import { safeStepUpReturn } from '@/lib/step-up';
@@ -29,20 +29,31 @@ export default async function ConfirmIdentityPage({
         title="Confirm it is you"
         description="This change needs a recent code from your authenticator app or a saved recovery code."
       />
-      <section className="sheet">
+      <section className="sheet stack form-width">
         {enrolled ? (
-          <IdentityConfirmationForm
-            action={confirmIdentityAction.bind(null, organizationId)}
-            next={next}
-            error={query.error}
-          />
+          <>
+            <p>
+              Open your authenticator app and enter the code it shows now. If your phone is not with
+              you, choose Recovery code and use one of the codes you saved.
+            </p>
+            <IdentityConfirmationForm
+              action={confirmIdentityAction.bind(null, organizationId)}
+              next={next}
+              error={query.error}
+            />
+          </>
         ) : (
           <>
             <FactorError code={query.error} />
-            <p>Add an authenticator app before making this change.</p>
-            <Link className="button" href={`/o/${organizationId}/security/two-factor`}>
-              Set up authenticator app
-            </Link>
+            <p>
+              Add an authenticator app before making this change. It takes about two minutes, and
+              then you can come back here.
+            </p>
+            <div>
+              <ActionLink href={`/o/${organizationId}/security/two-factor`}>
+                Set up authenticator app
+              </ActionLink>
+            </div>
           </>
         )}
         <p className="link-line">

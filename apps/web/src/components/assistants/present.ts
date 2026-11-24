@@ -5,7 +5,8 @@
 import { describeRunStatus, isRunFinished } from '@ensemus/application/assistants';
 import type { DelegatedRun } from '@ensemus/application/product-ports';
 
-export type PresentedStep = { what: string; how: string; at: Date };
+/** `tone` is one of the badge tones chosen here, never the step's own state. */
+export type PresentedStep = { what: string; how: string; tone: string; at: Date };
 
 export type PresentedRun = {
   id: string;
@@ -59,6 +60,9 @@ const STEP_LABELS = new Map<string, string>([
   ['WAITING_FOR_CHILD', 'Waiting for another assistant to finish'],
   ['CHECKING_RESULT', 'Checking the result'],
   ['STOPPING', 'Winding down'],
+  ['READING_ACCOUNT', 'Reading from a connected account'],
+  ['WRITING_DRAFT', 'Saving a draft in a connected account'],
+  ['PROPOSING_CHANGE', 'Proposing a change for someone to approve'],
 ]);
 
 const STEP_STATES = new Map<string, string>([
@@ -67,6 +71,18 @@ const STEP_STATES = new Map<string, string>([
   ['failed', 'Did not work'],
   ['cancelled', 'Called off'],
 ]);
+
+const STEP_TONES = new Map<string, string>([
+  ['in_flight', 'active'],
+  ['completed', 'done'],
+  ['failed', 'bad'],
+  ['cancelled', ''],
+]);
+
+/** How a step is marked on the timeline. A state with no tone here is drawn plainly. */
+export function stepTone(state: string): string {
+  return STEP_TONES.get(state) ?? '';
+}
 
 export function stepWords(labelCode: string, state: string): { what: string; how: string } {
   return {
@@ -106,7 +122,11 @@ export function presentRun(run: DelegatedRun): PresentedRun {
     rounds: run.turnsUsed,
     actions: run.toolCallsUsed,
     cost: costWords(run),
-    steps: run.steps.map((step) => ({ ...stepWords(step.labelCode, step.state), at: step.at })),
+    steps: run.steps.map((step) => ({
+      ...stepWords(step.labelCode, step.state),
+      tone: stepTone(step.state),
+      at: step.at,
+    })),
   };
 }
 

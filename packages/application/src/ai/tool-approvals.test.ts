@@ -197,6 +197,10 @@ function storeOver(state: ReturnType<typeof world>) {
       bound.push({ id, ...ref });
       return seen('bindProposal', t, undefined);
     },
+    bindDraft: (t, id, externalActionId) => {
+      bound.push({ id, approvalId: '', externalActionId, requestHash: '' });
+      return seen('bindDraft', t, undefined);
+    },
     closeForLostAccess: (t, _context, approval) => {
       closed.push(approval.id);
       return seen('closeForLostAccess', t, undefined);
@@ -223,7 +227,7 @@ function binderFor(state: ReturnType<typeof world>) {
   }));
   const assertRunning = vi.fn<HaltCheck['assertRunning']>(async () => undefined);
   const binder = binderOver(doubles.store, {
-    externalActions: { propose, readState: vi.fn() },
+    externalActions: { propose, proposeDraft: vi.fn(), readState: vi.fn() },
     halt: { assertRunning },
   });
   return { binder, propose, assertRunning, ...doubles };
@@ -1191,7 +1195,8 @@ describe('nobody but a person can decide (SEC-014)', () => {
 
   it('gives a model no way to approve: the binder has no such method', () => {
     const { binder } = binderFor(world());
-    expect(Object.keys(binder).sort()).toEqual(['recheck', 'request']);
+    // A draft asks nobody (ADR-038 D6), so recording one approves nothing either.
+    expect(Object.keys(binder).sort()).toEqual(['recheck', 'recordDraft', 'request']);
   });
 });
 
@@ -1222,6 +1227,7 @@ describe('what the approval screen is given', () => {
       requestHash: state.approval?.actionHash,
       action: state.approval?.action,
       email: email(),
+      suite: null,
       consistent: true,
     });
   });

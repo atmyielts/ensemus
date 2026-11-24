@@ -124,6 +124,18 @@ For reachability, `curl --fail --silent --show-error "$BASE_URL/api/health/live"
 
 **Postcheck:** Deliver the event twice in the test fixture and verify one application, exact amount/currency match and no cross-tenant visibility.
 
+## Checkout needs a person
+
+**Diagnosis:** The connector worker logged `checkout.needs_person` with a reason code, and the tenant has a `payment.flagged` audit row. The reasons and what each means are in the [deployment runbook](05-container-deployment-runbook.md#hosted-checkout-paddle-payme-and-click).
+
+**Reversible mitigation:** Compare the checkout with the provider's own dashboard by its transaction reference, reached through authorized billing access. Refunds are made at the provider.
+
+**Safe fallback:** Leave the checkout and the invoice as they are. Never move a checkout row by hand: only a verified provider call or Paddle's own transaction can, and the database refuses anything else.
+
+**Communication:** Tell the customer whether their money was taken, from the provider's record, and how it will be returned or applied.
+
+**Postcheck:** One verified provider fact per transaction, the payment and invoice agree with it, and no second payment was started while one could still go through.
+
 ## Suspended tenant return
 
 **Diagnosis:** Determine the recorded standing reason, outstanding invoices and the pinned collection policy. Operator, offboarding, quota and provider halts are separate ownership boundaries.

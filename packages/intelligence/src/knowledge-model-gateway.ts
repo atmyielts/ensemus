@@ -5,6 +5,7 @@ import type {
   KnowledgeModelCandidate,
   KnowledgeModelPrincipal,
 } from '@ensemus/application/ai-knowledge-ports';
+import type { ResidencyGate } from '@ensemus/application';
 import type { Entitlements } from '@ensemus/application/ai-ports';
 import {
   qualifiedFor,
@@ -31,15 +32,20 @@ import { checkEndpoint } from '@ensemus/policy/endpoint';
 import type { Classification } from '@ensemus/domain/policy';
 import type { CredentialLender, EndpointGuard, ModelAdapter, AdapterResult } from './types';
 import type { EmbeddingAdapter } from './embedding-adapter';
+import { createRerankAdapter, type RerankAdapter } from './rerank-adapter';
+import { isRerankOnlyKind, kindServesPurpose } from '@ensemus/domain/ai-providers';
 import { egressFacts, hostOf, protocolOf } from './router/facts';
 
 export type KnowledgeModelGatewayDeps = {
   store: KnowledgeCallStore;
   entitlements: Entitlements;
+  residency: ResidencyGate;
   credentials: CredentialLender;
   guard: EndpointGuard;
   adapter: ModelAdapter;
   embeddings: EmbeddingAdapter;
+  /** Native rerank for the kinds that have it. Absent means the real one, through the same guard. */
+  reranks?: RerankAdapter;
   privateEndpoints: readonly string[];
   canaries: () => Promise<readonly string[]>;
   bundle: (principal: KnowledgeModelPrincipal) => Promise<TenantPolicyBundle | null>;
@@ -65,6 +71,7 @@ const matches = (
 
 export function createKnowledgeModelGateway(deps: KnowledgeModelGatewayDeps) {
   const now = deps.now ?? (() => new Date());
+  const reranks = deps.reranks ?? createRerankAdapter();
   return (principal: KnowledgeModelPrincipal): KnowledgeModelPort => {
     const context = principal.context;
     const allowed = (
@@ -162,6 +169,12 @@ export function createKnowledgeModelGateway(deps: KnowledgeModelGatewayDeps) {
       );
       if (!candidate) throw new ModelCallFailed('NO_APPROVED_MODEL');
       const profile = candidate.profile;
+      // A kind with no protocol for this purpose is refused before anything is reserved or opened.
+      if (!kindServesPurpose(profile.providerKind, operation.purpose))
+        throw new ModelCallFailed('NO_APPROVED_MODEL');
+      // A rerank-only kind ranks on its own /rerank endpoint: no prompt, no schema and no output tokens.
+      // Any other kind ranks by prompt and structured output, as before.
+      const nativeRerank = operation.purpose === 'rerank' && isRerankOnlyKind(profile.providerKind);
       if (
         entitlement.commercialMode !== 'cloud' &&
         profile.billingOwner === 'ensemus' &&
@@ -202,6 +215,15 @@ export function createKnowledgeModelGateway(deps: KnowledgeModelGatewayDeps) {
         await deps.bundle(principal),
       );
       if (!decision || decision.decision !== 'allow') throw denied();
+      const assertResidency = async () => {
+        const decision = await deps.residency.check(context, {
+          surface: operation.purpose === 'embed' ? 'embeddings' : 'inference',
+          classification,
+          targetRegion: profile.region,
+        });
+        if (!decision.allowed) throw denied();
+      };
+      await assertResidency();
       if (classification !== baseline)
         messages = messages.map((message) => ({
           ...message,
@@ -219,7 +241,9 @@ export function createKnowledgeModelGateway(deps: KnowledgeModelGatewayDeps) {
         viaPrivateAllowlist: endpoint.viaPrivateAllowlist,
       });
       const responseSchema =
-        operation.purpose === 'rerank' ? rankingSchema(operation.passages.length) : null;
+        operation.purpose === 'rerank' && !nativeRerank
+          ? rankingSchema(operation.passages.length)
+          : null;
       // The full serialized data envelope bounds input bytes conservatively; output is explicitly
       // approved. No rate, token allowance or budget is supplied by the gateway.
       const inputTokens = Buffer.byteLength(
@@ -232,7 +256,7 @@ export function createKnowledgeModelGateway(deps: KnowledgeModelGatewayDeps) {
         'utf8',
       );
       const outputTokens =
-        operation.purpose === 'embed'
+        operation.purpose === 'embed' || nativeRerank
           ? 0
           : Math.min(candidate.bounds.maxOutputTokens, profile.limits.maxOutputTokens);
       if (
@@ -270,14 +294,32 @@ export function createKnowledgeModelGateway(deps: KnowledgeModelGatewayDeps) {
       }
       let duplicate = false,
         claimed = false;
-      let result: AdapterResult | Awaited<ReturnType<EmbeddingAdapter['embed']>>;
+      let result:
+        | AdapterResult
+        | Awaited<ReturnType<EmbeddingAdapter['embed']>>
+        | Awaited<ReturnType<RerankAdapter['rerank']>>;
       const send = async (apiKey: Buffer | null) => {
+        await assertResidency();
         if (!(await deps.store.dispatch(principal, claim.callId))) {
           duplicate = true;
           throw unavailable();
         }
         claimed = true;
         try {
+          if (operation.purpose === 'rerank' && nativeRerank)
+            return await reranks.rerank(
+              {
+                providerKind: profile.providerKind,
+                modelId: profile.modelId,
+                endpointUrl: profile.endpointUrl,
+                apiKey,
+                fetch,
+                timeoutMs,
+                query: operation.query,
+                documents: operation.passages,
+              },
+              signal,
+            );
           return operation.purpose === 'embed'
             ? await deps.embeddings.embed(
                 {
@@ -330,13 +372,15 @@ export function createKnowledgeModelGateway(deps: KnowledgeModelGatewayDeps) {
           );
         else if (profile.providerKind === 'local_openai_compatible') result = await send(null);
         else throw unavailable();
-      } catch {
+      } catch (error) {
+        const outsideRegion = error instanceof ModelCallFailed && error.code === 'EGRESS_DENIED';
         if (!duplicate)
           await deps.store.settle(principal, claim.callId, {
             usage: null,
             mayHaveBilled: claimed,
-            reasonCode: 'CREDENTIAL_OR_DISPATCH_UNAVAILABLE',
+            reasonCode: outsideRegion ? 'RESIDENCY_DENIED' : 'CREDENTIAL_OR_DISPATCH_UNAVAILABLE',
           });
+        if (outsideRegion) throw error;
         throw unavailable();
       }
       const settled = await deps.store.settle(principal, claim.callId, {
@@ -354,6 +398,14 @@ export function createKnowledgeModelGateway(deps: KnowledgeModelGatewayDeps) {
       await deps.store.assertResultFresh(principal, claim.callId);
       if (result.kind === 'embedded')
         return { kind: 'embed' as const, vectors: result.vectors, usage };
+      if (result.kind === 'ranked') {
+        if (
+          operation.purpose !== 'rerank' ||
+          !validRanking(result.order, operation.passages.length)
+        )
+          throw unavailable();
+        return { kind: 'rerank' as const, order: result.order, usage };
+      }
       if (
         result.kind !== 'final' ||
         scanForSecrets([{ id: 'output', text: result.text }], canaries).hits.length

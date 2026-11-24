@@ -57,7 +57,12 @@ export function describeModelAdapterContract(
       const result = await generate('fails_rate_limited');
       expect(isTyped(result)).toBe(true);
       expect(result).toMatchObject({ kind: 'failure', failure: 'rate_limited' });
-      expect(Object.keys(result).sort()).toEqual(['failure', 'kind', 'mayHaveBilled', 'usage']);
+      // A capped Retry-After may come with it: a number, never provider text.
+      expect(
+        Object.keys(result)
+          .filter((key) => key !== 'retryAfterMs')
+          .sort(),
+      ).toEqual(['failure', 'kind', 'mayHaveBilled', 'usage']);
     });
   });
 }

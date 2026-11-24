@@ -8,6 +8,7 @@
 import { z } from 'zod';
 import { objectFieldSchema, objectRelationSchema } from './custom-objects';
 import { agentDraftAnswersSchema, processGraphSchema } from './studio';
+import { residencyScopeSchema } from './tenancy';
 
 const EXPORT_SECTIONS = [
   'organizations',
@@ -27,6 +28,41 @@ const EXPORT_SECTIONS = [
   'policy',
   'custom-objects',
 ] as const;
+
+const FEDERATION_PROFILE = 'ensemus.m3-m7-federation/4';
+const SKILL_METADATA_PORTABILITY_VERSION = 'ensemus.skill-metadata/5';
+const MARKETPLACE_PUBLISHER_PORTABILITY_VERSION = 'ensemus.marketplace-publisher/6';
+const MEETING_CONFIGURATION_PORTABILITY_VERSION = 'ensemus.meeting-config/7';
+const MEETING_HISTORY_PORTABILITY_VERSION = 'ensemus.meeting-history/8';
+const BUSINESS_RECORD_PORTABILITY_VERSION = 'ensemus.business-records/9';
+const SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION = 'ensemus.skill-upload-cleanup/10';
+const RESIDENCY_PORTABILITY_VERSION = 'ensemus.residency/11';
+const SKILL_BUNDLE_PORTABILITY_VERSION = 'ensemus.skill-bundles/12';
+const SANDBOX_HISTORY_PORTABILITY_VERSION = 'ensemus.sandbox-history/13';
+const MARKETPLACE_HISTORY_PORTABILITY_VERSION = 'ensemus.marketplace-history/14';
+const carriesSandboxHistory = (version: unknown) =>
+  version === SANDBOX_HISTORY_PORTABILITY_VERSION ||
+  version === MARKETPLACE_HISTORY_PORTABILITY_VERSION;
+const carriesSkillBundleOriginals = (version: unknown) =>
+  version === SKILL_BUNDLE_PORTABILITY_VERSION || carriesSandboxHistory(version);
+const carriesResidency = (version: unknown) =>
+  version === RESIDENCY_PORTABILITY_VERSION || carriesSkillBundleOriginals(version);
+const carriesUploadCleanup = (version: unknown) =>
+  version === SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION || carriesResidency(version);
+const carriesBusinessReferences = (version: unknown) =>
+  version === BUSINESS_RECORD_PORTABILITY_VERSION || carriesUploadCleanup(version);
+const carriesMeetingHistory = (version: unknown) =>
+  version === MEETING_HISTORY_PORTABILITY_VERSION || carriesBusinessReferences(version);
+const carriesMeetingConfiguration = (version: unknown) =>
+  version === MEETING_CONFIGURATION_PORTABILITY_VERSION || carriesMeetingHistory(version);
+const carriesPublisherHistory = (version: unknown) =>
+  version === MARKETPLACE_PUBLISHER_PORTABILITY_VERSION || carriesMeetingConfiguration(version);
+const carriesPortableSkillMetadata = (version: unknown) =>
+  version === SKILL_METADATA_PORTABILITY_VERSION || carriesPublisherHistory(version);
+const isJoinedInventory = (value: string) =>
+  value === 'ensemus.m3-m7/3' ||
+  value === FEDERATION_PROFILE ||
+  carriesPortableSkillMetadata(value);
 
 const id = z.uuid().refine((value) => value === value.toLowerCase());
 const moment = z.iso.datetime({ offset: true });
@@ -388,7 +424,419 @@ const m7PortableRecords = [
     classification,
   }),
 ] as const;
+export const SKILL_METADATA_RECORD_KINDS = [
+  'skill_package_metadata',
+  'skill_signer_metadata',
+  'marketplace_failed_installation',
+] as const;
+
+export const MEETING_CONFIGURATION_RECORD_KINDS = [
+  'meeting_settings_history',
+  'meeting_provider_approval_history',
+] as const;
+export const MEETING_HISTORY_RECORD_KINDS = [
+  'meeting_purge_history',
+  'meeting_participant_history',
+  'meeting_consent_history',
+  'meeting_note_purge_history',
+  'meeting_summary_purge_history',
+  'meeting_proposal_history',
+  'meeting_derivation_history',
+  'meeting_import_history',
+] as const;
+const meetingReference = z
+  .string()
+  .min(1)
+  .max(400)
+  .refine((value) => [...value].length <= 200);
+
+const BUSINESS_RECORD_KINDS = [
+  'business_record_reference',
+  'business_record_action_reference',
+] as const;
+
+const marketplaceHistorySemver = z
+  .string()
+  .max(120)
+  .regex(/^[0-9]+\.[0-9]+\.[0-9]+$/);
+const marketplaceHistoryName = z.string().min(1).max(120);
+const marketplaceHistoryKinds = [
+  'marketplace_submission_history',
+  'marketplace_listing_history',
+  'marketplace_review_history',
+  'marketplace_installation_history',
+] as const;
+
 export const extensionRecordSchema = z.discriminatedUnion('kind', [
+  z.strictObject({
+    kind: z.literal('marketplace_submission_history'),
+    id,
+    publisher_id: id,
+    package_id: id,
+    skill_version_id: id,
+    name: marketplaceHistoryName,
+    semver: marketplaceHistorySemver,
+    state: z.enum(['submitted', 'in_review', 'approved', 'rejected', 'withdrawn']),
+    created_at: moment,
+    decided_at: moment.nullable(),
+    delist_requested_at: moment.nullable(),
+  }),
+  z
+    .strictObject({
+      kind: z.literal('marketplace_listing_history'),
+      id,
+      publisher_id: id,
+      submission_id: id,
+      review_id: id,
+      display_name: z.string().min(1).max(120),
+      summary: z.string().min(1).max(500),
+      semver: marketplaceHistorySemver,
+      state: z.enum(['listed', 'delisted']),
+      delist_mode: z.enum(['stop_new', 'revoke']).nullable(),
+      delist_code: z
+        .enum(['PUBLISHER_REQUEST', 'SECURITY_ISSUE', 'LICENSE_ISSUE', 'POLICY_VIOLATION'])
+        .nullable(),
+      listed_at: moment,
+      delisted_at: moment.nullable(),
+    })
+    .refine((r) =>
+      r.state === 'delisted'
+        ? r.delist_mode !== null && r.delist_code !== null && r.delisted_at !== null
+        : r.delist_mode === null && r.delist_code === null && r.delisted_at === null,
+    ),
+  z.strictObject({
+    kind: z.literal('marketplace_review_history'),
+    id,
+    submission_id: id,
+    verdict: z.enum(['approved', 'rejected']),
+    finding_codes: z
+      .array(
+        z.enum([
+          'SIGNATURE_PROBLEM',
+          'LICENSE_PROBLEM',
+          'DEPENDENCY_PROBLEM',
+          'EXCESSIVE_TOOLS',
+          'EXCESSIVE_DATA_ACCESS',
+          'HARMFUL_INSTRUCTIONS',
+          'HARMFUL_CODE',
+          'INADEQUATE_TESTS',
+          'MISLEADING_DESCRIPTION',
+        ]),
+      )
+      .max(9),
+    decided_at: moment,
+    recorded_at: moment,
+  }),
+  z
+    .strictObject({
+      kind: z.literal('marketplace_installation_history'),
+      id,
+      listing_id: id,
+      requested_by_membership_id: id,
+      state: z.enum(['installed', 'removed', 'failed']),
+      failure_code: z
+        .enum([
+          'LISTING_NOT_AVAILABLE',
+          'ATTESTATION_INVALID',
+          'SIGNATURE_INVALID',
+          'BUNDLE_HASH_MISMATCH',
+          'BUNDLE_UNAVAILABLE',
+          'NAME_TAKEN',
+          'VERIFICATION_REJECTED',
+          'INSTALL_ERROR',
+        ])
+        .nullable(),
+      package_id: id.nullable(),
+      skill_version_id: id.nullable(),
+      package_name: marketplaceHistoryName.nullable(),
+      semver: marketplaceHistorySemver.nullable(),
+      created_at: moment,
+      updated_at: moment,
+      removed_at: moment.nullable(),
+    })
+    .refine(
+      (r) =>
+        (r.state === 'failed') === (r.failure_code !== null) &&
+        (r.package_id !== null) === (r.skill_version_id !== null) &&
+        (r.state === 'failed' ||
+          (r.package_id !== null && r.package_name !== null && r.semver !== null)) &&
+        (r.state === 'removed') === (r.removed_at !== null),
+    ),
+  z.strictObject({
+    kind: z.literal('sandbox_run_receipt'),
+    id,
+    skill_version_id: id,
+    purpose: z.enum(['operator_test', 'skill_test']),
+    status: z.enum([
+      'succeeded',
+      'failed',
+      'timed_out',
+      'memory_exceeded',
+      'output_exceeded',
+      'denied',
+      'cancelled',
+      'runner_unavailable',
+    ]),
+    attempts: z.int().min(0).max(3),
+    created_at: moment,
+    finished_at: moment,
+  }),
+  z.strictObject({
+    kind: z.literal('skill_bundle_version'),
+    id,
+    package_id: id,
+    uploaded_by_membership_id: id,
+    state: z.enum(['verified', 'published', 'yanked']),
+    semver: z
+      .string()
+      .max(120)
+      .regex(/^[0-9]+\.[0-9]+\.[0-9]+$/),
+    bundle_sha256: sha256,
+    size_bytes: z.int().min(1).max(8_388_608),
+    uploaded_at: moment,
+    updated_at: moment,
+  }),
+  z
+    .strictObject({
+      kind: z.literal('skill_test_history'),
+      id,
+      skill_version_id: id,
+      mode: z.enum(['contract', 'sandbox']),
+      outcome: z.enum(['passed', 'failed', 'error']),
+      fixtures_total: z.int().min(1).max(50),
+      fixtures_passed: z.int().min(0).max(50),
+      first_failed_fixture: z.int().min(0).max(49).nullable(),
+      started_at: moment,
+      finished_at: moment,
+    })
+    .refine(
+      (record) =>
+        record.fixtures_passed <= record.fixtures_total &&
+        (record.outcome !== 'passed' || record.fixtures_passed === record.fixtures_total) &&
+        (record.first_failed_fixture === null ||
+          record.first_failed_fixture < record.fixtures_total),
+    ),
+  z.strictObject({
+    kind: z.literal('residency_requirement'),
+    id,
+    scope: residencyScopeSchema,
+    region: z.string().regex(/^[a-z][a-z0-9-]{1,31}$/),
+    version: z.string().regex(/^[1-9][0-9]{0,18}$/),
+    set_by_membership_id: id,
+    created_at: moment,
+    updated_at: moment,
+  }),
+  z.strictObject({
+    kind: z.literal('skill_upload_cleanup_history'),
+    id,
+    package_id: id,
+    membership_id: id,
+    created_at: moment,
+    absent_at: moment,
+  }),
+  z.strictObject({
+    kind: z.literal('business_record_reference'),
+    id,
+    connection_id: id,
+    resource_id: id,
+    stream: z.string().regex(/^[a-z0-9_.-]{1,64}$/),
+    classification,
+    first_seen_at: moment,
+    updated_at: moment,
+  }),
+  z.strictObject({
+    kind: z.literal('business_record_action_reference'),
+    id,
+    business_record_id: id,
+    created_at: moment,
+  }),
+  z.strictObject({
+    kind: z.literal('meeting_purge_history'),
+    id,
+    organizer_membership_id: id,
+    classification,
+    source_kind: z.enum(['manual', 'connector']),
+    occurred_at: moment,
+    created_at: moment,
+    purged_at: moment,
+  }),
+  z
+    .strictObject({
+      kind: z.literal('meeting_participant_history'),
+      id,
+      meeting_id: id,
+      classification,
+      member_id: id.nullable(),
+      participant_kind: z.enum(['member', 'external']),
+      created_at: moment,
+    })
+    .refine((record) => (record.participant_kind === 'member') === (record.member_id !== null)),
+  z.strictObject({
+    kind: z.literal('meeting_consent_history'),
+    id,
+    meeting_id: id,
+    classification,
+    participant_id: id,
+    decision: z.enum(['granted', 'declined', 'withdrawn']),
+    basis: z.enum(['self', 'attested']),
+    notice_ref: meetingReference,
+    recorded_by_membership_id: id,
+    recorded_at: moment,
+    position: z.string().regex(/^[1-9][0-9]{0,18}$/),
+  }),
+  z.strictObject({
+    kind: z.literal('meeting_note_purge_history'),
+    id,
+    meeting_id: id,
+    classification,
+    version: z.int().min(1),
+    source_kind: z.enum(['manual', 'connector']),
+    source_approval_id: id.nullable(),
+    imported_by_membership_id: id.nullable(),
+    created_at: moment,
+    purged_at: moment,
+  }),
+  z.strictObject({
+    kind: z.literal('meeting_summary_purge_history'),
+    id,
+    meeting_id: id,
+    classification,
+    run_id: id,
+    created_at: moment,
+    purged_at: moment,
+  }),
+  z.strictObject({
+    kind: z.literal('meeting_proposal_history'),
+    id,
+    meeting_id: id,
+    classification,
+    run_id: id,
+    ordinal: z.int().min(1).max(100),
+    proposal_kind: z.enum(['decision', 'work']),
+    status: z.enum(['accepted', 'rejected', 'withdrawn']),
+    decided_by_membership_id: id.nullable(),
+    decided_at: moment.nullable(),
+    created_at: moment,
+    purged_at: moment,
+  }),
+  z.strictObject({
+    kind: z.literal('meeting_derivation_history'),
+    id,
+    meeting_id: id,
+    classification,
+    notes_id: id,
+    provider_approval_id: id,
+    purpose: z.enum(['summarize', 'extract_items']),
+    status: z.enum(['completed', 'failed', 'refused', 'cancelled']),
+    requested_by_membership_id: id,
+    created_at: moment,
+    finished_at: moment.nullable(),
+  }),
+  z.strictObject({
+    kind: z.literal('meeting_import_history'),
+    id,
+    meeting_id: id,
+    classification,
+    source_approval_id: id,
+    status: z.enum(['completed', 'failed', 'refused']),
+    requested_by_membership_id: id,
+    created_at: moment,
+    finished_at: moment.nullable(),
+  }),
+  z
+    .strictObject({
+      kind: z.literal('meeting_settings_history'),
+      id,
+      enabled: z.boolean(),
+      notice_ref: meetingReference.nullable(),
+      version: z.string().regex(/^[1-9][0-9]{0,18}$/),
+      updated_by_membership_id: id,
+      updated_at: moment,
+    })
+    .refine((record) => !record.enabled || record.notice_ref !== null),
+  z
+    .strictObject({
+      kind: z.literal('meeting_provider_approval_history'),
+      id,
+      provider_kind: z.enum(['model', 'source']),
+      target_ref: z
+        .string()
+        .regex(/^(model_profile|connection):[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/),
+      purposes: z
+        .array(z.enum(['summarize', 'extract_items', 'import_notes']))
+        .min(1)
+        .max(2),
+      max_classification: classification,
+      terms_ref: meetingReference,
+      approved_by_membership_id: id,
+      approved_at: moment,
+      expires_at: moment,
+      revoked_at: moment.nullable(),
+      revoked_by_membership_id: id.nullable(),
+    })
+    .refine((record) => {
+      if ((record.revoked_at === null) !== (record.revoked_by_membership_id === null)) return false;
+      return record.provider_kind === 'model'
+        ? record.target_ref.startsWith('model_profile:') &&
+            record.purposes.every((purpose) => purpose !== 'import_notes')
+        : record.target_ref.startsWith('connection:') &&
+            record.purposes.length === 1 &&
+            record.purposes[0] === 'import_notes';
+    }),
+  z.strictObject({
+    kind: z.literal('marketplace_publisher_history'),
+    id,
+    display_name: z
+      .string()
+      .min(1)
+      .max(240)
+      .refine((name) => Array.from(name).length <= 120),
+    state: z.enum(['active', 'suspended']),
+    version: z.string().regex(/^[1-9][0-9]{0,18}$/),
+    created_at: moment,
+    updated_at: moment,
+  }),
+  z.strictObject({
+    kind: z.literal('skill_package_metadata'),
+    id,
+    name: z.string().regex(/^[a-z][a-z0-9-]{1,63}$/),
+    display_name: z.string().min(1).max(120),
+    classification,
+    state: z.enum(['active', 'disabled']),
+    owner_membership_id: id.nullable(),
+    version: z.int().min(1),
+    created_at: moment,
+    updated_at: moment,
+  }),
+  z.strictObject({
+    kind: z.literal('skill_signer_metadata'),
+    id,
+    display_name: z.string().min(1).max(120),
+    key_id: sha256,
+    public_key_hex: sha256,
+    state: z.enum(['active', 'revoked']),
+    created_at: moment,
+    revoked_at: moment.nullable(),
+  }),
+  z.strictObject({
+    kind: z.literal('marketplace_failed_installation'),
+    id,
+    listing_id: id,
+    requested_by_membership_id: id,
+    failure_code: z.enum([
+      'LISTING_NOT_AVAILABLE',
+      'ATTESTATION_INVALID',
+      'SIGNATURE_INVALID',
+      'BUNDLE_HASH_MISMATCH',
+      'BUNDLE_UNAVAILABLE',
+      'NAME_TAKEN',
+      'VERIFICATION_REJECTED',
+      'INSTALL_ERROR',
+    ]),
+    state: z.literal('failed'),
+    created_at: moment,
+    updated_at: moment,
+  }),
   z.strictObject({
     kind: z.literal('service_identity'),
     ...definitionBase,
@@ -422,6 +870,11 @@ export const extensionRecordSchema = z.discriminatedUnion('kind', [
       'anthropic_hosted',
       'openai_compatible',
       'local_openai_compatible',
+      'gemini_hosted',
+      'azure_openai',
+      'bedrock_hosted',
+      'cohere_hosted',
+      'voyage_hosted',
     ]),
     billing_owner: z.enum(['customer', 'ensemus']),
     capabilities: z.array(shortText).max(30),
@@ -666,7 +1119,24 @@ export const EXTENSION_SECTION_KINDS = {
     'pack_installation',
     'pack_item',
   ],
-  policy: ['budget', 'usage_entry', 'policy_definition', 'security_settings'],
+  policy: [
+    'budget',
+    'usage_entry',
+    'policy_definition',
+    'security_settings',
+    ...MEETING_CONFIGURATION_RECORD_KINDS,
+    ...MEETING_HISTORY_RECORD_KINDS,
+    'residency_requirement',
+  ],
+  skills: [
+    ...SKILL_METADATA_RECORD_KINDS,
+    'marketplace_publisher_history',
+    'skill_upload_cleanup_history',
+    'skill_bundle_version',
+    'skill_test_history',
+    'sandbox_run_receipt',
+    ...marketplaceHistoryKinds,
+  ],
   'custom-objects': [
     'custom_object_type',
     'custom_object_version',
@@ -683,10 +1153,59 @@ export const EXTENSION_SECTION_KINDS = {
     'graph_edge',
     'artifact_citation',
   ],
-  connections: ['external_resource', 'external_acl', 'mcp_definition'],
+  connections: ['external_resource', 'external_acl', 'mcp_definition', ...BUSINESS_RECORD_KINDS],
   clients: ['client_reader'],
   history: ['action_attempt'],
 } as const;
+
+export function assertPortableExtensionProfile(
+  kind: ExtensionRecord['kind'],
+  inventoryVersion: string | undefined,
+) {
+  if (
+    (M7_PORTABLE_RECORD_KINDS as readonly string[]).includes(kind) &&
+    (inventoryVersion === undefined || !isJoinedInventory(inventoryVersion))
+  )
+    throw new Error('RECORD_REFUSED');
+  if (
+    (SKILL_METADATA_RECORD_KINDS as readonly string[]).includes(kind) &&
+    !carriesPortableSkillMetadata(inventoryVersion)
+  )
+    throw new Error('RECORD_REFUSED');
+  if (kind === 'marketplace_publisher_history' && !carriesPublisherHistory(inventoryVersion))
+    throw new Error('RECORD_REFUSED');
+  if (
+    (MEETING_CONFIGURATION_RECORD_KINDS as readonly string[]).includes(kind) &&
+    !carriesMeetingConfiguration(inventoryVersion)
+  )
+    throw new Error('RECORD_REFUSED');
+  if (
+    (MEETING_HISTORY_RECORD_KINDS as readonly string[]).includes(kind) &&
+    !carriesMeetingHistory(inventoryVersion)
+  )
+    throw new Error('RECORD_REFUSED');
+  if (
+    (BUSINESS_RECORD_KINDS as readonly string[]).includes(kind) &&
+    !carriesBusinessReferences(inventoryVersion)
+  )
+    throw new Error('RECORD_REFUSED');
+  if (kind === 'skill_upload_cleanup_history' && !carriesUploadCleanup(inventoryVersion))
+    throw new Error('RECORD_REFUSED');
+  if (kind === 'residency_requirement' && !carriesResidency(inventoryVersion))
+    throw new Error('RECORD_REFUSED');
+  if (
+    (kind === 'skill_bundle_version' || kind === 'skill_test_history') &&
+    !carriesSkillBundleOriginals(inventoryVersion)
+  )
+    throw new Error('RECORD_REFUSED');
+  if (kind === 'sandbox_run_receipt' && !carriesSandboxHistory(inventoryVersion))
+    throw new Error('RECORD_REFUSED');
+  if (
+    (marketplaceHistoryKinds as readonly string[]).includes(kind) &&
+    inventoryVersion !== MARKETPLACE_HISTORY_PORTABILITY_VERSION
+  )
+    throw new Error('RECORD_REFUSED');
+}
 
 export function validatePortableRecord(
   section: string,
@@ -696,11 +1215,7 @@ export function validatePortableRecord(
   const core = coreRecordSchema.safeParse(raw);
   if (core.success) return core.data;
   const extension = extensionRecordSchema.parse(raw);
-  if (
-    (M7_PORTABLE_RECORD_KINDS as readonly string[]).includes(extension.kind) &&
-    inventoryVersion !== 'ensemus.m3-m7/3'
-  )
-    throw new Error('RECORD_REFUSED');
+  assertPortableExtensionProfile(extension.kind, inventoryVersion);
   const allowed = EXTENSION_SECTION_KINDS[section as keyof typeof EXTENSION_SECTION_KINDS] as
     readonly string[] | undefined;
   if (!allowed?.includes(extension.kind)) throw new Error('RECORD_REFUSED');
@@ -747,9 +1262,25 @@ const manifestV1Schema = z.strictObject({
 });
 const manifestV2Schema = manifestV1Schema.extend({
   schema_version: z.literal(2),
-  inventory_version: z.enum(['ensemus.m3-m5/1', 'ensemus.m3-m5/2', 'ensemus.m3-m7/3']),
+  inventory_version: z.enum([
+    'ensemus.m3-m5/1',
+    'ensemus.m3-m5/2',
+    'ensemus.m3-m7/3',
+    FEDERATION_PROFILE,
+    SKILL_METADATA_PORTABILITY_VERSION,
+    MARKETPLACE_PUBLISHER_PORTABILITY_VERSION,
+    MEETING_CONFIGURATION_PORTABILITY_VERSION,
+    MEETING_HISTORY_PORTABILITY_VERSION,
+    BUSINESS_RECORD_PORTABILITY_VERSION,
+    SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION,
+    RESIDENCY_PORTABILITY_VERSION,
+    SKILL_BUNDLE_PORTABILITY_VERSION,
+    SANDBOX_HISTORY_PORTABILITY_VERSION,
+    MARKETPLACE_HISTORY_PORTABILITY_VERSION,
+  ]),
   record_max_bytes: z.literal(4 * 1024 * 1024).optional(),
   generated_bodies_excluded: z.int().min(0),
+  sandbox_receipts_excluded: z.int().min(0).optional(),
   inventory: z
     .array(
       z.strictObject({
@@ -767,7 +1298,7 @@ const manifestV2Schema = manifestV1Schema.extend({
         version: z.literal(1),
       }),
     )
-    .max(256),
+    .max(288),
 });
 export const exportManifestSchema = z
   .discriminatedUnion('schema_version', [manifestV1Schema, manifestV2Schema])
@@ -797,7 +1328,29 @@ export const exportManifestSchema = z
       )
     )
       ctx.addIssue({ code: 'custom', message: 'Legacy archives carry only core inert records' });
-    const joined = value.schema_version === 2 && value.inventory_version === 'ensemus.m3-m7/3';
+    if (
+      value.schema_version === 2 &&
+      carriesSandboxHistory(value.inventory_version) !==
+        (value.sandbox_receipts_excluded !== undefined)
+    )
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Sandbox receipt exclusions differ from inventory profile',
+      });
+    const joined = value.schema_version === 2 && isJoinedInventory(value.inventory_version);
+    if (
+      value.schema_version === 2 &&
+      !carriesMeetingHistory(value.inventory_version) &&
+      value.inventory.length > 256
+    )
+      ctx.addIssue({
+        code: 'too_big',
+        path: ['inventory'],
+        origin: 'array',
+        maximum: 256,
+        inclusive: true,
+        message: 'Inventory exceeds profile bound',
+      });
     if (
       value.schema_version === 2 &&
       ((joined && value.record_max_bytes !== 4 * 1024 * 1024) ||
@@ -806,7 +1359,8 @@ export const exportManifestSchema = z
       ctx.addIssue({ code: 'custom', message: 'Record bound differs from inventory profile' });
     if (
       (!joined && value.sections['custom-objects']?.parts !== 0) ||
-      value.sections.skills?.parts !== 0
+      ((value.schema_version !== 2 || !carriesPortableSkillMetadata(value.inventory_version)) &&
+        value.sections.skills?.parts !== 0)
     )
       ctx.addIssue({ code: 'custom', message: 'Section absent from this inventory profile' });
   });

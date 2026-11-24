@@ -121,7 +121,8 @@ export function sourceDto(
           size_bytes: detail.sizeBytes,
           source_url: detail.sourceUrl,
           source_version: detail.sourceVersion,
-          scan_state: detail.scanState,
+          // `flagged` is the pre-0710 name, never produced now; the API speaks only the current states.
+          scan_state: detail.scanState === 'flagged' ? 'infected' : detail.scanState,
           reject_code: detail.rejectCode,
           grants_managed_by_provider: detail.grantsManagedByProvider,
           grants: detail.grants.map((grant) => ({

@@ -1,0 +1,100 @@
+# Load explicitly with -f compose.yaml -f compose.sandbox.yaml --profile sandbox.
+# Provision the independent runner and confirm the host-boundary requirements in sandbox.md first.
+services:
+  sandbox-worker:
+    profiles: ['sandbox']
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    command: ['node', 'dist/sandbox-worker.js']
+    user: '1000:1000'
+    init: true
+    restart: on-failure
+    read_only: true
+    tmpfs: ['/tmp:rw,nosuid,nodev,noexec,mode=1777,size=16m']
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges=true']
+    networks:
+      sandbox-data: {}
+      sandbox-link: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.11.2' }
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.10.10
+      - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.10.11
+      - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.10.12
+    environment:
+      ENSEMUS_SANDBOX_ENABLED: ${ENSEMUS_SANDBOX_ENABLED:-false}
+      ENSEMUS_SKILL_CATALOG_ENABLED: ${ENSEMUS_SKILL_CATALOG_ENABLED:-false}
+      ENSEMUS_MARKETPLACE_ENABLED: ${ENSEMUS_MARKETPLACE_ENABLED:-false}
+      ENSEMUS_MODE: ${ENSEMUS_MODE:-sovereign}
+      ENSEMUS_BILLING_ENABLED: ${ENSEMUS_BILLING_ENABLED:-false}
+      ENSEMUS_SANDBOX_RUNNER_URL: http://${ENSEMUS_NETWORK_PREFIX:-172.30}.11.1:${ENSEMUS_SANDBOX_RUNNER_PORT:-8080}
+      ENSEMUS_SANDBOX_MAX_WALL_MS:
+      ENSEMUS_SANDBOX_MAX_CPU_MS:
+      ENSEMUS_SANDBOX_MAX_MEMORY_MB:
+      ENSEMUS_SANDBOX_MAX_TMPFS_MB:
+      ENSEMUS_SANDBOX_MAX_OUTPUT_KB:
+      ENSEMUS_SANDBOX_MAX_PIDS:
+      ENSEMUS_SANDBOX_MAX_CONCURRENT_PER_TENANT:
+      ENSEMUS_SANDBOX_PROBE_MAX_AGE_MS:
+      SANDBOX_RUNNER_TOKEN_FILE: /run/secrets/sandbox_runner_token
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+      TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
+      DATABASE_URL_APP_FILE: /run/secrets/db_worker_url
+      OBJECT_STORAGE_ENDPOINT: http://objects:8333
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-ensemus}
+      OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/sandbox_objects_access_key
+      OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/sandbox_objects_secret_key
+    secrets:
+      [
+        sandbox_runner_token,
+        temporal_codec_key,
+        db_worker_url,
+        sandbox_objects_access_key,
+        sandbox_objects_secret_key,
+      ]
+    depends_on:
+      temporal-namespace: { condition: service_completed_successfully }
+      migrate: { condition: service_completed_successfully }
+      objects: { condition: service_healthy }
+    deploy:
+      resources: { limits: { memory: 512M, pids: 128 } }
+
+  postgres:
+    networks:
+      sandbox-data: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.10.10' }
+  temporal:
+    networks:
+      sandbox-data: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.10.11' }
+  objects:
+    networks:
+      sandbox-data: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.10.12' }
+
+networks:
+  sandbox-data:
+    driver: bridge
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+    ipam:
+      config:
+        - subnet: '${ENSEMUS_NETWORK_PREFIX:-172.30}.10.0/24'
+          ip_range: '${ENSEMUS_NETWORK_PREFIX:-172.30}.10.128/25'
+  sandbox-link:
+    driver: bridge
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: nat
+    ipam:
+      config:
+        - subnet: '${ENSEMUS_NETWORK_PREFIX:-172.30}.11.0/24'
+          gateway: '${ENSEMUS_NETWORK_PREFIX:-172.30}.11.1'
+
+secrets:
+  sandbox_runner_token:
+    file: '${ENSEMUS_SANDBOX_RUNNER_TOKEN_HOST_FILE:-../../.local/secrets/sandbox_runner_token}'
+  sandbox_objects_access_key:
+    file: '${ENSEMUS_SANDBOX_OBJECTS_ACCESS_KEY_HOST_FILE:-../../.local/secrets/sandbox_objects_access_key}'
+  sandbox_objects_secret_key:
+    file: '${ENSEMUS_SANDBOX_OBJECTS_SECRET_KEY_HOST_FILE:-../../.local/secrets/sandbox_objects_secret_key}'

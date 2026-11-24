@@ -1,3 +1,4 @@
+import { Label } from '@/components/ui/label';
 import { resolveExternalActionAction } from '@/server/external-action-actions';
 import { KeptTextarea } from './kept-field';
 import { SubmitButton } from './submit-button';
@@ -22,16 +23,16 @@ export function ResolveForm({
       <input type="hidden" name="version" value={version} />
       <fieldset className="group">
         <legend>What did you find?</legend>
-        <label className="check">
+        <Label className="check">
           <input type="radio" name="resolution" value="confirmed_sent" required />
           It went: I found it
-        </label>
-        <label className="check">
+        </Label>
+        <Label className="check">
           <input type="radio" name="resolution" value="confirmed_not_sent" required />
           It did not go: it is not there
-        </label>
+        </Label>
       </fieldset>
-      <label>
+      <Label>
         How do you know?
         <small>Required. People who can read this work can read it. It cannot be changed.</small>
         <KeptTextarea
@@ -40,7 +41,7 @@ export function ResolveForm({
           required
           maxLength={2000}
         />
-      </label>
+      </Label>
       <small>
         This records your word and sends nothing. If you say it did not go, sending it means asking
         again, and that needs a new approval.

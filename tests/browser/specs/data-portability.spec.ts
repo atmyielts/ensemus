@@ -179,9 +179,10 @@ test.describe('exporting', () => {
     const organization = await createOrganization(person, 'Exported by keyboard');
     const page = await open(person);
     await page.goto(dataPage(organization));
-    await tabTo(page, /Public key/);
+    await tabTo(page, /^Public key$/);
+    await expect(page.getByRole('textbox', { name: 'Public key', exact: true })).toBeFocused();
     await page.keyboard.type(aKeyPair().publicKey);
-    await tabTo(page, /Ask for an export/);
+    await tabTo(page, /^Ask for an export$/);
     await page.keyboard.press('Enter');
     await expect(page.getByRole('status').filter({ hasText: 'has been asked for' })).toBeVisible();
     await expect(page.getByText('Sealed to key')).toBeVisible();

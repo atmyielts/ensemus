@@ -6,7 +6,12 @@ services:
   postgres:
     ports: ['127.0.0.1:${ENSEMUS_TEST_PG_PORT:-55432}:5432']
     # Lets tests/measure count statements. Nothing else uses it, and no deployment loads it.
-    command: ['postgres', '-c', 'shared_preload_libraries=pg_stat_statements']
+    command:
+      - postgres
+      - -c
+      - max_locks_per_transaction=256
+      - -c
+      - shared_preload_libraries=pg_stat_statements
   # Publishing a port makes Docker accept traffic to that container from other networks, which would
   # undo the web tier's isolation. So tests reach Temporal through this sidecar instead.
   temporal-test-port:
@@ -23,9 +28,16 @@ services:
       # default install.
       ENSEMUS_ALLOW_SIGNUP: ${ENSEMUS_ALLOW_SIGNUP:-true}
       ENSEMUS_PRIVATE_MODEL_ENDPOINTS: http://fake-model:8000
+      # A generated public client ID for the deployment's own Google app, so a member's own consent can start
+      # (tests/stack/slice-2.test.ts). Web only: the connector worker keeps compose.yaml's empty default, so it
+      # needs no client secret, and no code is ever exchanged here. The live run's own value still wins.
+      ENSEMUS_GOOGLE_CLIENT_ID: ${ENSEMUS_GOOGLE_CLIENT_ID:-generated-test-client.apps.example.invalid}
       # The generated test trust root (ADR-030 D3), so signed documents can be checked and installed.
       # tests/stack/sovereign-api.test.ts signs with the key it names, which never enters a container.
       ENSEMUS_LICENSE_TRUST_ROOT_FILE: /run/secrets/license_trust_root
+      # The generated evaluator's public key (AGENT-16). The stack tests sign scripted reports with its
+      # private half, which never enters a container.
+      ENSEMUS_EVALUATION_PUBLIC_KEYS_FILE: /run/secrets/evaluation_public_keys
       # Hosted settings, for the air-gap gate's hosted phase only (infrastructure/scripts/air-gap-gate.mjs), which
       # sets them while it recreates web and web-2 as a hosted deployment. No value here: unset in the shell and in
       # .env, each is unset in the container, which is every other phase, every other job and every deployment
@@ -35,7 +47,7 @@ services:
       ENSEMUS_PAYMENT_PROCESSOR:
       ENSEMUS_BREAK_GLASS_ENABLED:
       ENSEMUS_BREAK_GLASS_MAX_MINUTES:
-    secrets: [license_trust_root]
+    secrets: [license_trust_root, evaluation_public_keys]
   worker:
     environment:
       # The operator's sovereign-license command runs from this image, with the same trust root as web.
@@ -56,7 +68,8 @@ services:
       FAKE_MODEL_HOST: 0.0.0.0
       FAKE_MODEL_PORT: 8000
     volumes:
-      - ../../tests/fixtures/fake-model/server.mjs:/fixture/server.mjs:ro
+      # Keep the test server and its local SigV4 verifier together; neither ships in app images.
+      - ../../tests/fixtures/fake-model:/fixture:ro
     networks:
       agents: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.20' }
     healthcheck:
@@ -94,14 +107,20 @@ services:
     environment:
       ENSEMUS_ALLOW_SIGNUP: ${ENSEMUS_ALLOW_SIGNUP:-true}
       ENSEMUS_CONNECTORS_ENABLED: ${ENSEMUS_CONNECTORS_ENABLED:-false}
+      # Business adapter metadata only in web; sockets remain confined to the connector worker.
+      ENSEMUS_EGRESS_GATEWAY_CRM: ${ENSEMUS_EGRESS_GATEWAY_CRM:-}
+      ENSEMUS_EGRESS_GATEWAY_TICKETING: ${ENSEMUS_EGRESS_GATEWAY_TICKETING:-}
+      ENSEMUS_EGRESS_GATEWAY_ACCOUNTING: ${ENSEMUS_EGRESS_GATEWAY_ACCOUNTING:-}
       ENSEMUS_PRIVATE_MODEL_ENDPOINTS: http://fake-model:8000
+      ENSEMUS_GOOGLE_CLIENT_ID: ${ENSEMUS_GOOGLE_CLIENT_ID:-generated-test-client.apps.example.invalid}
       ENSEMUS_LICENSE_TRUST_ROOT_FILE: /run/secrets/license_trust_root
+      ENSEMUS_EVALUATION_PUBLIC_KEYS_FILE: /run/secrets/evaluation_public_keys
       # The same hosted-phase settings as web above, so both replicas answer alike.
       ENSEMUS_PAYMENT_PROCESSOR:
       ENSEMUS_BREAK_GLASS_ENABLED:
       ENSEMUS_BREAK_GLASS_MAX_MINUTES:
     # Added to what it extends from web, like the variable above.
-    secrets: [license_trust_root]
+    secrets: [license_trust_root, evaluation_public_keys]
   proxy:
     extra_hosts: ['web-2:${ENSEMUS_NETWORK_PREFIX:-172.30}.1.11']
     volumes:
@@ -117,6 +136,20 @@ services:
     extra_hosts: ['smtp-sink:${ENSEMUS_NETWORK_PREFIX:-172.30}.6.20']
     environment:
       ENSEMUS_EGRESS_TARGET: smtp-sink:2525
+  # The Google and Microsoft route gateways (ADR-038) refuse to start without a target, and `up --wait`
+  # needs every service healthy. Here each forwards to the same sink inside the stack, never to a provider:
+  # the worker's TLS check against the route's fixed name fails there, so a request on any of these routes
+  # still ends with a code, and the air-gap gate's `--connectors` round still sees no packet leave.
+  egress-google-api: &route-gateway-test-target
+    extra_hosts: ['smtp-sink:${ENSEMUS_NETWORK_PREFIX:-172.30}.6.20']
+    environment:
+      ENSEMUS_EGRESS_TARGET: smtp-sink:2525
+  egress-google-oauth: *route-gateway-test-target
+  egress-ms-graph: *route-gateway-test-target
+  egress-ms-login: *route-gateway-test-target
+  egress-google-gmail: *route-gateway-test-target
+  egress-google-docs: *route-gateway-test-target
+  egress-google-sheets: *route-gateway-test-target
   smtp-sink:
     profiles: ['connectors']
     image: node:24-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9
@@ -140,10 +173,41 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
+  # Ensemus's own email goes to a local test mailbox, so testers can read every message at
+  # http://127.0.0.1:58125 and nothing leaves the machine. Mailpit offers no TLS here, which is why the mail
+  # worker is told `none` here and nowhere else, and takes any login. Run with the `mail` profile and
+  # ENSEMUS_MAIL_ENABLED=true (pnpm stack:mail:up).
+  mail-worker:
+    environment:
+      ENSEMUS_MAIL_TLS: none
+      ENSEMUS_MAIL_FROM_ADDRESS: ${ENSEMUS_MAIL_FROM_ADDRESS:-ensemus@example.invalid}
+  mail-gateway:
+    extra_hosts: ['mailpit:${ENSEMUS_NETWORK_PREFIX:-172.30}.6.21']
+    environment:
+      ENSEMUS_EGRESS_TARGET: mailpit:1025
+  mailpit:
+    profiles: ['mail']
+    image: axllent/mailpit:v1.32.0@sha256:0790692be935ea4420d085694f7985b1f692ca6a8771ab0e0bd8ba75ac180498
+    read_only: true
+    tmpfs: ['/data']
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: 'true'
+      MP_SMTP_AUTH_ALLOW_INSECURE: 'true'
+      MP_MAX_MESSAGES: '5000'
+      MP_DATABASE: /data/mailpit.db
+    networks:
+      outbound: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.6.21' }
+    # The web inbox and its API, for people and tests. SMTP itself is not published.
+    ports: ['127.0.0.1:${ENSEMUS_TEST_MAILPIT_PORT:-58125}:8025']
+    healthcheck:
+      test: ['CMD', '/mailpit', 'readyz']
+      interval: 2s
+      timeout: 3s
+      retries: 30
   oidc-mock:
     profiles: ['test-oidc']
-    image: ghcr.io/navikt/mock-oauth2-server:2.3.0
-    ports: ['127.0.0.1:58080:8080']
+    image: ghcr.io/navikt/mock-oauth2-server:2.3.0@sha256:dfcc1b60abe7414d2754767fceaec62a5dc79a10e543804069f69287b277e314
+    ports: [{ target: 8080, host_ip: '127.0.0.1' }]
     environment:
       JSON_CONFIG: >-
         {"interactiveLogin": false, "tokenCallbacks": [{"issuerId": "default",
@@ -154,3 +218,4 @@ services:
 secrets:
   # Public keys only, written by infrastructure/scripts/generate-test-secrets.mjs (pnpm stack:secrets).
   license_trust_root: { file: ../../.local/sovereign-test/trust-root.json }
+  evaluation_public_keys: { file: ../../.local/evaluation-test/public-keys }

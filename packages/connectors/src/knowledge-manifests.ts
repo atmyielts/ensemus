@@ -17,8 +17,19 @@ export const GOOGLE_WORKSPACE_MANIFEST: ConnectorManifest = {
   version: '1',
   displayName: 'Google Workspace',
   capabilities: {
-    actions: [],
-    reconcile: 'none',
+    // ADR-038 D6's changes, each an M3 intent. A test holds this to the tools whose manifest names this
+    // connector. How each reconciles, and whether the provider dedupes it, is the tool's own, and these
+    // two fields are only what holds for the connector as a whole.
+    actions: [
+      'gmail.create_draft',
+      'gmail.send',
+      'calendar.create_event',
+      'calendar.update_event',
+      'drive.create_file',
+      'docs.edit',
+      'sheets.write_range',
+    ],
+    reconcile: 'best_effort',
     nativeIdempotency: false,
     sync: { streams: ['drive_files'], pageSize: 100 },
     aclMapping: true,
@@ -36,8 +47,17 @@ export const MICROSOFT_365_MANIFEST: ConnectorManifest = {
   version: '1',
   displayName: 'Microsoft 365',
   capabilities: {
-    actions: [],
-    reconcile: 'none',
+    // ADR-038 D6's changes, held to the tool manifests by a test, as Google's are.
+    actions: [
+      'outlook.create_draft',
+      'outlook.send',
+      'calendar.create_event',
+      'calendar.update_event',
+      'onedrive.create_file',
+      'excel.write_range',
+      'teams.post_message',
+    ],
+    reconcile: 'best_effort',
     nativeIdempotency: false,
     sync: { streams: ['drive_items'], pageSize: 100 },
     aclMapping: true,

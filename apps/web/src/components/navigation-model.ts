@@ -13,6 +13,8 @@ export type NavigationIcon =
   | 'clients'
   | 'inbox'
   | 'studio'
+  | 'assistants'
+  | 'search'
   | 'settings'
   | 'connections'
   | 'models'
@@ -85,6 +87,13 @@ export const SETTINGS_DESTINATIONS: readonly SettingsDestination[] = [
     any: ['connection.manage'],
   },
   {
+    path: 'deployment',
+    label: 'Deployment posture',
+    description: 'Review isolation checks and declared data regions.',
+    icon: 'safety',
+    any: ['tenancy.view'],
+  },
+  {
     path: 'settings/models',
     label: 'Models',
     description: 'Choose which models may receive company information.',
@@ -104,6 +113,13 @@ export const SETTINGS_DESTINATIONS: readonly SettingsDestination[] = [
     description: 'Pause model activity when something needs attention.',
     icon: 'safety',
     any: ['ai.halt'],
+  },
+  {
+    path: 'settings/skills/signers',
+    label: 'Publisher keys',
+    description: 'Choose which publishers may provide signed skill packages for your company.',
+    icon: 'safety',
+    any: ['skill.manage'],
   },
   {
     path: 'settings/egress',
@@ -130,6 +146,11 @@ export function isNavigationCurrent(item: NavItem, pathname: string) {
     (!item.exact && matchesPath(pathname, item.href)) ||
     (item.matches?.some((path) => matchesPath(pathname, path)) ?? false)
   );
+}
+
+export function navigationCurrentState(item: NavItem, pathname: string) {
+  if (!isNavigationCurrent(item, pathname)) return undefined;
+  return pathname === item.href ? 'page' : 'location';
 }
 
 export function workspaceNavigation(input: {
@@ -180,6 +201,7 @@ export function workspaceNavigation(input: {
             { href: `${base}/external-actions`, label: 'External actions', icon: 'arrow' },
           ],
         },
+        { href: `${base}/meetings`, label: 'Meetings', icon: 'people' },
         { href: `${base}/people`, label: 'People and teams', icon: 'people' },
         {
           href: `${base}/clients`,
@@ -210,7 +232,9 @@ export function workspaceNavigation(input: {
         matches: [`${base}/search`],
       },
       { href: `${base}/objects`, label: 'Custom records', icon: 'records' },
-      { href: `${base}/assistants`, label: 'Assistants', icon: 'studio' },
+      { href: `${base}/records`, label: 'Source records', icon: 'records' },
+      { href: `${base}/assistants`, label: 'Assistants', icon: 'assistants' },
+      { href: `${base}/skills`, label: 'Skill catalog', icon: 'models' },
     );
   if (can(role, 'agent.publish') || can(role, 'agent.run'))
     groups.push({
@@ -275,16 +299,20 @@ export function workspaceNavigation(input: {
             `${base}/license`,
             `${base}/data`,
             `${base}/get-started`,
+            `${base}/deployment`,
           ],
-          excludes: [`${base}/settings/agents`],
+          excludes: [`${base}/settings/agents`, `${base}/settings/connections`],
         },
       ],
     });
+  // Every member may connect their own mail and calendar (ADR-038 D5), so every member sees where.
+  const account: NavItem[] = isRole(role)
+    ? [{ href: `${base}/settings/connections`, label: 'My connections', icon: 'connections' }]
+    : [];
   if (can(role, 'support.use'))
-    groups.push({
-      label: 'Account',
-      items: [{ href: `${base}/account`, label: 'Account and support', icon: 'usage' }],
-    });
+    account.push({ href: `${base}/account`, label: 'Account and support', icon: 'usage' });
+  if (isRole(role)) account.push({ href: '/help', label: 'Help', icon: 'arrow' });
+  if (account.length > 0) groups.push({ label: 'Account', items: account });
   return groups;
 }
 

@@ -109,6 +109,8 @@ function flaky(real: AppDatabase, faults: Readonly<Record<number, DbFault>>): Ap
 
 describe('verified external actions', () => {
   let database: ReturnType<typeof openAppDatabase>;
+  let connectorDb: ReturnType<typeof openAppDatabase>;
+  let platformDb: ReturnType<typeof openAppDatabase>;
   let auth: pg.Client;
   let superuser: pg.Client;
   let owner: TenantContext;
@@ -239,7 +241,7 @@ describe('verified external actions', () => {
     externalActionId: id,
   });
 
-  const activitiesOver = (gateway: ExternalActionGateway, over: AppDatabase = db()) =>
+  const activitiesOver = (gateway: ExternalActionGateway, over: AppDatabase = connectorDb.db) =>
     createExternalActionActivities(over, gateway);
 
   /**
@@ -252,7 +254,7 @@ describe('verified external actions', () => {
     id: string,
     options: { worker?: AppDatabase; beforeEachStep?: () => Promise<void> } = {},
   ) {
-    const worker = activitiesOver(gateway, options.worker ?? db());
+    const worker = activitiesOver(gateway, options.worker ?? connectorDb.db);
     const platform = activitiesOver(gateway);
     const input = inputFor(id);
     const run = { ...input, runId: randomUUID() };
@@ -294,6 +296,8 @@ describe('verified external actions', () => {
 
   beforeAll(async () => {
     database = openAppDatabase(urls.app());
+    connectorDb = openAppDatabase(urls.connector());
+    platformDb = openAppDatabase(urls.worker());
     auth = new pg.Client({ connectionString: urls.auth() });
     await auth.connect();
     superuser = new pg.Client({ connectionString: urls.superuser() });
@@ -309,6 +313,8 @@ describe('verified external actions', () => {
 
   afterAll(async () => {
     await database?.close();
+    await connectorDb?.close();
+    await platformDb?.close();
     await auth?.end();
     await superuser?.end();
   });
@@ -337,7 +343,7 @@ describe('verified external actions', () => {
     it('lets a service ask on a webhook’s behalf, with the owner to decide and no requester', async () => {
       const work = await newWork();
       const service = createServiceContext(owner.organizationId);
-      const proposal = await proposeExternalAction(db(), service, {
+      const proposal = await proposeExternalAction(platformDb.db, service, {
         workUnitId: work,
         connectionId: connection,
         toolName: EMAIL_SEND_TOOL,
@@ -410,7 +416,14 @@ describe('verified external actions', () => {
       const work = await newWork(owner, { classification: 'restricted' });
       await expect(propose({ workUnitId: work })).rejects.toEqual(code('RESTRICTED_NOT_ALLOWED'));
       await expect(
-        propose({ workUnitId: work }, createServiceContext(owner.organizationId)),
+        proposeExternalAction(platformDb.db, createServiceContext(owner.organizationId), {
+          workUnitId: work,
+          connectionId: connection,
+          toolName: EMAIL_SEND_TOOL,
+          toolVersion: EMAIL_SEND_VERSION,
+          payload: mail(),
+          approverMembershipId: approver.membershipId,
+        }),
       ).rejects.toEqual(code('RESTRICTED_NOT_ALLOWED'));
     });
 
@@ -544,7 +557,7 @@ describe('verified external actions', () => {
     it('cancels when the approval expires', async () => {
       const proposal = await propose({ expiresAt: new Date(Date.now() + 60_000) });
       await expireOverdueApprovals(
-        db(),
+        platformDb.db,
         createServiceContext(owner.organizationId),
         new Date(Date.now() + 120_000),
       );
@@ -695,18 +708,21 @@ describe('verified external actions', () => {
     it('records an answer once, however many times it is told and whatever else it is told', async () => {
       const { externalActionId: id } = await readyToSend();
       const service = createServiceContext(owner.organizationId);
-      const begun = await beginAttempt(db(), service, { externalActionId: id, runId: 'r' });
+      const begun = await beginAttempt(connectorDb.db, service, {
+        externalActionId: id,
+        runId: 'r',
+      });
       if (begun.kind !== 'send') throw new Error('Expected a send');
       const attemptId = begun.attempt.attemptId;
       const accepted = { outcome: 'accepted', code: 'ACCEPTED_BY_RELAY' } as const;
-      await expect(finishAttempt(db(), service, { attemptId, result: accepted })).resolves.toBe(
-        'sent',
-      );
-      await expect(finishAttempt(db(), service, { attemptId, result: accepted })).resolves.toBe(
-        'sent',
-      );
       await expect(
-        finishAttempt(db(), service, {
+        finishAttempt(connectorDb.db, service, { attemptId, result: accepted }),
+      ).resolves.toBe('sent');
+      await expect(
+        finishAttempt(connectorDb.db, service, { attemptId, result: accepted }),
+      ).resolves.toBe('sent');
+      await expect(
+        finishAttempt(connectorDb.db, service, {
           attemptId,
           result: { outcome: 'not_sent', code: 'RELAY_BUSY', retryable: true },
         }),
@@ -904,7 +920,7 @@ describe('verified external actions', () => {
     it.each(BOUNDARIES)('$name: ends $ends with $effects effect(s)', async (boundary) => {
       const { externalActionId: id } = await readyToSend();
       const gateway = createScriptedGateway(boundary.script);
-      const worker = boundary.worker ? flaky(db(), boundary.worker) : db();
+      const worker = boundary.worker ? flaky(connectorDb.db, boundary.worker) : connectorDb.db;
       await expect(drive(gateway, id, { worker }).run()).resolves.toBe(boundary.ends);
       await assertEnding(id, gateway, boundary);
       await replayEverything(id, gateway);
@@ -915,7 +931,7 @@ describe('verified external actions', () => {
       async (boundary) => {
         const { externalActionId: id } = await readyToSend();
         const gateway = createScriptedGateway(boundary.script);
-        const worker = boundary.worker ? flaky(db(), boundary.worker) : db();
+        const worker = boundary.worker ? flaky(connectorDb.db, boundary.worker) : connectorDb.db;
         const replayed = activitiesOver(gateway);
         let replays = 0;
         const driven = drive(gateway, id, {
@@ -985,17 +1001,19 @@ describe('verified external actions', () => {
       const { externalActionId: id } = await readyToSend();
       const gateway = createScriptedGateway(['accept_then_silent']);
       await drive(gateway, id).run();
-      await expect(inspectInterrupted(db(), owner, { externalActionId: id })).resolves.toBe(
-        'settled',
-      );
       await expect(
-        beginAttempt(db(), createServiceContext(owner.organizationId), {
+        inspectInterrupted(connectorDb.db, createServiceContext(owner.organizationId), {
+          externalActionId: id,
+        }),
+      ).resolves.toBe('settled');
+      await expect(
+        beginAttempt(connectorDb.db, createServiceContext(owner.organizationId), {
           externalActionId: id,
           runId: 'r',
         }),
       ).resolves.toEqual({ kind: 'stop', status: 'unknown' });
       await expect(
-        failUnsent(db(), createServiceContext(owner.organizationId), {
+        failUnsent(connectorDb.db, createServiceContext(owner.organizationId), {
           externalActionId: id,
           code: 'ATTEMPTS_EXHAUSTED',
         }),
@@ -1171,7 +1189,7 @@ describe('verified external actions', () => {
       // Dies on the way in, then just after beginReconcile committed, then with finishReconcile rolled back.
       for (const faults of [{ 1: 'before' }, { 1: 'after_commit' }, { 2: 'rollback' }] as const) {
         await expect(
-          activitiesOver(gateway, flaky(db(), faults)).reconcileExternalAction({
+          activitiesOver(gateway, flaky(connectorDb.db, faults)).reconcileExternalAction({
             ...input,
             code: 'WORKER_INTERRUPTED',
           }),
@@ -1180,7 +1198,10 @@ describe('verified external actions', () => {
       }
       // The answer is stored, and the worker does not hear it.
       await expect(
-        activitiesOver(gateway, flaky(db(), { 2: 'after_commit' })).reconcileExternalAction({
+        activitiesOver(
+          gateway,
+          flaky(connectorDb.db, { 2: 'after_commit' }),
+        ).reconcileExternalAction({
           ...input,
           code: 'WORKER_INTERRUPTED',
         }),
@@ -1201,9 +1222,12 @@ describe('verified external actions', () => {
     it('marks an open attempt indeterminate with the code it is given, and no later code replaces it', async () => {
       const { externalActionId: id } = await readyToSend();
       const service = createServiceContext(owner.organizationId);
-      const begun = await beginAttempt(db(), service, { externalActionId: id, runId: 'r' });
+      const begun = await beginAttempt(connectorDb.db, service, {
+        externalActionId: id,
+        runId: 'r',
+      });
       expect(begun.kind).toBe('send');
-      const prepared = await beginReconcile(db(), service, {
+      const prepared = await beginReconcile(connectorDb.db, service, {
         externalActionId: id,
         code: 'WORKER_INTERRUPTED',
       });
@@ -1500,13 +1524,13 @@ describe('verified external actions', () => {
         activities.failUnsentAction({ ...foreign, code: 'CONNECTOR_UNAVAILABLE' }),
       ).rejects.toEqual(code('NOT_FOUND'));
       await expect(
-        finishAttempt(db(), createServiceContext(other.organizationId), {
+        finishAttempt(connectorDb.db, createServiceContext(other.organizationId), {
           attemptId: randomUUID(),
           result: { outcome: 'accepted', code: 'ACCEPTED_BY_RELAY' },
         }),
       ).rejects.toEqual(code('NOT_FOUND'));
       await expect(
-        finishReconcile(db(), createServiceContext(other.organizationId), {
+        finishReconcile(connectorDb.db, createServiceContext(other.organizationId), {
           attemptId: randomUUID(),
           result: { answer: 'cannot_answer' },
           lookup: 'none',
@@ -1637,8 +1661,14 @@ describe('verified external actions', () => {
     it('ends a ready intent, with the system’s word and no attempt', async () => {
       const { externalActionId: id } = await readyToSend();
       const service = createServiceContext(owner.organizationId);
-      await failUnsent(db(), service, { externalActionId: id, code: 'CONNECTOR_UNAVAILABLE' });
-      await failUnsent(db(), service, { externalActionId: id, code: 'CONNECTOR_UNAVAILABLE' });
+      await failUnsent(connectorDb.db, service, {
+        externalActionId: id,
+        code: 'CONNECTOR_UNAVAILABLE',
+      });
+      await failUnsent(connectorDb.db, service, {
+        externalActionId: id,
+        code: 'CONNECTOR_UNAVAILABLE',
+      });
       expect(await rowOf(id)).toMatchObject({
         status: 'failed',
         statusReason: 'CONNECTOR_UNAVAILABLE',
@@ -1655,7 +1685,7 @@ describe('verified external actions', () => {
         approverMembershipId: approver.membershipId,
         status: 'sending',
       });
-      await failUnsent(db(), createServiceContext(owner.organizationId), {
+      await failUnsent(connectorDb.db, createServiceContext(owner.organizationId), {
         externalActionId: seeded.id,
         code: 'CONNECTOR_UNAVAILABLE',
       });
@@ -1766,6 +1796,8 @@ describe('verified external actions', () => {
         connectorType: 'test_connector',
         config: {},
         credentialSecretId: randomUUID(),
+        grantedScopes: [],
+        ownerKind: 'organization',
         ...overrides,
       },
     });
@@ -1818,7 +1850,7 @@ describe('verified external actions', () => {
 
     const gatewayWith = (connector: Connector | null, secrets = lendsSecret) =>
       createConnectorGateway({
-        database: db(),
+        database: connectorDb.db,
         registry: connector ? registryOf(connector) : registryOf(),
         secrets,
         network,
@@ -1930,7 +1962,7 @@ describe('verified external actions', () => {
 
     it('ends a real intent as failed when the connector is gone, without contacting anything', async () => {
       const { externalActionId: id } = await readyToSend();
-      const activities = createExternalActionActivities(db(), gatewayWith(null));
+      const activities = createExternalActionActivities(connectorDb.db, gatewayWith(null));
       await expect(activities.sendExternalAction({ ...inputFor(id), runId: 'r' })).resolves.toEqual(
         { step: 'failed' },
       );

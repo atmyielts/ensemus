@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ensemus:license-inventory:1",
+  "title": "Third-party license inventory for counsel (LEGAL-05)",
+  "description": "Facts about what a release distributes. It holds no legal conclusion: it says what each component declares and what a reviewer should look at. Counsel decides.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "review", "release", "sections", "components"],
+  "properties": {
+    "schema": { "const": 1 },
+    "review": {
+      "description": "This tool can never say anything else. Counsel's review is recorded outside it.",
+      "const": "draft_not_reviewed_by_counsel"
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit", "dirty"],
+      "properties": {
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "dirty": { "type": "boolean" },
+        "release": { "type": "string" }
+      }
+    },
+    "sections": {
+      "description": "One per source of components. A section that was not collected says so, and why, so that a short list never reads as a complete one.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["npm", "container_images", "os_packages", "model_weights", "other"],
+      "properties": {
+        "npm": { "$ref": "#/$defs/section" },
+        "container_images": { "$ref": "#/$defs/section" },
+        "os_packages": { "$ref": "#/$defs/section" },
+        "model_weights": { "$ref": "#/$defs/section" },
+        "other": { "$ref": "#/$defs/section" }
+      }
+    },
+    "components": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/component" }
+    }
+  },
+  "$defs": {
+    "section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "source", "count"],
+      "properties": {
+        "state": { "enum": ["collected", "declared_by_hand", "not_collected", "none_distributed"] },
+        "source": { "type": "string", "minLength": 1 },
+        "count": { "type": "integer", "minimum": 0 },
+        "reason": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "state": { "enum": ["not_collected", "none_distributed"] } } },
+          "then": { "required": ["reason"], "properties": { "count": { "const": 0 } } }
+        }
+      ]
+    },
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "name",
+        "version",
+        "license_declared",
+        "license_evidence",
+        "license_text",
+        "distributed_in",
+        "attention"
+      ],
+      "properties": {
+        "kind": {
+          "enum": ["npm", "container_image", "os_package", "runtime", "model_weights", "other"]
+        },
+        "name": { "type": "string", "minLength": 1 },
+        "version": {
+          "description": "An exact version or digest, or 'unknown' with an attention entry.",
+          "type": "string",
+          "minLength": 1
+        },
+        "license_declared": {
+          "description": "Exactly what the component declares, not normalized and not interpreted. 'unknown' when it declares nothing.",
+          "type": "string",
+          "minLength": 1
+        },
+        "license_evidence": {
+          "description": "Where that came from, so counsel can weigh it.",
+          "enum": [
+            "package_metadata",
+            "license_file",
+            "sbom",
+            "upstream_repository_not_the_image",
+            "not_found"
+          ]
+        },
+        "license_text": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["found"],
+          "properties": {
+            "found": { "type": "boolean" },
+            "file": { "type": "string" },
+            "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+          }
+        },
+        "distributed_in": {
+          "description": "Which artifacts really carry it.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["web_image", "worker_image", "third_party_image", "sovereign_bundle"]
+          }
+        },
+        "homepage": { "type": "string" },
+        "note": { "type": "string" },
+        "attention": {
+          "description": "Facts a reviewer should look at first. Each is a fact, not an opinion on what it means.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "no_license_declared",
+              "license_text_not_found",
+              "version_unknown",
+              "several_licenses_named",
+              "copyleft_family",
+              "source_available_not_open_source",
+              "attribution_family",
+              "dual_or_choice_of_license",
+              "declared_by_hand_not_read_from_artifact",
+              "has_reviewed_exception_in_check_licenses"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

@@ -50,6 +50,45 @@ export const LEGACY_PORTABLE_SOURCE_SECTIONS = [
 export const LEGACY_PORTABILITY_INVENTORY_VERSION = 'ensemus.m3-m5/1' as const;
 export const PORTABILITY_INVENTORY_V2_VERSION = 'ensemus.m3-m5/2' as const;
 export const PORTABILITY_INVENTORY_VERSION = 'ensemus.m3-m7/3' as const;
+export const FEDERATION_PORTABILITY_VERSION = 'ensemus.m3-m7-federation/4' as const;
+export const SKILL_METADATA_PORTABILITY_VERSION = 'ensemus.skill-metadata/5' as const;
+export const MARKETPLACE_PUBLISHER_PORTABILITY_VERSION = 'ensemus.marketplace-publisher/6' as const;
+export const MEETING_CONFIGURATION_PORTABILITY_VERSION = 'ensemus.meeting-config/7' as const;
+export const MEETING_HISTORY_PORTABILITY_VERSION = 'ensemus.meeting-history/8' as const;
+export const BUSINESS_RECORD_PORTABILITY_VERSION = 'ensemus.business-records/9' as const;
+export const SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION = 'ensemus.skill-upload-cleanup/10' as const;
+export const RESIDENCY_PORTABILITY_VERSION = 'ensemus.residency/11' as const;
+export const SKILL_BUNDLE_PORTABILITY_VERSION = 'ensemus.skill-bundles/12' as const;
+export const SANDBOX_HISTORY_PORTABILITY_VERSION = 'ensemus.sandbox-history/13' as const;
+export const MARKETPLACE_HISTORY_PORTABILITY_VERSION = 'ensemus.marketplace-history/14' as const;
+export type JoinedPortabilityVersion =
+  | typeof PORTABILITY_INVENTORY_VERSION
+  | typeof FEDERATION_PORTABILITY_VERSION
+  | typeof SKILL_METADATA_PORTABILITY_VERSION
+  | typeof MARKETPLACE_PUBLISHER_PORTABILITY_VERSION
+  | typeof MEETING_CONFIGURATION_PORTABILITY_VERSION
+  | typeof MEETING_HISTORY_PORTABILITY_VERSION
+  | typeof BUSINESS_RECORD_PORTABILITY_VERSION
+  | typeof SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION
+  | typeof RESIDENCY_PORTABILITY_VERSION
+  | typeof SKILL_BUNDLE_PORTABILITY_VERSION
+  | typeof SANDBOX_HISTORY_PORTABILITY_VERSION
+  | typeof MARKETPLACE_HISTORY_PORTABILITY_VERSION;
+export function isJoinedPortabilityVersion(profile: unknown): profile is JoinedPortabilityVersion {
+  return (
+    profile === PORTABILITY_INVENTORY_VERSION ||
+    profile === FEDERATION_PORTABILITY_VERSION ||
+    profile === SKILL_METADATA_PORTABILITY_VERSION ||
+    profile === MARKETPLACE_PUBLISHER_PORTABILITY_VERSION ||
+    profile === MEETING_CONFIGURATION_PORTABILITY_VERSION ||
+    profile === MEETING_HISTORY_PORTABILITY_VERSION ||
+    profile === BUSINESS_RECORD_PORTABILITY_VERSION ||
+    profile === SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION ||
+    profile === RESIDENCY_PORTABILITY_VERSION ||
+    profile === SKILL_BUNDLE_PORTABILITY_VERSION ||
+    carriesSandboxHistory(profile)
+  );
+}
 export const PORTABLE_SOURCE_SECTIONS = [
   ...LEGACY_PORTABLE_SOURCE_SECTIONS,
   'custom-objects',
@@ -261,6 +300,10 @@ export const PORTABILITY_INVENTORY = [
   inventory('billing.payment_events', 'history', 'operational_excluded'),
   inventory('billing.payment_webhook_events', 'history', 'operational_excluded'),
   inventory('billing.collection_cases', 'history', 'operational_excluded'),
+  // Hosted checkout (ADR-032 D4a, 0580): payment records and provider witnesses, never a tenant's content.
+  inventory('billing.checkout_sessions', 'history', 'operational_excluded'),
+  inventory('billing.checkout_attestations', 'history', 'operational_excluded'),
+  inventory('billing.checkout_replies', 'history', 'operational_excluded'),
   inventory('lifecycle.retention_rules', 'history', 'operational_excluded'),
   inventory('lifecycle.retention_runs', 'history', 'operational_excluded'),
   inventory('lifecycle.legal_holds', 'history', 'operational_excluded'),
@@ -329,12 +372,128 @@ export const PORTABILITY_INVENTORY = [
     'knowledge',
     'operational_excluded',
   ),
+  // 0560 (ADR-038). A consent attempt names sealed verifiers, codes and clients, and an import must never
+  // replay one. Directory groups are the provider's, rebuilt by the next directory pass, never imported.
+  inventory('integrations.oauth_authorizations', 'connections', 'credentials_excluded'),
+  inventory('integrations.directory_groups', 'connections', 'operational_excluded'),
+  // 0563 (ADR-038 D6). A suite read holds a model's arguments and a provider's output for one step, and
+  // is never exported or replayed. Which capabilities members may connect is set again by an admin.
+  inventory('integrations.suite_reads', 'agents', 'private_excluded'),
+  inventory('integrations.suite_settings', 'connections', 'operational_excluded'),
+  // 0570 (platform email). The queues hold links with live tokens, sealed, and an unsubscribe token is a
+  // permission: none is ever exported or replayed. A bounce belongs to the address, not to a company, and
+  // a person chooses what they are emailed again after an import.
+  inventory('platform.account_mail_outbox', 'people', 'credentials_excluded'),
+  inventory('platform.mail_outbox', 'people', 'credentials_excluded'),
+  inventory('platform.mail_suppressions', 'people', 'operational_excluded'),
+  inventory('platform.mail_unsubscribe_tokens', 'people', 'credentials_excluded'),
+  inventory('org.notification_preferences', 'people', 'operational_excluded'),
+] as const;
+
+// Federation trust, copies and transfer receipts belong to their source deployment. The original
+// Work and artifacts still use the ordinary owner-scoped archive readers.
+export const FEDERATION_PORTABILITY_INVENTORY = [
+  ...PORTABILITY_INVENTORY,
+  inventory('federation.org_settings', 'connections', 'operational_excluded'),
+  inventory('federation.grants', 'connections', 'operational_excluded'),
+  inventory('federation.inbound_items', 'connections', 'private_excluded'),
+  inventory('federation.outbound_items', 'connections', 'operational_excluded'),
+  inventory('federation.crossings', 'history', 'operational_excluded'),
+  inventory('tenancy.deployment_profile', 'policy', 'operational_excluded'),
+  inventory('tenancy.isolation_evidence', 'policy', 'operational_excluded'),
+  inventory('marketplace.listing_object_reservations', 'policy', 'operational_excluded'),
+] as const;
+
+export const SKILL_METADATA_PORTABILITY_INVENTORY = [
+  ...FEDERATION_PORTABILITY_INVENTORY,
+  inventory('skills.packages', 'skills', 'quarantined'),
+  inventory('skills.trusted_signers', 'skills', 'quarantined'),
+  inventory('marketplace.installations', 'skills', 'quarantined'),
+] as const;
+
+export const MARKETPLACE_PUBLISHER_PORTABILITY_INVENTORY = [
+  ...SKILL_METADATA_PORTABILITY_INVENTORY,
+  inventory('marketplace.publishers', 'skills', 'quarantined'),
+] as const;
+
+export const MEETING_CONFIGURATION_PORTABILITY_INVENTORY = [
+  ...MARKETPLACE_PUBLISHER_PORTABILITY_INVENTORY,
+  inventory('meetings.settings', 'policy', 'quarantined'),
+  inventory('meetings.provider_approvals', 'policy', 'quarantined'),
+] as const;
+
+export const MEETING_HISTORY_PORTABILITY_INVENTORY = [
+  ...MEETING_CONFIGURATION_PORTABILITY_INVENTORY,
+  inventory('meetings.meetings', 'policy', 'quarantined'),
+  inventory('meetings.participants', 'policy', 'quarantined'),
+  inventory('meetings.consent_records', 'policy', 'quarantined'),
+  inventory('meetings.notes', 'policy', 'quarantined'),
+  inventory('meetings.summaries', 'policy', 'quarantined'),
+  inventory('meetings.proposed_items', 'policy', 'quarantined'),
+  inventory('meetings.derivation_runs', 'policy', 'quarantined'),
+  inventory('meetings.import_requests', 'policy', 'quarantined'),
+] as const;
+
+export const BUSINESS_RECORD_PORTABILITY_INVENTORY = [
+  ...MEETING_HISTORY_PORTABILITY_INVENTORY,
+  inventory('integrations.business_records', 'connections', 'quarantined'),
+  inventory('integrations.business_record_actions', 'connections', 'quarantined'),
+] as const;
+
+export const SKILL_UPLOAD_CLEANUP_PORTABILITY_INVENTORY = [
+  ...BUSINESS_RECORD_PORTABILITY_INVENTORY,
+  inventory('skills.bundle_uploads', 'skills', 'quarantined'),
+] as const;
+
+export const RESIDENCY_PORTABILITY_INVENTORY = [
+  ...SKILL_UPLOAD_CLEANUP_PORTABILITY_INVENTORY,
+  inventory('tenancy.residency_requirements', 'policy', 'quarantined'),
+] as const;
+
+export const SKILL_BUNDLE_PORTABILITY_INVENTORY = [
+  ...RESIDENCY_PORTABILITY_INVENTORY,
+  inventory('skills.package_versions', 'skills', 'original_bytes'),
+  inventory('skills.test_runs', 'skills', 'quarantined'),
+] as const;
+
+export const SANDBOX_HISTORY_PORTABILITY_INVENTORY = [
+  ...SKILL_BUNDLE_PORTABILITY_INVENTORY,
+  inventory('sandbox.runs', 'skills', 'quarantined'),
+] as const;
+
+export function carriesSkillBundleOriginals(profile: unknown) {
+  return profile === SKILL_BUNDLE_PORTABILITY_VERSION || carriesSandboxHistory(profile);
+}
+
+export function carriesSandboxHistory(profile: unknown) {
+  return (
+    profile === SANDBOX_HISTORY_PORTABILITY_VERSION ||
+    profile === MARKETPLACE_HISTORY_PORTABILITY_VERSION
+  );
+}
+
+export const MARKETPLACE_HISTORY_PORTABILITY_INVENTORY = [
+  ...SANDBOX_HISTORY_PORTABILITY_INVENTORY,
+  inventory('marketplace.listings', 'skills', 'quarantined'),
+  inventory('marketplace.security_reviews', 'skills', 'quarantined'),
+  inventory('marketplace.submissions', 'skills', 'quarantined'),
 ] as const;
 
 export const PORTABILITY_INVENTORY_PROFILES = {
   [LEGACY_PORTABILITY_INVENTORY_VERSION]: PORTABILITY_INVENTORY_V1,
   [PORTABILITY_INVENTORY_V2_VERSION]: PORTABILITY_INVENTORY_V2,
   [PORTABILITY_INVENTORY_VERSION]: PORTABILITY_INVENTORY,
+  [FEDERATION_PORTABILITY_VERSION]: FEDERATION_PORTABILITY_INVENTORY,
+  [SKILL_METADATA_PORTABILITY_VERSION]: SKILL_METADATA_PORTABILITY_INVENTORY,
+  [MARKETPLACE_PUBLISHER_PORTABILITY_VERSION]: MARKETPLACE_PUBLISHER_PORTABILITY_INVENTORY,
+  [MEETING_CONFIGURATION_PORTABILITY_VERSION]: MEETING_CONFIGURATION_PORTABILITY_INVENTORY,
+  [MEETING_HISTORY_PORTABILITY_VERSION]: MEETING_HISTORY_PORTABILITY_INVENTORY,
+  [BUSINESS_RECORD_PORTABILITY_VERSION]: BUSINESS_RECORD_PORTABILITY_INVENTORY,
+  [SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION]: SKILL_UPLOAD_CLEANUP_PORTABILITY_INVENTORY,
+  [RESIDENCY_PORTABILITY_VERSION]: RESIDENCY_PORTABILITY_INVENTORY,
+  [SKILL_BUNDLE_PORTABILITY_VERSION]: SKILL_BUNDLE_PORTABILITY_INVENTORY,
+  [SANDBOX_HISTORY_PORTABILITY_VERSION]: SANDBOX_HISTORY_PORTABILITY_INVENTORY,
+  [MARKETPLACE_HISTORY_PORTABILITY_VERSION]: MARKETPLACE_HISTORY_PORTABILITY_INVENTORY,
 } as const;
 
 export function matchesPortabilityInventory(
@@ -377,10 +536,9 @@ export function assertPortabilitySections(
   profile: string = PORTABILITY_INVENTORY_VERSION,
 ): void {
   const supplied = new Set(sections);
-  const required: readonly string[] =
-    profile === PORTABILITY_INVENTORY_VERSION
-      ? PORTABLE_SOURCE_SECTIONS
-      : LEGACY_PORTABLE_SOURCE_SECTIONS;
+  const required: readonly string[] = isJoinedPortabilityVersion(profile)
+    ? PORTABLE_SOURCE_SECTIONS
+    : LEGACY_PORTABLE_SOURCE_SECTIONS;
   if (
     !Object.hasOwn(PORTABILITY_INVENTORY_PROFILES, profile) ||
     supplied.size !== sections.length ||
@@ -398,10 +556,10 @@ export const EXPORT_OBJECT_PREFIX = 'organization-exports/v1/';
 export const MAX_PART_PLAINTEXT_BYTES = 32 * 1024 * 1024;
 export const MAX_RECORDS_PER_PART = 5_000;
 export const MAX_RECORD_BYTES = 1024 * 1024;
-/** Only joined /3 expands this bound for legal immutable custom schemas; older inventories stay1MiB. */
+/** Joined profiles expand this bound for legal immutable custom schemas. Older profiles use 1 MiB. */
 export const MAX_JOINED_RECORD_BYTES = 4 * 1024 * 1024;
 export function portableRecordByteLimit(profile: string | null | undefined): number {
-  if (profile === PORTABILITY_INVENTORY_VERSION) return MAX_JOINED_RECORD_BYTES;
+  if (isJoinedPortabilityVersion(profile)) return MAX_JOINED_RECORD_BYTES;
   if (
     profile === null ||
     profile === undefined ||
@@ -439,6 +597,11 @@ export function knowledgePartPath(documentId: string) {
   return `knowledge/${documentId}.bin.sealed`;
 }
 
+export function skillBundlePartPath(versionId: string) {
+  if (!IS_UUID.test(versionId)) throw new Error('Not a valid part');
+  return `skills/${versionId}.bin.sealed`;
+}
+
 /**
  * Whether a path from an archive is one this format makes. An archive is untrusted input, so this is an
  * allowlist rather than a hunt for `..`: a path that is not exactly this shape is refused, whatever it
@@ -451,7 +614,8 @@ export function isArchivePath(path: string): boolean {
   const [, section, file] = match as unknown as [string, string, string];
   if (!isExportSection(section)) return false;
   return file.endsWith('.bin')
-    ? (section === 'artifacts' || section === 'knowledge') && IS_UUID.test(file.slice(0, 36))
+    ? (section === 'artifacts' || section === 'knowledge' || section === 'skills') &&
+        IS_UUID.test(file.slice(0, 36))
     : true;
 }
 
@@ -518,6 +682,7 @@ export type ImportFailureCode = (typeof IMPORT_FAILURE_CODES)[number];
 /** Things the person who imported needs to look at. Recorded with counts, and never as a silent loss. */
 export const IMPORT_WARNING_CODES = [
   'RESTRICTED_EXCLUDED_AT_SOURCE',
+  'SANDBOX_RECEIPTS_EXCLUDED_AT_SOURCE',
   'TOMBSTONED_SKIPPED',
   'PERSON_NOT_LINKED',
   'CONNECTION_NEEDS_CREDENTIAL',

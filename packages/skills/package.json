@@ -1,0 +1,22 @@
+{
+  "name": "@ensemus/skills",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./bundle": "./src/bundle.ts",
+    "./signature": "./src/signature.ts",
+    "./sign": "./src/sign.ts",
+    "./review": "./src/review.ts",
+    "./supply-chain": "./src/supply-chain.ts",
+    "./testing": "./src/testing/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ensemus/contracts": "workspace:*",
+    "@ensemus/domain": "workspace:*",
+    "zod": "4.6.7"
+  }
+}

@@ -5,6 +5,7 @@
 // forgotten.
 import {
   decideNext,
+  retryDelayMs,
   stopForDirective,
   stopForFailure,
   type LastStep,
@@ -23,6 +24,7 @@ import {
   executeChild,
   isCancellation,
   ParentClosePolicy,
+  patched,
   proxyActivities,
   setHandler,
   TimeoutFailure,
@@ -42,8 +44,12 @@ import {
   AGENT_RUN_CONTROL_SIGNAL,
   AGENT_SCHEDULE_TO_START,
   AGENT_TASK_QUEUE,
+  CONNECTOR_TASK_QUEUE,
+  MODEL_RETRY_PATCH,
+  SUITE_READ_PATCH,
   TOOL_WAIT_POLL,
 } from './constants';
+import type { SuiteReadActivities } from './suite-read-activities';
 
 /** A wake-up to look at `ai.run_controls`. It carries nothing: PostgreSQL has the answer. */
 export const agentRunControlSignal = defineSignal(AGENT_RUN_CONTROL_SIGNAL);
@@ -84,6 +90,18 @@ const toolCalls = proxyActivities<AgentActivities>({
   startToCloseTimeout: '5 minutes',
   scheduleToCloseTimeout: '1 hour',
   retry: retryThroughOutage,
+});
+
+// A suite read runs where the credentials are, on the connector queue (ADR-027 D5, ADR-038 D6). It only
+// reads, so a retry is safe, and it answers with a code. If no connector worker takes it in time, the
+// collecting step refuses the read, and the run goes on.
+const suiteReads = proxyActivities<SuiteReadActivities>({
+  taskQueue: CONNECTOR_TASK_QUEUE,
+  scheduleToStartTimeout: AGENT_SCHEDULE_TO_START,
+  startToCloseTimeout: '2 minutes',
+  scheduleToCloseTimeout: '10 minutes',
+  retry: { initialInterval: '2 seconds', maximumInterval: '30 seconds', maximumAttempts: 3 },
+  cancellationType: ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
 });
 
 // Only the agent role can end a run (ADR-028). When no agent-worker is there at all, this waits for one
@@ -196,6 +214,11 @@ export async function agentRunWorkflow(
   let waiting = false;
   /** A stop found while a call was out, which is why that call was cancelled. */
   let stopFound: 'stop' | 'halted' | null = null;
+  /**
+   * When a held model retry may go, in workflow time. Kept across passes of the loop, so a signal that
+   * wakes the wait early only makes the loop look at PostgreSQL, and the wait then resumes where it was.
+   */
+  let retryNotBefore: number | null = null;
   /** Unknown after continue-as-new, and setting it twice does nothing. */
   let status: FinishRunInput['status'] | RunStatusMove | 'preparing' | null = carry
     ? null
@@ -315,10 +338,60 @@ export async function agentRunWorkflow(
           if (workflowInfo().continueAsNewSuggested) await carryOn();
           await moveTo('running');
           const stepNumber = nextStep++;
-          const turn = await abortable(() => modelCalls.runModelTurn({ ...ref, stepNumber }));
+          // A run started before durable retries never asked the gateway to hold, so its turns end as
+          // they did. One that asks may be told to come back later, which the reducer turns into a retry.
+          const retries = patched(MODEL_RETRY_PATCH);
+          const turn = await abortable(() =>
+            modelCalls.runModelTurn({
+              ...ref,
+              stepNumber,
+              ...(retries ? { retry: { round: 0, final: false } } : {}),
+            }),
+          );
           counters = turn.counters;
           lastStopCode = turn.stopCode;
-          last = { kind: 'model', outcome: turn.outcome };
+          last = {
+            kind: 'model',
+            outcome: turn.outcome,
+            ...(retries && turn.retry
+              ? { retry: { round: 0, retryAfterMs: turn.retry.afterMs } }
+              : {}),
+          };
+          continue;
+        }
+
+        case 'retry_model': {
+          // Never continued as new in here: the step rows would show only the outage, and a resumed run
+          // would stop on it. A retry is a few timers and calls at most, so history barely grows.
+          waiting = false;
+          retryNotBefore ??=
+            Date.now() + retryDelayMs(next.round, next.retryAfterMs, Math.random());
+          const left = retryNotBefore - Date.now();
+          if (left > 0) {
+            // A durable timer, so a worker that restarts loses nothing. Any signal cuts it short, and
+            // the loop reads PostgreSQL before coming back here to wait out the rest.
+            await condition(() => woken, left);
+            continue;
+          }
+          retryNotBefore = null;
+          await moveTo('running');
+          const stepNumber = nextStep++;
+          const turn = await abortable(() =>
+            modelCalls.runModelTurn({
+              ...ref,
+              stepNumber,
+              retry: { round: next.round, final: next.final },
+            }),
+          );
+          counters = turn.counters;
+          lastStopCode = turn.stopCode;
+          last = {
+            kind: 'model',
+            outcome: turn.outcome,
+            ...(turn.retry
+              ? { retry: { round: next.round, retryAfterMs: turn.retry.afterMs } }
+              : {}),
+          };
           continue;
         }
 
@@ -329,7 +402,26 @@ export async function agentRunWorkflow(
           // After a wait this is the same step going back for its receipt, which is not a new call.
           if (last.kind !== 'wait') toolStep = nextStep++;
           const stepNumber = toolStep;
-          const call = await abortable(() => toolCalls.runToolCall({ ...ref, stepNumber }));
+          let call = await abortable(() => toolCalls.runToolCall({ ...ref, stepNumber }));
+          const suiteRead = call.suiteRead;
+          if (suiteRead && patched(SUITE_READ_PATCH)) {
+            try {
+              await abortable(() =>
+                suiteReads.runSuiteRead({
+                  organizationId,
+                  runId: agentRunId,
+                  proposalId: suiteRead.proposalId,
+                }),
+              );
+            } catch (error) {
+              // A stop is the run's to handle. Anything else (no connector worker, a read that kept
+              // failing) leaves the request unanswered, and collecting it refuses the read.
+              if (stopFound || isCancellation(error)) throw error;
+            }
+            call = await abortable(() =>
+              toolCalls.runToolCall({ ...ref, stepNumber, collect: true }),
+            );
+          }
           counters = call.counters;
           lastStopCode = call.stopCode;
           last = { kind: 'tool', outcome: call.delegation ? 'delegate' : call.outcome };

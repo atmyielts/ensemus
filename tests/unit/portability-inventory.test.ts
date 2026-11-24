@@ -7,6 +7,8 @@ import {
   matchesPortabilityInventory,
   PORTABILITY_INVENTORY_V1,
   LEGACY_PORTABILITY_INVENTORY_VERSION,
+  MEETING_HISTORY_PORTABILITY_INVENTORY,
+  MEETING_HISTORY_PORTABILITY_VERSION,
   PORTABILITY_INVENTORY_V2,
   PORTABILITY_INVENTORY_V2_VERSION,
 } from '@ensemus/domain/portability';
@@ -54,6 +56,20 @@ describe('the manifest inventory wire bound', () => {
   it('accepts the complete current explicit inventory', () => {
     expect(PORTABILITY_INVENTORY.length).toBeGreaterThan(200);
     expect(exportManifestSchema.safeParse(manifest).success).toBe(true);
+  });
+  it('admits the meeting history profile within its own manifest bound', () => {
+    const history = {
+      ...manifest,
+      inventory_version: MEETING_HISTORY_PORTABILITY_VERSION,
+      inventory: MEETING_HISTORY_PORTABILITY_INVENTORY,
+    };
+    expect(exportManifestSchema.safeParse(history).success).toBe(true);
+    expect(
+      exportManifestSchema.safeParse({
+        ...history,
+        inventory: Array.from({ length: 289 }, () => PORTABILITY_INVENTORY[0]),
+      }).success,
+    ).toBe(false);
   });
   it('still rejects an oversized inventory before archive processing', () => {
     const result = exportManifestSchema.safeParse({

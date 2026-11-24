@@ -1,4 +1,8 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
+
 import { useActionState, useEffect, useId, useRef } from 'react';
 import type { ProcessDraftView } from '@ensemus/application/process-specs';
 import type { ProcessGraph, ProcessGraphNode } from '@ensemus/domain/process-spec';
@@ -15,6 +19,18 @@ import {
 import { ErrorNotice } from '../ui';
 import { SubmitButton } from '../submit-button';
 import { useWorkflowFields } from './workflow-editor-state';
+
+/** Who can read a workflow, said the way the reading rule works. */
+const CLASSIFICATIONS = [
+  ['public', 'Public', 'Everyone in your organization, and safe to share outside it.'],
+  ['internal', 'Internal', 'Everyone in your organization.'],
+  ['confidential', 'Confidential', 'You, owners and administrators.'],
+  [
+    'restricted',
+    'Restricted',
+    'Only you. It cannot include assistant steps or actions outside Ensemus.',
+  ],
+] as const;
 
 export function WorkflowDetailsForm({
   organizationId,
@@ -41,6 +57,7 @@ export function WorkflowDetailsForm({
     if (kept.code) notice.current?.focus();
   }, [kept.code]);
   const value = (key: string, initial = '') => kept.values?.[key]?.[0] ?? initial;
+  const classification = value('classification', draft?.classification ?? 'internal');
   return (
     <form
       ref={kept.form}
@@ -61,41 +78,49 @@ export function WorkflowDetailsForm({
           <input type="hidden" name="version" value={kept.version ?? draft.version} />
         </>
       )}
-      <label htmlFor={`${prefix}-name`}>Workflow name</label>
-      <input
-        id={`${prefix}-name`}
-        name="name"
-        required
-        maxLength={120}
-        defaultValue={value('name', draft?.name)}
-      />
-      <label htmlFor={`${prefix}-class`}>Definition sensitivity</label>
-      <select
-        id={`${prefix}-class`}
-        name="classification"
-        defaultValue={value('classification', draft?.classification ?? 'internal')}
-        aria-describedby={`${prefix}-class-help`}
-      >
-        <option value="public">Public</option>
-        <option value="internal">Internal</option>
-        <option value="confidential">Confidential</option>
-        <option value="restricted">Restricted</option>
-      </select>
-      <p id={`${prefix}-class-help`} className="muted">
-        This covers the definition and its step labels. Restricted drafts are readable only by their
-        responsible person, and cannot contain assistant or outside-action steps. Current source
-        access is checked separately when work runs.
-      </p>
-      <p className="muted">
-        {draft
-          ? 'Saving a changed definition cancels open reviews. Existing published versions stay fixed.'
-          : 'You become the responsible person. Start and Finish are included; add the actual steps next. Creating a draft starts no run.'}
-      </p>
-      <div>
+      <Label htmlFor={`${prefix}-name`}>
+        <span id={`${prefix}-name-label`}>Workflow name</span>
+        <small id={`${prefix}-name-help`}>
+          What the process is, such as “Approve a new supplier”.
+        </small>
+        <Input
+          id={`${prefix}-name`}
+          name="name"
+          required
+          maxLength={120}
+          aria-labelledby={`${prefix}-name-label`}
+          aria-describedby={`${prefix}-name-help`}
+          defaultValue={value('name', draft?.name)}
+        />
+      </Label>
+      <fieldset className="group">
+        <legend>Who can see this</legend>
+        <small>This covers the workflow and the names of its steps.</small>
+        <div className="choice-list">
+          {CLASSIFICATIONS.map(([key, name, help]) => (
+            <Label className="choice" key={key}>
+              <input
+                type="radio"
+                name="classification"
+                value={key}
+                defaultChecked={classification === key}
+              />
+              <strong>{name}</strong>
+              <small>{help}</small>
+            </Label>
+          ))}
+        </div>
+      </fieldset>
+      <div className="row">
         <SubmitButton working={draft ? 'Saving the definition' : 'Creating the draft'}>
           {draft ? 'Save workflow details' : 'Create workflow draft'}
         </SubmitButton>
       </div>
+      <small>
+        {draft
+          ? 'Saving a change closes any open review. Published versions stay as they are.'
+          : 'You become its responsible person. Start and Finish are added for you; you add the steps in between next. Nothing runs yet.'}
+      </small>
     </form>
   );
 }
@@ -163,16 +188,16 @@ export function WorkflowPointForm({
       <input type="hidden" name="requestKey" value={value('requestKey', requestKey)} />
       <input type="hidden" name="mode" value={node ? 'update' : 'add'} />
       <input type="hidden" name="nodeId" value={nodeId} />
-      <label htmlFor={`${prefix}-label`}>Point name</label>
-      <input
+      <Label htmlFor={`${prefix}-label`}>Point name</Label>
+      <Input
         id={`${prefix}-label`}
         name="label"
         required
         maxLength={120}
         defaultValue={value('label', node?.label)}
       />
-      <label htmlFor={`${prefix}-kind`}>What happens here?</label>
-      <select
+      <Label htmlFor={`${prefix}-kind`}>What happens here?</Label>
+      <NativeSelect
         id={`${prefix}-kind`}
         name="kind"
         defaultValue={selectedKind}
@@ -188,20 +213,19 @@ export function WorkflowPointForm({
             {label}
           </option>
         ))}
-      </select>
+      </NativeSelect>
       <p id={`${prefix}-kind-help`} className="muted">
-        Start and Finish are boundary points. Other points are real work, an approval, a proposed
-        action or an evidence check. Saving an incomplete draft is allowed; only a valid definition
-        can be rehearsed for review.
+        Start and Finish mark the beginning and the end. Every other point is work for a person, a
+        task for an assistant, an approval, a proposed action or a check. You can save a draft that
+        is not finished yet; only a complete one can be rehearsed.
       </p>
       <details open={node !== undefined && !['start', 'end', 'work_item'].includes(node.kind)}>
-        <summary>Options for the selected point type</summary>
+        <summary>Settings for this kind of point</summary>
         <p className="muted">
-          Choose the matching options below. Other options are ignored. These controls also work
-          without JavaScript.
+          Fill in the setting that matches the kind you chose above. The others are ignored.
         </p>
-        <label htmlFor={`${prefix}-agent`}>For an assistant point: published assistant</label>
-        <select
+        <Label htmlFor={`${prefix}-agent`}>For an assistant point: published assistant</Label>
+        <NativeSelect
           id={`${prefix}-agent`}
           name="agentDefinitionId"
           defaultValue={selectedAgent}
@@ -218,16 +242,16 @@ export function WorkflowPointForm({
               {a.name} · Offered version {a.versionNumber}
             </option>
           ))}
-        </select>
+        </NativeSelect>
         <p id={`${prefix}-agent-help`} className="muted">
           {choices.agents === null
-            ? 'The published assistant catalog is unavailable here. No empty catalog is assumed.'
+            ? 'The list of published assistants cannot be read right now. Try again later.'
             : choices.agents.length
-              ? 'A future run pins an actual permitted published version when this step starts. Editing does not start an assistant.'
-              : 'No active published assistant is currently offered. Publish one separately, or use work for a person.'}
+              ? 'When this step starts, it uses the published version of the assistant at that moment. Editing starts nothing.'
+              : 'No published assistant is offered yet. Publish one first, or make this work for a person.'}
         </p>
-        <label htmlFor={`${prefix}-tool`}>For an outside-action point: action to propose</label>
-        <select
+        <Label htmlFor={`${prefix}-tool`}>For an outside-action point: action to propose</Label>
+        <NativeSelect
           id={`${prefix}-tool`}
           name="toolId"
           defaultValue={selectedTool}
@@ -244,14 +268,14 @@ export function WorkflowPointForm({
               {tool.name}
             </option>
           ))}
-        </select>
+        </NativeSelect>
         <p id={`${prefix}-tool-help`} className="muted">
           {choices.tools === null
-            ? 'The outside-action catalog is unavailable here.'
-            : 'Every path to this point must first pass a person’s approval. A real action also needs its actual connection, payload and separate action approval at runtime. Nothing is sent by editing.'}
+            ? 'The list of outside actions cannot be read right now.'
+            : 'Every path to this point has to pass an approval first. When it runs, a person still approves the exact action, and it needs a working connection. Editing sends nothing.'}
         </p>
-        <label htmlFor={`${prefix}-approver`}>For an approval point: who may decide?</label>
-        <select
+        <Label htmlFor={`${prefix}-approver`}>For an approval point: who may decide?</Label>
+        <NativeSelect
           id={`${prefix}-approver`}
           name="approverRole"
           defaultValue={selectedApprover}
@@ -276,14 +300,13 @@ export function WorkflowPointForm({
           {selectedApprover === 'starter_manager' && (
             <option value="starter_manager">Saved manager selection — unavailable here</option>
           )}
-        </select>
+        </NativeSelect>
         <p id={`${prefix}-approver-help`} className="muted">
-          An approver must be a current person who can read the Work and must differ from the person
-          asking. No person is assigned by this dropdown. Manager relationships are not available
-          here.
+          The approver has to be able to read the work and cannot be the person asking. This chooses
+          how the approver is found; it does not assign anyone.
         </p>
-        <label htmlFor={`${prefix}-evidence`}>For an evidence point: what must exist?</label>
-        <select id={`${prefix}-evidence`} name="evidence" defaultValue={selectedEvidence}>
+        <Label htmlFor={`${prefix}-evidence`}>For an evidence point: what must exist?</Label>
+        <NativeSelect id={`${prefix}-evidence`} name="evidence" defaultValue={selectedEvidence}>
           {selectedEvidence &&
             !Object.hasOwn(
               { artifact_attached: true, external_receipt: true, reviewer_approved: true },
@@ -297,20 +320,20 @@ export function WorkflowPointForm({
           <option value="artifact_attached">A file attached to the work</option>
           <option value="external_receipt">A verified outside-action receipt</option>
           <option value="reviewer_approved">The current result has human approval</option>
-        </select>
+        </NativeSelect>
       </details>
       <details open={!node}>
-        <summary>Connections and parallel paths</summary>
+        <summary>What comes before and after</summary>
         <p className="muted">
-          Connections set execution order. Every selected earlier point must finish before this one.
-          Multiple later points create parallel paths; there is no automatic if/else routing. Save
-          one point at a time.
+          Every point ticked under “before” has to finish first. If you tick several points under
+          “after”, they all carry on at the same time; there is no either-or routing. Save one point
+          at a time.
         </p>
-        <fieldset>
-          <legend>Earlier points: all must finish first</legend>
+        <fieldset className="group gap-above">
+          <legend>Before this point (all must finish)</legend>
           {previousChoices.length ? (
             previousChoices.map((point) => (
-              <label className="check" key={point.id}>
+              <Label className="check" key={point.id}>
                 <input
                   type="checkbox"
                   name="previous"
@@ -318,17 +341,17 @@ export function WorkflowPointForm({
                   defaultChecked={previous.includes(point.id)}
                 />
                 {point.label}
-              </label>
+              </Label>
             ))
           ) : (
-            <p>No other point is available yet.</p>
+            <p className="muted">There are no other points yet.</p>
           )}
         </fieldset>
-        <fieldset>
-          <legend>Later points: continue to each selected point</legend>
+        <fieldset className="group gap-above">
+          <legend>After this point (each one carries on)</legend>
           {nextChoices.length ? (
             nextChoices.map((point) => (
-              <label className="check" key={point.id}>
+              <Label className="check" key={point.id}>
                 <input
                   type="checkbox"
                   name="next"
@@ -336,23 +359,23 @@ export function WorkflowPointForm({
                   defaultChecked={next.includes(point.id)}
                 />
                 {point.label}
-              </label>
+              </Label>
             ))
           ) : (
-            <p>No other point is available yet.</p>
+            <p className="muted">There are no other points yet.</p>
           )}
         </fieldset>
         {!node && (
-          <label className="check">
+          <Label className="check">
             <input
               type="checkbox"
               name="replaceDirect"
               value="yes"
               defaultChecked={kept.values ? value('replaceDirect') === 'yes' : true}
             />
-            Insert between those points: replace their direct connections. Uncheck to keep an
-            additional parallel path.
-          </label>
+            Put it in between: replace the direct links between those points. Untick to add it as an
+            extra path alongside them.
+          </Label>
         )}
       </details>
       <div>

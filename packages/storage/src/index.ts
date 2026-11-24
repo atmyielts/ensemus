@@ -115,8 +115,8 @@ export class S3ObjectStore {
     );
   }
 
-  /** A future native raw writer owns the durable admission before reaching this method. General
-   * put() deliberately retains its old contract; legacy/derived/archive receipts are not upgraded. */
+  /** The caller owns the durable admission before reaching this method. General put() retains
+   * its existing contract for artifact and archive callers. */
   async putSingleAttempt(
     key: string,
     body: Buffer,

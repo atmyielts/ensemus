@@ -38,12 +38,14 @@ import {
 
 describe('bounded retention with real roles and durable per-record progress', () => {
   const database = openAppDatabase(urls.app()),
+    worker = openAppDatabase(urls.worker()),
     auth = new pg.Client({ connectionString: urls.auth() });
   beforeAll(async () => {
     await auth.connect();
   });
   afterAll(async () => {
     await auth.end();
+    await worker.close();
     await database.close();
   });
   const input = () => ({ limit: 1, now: new Date() });
@@ -82,10 +84,10 @@ describe('bounded retention with real roles and durable per-record progress', ()
     });
     const file = await lifecycleArtifact(database.db, owner, store);
     expect(
-      await sweepRetention(database.db, context, [createRawFilesRetentionSource(store)], input()),
+      await sweepRetention(worker.db, context, [createRawFilesRetentionSource(store)], input()),
     ).toEqual([]);
     expect(
-      await withTenantTx(database.db, context, (tx) => tx.select().from(artifacts)),
+      await withTenantTx(worker.db, context, (tx) => tx.select().from(artifacts)),
     ).toHaveLength(1);
     expect(await store.exists(objectKey(owner.organizationId, file.artifactId))).toBe(true);
   });
@@ -144,12 +146,12 @@ describe('bounded retention with real roles and durable per-record progress', ()
       basisRef: randomUUID(),
     });
     const source = createRawFilesRetentionSource(store);
-    const first = (await sweepRetention(database.db, context, [source], input()))[0]!;
+    const first = (await sweepRetention(worker.db, context, [source], input()))[0]!;
     expect(first).toMatchObject({ examined: 1, held: 1, removed: 0, more: true });
-    const second = (await sweepRetention(database.db, context, [source], input()))[0]!;
+    const second = (await sweepRetention(worker.db, context, [source], input()))[0]!;
     expect(second).toMatchObject({ examined: 1, held: 0, removed: 1, more: false });
     expect(
-      await withTenantTx(database.db, context, (tx) => tx.select().from(artifacts)),
+      await withTenantTx(worker.db, context, (tx) => tx.select().from(artifacts)),
     ).toHaveLength(1);
     expect(
       await withTenantTx(database.db, other, (tx) => tx.select().from(artifacts)),
@@ -157,7 +159,7 @@ describe('bounded retention with real roles and durable per-record progress', ()
     expect(await store.exists(objectKey(owner.organizationId, free.artifactId))).toBe(true);
     // 0508 (begin_object_deletion; M8 lifecycle join): any active hold in the tenant conservatively
     // blocks every byte deletion, so while the matter is open even the deleted file's bytes stay.
-    expect(await purgeDueBlobs(database.db, store, context, new Date(Date.now() + 1000))).toEqual({
+    expect(await purgeDueBlobs(worker.db, store, context, new Date(Date.now() + 1000))).toEqual({
       purged: 0,
       failed: 1,
     });
@@ -172,7 +174,7 @@ describe('bounded retention with real roles and durable per-record progress', ()
     });
     // Past the failed attempt's backoff (PURGE_BACKOFF_BASE_MS, 15 minutes).
     expect(
-      await purgeDueBlobs(database.db, store, context, new Date(Date.now() + 16 * 60 * 1000)),
+      await purgeDueBlobs(worker.db, store, context, new Date(Date.now() + 16 * 60 * 1000)),
     ).toEqual({ purged: 1, failed: 0 });
     expect(await store.exists(objectKey(owner.organizationId, held.artifactId))).toBe(true);
     expect(await store.exists(objectKey(owner.organizationId, free.artifactId))).toBe(false);
@@ -200,7 +202,7 @@ describe('bounded retention with real roles and durable per-record progress', ()
       },
     };
     const first = (
-      await sweepRetention(database.db, context, [source], { ...input(), limit: 2 })
+      await sweepRetention(worker.db, context, [source], { ...input(), limit: 2 })
     )[0]!;
     expect(first).toMatchObject({
       examined: 1,
@@ -208,15 +210,15 @@ describe('bounded retention with real roles and durable per-record progress', ()
       more: true,
       outcomeCode: 'RETENTION_SOURCE_FAILED',
     });
-    const second = (await sweepRetention(database.db, context, [source], input()))[0]!;
+    const second = (await sweepRetention(worker.db, context, [source], input()))[0]!;
     expect(second).toMatchObject({ examined: 1, removed: 1, more: false });
     expect(
-      await withTenantTx(database.db, context, (tx) =>
+      await withTenantTx(worker.db, context, (tx) =>
         tx.select().from(artifacts).where(eq(artifacts.id, free.artifactId)),
       ),
     ).toHaveLength(0);
     refusing = false;
-    expect((await sweepRetention(database.db, context, [source], input()))[0]!.removed).toBe(1);
+    expect((await sweepRetention(worker.db, context, [source], input()))[0]!.removed).toBe(1);
     expect(
       (await listRetentionRuns(database.db, owner)).some(
         (run) => run.outcomeCode === 'RETENTION_SOURCE_FAILED',
@@ -235,9 +237,9 @@ describe('bounded retention with real roles and durable per-record progress', ()
       retainDays: 1,
       basisRef: randomUUID(),
     });
-    await sweepRetention(database.db, context, [createRawFilesRetentionSource(store)], input());
+    await sweepRetention(worker.db, context, [createRawFilesRetentionSource(store)], input());
     expect(
-      await withTenantTx(database.db, context, (tx) => tx.select().from(retentionCursors)),
+      await withTenantTx(worker.db, context, (tx) => tx.select().from(retentionCursors)),
     ).toHaveLength(1);
     await setRetentionRule(database.db, owner, {
       dataCategory: 'raw_files',
@@ -246,7 +248,7 @@ describe('bounded retention with real roles and durable per-record progress', ()
       basisRef: randomUUID(),
     });
     expect(
-      await withTenantTx(database.db, context, (tx) => tx.select().from(retentionCursors)),
+      await withTenantTx(worker.db, context, (tx) => tx.select().from(retentionCursors)),
     ).toHaveLength(0);
     await setRetentionRule(database.db, owner, {
       dataCategory: 'model_outputs',
@@ -255,7 +257,7 @@ describe('bounded retention with real roles and durable per-record progress', ()
       basisRef: randomUUID(),
     });
     expect(
-      (await sweepRetention(database.db, context, [], input())).find(
+      (await sweepRetention(worker.db, context, [], input())).find(
         (row) => row.category === 'model_outputs',
       )?.outcomeCode,
     ).toBe('RETENTION_SOURCE_NOT_WIRED');
@@ -265,7 +267,7 @@ describe('bounded retention with real roles and durable per-record progress', ()
       remove: async () => undefined,
     };
     expect(
-      (await sweepRetention(database.db, context, [legacy], input())).find(
+      (await sweepRetention(worker.db, context, [legacy], input())).find(
         (row) => row.category === 'model_outputs',
       )?.outcomeCode,
     ).toBe('RETENTION_SOURCE_NOT_PAGED');
@@ -293,7 +295,7 @@ describe('bounded retention with real roles and durable per-record progress', ()
         remove: () => Promise.reject(new Error('TEST_SOURCE_FAILURE')),
       };
     // One refused examination leaves the live, incomplete cursor both deleters check.
-    expect((await sweepRetention(database.db, context, [refusing], input()))[0]).toMatchObject({
+    expect((await sweepRetention(worker.db, context, [refusing], input()))[0]).toMatchObject({
       examined: 1,
       removed: 0,
       more: true,
@@ -316,7 +318,7 @@ describe('bounded retention with real roles and durable per-record progress', ()
     await observer.connect();
     let first: Promise<unknown> | undefined, second: Promise<unknown> | undefined;
     try {
-      first = withTenantTx(database.db, context, async (tx) => {
+      first = withTenantTx(worker.db, context, async (tx) => {
         const pid = await pidOf(tx);
         await raw.remove(tx, context, target.artifactId);
         firstRemoved(pid);
@@ -324,7 +326,7 @@ describe('bounded retention with real roles and durable per-record progress', ()
       });
       // A first deleter that fails surfaces its own error here instead of a hung wait.
       const holder = await Promise.race([firstPid.promise, first.then(() => Number.NaN)]);
-      second = withTenantTx(database.db, context, async (tx) => {
+      second = withTenantTx(worker.db, context, async (tx) => {
         secondStarted(await pidOf(tx));
         await raw.remove(tx, context, target.artifactId);
       }).then(
@@ -374,7 +376,7 @@ describe('bounded retention with real roles and durable per-record progress', ()
         ),
       ).toBe(1);
       expect(
-        await withTenantTx(database.db, context, (tx) =>
+        await withTenantTx(worker.db, context, (tx) =>
           tx.select().from(artifacts).where(eq(artifacts.id, spare.artifactId)),
         ),
       ).toHaveLength(1);
@@ -415,7 +417,7 @@ describe('bounded retention with real roles and durable per-record progress', ()
     });
     expect(
       (
-        await sweepRetention(database.db, context, [createRawFilesRetentionSource(store)], {
+        await sweepRetention(worker.db, context, [createRawFilesRetentionSource(store)], {
           ...input(),
           limit: 2,
         })
@@ -423,7 +425,7 @@ describe('bounded retention with real roles and durable per-record progress', ()
     ).toMatchObject({ removed: 1, held: 1 });
     expect((await getWorkUnit(database.db, owner, free.workUnitId)).status).toBe('completed');
     expect(
-      await withTenantTx(database.db, context, (tx) =>
+      await withTenantTx(worker.db, context, (tx) =>
         tx.select().from(artifacts).where(eq(artifacts.id, held.artifactId)),
       ),
     ).toHaveLength(1);

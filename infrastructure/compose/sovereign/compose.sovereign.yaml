@@ -50,6 +50,11 @@ services:
     volumes:
       - ../bundle-manifest.dsse.json:/run/ensemus/bundle-manifest.dsse.json:ro
 
+  federation-worker:
+    image: ensemus-sovereign/worker:${ENSEMUS_RELEASE:?set by install-bundle}
+    pull_policy: never
+    build: !reset null
+
   knowledge-worker:
     image: ensemus-sovereign/worker:${ENSEMUS_RELEASE:?set by install-bundle}
     pull_policy: never
@@ -75,6 +80,16 @@ services:
     pull_policy: never
     build: !reset null
 
+  mail-worker:
+    image: ensemus-sovereign/worker:${ENSEMUS_RELEASE:?set by install-bundle}
+    pull_policy: never
+    build: !reset null
+
+  mail-gateway:
+    image: ensemus-sovereign/worker:${ENSEMUS_RELEASE:?set by install-bundle}
+    pull_policy: never
+    build: !reset null
+
   migrate:
     image: ensemus-sovereign/worker:${ENSEMUS_RELEASE:?set by install-bundle}
     pull_policy: never
@@ -92,6 +107,11 @@ services:
 
   # compose.yaml runs this with the PostgreSQL image, so it travels as that image.
   provision-roles:
+    image: ensemus-sovereign/postgres:${ENSEMUS_RELEASE:?set by install-bundle}
+    pull_policy: never
+    build: !reset null
+
+  provision-federation:
     image: ensemus-sovereign/postgres:${ENSEMUS_RELEASE:?set by install-bundle}
     pull_policy: never
     build: !reset null
@@ -129,6 +149,10 @@ services:
 # Every secret compose.yaml names, restated from the operator's folder. The names are the files
 # generate-test-secrets.mjs writes, so a folder laid out like .local/secrets works as it is.
 secrets:
+  db_federation_password:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_federation_password' }
+  db_federation_url:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_federation_url' }
   db_superuser_password:
     { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_superuser_password' }
   db_migrator_password:
@@ -137,6 +161,12 @@ secrets:
     { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_app_password' }
   db_agent_password:
     { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_agent_password' }
+  db_worker_password:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_worker_password' }
+  db_connector_password:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_connector_password' }
+  db_knowledge_password:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_knowledge_password' }
   db_auth_password:
     { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_auth_password' }
   db_dispatcher_password:
@@ -149,9 +179,22 @@ secrets:
     { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_migrator_url' }
   db_app_url: { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_app_url' }
   db_agent_url: { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_agent_url' }
+  db_worker_url:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_worker_url' }
+  db_connector_url:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_connector_url' }
+  db_knowledge_url:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_knowledge_url' }
   db_auth_url: { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_auth_url' }
   db_dispatcher_url:
     { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_dispatcher_url' }
+  db_mailer_password:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_mailer_password' }
+  db_mailer_url:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_mailer_url' }
+  # Present even where no mail is sent, because compose names it. Only the mail worker reads it.
+  mail_relay_password:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/mail_relay_password' }
   objects_access_key:
     { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/objects_access_key' }
   objects_secret_key:

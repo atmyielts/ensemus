@@ -1,3 +1,4 @@
+import type { InstallationFailureCode } from '@ensemus/domain/marketplace';
 import { z } from 'zod';
 
 // ADR-024 D2: only identifiers, enums and counters cross Temporal. Strict objects reject any extra
@@ -94,6 +95,29 @@ export type ConnectorSyncOutcome = {
   resources: number;
 };
 
+// --- Workspace suites (ADR-038 D1). The exchange carries the consent attempt's IDs and nothing else: no
+// code, verifier, state, client or token ever crosses Temporal. The Activity reads and unseals them itself.
+
+export const oauthExchangeInputSchema = z.strictObject({
+  organizationId: z.uuid(),
+  authorizationId: z.uuid(),
+});
+export type OAuthExchangeInput = z.infer<typeof oauthExchangeInputSchema>;
+/** One workflow per attempt, so a repeated event finds the first one and never sends a code twice. */
+export const oauthExchangeWorkflowIdFor = (input: OAuthExchangeInput) =>
+  `oauth-exchange-${input.organizationId}-${input.authorizationId}`;
+/** The suite upkeep's schedule, one per tenant (ADR-038 D1, D4). */
+export const suiteUpkeepScheduleIdFor = (organizationId: string) =>
+  `suite-upkeep-${organizationId}`;
+/** A run the web tier asked for by ending an attempt. One per attempt, so a repeated event finds it. */
+export const suiteUpkeepWorkflowIdFor = (organizationId: string, authorizationId: string) =>
+  `suite-upkeep-${organizationId}-${authorizationId}`;
+/** Where the attempt ended. `already_settled` means another run, or the expiry, got there first. */
+export type OAuthExchangeOutcome = {
+  outcome: 'connected' | 'failed' | 'expired' | 'already_settled';
+  connectionId: string | null;
+};
+
 // --- M6 (ADR-030). The same rule again: an archive's records, keys and names never come through here.
 
 export const organizationExportInputSchema = z.strictObject({
@@ -108,6 +132,122 @@ export type OrganizationExportResult = {
   outcome: 'ready' | 'failed';
   parts: number;
 };
+// --- M11B (ADR-034). The same rule: IDs, enums and counters, with no manifest, input, output or job text.
+
+export const skillVerificationInputSchema = z.strictObject({
+  organizationId: z.uuid(),
+  skillVersionId: z.uuid(),
+});
+export type SkillVerificationInput = z.infer<typeof skillVerificationInputSchema>;
+export const skillVerificationWorkflowIdFor = (input: SkillVerificationInput) =>
+  `skill-verification-${input.organizationId}-${input.skillVersionId}`;
+export type SkillVerificationOutcome = 'verified' | 'rejected';
+
+/** What the check Activity found. Content stays in PostgreSQL, so fixtures go by their runs' IDs. */
+export type SkillCheckStep =
+  /** Refused or already finished, and the row says so. */
+  | { step: 'finished'; outcome: SkillVerificationOutcome }
+  /** The contract passed and the signed code still needs its native fixture runs. */
+  | { step: 'run_fixtures'; sandboxRunIds: readonly string[] };
+
+export const sandboxRunInputSchema = z.strictObject({
+  organizationId: z.uuid(),
+  sandboxRunId: z.uuid(),
+});
+export type SandboxRunInput = z.infer<typeof sandboxRunInputSchema>;
+export const sandboxRunWorkflowIdFor = (input: SandboxRunInput) =>
+  `sandbox-run-${input.organizationId}-${input.sandboxRunId}`;
+
+/** The enum a run ended on, exactly as its row says. No text from the job. */
+export type SandboxRunOutcome =
+  | 'succeeded'
+  | 'failed'
+  | 'timed_out'
+  | 'memory_exceeded'
+  | 'output_exceeded'
+  | 'denied'
+  | 'cancelled'
+  | 'runner_unavailable';
+export type SandboxRunResult = { sandboxRunId: string; outcome: SandboxRunOutcome };
+
+/** What one execute Activity reports. */
+export type SandboxExecuteStep =
+  | { step: 'settled'; outcome: SandboxRunOutcome }
+  /** At the tenant's ceiling. Worth waiting, and costs no attempt. */
+  | { step: 'busy'; afterMs: number }
+  /** The runner did not answer, the row is queued again, and nothing it did can have left. */
+  | { step: 'retry'; afterMs: number };
+
+export const marketplaceInstallInputSchema = z.strictObject({
+  organizationId: z.uuid(),
+  installationId: z.uuid(),
+});
+export type MarketplaceInstallInput = z.infer<typeof marketplaceInstallInputSchema>;
+export const marketplaceInstallWorkflowIdFor = (input: MarketplaceInstallInput) =>
+  `marketplace-install-${input.organizationId}-${input.installationId}`;
+export type MarketplaceInstallOutcome = 'installed' | 'failed';
+export type MarketplaceInstallStep =
+  | { step: 'failed'; code: InstallationFailureCode }
+  | { step: 'settled'; outcome: MarketplaceInstallOutcome }
+  | { step: 'verify'; skillVersionId: string };
+export type MarketplaceInstallFinish = MarketplaceInstallInput & {
+  outcome: { ok: true } | { ok: false; code: InstallationFailureCode };
+};
+// --- M11C (ADR-035 D3). The same rule again: which item, under which grant, and what became of it. No
+// title, no body, no organization name and no token ever goes through here.
+
+export const federationItemInputSchema = z.strictObject({
+  organizationId: z.uuid(),
+  itemId: z.uuid(),
+});
+export type FederationItemInput = z.infer<typeof federationItemInputSchema>;
+export const federationDeliveryWorkflowIdFor = (input: FederationItemInput) =>
+  `federation-delivery-${input.organizationId}-${input.itemId}`;
+export const federationWithdrawalWorkflowIdFor = (input: FederationItemInput) =>
+  `federation-withdrawal-${input.organizationId}-${input.itemId}`;
+export type FederationDeliveryOutcome = 'delivered' | 'closed' | 'refused' | 'withdrawn';
+export type FederationDeliveryResult = { itemId: string; outcome: FederationDeliveryOutcome };
+
+const federationGrantInputSchema = z.strictObject({
+  organizationId: z.uuid(),
+  grantId: z.uuid(),
+});
+export const federationGrantAcceptedInputSchema = federationGrantInputSchema;
+export type FederationGrantAcceptedInput = z.infer<typeof federationGrantAcceptedInputSchema>;
+export const federationGrantAcceptedWorkflowIdFor = (input: FederationGrantAcceptedInput) =>
+  `federation-grant-accepted-${input.grantId}`;
+
+export const federationGrantEndedInputSchema = federationGrantInputSchema;
+export type FederationGrantEndedInput = z.infer<typeof federationGrantEndedInputSchema>;
+export const federationPurgeWorkflowIdFor = (input: FederationGrantEndedInput) =>
+  `federation-purge-${input.grantId}`;
+
+/** A whole grant's copies when it ended, or one item's when it was withdrawn. */
+export type FederationPurgeInput = FederationGrantEndedInput | FederationItemInput;
+/** How many copies one pass purged, and whether another pass is needed. */
+export type FederationPurgePass = { purged: number; more: boolean };
+export type FederationPurgeResult = { purged: number };
 
 /** Parses the IDs back out of a workflow ID. The dispatcher builds these, so the format is ours. */
 export const UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+
+// --- M11A (ADR-033). The same rule: IDs, enums and counters, with no note, title, field or model text.
+
+export const meetingDerivationInputSchema = z.strictObject({
+  organizationId: z.uuid(),
+  derivationRunId: z.uuid(),
+});
+export type MeetingDerivationInput = z.infer<typeof meetingDerivationInputSchema>;
+export const meetingDerivationWorkflowIdFor = (input: MeetingDerivationInput) =>
+  `meeting-derivation-${input.organizationId}-${input.derivationRunId}`;
+/** `dropped` means consent went while the model was thinking, and nothing of its answer was kept. */
+export type MeetingDerivationOutcome = 'completed' | 'failed' | 'refused' | 'dropped';
+
+export const meetingImportInputSchema = z.strictObject({
+  organizationId: z.uuid(),
+  importRequestId: z.uuid(),
+});
+export type MeetingImportInput = z.infer<typeof meetingImportInputSchema>;
+export const meetingImportWorkflowIdFor = (input: MeetingImportInput) =>
+  `meeting-import-${input.organizationId}-${input.importRequestId}`;
+export type MeetingImportOutcome = 'completed' | 'failed' | 'refused';

@@ -1,4 +1,7 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+
 import { useActionState } from 'react';
 import { SubmitButton } from '@/components/submit-button';
 import { CodeFields, FactorError } from './code-fields';
@@ -11,8 +14,8 @@ function RecoveryCodes({ codes }: { codes: readonly string[] }) {
     <section aria-labelledby="recovery-codes-heading">
       <h2 id="recovery-codes-heading">Save your recovery codes</h2>
       <p>
-        Keep these somewhere private, away from this device. Each code works once. They will not be
-        shown again.
+        If your phone is ever lost, a recovery code lets you sign in. Keep these somewhere private,
+        away from this device. Each code works once, and they will not be shown again.
       </p>
       <ul className={styles.codes}>
         {codes.map((code) => (
@@ -46,9 +49,10 @@ export function EnrollmentForm({
   return state.status === 'ready' ? (
     <div className={styles.flow}>
       <section>
+        <p className="muted">Step 1 of 3</p>
         <h2>Add Ensemus to your authenticator app</h2>
         <p>
-          Choose “Enter a setup key” in your app, then enter this key. Choose a time-based code.
+          In your app, choose “Enter a setup key”, then type this key and choose a time-based code.
         </p>
         <p className={styles.secret}>
           <code>{state.secret}</code>
@@ -57,10 +61,14 @@ export function EnrollmentForm({
           <a href={state.totpURI}>Open in an authenticator app on this device</a>
         </p>
       </section>
-      <RecoveryCodes codes={state.backupCodes ?? []} />
+      <div>
+        <p className="muted">Step 2 of 3</p>
+        <RecoveryCodes codes={state.backupCodes ?? []} />
+      </div>
       <section>
+        <p className="muted">Step 3 of 3</p>
         <h2>Confirm the app is ready</h2>
-        <p>Two-step sign-in stays off until you enter a current app code.</p>
+        <p>Enter the code your app shows now. Two-step sign-in stays off until you do.</p>
         <form className="fields" action={finishAction}>
           <CodeFields backup={false} />
           <div>
@@ -72,13 +80,13 @@ export function EnrollmentForm({
   ) : (
     <form className="fields" action={action}>
       <FactorError code={state.error} />
-      <label>
+      <Label>
         Password, if you use one
-        <input name="password" type="password" autoComplete="current-password" maxLength={128} />
-      </label>
+        <Input name="password" type="password" autoComplete="current-password" maxLength={128} />
+      </Label>
       <p className="muted">
-        Use any authenticator app that makes time-based codes. No text messages or external service
-        are needed.
+        Any authenticator app that makes time-based codes works. No text messages, and nothing else
+        to sign up for.
       </p>
       <div>
         <SubmitButton working="Preparing">Set up authenticator app</SubmitButton>
@@ -103,10 +111,10 @@ export function RecoveryCodeForm({
   ) : (
     <form className="fields" action={action}>
       <FactorError code={state.error} />
-      <label>
+      <Label>
         Password, if you use one
-        <input name="password" type="password" autoComplete="current-password" maxLength={128} />
-      </label>
+        <Input name="password" type="password" autoComplete="current-password" maxLength={128} />
+      </Label>
       <CodeFields />
       <p className="muted">The new codes replace every unused recovery code you saved before.</p>
       <div>

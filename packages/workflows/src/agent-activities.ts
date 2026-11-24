@@ -56,11 +56,13 @@ import type {
   ClaimResult,
   CreateChildRunInput,
   FinishRunInput,
+  ModelStepInput,
   ModelTurnResult,
   RunDirective,
   RunRef,
   StepInput,
   ToolCallResult,
+  ToolStepInput,
   ToolWaitState,
 } from './agent-schemas';
 
@@ -138,9 +140,9 @@ export interface AgentActivities {
   /** Reads run_controls and kill switches. The answer for this step comes from here, never a signal. */
   readRunDirective(input: RunRef): Promise<RunDirective>;
   /** One model turn: compile, route, reserve, send, validate, record. */
-  runModelTurn(input: StepInput): Promise<ModelTurnResult>;
+  runModelTurn(input: ModelStepInput): Promise<ModelTurnResult>;
   /** One tool call, from the proposal the last turn stored. */
-  runToolCall(input: StepInput): Promise<ToolCallResult>;
+  runToolCall(input: ToolStepInput): Promise<ToolCallResult>;
   /** Where a waiting tool step has got to. Reads PostgreSQL only, so it is safe to retry. */
   readToolWait(input: StepInput): Promise<ToolWaitState>;
   /** Moves the run to a waiting or running status with a recorded reason. */
@@ -469,6 +471,10 @@ export function createAgentActivities(deps: AgentActivityDeps): AgentActivities 
               mainStarted = true;
               const remainingMs =
                 facts.limits.timeoutSeconds * 1000 - facts.counters.activeMs - elapsedMs;
+              const tokensLeft =
+                facts.limits.maxTotalTokens -
+                facts.counters.inputTokens -
+                facts.counters.outputTokens;
               outcome = await deps.gateway.turn(
                 context,
                 {
@@ -502,6 +508,15 @@ export function createAgentActivities(deps: AgentActivityDeps): AgentActivities 
                   },
                 },
                 signal,
+                {
+                  // Only a workflow that will wait and come back asks to hold the fallback list.
+                  ...(input.retry ? { transient: input.retry.final ? 'fall_back' : 'hold' } : {}),
+                  // A repair is one more turn, so it needs room for this one and the next.
+                  repair: {
+                    allowed: facts.counters.modelTurns + 2 <= facts.limits.maxModelTurns,
+                    tokensLeft,
+                  },
+                },
               );
             }
           }
@@ -571,6 +586,10 @@ export function createAgentActivities(deps: AgentActivityDeps): AgentActivities 
             : haltedNow
               ? 'HALTED'
               : outcome.stopCode;
+        // A turn held for a retry gave the model nothing to act on, so it is not one of the run's turns;
+        // what it cost is counted all the same. A repair is a turn of its own.
+        const retry = final === 'model_unavailable' && outcome.retry ? outcome.retry : null;
+        const turnsTaken = mainStarted ? (retry ? 0 : 1) + (outcome.repairs ?? 0) : 0;
         const counters = await completeTurn(database, context, {
           agentRunId,
           stepId: start.stepId,
@@ -578,7 +597,7 @@ export function createAgentActivities(deps: AgentActivityDeps): AgentActivities 
           outcome: final,
           code: stopCode ?? outcome.decisionCode,
           delta: {
-            modelTurns: mainStarted ? 1 : 0,
+            modelTurns: turnsTaken,
             inputTokens: outcome.usage.inputTokens,
             outputTokens: outcome.usage.outputTokens,
             costMicros: outcome.usage.costMicros,
@@ -590,6 +609,7 @@ export function createAgentActivities(deps: AgentActivityDeps): AgentActivities 
           outcome: final,
           stopCode,
           counters: counters ?? (await factsOf(context, input)).counters,
+          ...(retry ? { retry: { afterMs: retry.afterMs } } : {}),
         };
       }),
 
@@ -603,6 +623,7 @@ export function createAgentActivities(deps: AgentActivityDeps): AgentActivities 
           stepNumber: input.stepNumber,
           workUnitId: input.workUnitId,
           agentVersionId: facts.agentVersionId,
+          ...(input.collect ? { collect: true } : {}),
         });
         const counters = await countToolSteps(database, context, {
           agentRunId: input.agentRunId,
@@ -616,6 +637,9 @@ export function createAgentActivities(deps: AgentActivityDeps): AgentActivities 
           delegation: handled.delegationRequested
             ? { organizationId: input.organizationId, workUnitId: input.workUnitId }
             : null,
+          ...(handled.suiteReadProposalId
+            ? { suiteRead: { proposalId: handled.suiteReadProposalId } }
+            : {}),
         };
       }),
 

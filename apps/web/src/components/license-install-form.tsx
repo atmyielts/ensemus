@@ -1,4 +1,6 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 
 import { useActionState } from 'react';
 import { installSignedDocumentAction, type InstallDocumentState } from '@/server/sovereign-actions';
@@ -31,14 +33,14 @@ export function LicenseInstallForm({ organizationId }: { organizationId: string 
       )}
       <form className="fields" action={action}>
         <input type="hidden" name="organizationId" value={organizationId} />
-        <label>
+        <Label>
           Signed file
           <input name="file" type="file" accept=".json,.dsse,application/json" />
-        </label>
-        <label>
+        </Label>
+        <Label>
           Or paste what the file holds
-          <textarea name="envelope" className="mono" autoComplete="off" spellCheck={false} />
-        </label>
+          <Textarea name="envelope" className="mono" autoComplete="off" spellCheck={false} />
+        </Label>
         <div>
           <SubmitButton working="Checking the file">Check and install</SubmitButton>
         </div>

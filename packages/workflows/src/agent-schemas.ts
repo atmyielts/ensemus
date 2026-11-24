@@ -64,6 +64,33 @@ export const stepInputSchema = runRefSchema.extend({
 });
 export type StepInput = z.infer<typeof stepInputSchema>;
 
+/**
+ * A model step, and which retry round it is. Absent on every turn a workflow asked for before durable
+ * retries, which then behaves exactly as it did: no hold, so an outage moves down the fallback list.
+ */
+export const modelStepInputSchema = stepInputSchema.extend({
+  retry: z.strictObject({ round: z.int().min(0).max(16), final: z.boolean() }).optional(),
+});
+export type ModelStepInput = z.infer<typeof modelStepInputSchema>;
+
+/** A tool step, and whether this call comes back for a suite read the connector worker has finished. */
+export const toolStepInputSchema = stepInputSchema.extend({
+  collect: z.literal(true).optional(),
+});
+export type ToolStepInput = z.infer<typeof toolStepInputSchema>;
+
+/** What the connector worker is told about a suite read: IDs, and nothing a model or a provider wrote. */
+export const suiteReadInputSchema = z.strictObject({
+  organizationId: z.uuid(),
+  runId: z.uuid(),
+  proposalId: z.uuid(),
+});
+export type SuiteReadInput = z.infer<typeof suiteReadInputSchema>;
+
+/** How a suite read ended, as a code. The output itself stays in PostgreSQL. */
+export const SUITE_READ_STATUSES = ['read', 'refused', 'gone'] as const;
+export type SuiteReadStatus = (typeof SUITE_READ_STATUSES)[number];
+
 export const modelTurnResultSchema = z.strictObject({
   outcome: z.enum(MODEL_OUTCOMES),
   stopCode: z
@@ -71,6 +98,11 @@ export const modelTurnResultSchema = z.strictObject({
     .regex(/^[A-Z][A-Z0-9_]{1,63}$/)
     .nullable(),
   counters: runCountersSchema,
+  /**
+   * Set when the turn ended on a passing outage the workflow asked to hold: a number of milliseconds the
+   * provider asked for, already capped, or null. Never provider text. Absent from every older result.
+   */
+  retry: z.strictObject({ afterMs: z.int().min(0).max(60_000).nullable() }).optional(),
 });
 export type ModelTurnResult = z.infer<typeof modelTurnResultSchema>;
 
@@ -83,6 +115,11 @@ export const toolCallResultSchema = z.strictObject({
   counters: runCountersSchema,
   /** Set for `agent.delegate` when a child must be started. */
   delegation: z.strictObject({ organizationId: z.uuid(), workUnitId: z.uuid() }).nullable(),
+  /**
+   * Set when a suite read passed the gate and the connector worker has to do it (ADR-038 D6). An ID only.
+   * Absent from every result written before suite tools, which is what keeps old histories replaying.
+   */
+  suiteRead: z.strictObject({ proposalId: z.uuid() }).nullable().optional(),
 });
 export type ToolCallResult = z.infer<typeof toolCallResultSchema>;
 

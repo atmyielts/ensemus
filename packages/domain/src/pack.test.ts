@@ -724,3 +724,59 @@ describe('mergePackTypeShape', () => {
     expect(mergePackTypeShape(shape, shape, shape).changed).toBe(false);
   });
 });
+
+describe('manual restricted record proposals', () => {
+  const manual = (): PackManifest => {
+    const manifest = base();
+    return {
+      ...manifest,
+      objectTypes: manifest.objectTypes.map((type) => ({ ...type, classification: 'restricted' })),
+      capabilities: [
+        ...manifest.capabilities,
+        capability({
+          key: 'data.restricted',
+          kind: 'data_class',
+          subject: 'restricted',
+          risk: 'elevated',
+          requiredBy: ['object_type:thing'],
+        }),
+      ],
+      strings: { ...manifest.strings, ...words('data.restricted') },
+    };
+  };
+  it('allows elevated review for manual restricted types without admitting an assistant or process', () => {
+    expect(validatePackManifest(manual())).toEqual([]);
+  });
+  it('requires the manual type itself to be covered by a restricted data review', () => {
+    const manifest = manual();
+    expect(
+      codes({
+        ...manifest,
+        capabilities: manifest.capabilities.filter((cap) => cap.subject !== 'restricted'),
+      }),
+    ).toContain('MISSING_CAPABILITY');
+  });
+  it('refuses low-risk restricted review, unused classes and mixed assistant/process references', () => {
+    for (const changes of [
+      { risk: 'low' as const },
+      { requiredBy: ['agent_draft:helper'] },
+      { requiredBy: ['process_draft:send'] },
+      { requiredBy: ['object_type:thing', 'agent_draft:helper'] },
+    ]) {
+      const manifest = manual();
+      const findings = codes({
+        ...manifest,
+        capabilities: manifest.capabilities.map((cap) =>
+          cap.key === 'data.restricted' ? { ...cap, ...changes } : cap,
+        ),
+      });
+      expect(findings).toContain(
+        'risk' in changes ? 'RESTRICTED_MUST_BE_ELEVATED' : 'RESTRICTED_NOT_OFFERED',
+      );
+    }
+    const manifest = manual();
+    expect(codes({ ...manifest, objectTypes: base().objectTypes })).toContain(
+      'RESTRICTED_NOT_OFFERED',
+    );
+  });
+});

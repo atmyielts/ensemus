@@ -1,3 +1,12 @@
+import {
+  Table,
+  TableCaption,
+  TableHeader,
+  TableRow,
+  TableHead,
+  TableBody,
+  TableCell,
+} from '@/components/ui/table';
 import Link from 'next/link';
 import type { ImportedArchiveFileView } from '@ensemus/application';
 import { formatDateTime } from './ui';
@@ -32,27 +41,27 @@ export function ImportedArchiveFiles({
         </p>
       ) : (
         <div className="table-wrap">
-          <table>
-            <caption className="visually-hidden">Archived files held for review</caption>
-            <thead>
-              <tr>
-                <th scope="col">File</th>
-                <th scope="col">Received</th>
-                <th scope="col">State</th>
-                <th scope="col">Review</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table>
+            <TableCaption className="visually-hidden">Archived files held for review</TableCaption>
+            <TableHeader>
+              <TableRow>
+                <TableHead scope="col">File</TableHead>
+                <TableHead scope="col">Received</TableHead>
+                <TableHead scope="col">State</TableHead>
+                <TableHead scope="col">Review</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {files.map((file) => (
-                <tr key={file.sourceArtifactId}>
-                  <th scope="row">
+                <TableRow key={file.sourceArtifactId}>
+                  <TableHead scope="row">
                     {file.name ?? 'Protected archived file'}
                     <div className="muted">
                       {new Intl.NumberFormat('en').format(file.sizeBytes)} bytes
                     </div>
-                  </th>
-                  <td>{formatDateTime(file.createdAt)}</td>
-                  <td>
+                  </TableHead>
+                  <TableCell>{formatDateTime(file.createdAt)}</TableCell>
+                  <TableCell>
                     {file.state === 'purged'
                       ? 'Removed'
                       : file.state === 'closing'
@@ -62,18 +71,18 @@ export function ImportedArchiveFiles({
                           : file.reviewable
                             ? 'Awaiting your review'
                             : 'Blocked by current permissions'}
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     {file.reviewable ? (
                       <a href={`${base}/${file.sourceArtifactId}/download`}>Download to review</a>
                     ) : (
                       <span className="muted">Not available for download</span>
                     )}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
       {files.length === 50 && (

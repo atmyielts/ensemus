@@ -32,6 +32,8 @@ const COMMANDS: Record<string, string> = {
   'test:browser': 'pnpm test:browser',
   'check:backlog': 'pnpm check:backlog',
   'check:contracts': 'pnpm check:contracts',
+  'check:guides': 'pnpm check:guides',
+  'check:inventory': 'pnpm check:inventory',
   'check:licenses': 'pnpm check:licenses',
   // The one place the deployed Caddyfile runs. CI needs no install for it, so it names the script.
   'check:proxy': 'node infrastructure/scripts/check-proxy.mjs',
@@ -41,11 +43,17 @@ const COMMANDS: Record<string, string> = {
   // The stack suite runs here, with outbound traffic blocked. Nothing runs test:stack by name.
   'test:stack': 'node infrastructure/scripts/air-gap-gate.mjs',
   'build-release.mjs': 'build-release.mjs',
+  'check:pins': 'pnpm check:pins',
+  'image scan': 'node infrastructure/scripts/scan-images.mjs',
+  // ADR-037 D1 says when --report-only goes. Until then the log and the report say the images differ.
+  reproducible: 'node infrastructure/scripts/reproducible-gate.mjs --report-only',
   // test:upgrade is this script without --from.
   'test:upgrade': 'upgrade-gate.mjs --from',
   'stack:slice-2': 'pnpm stack:slice-2',
   'connector air-gap': 'air-gap-gate.mjs --connectors',
   'connector browser': 'playwright test specs/external-actions.spec.ts',
+  // Each of its rounds runs the parity project against the mode it just started.
+  'test:parity': 'node infrastructure/scripts/parity-gate.mjs',
 };
 
 const gateScripts = readdirSync(join(root, 'infrastructure/scripts')).filter((name) =>
@@ -67,6 +75,16 @@ describe('every gate runs in both places', () => {
     const named = Object.values(COMMANDS).join(' ');
     expect(gateScripts.filter((name) => !named.includes(name))).toEqual([]);
     expect(gateScripts.length).toBeGreaterThan(0);
+  });
+
+  it('lets no job fail without failing the run', () => {
+    expect(ci).not.toContain('continue-on-error');
+  });
+
+  it('scans images only after the step that makes what it reads', () => {
+    for (const file of [local, ci]) {
+      expect(file.indexOf('scan-images.mjs')).toBeGreaterThan(file.indexOf('build-release.mjs'));
+    }
   });
 
   it('runs the full air-gap round in both, and not only the control', () => {
@@ -141,6 +159,14 @@ describe('on one machine', () => {
     );
   });
 
+  it('runs the parity gate from nothing as well, because it uses the same project', () => {
+    const parity = gateLines.filter((line) => line.includes('parity-gate.mjs'));
+    expect(parity).toHaveLength(1);
+    expect(parity[0]).toMatch(/^gate "[^"]+" fresh /);
+    // A local run must not call a failure of parity anything else, and only a release may ask for more.
+    expect(parity[0]).not.toContain('--release');
+  });
+
   it('clears the stack on both sides of a gate, whatever its result', () => {
     expect(local).toMatch(
       /fresh\(\) \{\n {2}clean_stack\n {2}"\$@"\n {2}local status=\$\?\n {2}clean_stack\n {2}return "\$status"\n\}/,
@@ -153,6 +179,7 @@ describe('on one machine', () => {
     expect(clean).toContain('compose.airgap.yaml');
     expect(clean).toContain('--profile test-oidc');
     expect(clean).toContain('--profile connectors');
+    expect(clean).toContain('--profile federation');
     expect(clean).toContain('down -v --remove-orphans');
   });
 

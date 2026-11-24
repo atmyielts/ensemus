@@ -1,0 +1,332 @@
+import { randomUUID } from 'node:crypto';
+import { notFound } from 'next/navigation';
+import {
+  AppError,
+  getMeeting,
+  getMeetingSettings,
+  getMeetingSourceImportPanel,
+  listDirectory,
+  listMeetingDerivations,
+  listMeetingProcessingOptions,
+  listMeetingSummaries,
+  listProposedItems,
+} from '@ensemus/application';
+import {
+  BackLink,
+  ClassificationBadge,
+  ErrorNotice,
+  PageHead,
+  formatDateTime,
+} from '@/components/ui';
+import { Badge } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
+import { canReassignOrganizer } from '@ensemus/domain/meeting';
+import { can } from '@ensemus/domain/policy';
+import { MeetingDerivedContent } from './derived-content';
+import { ConnectedNotes } from './connected-notes';
+import { MeetingProcessing } from './processing';
+import { SubmitButton } from '@/components/submit-button';
+import { ConfirmForm } from '@/components/confirm-form';
+import { requireTenant } from '@/server/tenant';
+import { MeetingForm } from '../meeting-form';
+import { consentAction, reassignOrganizerAction, removeParticipantAction } from '../actions';
+export const metadata = { title: 'Meeting | Ensemus' };
+export default async function MeetingPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ organizationId: string; meetingId: string }>;
+  searchParams: Promise<{
+    error?: string;
+    proposal?: string;
+    processing?: string;
+    processingError?: string;
+  }>;
+}) {
+  const { organizationId, meetingId } = await params,
+    { actor, database, context } = await requireTenant(organizationId);
+  let meeting;
+  try {
+    meeting = await getMeeting(database, context, meetingId);
+  } catch (error) {
+    if (error instanceof AppError && error.code === 'NOT_FOUND') notFound();
+    throw error;
+  }
+  const settings = await getMeetingSettings(database, context),
+    organizer = meeting.organizerMembershipId === context.membershipId,
+    readable = meeting.title !== null,
+    open = meeting.status === 'open';
+  const query = await searchParams;
+  const canRequestProcessing = organizer && settings.enabled && meeting.consent === 'complete';
+  const connectedImport =
+    organizer && readable && open && meeting.sourceKind === 'connector'
+      ? await getMeetingSourceImportPanel(database, context, meetingId)
+      : null;
+  const [summaries, proposals, runs, options] =
+    readable && open && meeting.currentNotes
+      ? await Promise.all([
+          listMeetingSummaries(database, context, meetingId),
+          listProposedItems(database, context, meetingId),
+          listMeetingDerivations(database, context, meetingId, { recentOnly: true }),
+          canRequestProcessing ? listMeetingProcessingOptions(database, context, meetingId) : [],
+        ])
+      : ([[], [], [], []] as const);
+  const mayDecide = open && meeting.consent === 'complete';
+  const mayCreateFromProposal =
+    mayDecide &&
+    can(context.role, 'work.create') &&
+    proposals.some((item) => item.kind === 'work' && item.status === 'proposed');
+  const canAdd = organizer && open && !meeting.currentNotes;
+  const canHandoff = open && canReassignOrganizer(context.role);
+  const directory =
+    canAdd || canHandoff || mayCreateFromProposal ? await listDirectory(database, context) : [];
+  const organizerLeft = directory.some(
+    (person) =>
+      person.membershipId === meeting.organizerMembershipId && person.status === 'disabled',
+  );
+  const people = canAdd
+    ? directory
+        .filter(
+          (p) =>
+            p.status === 'active' &&
+            !meeting.participants.some((x) => x.membershipId === p.membershipId),
+        )
+        .map((p) => ({ membershipId: p.membershipId, name: p.name }))
+    : [];
+  const shared = (participantId: string) => (
+    <>
+      <input type="hidden" name="organizationId" value={organizationId} />
+      <input type="hidden" name="meetingId" value={meetingId} />
+      <input type="hidden" name="participantId" value={participantId} />
+      <input type="hidden" name="noticeRef" value={settings.noticeRef ?? ''} />
+    </>
+  );
+  return (
+    <>
+      <BackLink href={`/o/${organizationId}/meetings`}>Meetings</BackLink>
+      <PageHead
+        title={meeting.title ?? 'Private meeting'}
+        description={formatDateTime(meeting.occurredAt)}
+      />
+      <ErrorNotice code={query.error} />
+      <div className="row">
+        <ClassificationBadge value={meeting.classification} />
+        <Badge variant="outline">
+          {meeting.status === 'purged'
+            ? 'Removed after withdrawal'
+            : meeting.consent === 'complete'
+              ? 'Everyone agreed'
+              : meeting.consent === 'pending'
+                ? 'Awaiting consent'
+                : meeting.consent}
+        </Badge>
+      </div>
+      {canHandoff && organizerLeft && (
+        <details className="group">
+          <summary>Hand off meeting</summary>
+          <form className="fields" action={reassignOrganizerAction}>
+            <input type="hidden" name="organizationId" value={organizationId} />
+            <input type="hidden" name="meetingId" value={meetingId} />
+            <input type="hidden" name="version" value={meeting.version} />
+            <p className="muted">
+              The organizer has left. Choose an active member who was already listed in the meeting.
+              The handoff keeps the existing participants and consent records.
+            </p>
+            <Label>
+              New organizer
+              <NativeSelect name="organizerMembershipId" defaultValue="" required>
+                <option value="" disabled>
+                  Choose a member
+                </option>
+                {directory
+                  .filter((person) => person.status === 'active')
+                  .map((person) => (
+                    <option key={person.membershipId} value={person.membershipId}>
+                      {person.name}
+                    </option>
+                  ))}
+              </NativeSelect>
+            </Label>
+            <div>
+              <SubmitButton>Hand off meeting</SubmitButton>
+            </div>
+          </form>
+        </details>
+      )}
+      {!readable ? (
+        <p className="notice">
+          You can see this meeting’s status. Its title, participants and notes are private to the
+          people in the room.
+        </p>
+      ) : (
+        <>
+          {meeting.status === 'purged' && (
+            <p className="notice">
+              Consent was withdrawn. Notes and derived content have been removed. A provider may
+              already have received an earlier copy; withdrawal cannot recall that.
+            </p>
+          )}
+          <section className="group" aria-labelledby="participants-heading">
+            <h2 id="participants-heading">Participants and consent</h2>
+            <p className="muted">
+              Notice reference: {settings.noticeRef ?? 'Not set'}. Your organization holds the
+              notice. Agreement covers storing notes and processing by any separately approved
+              providers, not general administrator access.
+            </p>
+            <ul className="list">
+              {meeting.participants.map((p) => (
+                <li key={p.id}>
+                  <div className="row spread">
+                    <strong>{p.displayName}</strong>
+                    <Badge variant="outline">{p.decision ?? 'Not answered'}</Badge>
+                  </div>
+                  {p.basis === 'attested' && (
+                    <p className="muted">Attested by the organizer for an outside participant.</p>
+                  )}
+                  {open &&
+                    (p.membershipId === context.membershipId ||
+                      (organizer && p.kind === 'external')) && (
+                      <div className="row">
+                        {settings.enabled && (
+                          <form action={consentAction}>
+                            {shared(p.id)}
+                            <input type="hidden" name="decision" value="granted" />
+                            <SubmitButton working="Recording">
+                              {p.kind === 'external' ? 'Attest agreement' : 'I agree'}
+                            </SubmitButton>
+                          </form>
+                        )}
+                        {settings.enabled && !meeting.currentNotes && (
+                          <form action={consentAction}>
+                            {shared(p.id)}
+                            <input type="hidden" name="decision" value="declined" />
+                            <SubmitButton working="Recording">
+                              {p.kind === 'external' ? 'Attest refusal' : 'Decline'}
+                            </SubmitButton>
+                          </form>
+                        )}
+                        <ConfirmForm
+                          action={consentAction}
+                          fields={
+                            <>
+                              {shared(p.id)}
+                              <input type="hidden" name="decision" value="withdrawn" />
+                            </>
+                          }
+                          summary={p.kind === 'external' ? 'Attest withdrawal' : 'Withdraw consent'}
+                          summaryLabel={`Withdraw consent: ${p.displayName}`}
+                          consequence="This permanently removes every version of the meeting’s notes and derived content. People and providers may already have read it. Work someone separately created stays."
+                          confirmLabel="Withdraw and remove notes"
+                          confirmFullLabel={`Withdraw and remove notes: ${p.displayName}`}
+                        />
+                      </div>
+                    )}
+                  {organizer &&
+                    open &&
+                    !meeting.currentNotes &&
+                    p.decision === null &&
+                    p.membershipId !== context.membershipId && (
+                      <form action={removeParticipantAction}>
+                        {shared(p.id)}
+                        <input type="hidden" name="version" value={meeting.version} />
+                        <SubmitButton working="Removing">Remove participant</SubmitButton>
+                      </form>
+                    )}
+                </li>
+              ))}
+            </ul>
+            {organizer && open && !meeting.currentNotes && (
+              <MeetingForm
+                summary="Add someone"
+                key={actor.userId + '-participant'}
+                kind="participant"
+                organizationId={organizationId}
+                meetingId={meetingId}
+                version={meeting.version}
+                people={people}
+              />
+            )}
+          </section>
+          <section className="group" aria-labelledby="notes-heading">
+            <h2 id="notes-heading">Notes</h2>
+            {meeting.currentNotes?.text ? (
+              <>
+                <p className="muted">
+                  Version {meeting.currentNotes.version} ·{' '}
+                  {formatDateTime(meeting.currentNotes.createdAt)}
+                </p>
+                <div className="whitespace-pre-wrap break-words">{meeting.currentNotes.text}</div>
+              </>
+            ) : (
+              <p className="muted">{open ? 'No notes stored.' : 'Notes removed.'}</p>
+            )}
+            {organizer &&
+              open &&
+              settings.enabled &&
+              (meeting.consent === 'complete' ? (
+                meeting.sourceKind === 'manual' && (
+                  <MeetingForm
+                    summary={meeting.currentNotes ? 'Store a new version' : 'Add notes'}
+                    key={actor.userId + '-notes'}
+                    kind="notes"
+                    initialText={meeting.currentNotes?.text ?? ''}
+                    organizationId={organizationId}
+                    meetingId={meetingId}
+                    requestKey={randomUUID()}
+                  />
+                )
+              ) : (
+                <p className="muted">Everyone listed must agree before notes can be stored.</p>
+              ))}
+            {connectedImport && (
+              <ConnectedNotes
+                organizationId={organizationId}
+                meetingId={meetingId}
+                panel={connectedImport}
+                canRequest={canRequestProcessing}
+                hasNotes={meeting.currentNotes !== null}
+              />
+            )}
+          </section>
+          {open && meeting.currentNotes && (organizer || runs.length > 0) && (
+            <MeetingProcessing
+              organizationId={organizationId}
+              meetingId={meetingId}
+              notes={meeting.currentNotes}
+              runs={runs}
+              options={options}
+              submitted={query.processing}
+              error={query.processingError}
+              unavailable={
+                organizer && options.length === 0
+                  ? !settings.enabled
+                    ? 'Meeting processing is turned off for this workspace.'
+                    : meeting.classification === 'restricted'
+                      ? 'Restricted meeting notes cannot be sent to a model.'
+                      : 'A workspace administrator must approve a model for this meeting’s classification.'
+                  : null
+              }
+            />
+          )}
+          <MeetingDerivedContent
+            organizationId={organizationId}
+            meetingId={meetingId}
+            currentMember={context.membershipId}
+            summaries={summaries}
+            proposals={proposals}
+            mayDecide={mayDecide}
+            people={
+              mayCreateFromProposal
+                ? directory
+                    .filter((person) => person.status === 'active')
+                    .map((person) => ({ id: person.membershipId, name: person.name }))
+                : []
+            }
+            {...(query.proposal !== undefined ? { notice: query.proposal } : {})}
+          />
+        </>
+      )}
+    </>
+  );
+}

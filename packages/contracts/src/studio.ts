@@ -1,6 +1,7 @@
 // Runtime contracts for Agent Studio and process specs (ADR-031). The shapes match the planned operations in
 // docs/specifications/openapi.yaml.
 import { z } from 'zod';
+import { signedEvaluationReportSchema } from './ai';
 const uuid = z.uuid().toLowerCase();
 
 const plainText = (max: number) =>
@@ -246,4 +247,9 @@ export const processRunListSchema = z.strictObject({
 export const processSpecListSchema = z.strictObject({
   items: z.array(processSpecViewSchema).max(200),
   limited: z.boolean(),
+});
+
+/** Processes need their review; assistants additionally need independent evaluator evidence. */
+export const publishReviewedSnapshotSchema = z.strictObject({
+  evaluation_report: signedEvaluationReportSchema.optional(),
 });

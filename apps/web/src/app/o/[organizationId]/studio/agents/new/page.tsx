@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import Link from 'next/link';
 import { getAgentDraftChoices } from '@ensemus/application/agent-drafts';
-import { PageHead } from '@/components/ui';
+import { BackLink, PageHead } from '@/components/ui';
 import { AgentForm } from '@/components/studio/agent-form';
 import { requireStudio, studioRead } from '@/server/studio-pages';
 import { webProductPorts } from '@/server/product-ports';
@@ -19,10 +18,10 @@ export default async function NewAgentPage({
     ]);
   return (
     <>
-      <Link href={`/o/${organizationId}/studio/agents`}>Back to assistant drafts</Link>
+      <BackLink href={`/o/${organizationId}/studio/agents`}>Assistant drafts</BackLink>
       <PageHead
         title="Create assistant"
-        description="Describe a useful result in plain words. You will rehearse and review it before publishing."
+        description="Describe the help your team needs in plain words. You can change everything later, and nothing runs until it has been rehearsed and reviewed."
       />
       <AgentForm
         organizationId={organizationId}

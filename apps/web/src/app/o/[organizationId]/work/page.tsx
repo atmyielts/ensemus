@@ -1,7 +1,19 @@
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
+import {
+  Table,
+  TableHeader,
+  TableRow,
+  TableHead,
+  TableBody,
+  TableCell,
+} from '@/components/ui/table';
 import { AppError, listProjects, listWorkOverview } from '@ensemus/application';
 import { WORK_STATES, type CompletionCriterion, type WorkState } from '@ensemus/domain/work-unit';
 import Link from 'next/link';
 import {
+  ActionLink,
   ClassificationBadge,
   Empty,
   ErrorNotice,
@@ -66,12 +78,7 @@ export default async function WorkPage({
     <>
       <PageHead
         title="Work"
-        description="Everything you have access to."
-        actions={
-          <Link className="button" href={`${base}/work/new`}>
-            New work
-          </Link>
-        }
+        actions={<ActionLink href={`${base}/work/new`}>New work</ActionLink>}
       />
       <ErrorNotice code={notice} />
       {projectId && (
@@ -80,113 +87,141 @@ export default async function WorkPage({
           <Link href={`${base}/work`}>Show all work</Link>
         </p>
       )}
-      <form className="inline-form filter" method="get">
-        {projectId && <input type="hidden" name="project" value={projectId} />}
-        <label>
-          Status
-          <select name="status" defaultValue={filter ?? ''}>
-            <option value="">All</option>
+      {/* With nothing here at all, a filter only gets in the way of the first step. */}
+      {(items.length > 0 || filter || projectId) && (
+        <form
+          className="flex min-w-0 items-center gap-2 border-b py-2"
+          method="get"
+          aria-label="Filter work"
+        >
+          {projectId && <input type="hidden" name="project" value={projectId} />}
+          <Label htmlFor="work-status" className="text-muted-foreground">
+            Status
+          </Label>
+          <NativeSelect
+            id="work-status"
+            name="status"
+            controlSize="sm"
+            className="w-40 min-w-0 max-md:[&_select]:min-h-11 pointer-coarse:[&_select]:min-h-11"
+            defaultValue={filter ?? ''}
+          >
+            <option value="">All statuses</option>
             {WORK_STATES.map((state) => (
               <option key={state} value={state}>
                 {LABELS[state]}
               </option>
             ))}
-          </select>
-        </label>
-        <button className="quiet" type="submit">
-          Filter
-        </button>
-      </form>
+          </NativeSelect>
+          <Button
+            className="shrink-0 max-md:min-h-11 pointer-coarse:min-h-11"
+            variant="outline"
+            size="sm"
+            type="submit"
+          >
+            Filter
+          </Button>
+        </form>
+      )}
       {items.length === 0 ? (
-        <Empty
-          action={
-            filter || projectId ? (
-              <Link href={`${base}/work`}>Show all work</Link>
-            ) : (
-              <Link href={`${base}/work/new`}>Describe an outcome</Link>
-            )
-          }
-        >
-          {filter || projectId
-            ? 'No work matches this filter.'
-            : 'No work yet. Start with the outcome you want.'}
-        </Empty>
+        filter || projectId ? (
+          <Empty
+            title="Nothing matches"
+            action={
+              <ActionLink href={`${base}/work`} variant="secondary">
+                Show all work
+              </ActionLink>
+            }
+          >
+            No work matches this filter. Try another status, or show everything.
+          </Empty>
+        ) : (
+          <Empty
+            title="Work starts with an outcome"
+            action={
+              <ActionLink href={`${base}/compose`} variant="secondary">
+                Describe an outcome
+              </ActionLink>
+            }
+          >
+            No work yet. Describe the outcome you want, and you can hand it out and follow it here.
+          </Empty>
+        )
       ) : (
-        <div className="card table-wrap">
-          {/* The roles keep this a table for a screen reader when a small screen stacks its rows. */}
-          <table className="work-table" role="table">
-            <thead role="rowgroup">
-              <tr role="row">
-                <th role="columnheader" scope="col">
-                  Work
-                </th>
-                <th role="columnheader" scope="col">
-                  Status
-                </th>
-                <th role="columnheader" scope="col">
-                  Owner
-                </th>
-                <th role="columnheader" scope="col">
-                  Evidence
-                </th>
-                <th role="columnheader" scope="col">
-                  Due
-                </th>
-                <th role="columnheader" scope="col">
-                  Sensitivity
-                </th>
-              </tr>
-            </thead>
-            <tbody role="rowgroup">
-              {items.map((work) => {
-                const evidence = evidenceSummary(
-                  work.status as WorkState,
-                  work.completionCriteria as CompletionCriterion[],
-                  work.evidence,
-                );
-                return (
-                  <tr key={work.id} role="row">
-                    <td role="cell">
-                      <Link href={`${base}/work/${work.id}`}>{work.title}</Link>
-                    </td>
-                    <td role="cell">
-                      <StatusBadge status={work.status} />
-                    </td>
-                    <td role="cell">
-                      <span className="due-word">Owner: </span>
-                      {work.ownerName ?? 'Unknown'}
-                    </td>
-                    <td role="cell">
-                      <span className="due-word">Evidence: </span>
-                      {evidence.tone ? (
-                        <span className={`badge ${evidence.tone}`}>{evidence.text}</span>
-                      ) : (
-                        <small>{evidence.text}</small>
+        // The explicit roles preserve table semantics when small screens stack the rows.
+        <Table className="work-table [&_td]:p-[var(--work-cell-padding)]" role="table">
+          <TableHeader role="rowgroup">
+            <TableRow role="row">
+              <TableHead role="columnheader" scope="col">
+                Work
+              </TableHead>
+              <TableHead role="columnheader" scope="col">
+                Status
+              </TableHead>
+              <TableHead role="columnheader" scope="col">
+                Done when
+              </TableHead>
+              <TableHead role="columnheader" scope="col">
+                Due
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody role="rowgroup">
+            {items.map((work) => {
+              const evidence = evidenceSummary(
+                work.status as WorkState,
+                work.completionCriteria as CompletionCriterion[],
+                work.evidence,
+              );
+              return (
+                <TableRow key={work.id} role="row">
+                  <TableCell role="cell" className="whitespace-normal wrap-anywhere">
+                    <Link className="work-title-link" href={`${base}/work/${work.id}`}>
+                      {work.title}
+                    </Link>
+                    <div className="work-row-meta">
+                      <small>
+                        <span className="visually-hidden">Owner: </span>
+                        {work.ownerName ?? 'Owner unknown'}
+                      </small>
+                      {work.classification !== 'internal' && (
+                        <span>
+                          <span className="visually-hidden">Who can see this: </span>
+                          <ClassificationBadge value={work.classification} />
+                        </span>
                       )}
-                    </td>
-                    {work.dueAt ? (
-                      <td role="cell" className="nowrap">
-                        <span className="due-word">Due </span>
-                        {formatDate(work.dueAt)}
-                      </td>
+                    </div>
+                  </TableCell>
+                  <TableCell role="cell">
+                    <StatusBadge status={work.status} />
+                  </TableCell>
+                  <TableCell role="cell" className="whitespace-normal">
+                    <span className="due-word">Done when: </span>
+                    {evidence.tone ? (
+                      <span className={`badge ${evidence.tone}`}>{evidence.text}</span>
                     ) : (
-                      <td role="cell" className="no-date">
-                        <small>None</small>
-                      </td>
+                      <small>{evidence.text}</small>
                     )}
-                    <td role="cell">
-                      <ClassificationBadge value={work.classification} />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                  </TableCell>
+                  {work.dueAt ? (
+                    <TableCell role="cell" className="whitespace-normal">
+                      <span className="due-word">Due </span>
+                      {formatDate(work.dueAt)}
+                    </TableCell>
+                  ) : (
+                    <TableCell role="cell" className="no-date">
+                      <small>None</small>
+                    </TableCell>
+                  )}
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
       )}
       {nextCursor && (
         <p className="gap-above-large">
-          <Link
+          <ActionLink
+            variant="secondary"
             href={`${base}/work?${new URLSearchParams({
               ...(filter ? { status: filter } : {}),
               ...(projectId ? { project: projectId } : {}),
@@ -194,7 +229,7 @@ export default async function WorkPage({
             })}`}
           >
             Next page
-          </Link>
+          </ActionLink>
         </p>
       )}
     </>

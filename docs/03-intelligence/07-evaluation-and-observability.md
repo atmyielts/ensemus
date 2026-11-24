@@ -47,3 +47,5 @@ OpenTelemetry as vendor-neutral traces/metrics foundation. Langfuse OSS can prov
 ## 7. Release gates
 
 A model/agent upgrade requires no critical security regressions, task quality at or above accepted baseline (or approved trade-off), spend within budget, stable performance on named scenarios, and verified rollback. Use canaries/shadow tests only with permitted data. Store regression cases from incidents with confidentiality preserved.
+
+Publishing checks a report and does not trust it. A report is version 2, and an evaluator signs it with an Ed25519 key that the web tier never holds. It records each case's model (profile id and version, provider kind, model id), its cost in micros as the usage ledger settled it against the profile's rate card, and its latency, with totals the server checks against the cases. The server refuses a report that is unsigned, signed by a key it does not name, changed, inconsistent, older than the deployment allows, or bound to another spec, suite or policy. A scripted model's report publishes only a sandbox agent. Operators set the keys as described in the container deployment runbook.

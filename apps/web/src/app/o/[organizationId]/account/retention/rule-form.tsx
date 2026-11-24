@@ -1,4 +1,8 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
+import { Input } from '@/components/ui/input';
+
 import { useActionState } from 'react';
 import { DATA_CATEGORIES } from '@ensemus/saas/lifecycle';
 import { setRetentionRuleFormAction } from '@/server/lifecycle-actions';
@@ -29,29 +33,29 @@ export function RetentionRuleForm({ organizationId }: { organizationId: string }
           Retention rule saved. It replaces the previous rule for this category and classification.
         </p>
       )}
-      <label>
+      <Label>
         Data category
-        <select name="dataCategory" defaultValue={values.dataCategory}>
+        <NativeSelect name="dataCategory" defaultValue={values.dataCategory}>
           {DATA_CATEGORIES.map((value) => (
             <option key={value} value={value}>
               {value.replaceAll('_', ' ')}
             </option>
           ))}
-        </select>
-      </label>
-      <label>
+        </NativeSelect>
+      </Label>
+      <Label>
         Classification
-        <select name="classification" defaultValue={values.classification}>
+        <NativeSelect name="classification" defaultValue={values.classification}>
           {['*', 'public', 'internal', 'confidential', 'restricted'].map((value) => (
             <option key={value} value={value}>
               {value === '*' ? 'All classifications without their own rule' : value}
             </option>
           ))}
-        </select>
-      </label>
-      <label>
+        </NativeSelect>
+      </Label>
+      <Label>
         Retention period in days <small>Optional</small>
-        <input
+        <Input
           type="number"
           name="retainDays"
           min={1}
@@ -64,10 +68,10 @@ export function RetentionRuleForm({ organizationId }: { organizationId: string }
           Leave empty to retain indefinitely. Enter only a period approved for this data. Audit logs
           and transaction records are retained by their own mechanism.
         </small>
-      </label>
-      <label>
+      </Label>
+      <Label>
         Sign-off reference
-        <input
+        <Input
           name="basisRef"
           required
           maxLength={200}
@@ -77,7 +81,7 @@ export function RetentionRuleForm({ organizationId }: { organizationId: string }
         <small id="retention-basis-help">
           Reference the approved policy or agreement. Do not paste its contents.
         </small>
-      </label>
+      </Label>
       <div>
         <SubmitButton working="Saving rule">Save retention rule</SubmitButton>
       </div>

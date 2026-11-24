@@ -1,10 +1,19 @@
 // Real tenant transactions and M4 run binding; explicit status overrides isolate state-machine faults.
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createMinimalContextCompiler } from '@ensemus/agent-runtime/context';
-import { AppError, getWorkDetail, listWorkOverview } from '@ensemus/application';
-import { agentSpecSha256, publishAgentVersion } from '@ensemus/application/ai-agents';
+import { createToolGateway } from '@ensemus/agent-runtime/tools';
+import {
+  AppError,
+  beginAttempt,
+  decideApproval,
+  finishAttempt,
+  getWorkDetail,
+  listWorkOverview,
+  type ObjectStore,
+} from '@ensemus/application';
+import { publishAgentVersion } from '@ensemus/application/ai-agents';
 import { createContextSource } from '@ensemus/application/ai-context-source';
 import {
   createEgressLog,
@@ -12,13 +21,32 @@ import {
   loadTenantPolicyBundle,
 } from '@ensemus/application/ai-egress-log';
 import { createProfileStore } from '@ensemus/application/ai-model-profiles';
-import { readRunFacts } from '@ensemus/application/ai-runs';
+import {
+  claimQueuedRun,
+  completeTurn,
+  createTurnStore,
+  finishRun,
+  setRunStatus,
+  storeStepPayload,
+  verifyOutput,
+} from '@ensemus/application/ai-runs';
+import { createHaltCheck } from '@ensemus/application/ai-halt';
+import { createApprovalBinder } from '@ensemus/application/ai-tool-approvals';
+import { externalActionPort } from '@ensemus/application/ai-external-action-port';
+import { createToolStepStore, storeProposal } from '@ensemus/application/ai-tool-steps';
+import {
+  admitMainModelDispatchInTx,
+  receiveMainInputSnapshotInTx,
+  type MainModelAdmission,
+} from '@ensemus/application/ai-model-admission';
 import { createOnboardingAgentRuns } from '@ensemus/application/knowledge/onboarding-run-port';
 import { compileEvidence } from '@ensemus/application/knowledge/compiler';
 import { agentSpecV1Schema } from '@ensemus/contracts/ai';
+import { CLIENT_BRIEF_SCHEMA_REF } from '@ensemus/contracts/knowledge';
 import { createModelRouter } from '@ensemus/intelligence';
 import { createScriptedModelPort } from '@ensemus/knowledge/testing';
 import { createAgentContextAuthorizer } from '../../workers/workflow/src/agent-context-authorizer';
+import { signedReportFor, TEST_TRUST } from '../helpers/ai/evaluation';
 import {
   openAgentTestDatabase,
   prepareRunInputContext,
@@ -27,15 +55,11 @@ import {
   seedRateCard,
   testAgentSpec,
 } from '../helpers/ai/fixtures';
-import { draftRunOutput, startRunning } from '../helpers/ai/run-output';
 import {
   startClientOnboarding,
   getClientOnboarding,
-  advanceClientOnboarding,
 } from '@ensemus/application/knowledge/onboarding';
 import {
-  recordArtifactCitations,
-  checkArtifactGrounding,
   decideArtifact,
   getArtifactVerification,
 } from '@ensemus/application/knowledge/verification';
@@ -45,6 +69,7 @@ import {
   clientOnboardings,
   clients,
   connections,
+  externalActionAttempts,
   externalActions,
   openAppDatabase,
   projects,
@@ -61,10 +86,14 @@ import { eq, sql } from 'drizzle-orm';
 import { seedMember, seedSearchableSource } from '../helpers/knowledge';
 import { nativeMfaOwner } from '../helpers/knowledge-native';
 import { urls } from '../helpers/stack';
+import { createClientOnboardingActivities } from '@ensemus/workflows/client-onboarding-activities';
+import { LifecycleMemoryStore } from './saas-lifecycle-fixture';
+import { draftRunOutput, startRunning } from '../helpers/ai/run-output';
 
 describe('deal won to one verified onboarding', () => {
   let database: ReturnType<typeof openAppDatabase>, auth: pg.Client;
   let agent: ReturnType<typeof openAgentTestDatabase>;
+  let worker: ReturnType<typeof openAppDatabase>;
   let owner: TenantContext,
     reviewer: TenantContext,
     reader: TenantContext,
@@ -77,6 +106,7 @@ describe('deal won to one verified onboarding', () => {
   const service = () => createServiceContext(owner.organizationId);
   beforeAll(async () => {
     database = openAppDatabase(urls.app());
+    worker = openAppDatabase(urls.worker());
     agent = openAgentTestDatabase();
     auth = new pg.Client({ connectionString: urls.auth() });
     await auth.connect();
@@ -122,6 +152,10 @@ describe('deal won to one verified onboarding', () => {
     const spec = agentSpecV1Schema.parse(
       testAgentSpec({
         id: 'client-brief',
+        output: {
+          schema_ref: CLIENT_BRIEF_SCHEMA_REF,
+          verification: ['source_citation_check', 'human_artifact_acceptance'],
+        },
         context: {
           allowed_scopes: ['work.read', `knowledge.${briefSource.sourceId}.read`],
           memory_write_policy: 'none',
@@ -131,23 +165,14 @@ describe('deal won to one verified onboarding', () => {
     await publishAgentVersion(database.db, owner, {
       spec,
       policyVersion: 'default',
-      evaluationReport: {
-        report_version: 1,
-        spec_sha256: agentSpecSha256(spec),
-        policy_version: 'default',
-        suite_ref: spec.evaluation.suite_ref,
-        dataset_version: 'synthetic-onboarding-1',
-        model_label: 'scripted',
-        pass_rate: 1,
-        cases: 3,
-        passed: true,
-        scripted_model: true,
-      },
+      evaluationReport: signedReportFor(spec, 'default'),
+      evaluationTrust: TEST_TRUST,
     });
   });
   afterAll(async () => {
     await auth?.end();
     await database?.close();
+    await worker?.close();
     await agent?.close();
   });
   const input = () => ({
@@ -161,7 +186,7 @@ describe('deal won to one verified onboarding', () => {
   });
   const row = async (id: string) =>
     (
-      await withTenantTx(database.db, service(), (tx) =>
+      await withTenantTx(worker.db, service(), (tx) =>
         tx.select().from(clientOnboardings).where(eq(clientOnboardings.id, id)),
       )
     )[0]!;
@@ -200,8 +225,13 @@ describe('deal won to one verified onboarding', () => {
       },
     };
   }
-  const advance = (id: string, port: AgentRuns) =>
-    advanceClientOnboarding(database.db, service(), { agentRuns: port }, { onboardingId: id });
+  const noBriefStore = new LifecycleMemoryStore();
+  const advance = (id: string, port: AgentRuns, store: ObjectStore = noBriefStore) =>
+    createClientOnboardingActivities({
+      database: worker.db,
+      agentRuns: port,
+      store,
+    }).advanceOnboarding({ organizationId: owner.organizationId, onboardingId: id });
 
   /**
    * Everything a start writes in one tenant, all in its one transaction: the onboarding, its client and
@@ -209,7 +239,7 @@ describe('deal won to one verified onboarding', () => {
    * (0209/0211: a service actor passes client and project visibility).
    */
   const footprint = (tenant: TenantContext) =>
-    withTenantTx(database.db, createServiceContext(tenant.organizationId), async (tx) => ({
+    withTenantTx(worker.db, createServiceContext(tenant.organizationId), async (tx) => ({
       onboardings: (await tx.select({ id: clientOnboardings.id }).from(clientOnboardings)).length,
       clients: (await tx.select({ id: clients.id }).from(clients)).length,
       projects: (await tx.select({ id: projects.id }).from(projects)).length,
@@ -289,11 +319,11 @@ describe('deal won to one verified onboarding', () => {
         stored.sendWorkUnitId,
       ]).size,
     ).toBe(4);
-    const children = await withTenantTx(database.db, service(), (tx) =>
+    const children = await withTenantTx(worker.db, service(), (tx) =>
       tx.select().from(workUnits).where(eq(workUnits.parentId, stored.workUnitId)),
     );
     expect(children).toHaveLength(3);
-    const dependencies = await withTenantTx(database.db, service(), (tx) =>
+    const dependencies = await withTenantTx(worker.db, service(), (tx) =>
       tx.select().from(workDependencies),
     );
     expect(
@@ -341,42 +371,88 @@ describe('deal won to one verified onboarding', () => {
       ).toBeNull();
     }
   });
-  it('requires exact human acceptance before creating one frozen-recipient email intent', async () => {
-    const created = await startClientOnboarding(database.db, owner, input()),
-      gateway = runs();
-    await advance(created.onboardingId, gateway.port);
+  it('stops onboarding when the named reviewer rejects the current brief', async () => {
+    const created = await startClientOnboarding(database.db, owner, input());
+    const gateway = runs();
+    const store = new LifecycleMemoryStore();
+    await advance(created.onboardingId, gateway.port, store);
     const stored = await row(created.onboardingId);
-    const objects = new Map<string, Buffer>(),
-      store = {
-        put: async (key: string, body: Buffer) => {
-          objects.set(key, Buffer.from(body));
-        },
-        get: async (key: string) => objects.get(key)!,
-        delete: async (key: string) => {
-          objects.delete(key);
-        },
-        exists: async (key: string) => objects.has(key),
-      };
+    const workUnitId = stored.briefWorkUnitId!;
+    const writer = await prepareRunInputContext(agent.db, owner.organizationId, stored.agentRunId!);
+    await startRunning(agent.db, writer);
+    const draft = await draftRunOutput(agent.db, store, writer, {
+      workUnitId,
+      stepNumber: 1,
+      name: 'Generated review draft.txt',
+      text: briefText,
+    });
+    gateway.state = {
+      ...gateway.state!,
+      status: 'completed',
+      artifactState: 'ready',
+      artifactIds: [draft.id],
+    };
+    expect(await advance(created.onboardingId, gateway.port, store)).toMatchObject({
+      state: 'waiting_for_acceptance',
+    });
+    const review = { workUnitId, artifactId: draft.id };
+    const proof = await getArtifactVerification(database.db, reviewer, review);
+    const reject = (person: TenantContext) =>
+      decideArtifact(database.db, person, {
+        ...review,
+        artifactSha256: proof.artifactSha256,
+        objectiveSha256: proof.objectiveSha256,
+        citationsSha256: proof.citationsSha256,
+        verdict: 'rejected',
+        reason: 'Generated review note.',
+      });
+    await reject(owner);
+    expect(await advance(created.onboardingId, gateway.port, store)).toMatchObject({
+      state: 'waiting_for_acceptance',
+    });
+    await reject(reviewer);
+    expect(await advance(created.onboardingId, gateway.port, store)).toMatchObject({
+      state: 'failed',
+      waitFor: 'nothing',
+    });
+    const stopped = await row(created.onboardingId);
+    expect(stopped).toMatchObject({
+      stateCode: 'BRIEF_REJECTED',
+      emailExternalActionId: null,
+      emailApprovalId: null,
+    });
+    expect((await getWorkDetail(database.db, owner, stopped.sendWorkUnitId!)).work.status).toBe(
+      'cancelled',
+    );
+  });
+
+  it('hands a real cited run to its human reviewer before creating an email approval', async () => {
+    const created = await startClientOnboarding(database.db, owner, input());
+    const port = createOnboardingAgentRuns();
+    const store = new LifecycleMemoryStore();
+    await advance(created.onboardingId, port, store);
+    const stored = await row(created.onboardingId);
+    const runId = stored.agentRunId!,
+      workUnitId = stored.briefWorkUnitId!;
+    const claim = await claimQueuedRun(agent.db, {
+      organizationId: owner.organizationId,
+      workUnitId,
+      temporalRunId: randomUUID(),
+    });
+    if (!claim || claim.agentRunId !== runId) throw new Error('TEST_ONBOARDING_RUN_NOT_CLAIMED');
+    const writer = await prepareRunInputContext(agent.db, owner.organizationId, runId);
+    await setRunStatus(agent.db, writer, { agentRunId: runId, status: 'running' });
+
+    const turns = createTurnStore(agent.db);
+    const begin = async (stepNumber: number) => {
+      const turn = await turns.beginTurn(writer, { runId, stepNumber });
+      if (turn.kind !== 'begin') throw new Error('TEST_ONBOARDING_TURN_NOT_STARTED');
+      return { stepId: turn.stepId, attempt: turn.attempt, stepNumber };
+    };
+    const draftTurn = await begin(claim.nextStepNumber);
     const text = briefText,
       source = briefSource;
-    const writer = await prepareRunInputContext(agent.db, owner.organizationId, stored.agentRunId!);
-    // The run works as a running run does: the tool gateway admits its draft effects only then.
-    await startRunning(agent.db, writer);
-    // Exercise actual retrieval/capture before generation; a later citation cannot invent an input.
-    // The scripted Knowledge port stands in for the Knowledge model gateway only. The evidence this
-    // agent turn selects is authorized by the runtime's own egress decision, wired exactly as
-    // workers/workflow/src/agent-composition.ts wires it: the production authorizer over the main
-    // router, the tenant's profiles and its policy bundle, given the task the minimal context
-    // compiler builds for this run and bound to the run as knowledge-context.ts binds it.
-    const facts = await readRunFacts(agent.db, writer, { agentRunId: stored.agentRunId! });
-    const turn = {
-      runId: stored.agentRunId!,
-      workUnitId: stored.briefWorkUnitId!,
-      agentVersionId: facts!.agentVersionId,
-      // The authorizer requires a model step in progress and reads no step row; the router's egress
-      // rows carry no step either (router/index.ts). A generated ID stands for the turn's step.
-      modelStep: { stepId: randomUUID(), stepNumber: 0, attempt: 1 },
-    };
+    const turn = { runId, workUnitId, agentVersionId: claim.agentVersionId, modelStep: draftTurn };
     const base = await createMinimalContextCompiler({
       source: createContextSource({
         database: agent.db,
@@ -386,6 +462,9 @@ describe('deal won to one verified onboarding', () => {
       }),
       limits: { maxInputChars: 100_000, maxArtifactBytes: 10_000 },
     }).compile(writer, turn);
+    expect(base.messages.find(({ role }) => role === 'policy')?.text).toContain(
+      'artifact_id (the exact tool result ID)',
+    );
     const authorize = createAgentContextAuthorizer({
       database: agent.db,
       router: createModelRouter({
@@ -413,10 +492,14 @@ describe('deal won to one verified onboarding', () => {
         runId: stored.agentRunId!,
         sourceIds: [source.sourceId],
         budgetTokens: 1000,
-        signal: AbortSignal.timeout(10_000),
+        // The scripted model test is bounded by Vitest; it does not exercise cancellation.
+        signal: new AbortController().signal,
       },
     );
-    expect(compiled).toMatchObject({ ok: true, items: [{ sourceId: source.sourceId }] });
+    expect(compiled, compiled.ok ? undefined : compiled.code).toMatchObject({
+      ok: true,
+      items: [{ sourceId: source.sourceId }],
+    });
     // The decision that let it through is recorded: one allow, for this run's own profile and class.
     const decisions = await listEgressDecisions(database.db, owner, {
       runId: stored.agentRunId!,
@@ -431,27 +514,125 @@ describe('deal won to one verified onboarding', () => {
         reasonCode: 'ALLOWED',
       }),
     ]);
-    // The brief is the run's own file, written through the tool gateway's draft path: an
-    // authority-v1 run's output inventory exists only behind that run's own admission (0525).
-    const artifact = await draftRunOutput(agent.db, store, writer, {
-      workUnitId: stored.briefWorkUnitId!,
-      stepNumber: 1,
+    if (!compiled.ok || !compiled.items[0]) throw new Error('TEST_EVIDENCE_MISSING');
+    const passage = compiled.items[0];
+    const hash = (value: string) => createHash('sha256').update(value).digest('hex');
+    // The provider is scripted. Prepare, dispatch and response receipts still use their native
+    // admission path, with the resulting tool proposal and authored draft committed by the gateway.
+    async function receive(
+      step: Awaited<ReturnType<typeof begin>>,
+      result: { kind: 'tool_call' | 'final'; toolId: string | null; payload: string },
+      presentedKnowledge?: NonNullable<MainModelAdmission['snapshot']>['presentedKnowledge'],
+    ) {
+      const snapshot = {
+        id: randomUUID(),
+        writerToken: randomUUID(),
+        requestHash: hash(randomUUID()),
+      };
+      for (const phase of ['prepare', 'dispatch'] as const)
+        expect(
+          await withTenantTx(agent.db, writer, (tx) =>
+            admitMainModelDispatchInTx(tx, writer, {
+              runId,
+              workUnitId,
+              agentVersionId: claim!.agentVersionId,
+              stepId: step.stepId,
+              attempt: step.attempt,
+              reservationAttempt: step.attempt,
+              purpose: 'reason',
+              classification: 'internal',
+              profileId,
+              profileVersion: 1,
+              ceiling: { inputTokens: 30, outputTokens: 5 },
+              costMicros: 1,
+              priorUsage: { inputTokens: 0, outputTokens: 0, costMicros: 0 },
+              snapshot: {
+                ...snapshot,
+                phase,
+                ...(presentedKnowledge ? { presentedKnowledge } : {}),
+              },
+            }),
+          ),
+        ).toBeNull();
+      await withTenantTx(agent.db, writer, (tx) =>
+        receiveMainInputSnapshotInTx(tx, writer, {
+          snapshotId: snapshot.id,
+          writerToken: snapshot.writerToken,
+          kind: result.kind,
+          toolId: result.toolId,
+          payloadHash: hash(result.payload),
+        }),
+      );
+      return snapshot.id;
+    }
+    const toolId = 'artifact.draft.create';
+    const args = {
       name: 'Generated brief.txt',
-      text,
-    });
-    await recordArtifactCitations(database.db, owner, {
-      workUnitId: stored.briefWorkUnitId!,
-      artifactId: artifact.id,
-      citations: [{ chunkId: source.chunkIds[0]!, artifactStart: 0, artifactEnd: text.length }],
-    });
-    gateway.state = {
-      ...gateway.state!,
-      status: 'completed',
-      costMicros: 1234,
-      artifactIds: [artifact.id],
-      artifactState: 'ready',
+      text: `${text}[${passage.citationKey}]`,
+      evidence: [],
     };
-    expect(await advance(created.onboardingId, gateway.port)).toMatchObject({
+    const inputSnapshotId = await receive(
+      draftTurn,
+      { kind: 'tool_call', toolId, payload: JSON.stringify(args) },
+      { packageId: compiled.packageId, ordinals: [Number(passage.citationKey.slice(1))] },
+    );
+    await storeProposal(agent.db, writer, {
+      runId,
+      stepNumber: draftTurn.stepNumber,
+      toolId,
+      args,
+      originatingModel: { stepId: draftTurn.stepId, attempt: draftTurn.attempt, inputSnapshotId },
+    });
+    await completeTurn(agent.db, writer, {
+      agentRunId: runId,
+      stepId: draftTurn.stepId,
+      attempt: draftTurn.attempt,
+      outcome: 'tool_proposed',
+      code: null,
+      delta: {},
+    });
+    const halt = createHaltCheck();
+    const toolStore = createToolStepStore({ database: agent.db, objects: store });
+    const gateway = createToolGateway({
+      source: createContextSource({ database: agent.db, readObject: (key) => store.get(key) }),
+      store: toolStore,
+      halt,
+      externalActions: externalActionPort,
+      approvals: createApprovalBinder({ externalActions: externalActionPort, halt }),
+    });
+    const toolStep = draftTurn.stepNumber + 1;
+    expect(
+      await gateway.handle(writer, {
+        runId,
+        workUnitId,
+        agentVersionId: claim.agentVersionId,
+        stepNumber: toolStep,
+      }),
+    ).toMatchObject({ outcome: 'done' });
+    const artifactId = toolStore.draftIdFor(writer, { runId, stepNumber: toolStep });
+    const final = await begin(toolStep + 1);
+    const content = JSON.stringify({ artifact_id: artifactId, summary: text, open_questions: [] });
+    await receive(final, { kind: 'final', toolId: null, payload: content });
+    await storeStepPayload(agent.db, writer, {
+      stepId: final.stepId,
+      kind: 'completion',
+      attempt: final.attempt,
+      classification: 'internal',
+      content,
+    });
+    await completeTurn(agent.db, writer, {
+      agentRunId: runId,
+      stepId: final.stepId,
+      attempt: final.attempt,
+      outcome: 'final_output',
+      code: null,
+      delta: {},
+    });
+    await setRunStatus(agent.db, writer, { agentRunId: runId, status: 'verifying' });
+    expect(await verifyOutput(agent.db, writer, { agentRunId: runId })).toBe('completed');
+    expect(await verifyOutput(agent.db, writer, { agentRunId: runId })).toBe('completed');
+    await finishRun(agent.db, writer, { agentRunId: runId, status: 'completed', stopCode: null });
+    expect(await advance(created.onboardingId, port, store)).toMatchObject({
       state: 'waiting_for_acceptance',
       waitFor: 'person',
     });
@@ -459,9 +640,11 @@ describe('deal won to one verified onboarding', () => {
     expect(
       (await getWorkDetail(database.db, owner, stored.briefWorkUnitId!)).evidence.artifactCount,
     ).toBe(0);
-    const reviewInput = { workUnitId: stored.briefWorkUnitId!, artifactId: artifact.id };
-    await checkArtifactGrounding(database.db, store, service(), reviewInput);
+    const reviewInput = { workUnitId, artifactId };
     const proof = await getArtifactVerification(database.db, reviewer, reviewInput);
+    expect(proof.citations).toMatchObject([{ chunkId: passage.chunkId, available: true }]);
+    expect(proof.grounding?.verdict).toBe('passed');
+    expect(proof.human).toBeNull();
     await decideArtifact(
       database.db,
       reviewer,
@@ -474,11 +657,11 @@ describe('deal won to one verified onboarding', () => {
       },
       { store },
     );
-    expect(await advance(created.onboardingId, gateway.port)).toMatchObject({
+    expect(await advance(created.onboardingId, port, store)).toMatchObject({
       state: 'waiting_for_send',
       waitFor: 'external_action',
     });
-    await advance(created.onboardingId, gateway.port);
+    await advance(created.onboardingId, port);
     const updated = await row(created.onboardingId);
     for (const workId of [stored.workUnitId, stored.briefWorkUnitId!, stored.reviewWorkUnitId!])
       expect((await getWorkDetail(database.db, owner, workId)).evidence.artifactCount).toBe(1);
@@ -490,23 +673,23 @@ describe('deal won to one verified onboarding', () => {
     ).toEqual([1, 1, 1]);
     expect(updated.acceptedVerificationId).not.toBeNull();
     expect(updated.emailExternalActionId).not.toBeNull();
-    const [action] = await withTenantTx(database.db, service(), (tx) =>
+    const [action] = await withTenantTx(worker.db, service(), (tx) =>
       tx
         .select()
         .from(externalActions)
         .where(eq(externalActions.id, updated.emailExternalActionId!)),
     );
-    const [approval] = await withTenantTx(database.db, service(), (tx) =>
+    const [approval] = await withTenantTx(worker.db, service(), (tx) =>
       tx.select().from(approvals).where(eq(approvals.id, updated.emailApprovalId!)),
     );
     expect(action?.payload).toMatchObject({ to: ['client@example.invalid'] });
     expect(action?.requestHash).toBe(approval?.actionHash);
     expect(approval?.approverMembershipId).toBe(reviewer.membershipId);
     expect(approval?.requestedByMembershipId).toBe(owner.membershipId);
-    expect((await getClientOnboarding(database.db, owner, created.onboardingId)).costMicros).toBe(
-      1234,
-    );
-    const sentRows = await withTenantTx(database.db, service(), (tx) =>
+    expect(
+      (await getClientOnboarding(database.db, owner, created.onboardingId)).costMicros,
+    ).toBeNull();
+    const sentRows = await withTenantTx(worker.db, service(), (tx) =>
       tx.execute<{ count: string }>(
         sql`select count(*)::text as count from integrations.external_actions where organization_id=${owner.organizationId}::uuid and work_unit_id=${stored.sendWorkUnitId}::uuid`,
       ),
@@ -521,7 +704,7 @@ describe('deal won to one verified onboarding', () => {
       ),
     ).toHaveLength(1);
     expect(
-      await withTenantTx(database.db, service(), (tx) =>
+      await withTenantTx(worker.db, service(), (tx) =>
         tx
           .select()
           .from(workArtifacts)
@@ -529,24 +712,57 @@ describe('deal won to one verified onboarding', () => {
       ),
     ).toHaveLength(0);
     const bridge = () =>
-      withTenantTx(database.db, service(), (tx) =>
+      withTenantTx(worker.db, service(), (tx) =>
         tx.execute<{ parent: boolean; review: boolean }>(
-          sql`select knowledge.onboarding_artifact_evidence(${artifact.id}::uuid,${stored.workUnitId}::uuid) as parent,knowledge.onboarding_artifact_evidence(${artifact.id}::uuid,${stored.reviewWorkUnitId}::uuid) as review`,
+          sql`select knowledge.onboarding_artifact_evidence(${artifactId}::uuid,${stored.workUnitId}::uuid) as parent,knowledge.onboarding_artifact_evidence(${artifactId}::uuid,${stored.reviewWorkUnitId}::uuid) as review`,
         ),
       );
     expect((await bridge()).rows[0]).toEqual({ parent: true, review: true });
     expect(stored.parentObjectiveSha256).not.toBe(stored.reviewObjectiveSha256);
     expect(stored.briefObjectiveSha256).not.toBe(stored.reviewObjectiveSha256);
-    await withTenantTx(database.db, service(), (tx) =>
-      tx.execute(
-        sql`update work.work_units set objective='A changed review goal',version=version+1 where organization_id=${owner.organizationId}::uuid and id=${stored.reviewWorkUnitId}::uuid`,
-      ),
-    );
+    await decideApproval(database.db, reviewer, {
+      approvalId: updated.emailApprovalId!,
+      decision: 'approve',
+      shownHash: action!.requestHash,
+    });
+    const connector = openAppDatabase(urls.connector());
+    const claimEmail = () =>
+      beginAttempt(connector.db, service(), {
+        externalActionId: updated.emailExternalActionId!,
+        runId: randomUUID(),
+      });
+    try {
+      const attempt = await claimEmail();
+      expect(attempt.kind).toBe('send');
+      if (attempt.kind !== 'send') throw new Error('Approved welcome email could not start');
+      // Simulate a failure before contact, then change the review while the send is ready to retry.
+      expect(
+        await finishAttempt(connector.db, service(), {
+          attemptId: attempt.attempt.attemptId,
+          result: { outcome: 'not_sent', code: 'CONNECT_FAILED', retryable: true },
+        }),
+      ).toBe('retry');
+      await withTenantTx(worker.db, service(), (tx) =>
+        tx.execute(
+          sql`update work.work_units set objective='A changed review goal',version=version+1 where organization_id=${owner.organizationId}::uuid and id=${stored.reviewWorkUnitId}::uuid`,
+        ),
+      );
+      expect(await claimEmail()).toEqual({ kind: 'stop', status: 'cancelled' });
+      const attempts = await withTenantTx(connector.db, service(), (tx) =>
+        tx
+          .select({ id: externalActionAttempts.id })
+          .from(externalActionAttempts)
+          .where(eq(externalActionAttempts.externalActionId, updated.emailExternalActionId!)),
+      );
+      expect(attempts).toEqual([{ id: attempt.attempt.attemptId }]);
+    } finally {
+      await connector.close();
+    }
     expect((await bridge()).rows[0]).toEqual({ parent: true, review: false });
     expect(
       (await getWorkDetail(database.db, owner, stored.reviewWorkUnitId!)).evidence.artifactCount,
     ).toBe(0);
-    expect(await advance(created.onboardingId, gateway.port)).toMatchObject({
+    expect(await advance(created.onboardingId, port)).toMatchObject({
       state: 'failed',
       waitFor: 'nothing',
     });

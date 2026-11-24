@@ -1,3 +1,5 @@
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { KeptInput } from '@/components/kept-field';
@@ -22,6 +24,10 @@ export default async function SignUpPage({
       <Wordmark />
       <div className="sheet">
         <h1>Create your account</h1>
+        <p className="lede">
+          Your account is how you sign in. Next, you set up your organization or accept an
+          invitation to join one.
+        </p>
         {error && (
           <p className="notice error" role="alert">
             {error === 'rate'
@@ -31,33 +37,35 @@ export default async function SignUpPage({
         )}
         <form className="fields" action={signUpAction}>
           {next && <input type="hidden" name="next" value={next} />}
-          <label>
+          <Label>
             Name
             <KeptInput keep="name" name="name" autoComplete="name" required />
-          </label>
-          <label>
+          </Label>
+          <Label>
             Email
             <KeptInput keep="email" name="email" type="email" autoComplete="username" required />
-          </label>
-          <label>
+          </Label>
+          <Label>
             Password
-            <input
+            <Input
               name="password"
               type="password"
               autoComplete="new-password"
               minLength={12}
               required
             />
-            <small>At least 12 characters.</small>
-          </label>
+            <small>At least 12 characters. A short sentence is easy to remember.</small>
+          </Label>
           <div>
             <SubmitButton working="Creating your account">Create account</SubmitButton>
           </div>
         </form>
       </div>
-      <p className="below-sheet">
-        Already have an account? <Link href={withReturnPath('/sign-in', next)}>Sign in</Link>
-      </p>
+      <ul className="sheet-links" aria-label="Other ways in">
+        <li>
+          Already have an account? <Link href={withReturnPath('/sign-in', next)}>Sign in</Link>
+        </li>
+      </ul>
     </main>
   );
 }

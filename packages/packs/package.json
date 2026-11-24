@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ensemus/domain": "workspace:*"
+    "@ensemus/domain": "workspace:*",
+    "@ensemus/department-packs": "workspace:*"
   }
 }

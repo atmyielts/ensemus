@@ -204,9 +204,11 @@ describe('the dispatcher killed in the middle of a batch (WORK-06)', () => {
   }
 
   it('loses no event, and delivers what it held once the lease runs out', async () => {
-    // Everything queued first, so that the dispatcher really has a backlog when it comes back.
     compose('stop', 'dispatcher');
     const ids: string[] = [];
+    let atKill: Delivery[];
+    let pausedEvent: string | undefined;
+    let pauseInstalled = false;
     try {
       for (let i = 0; i < COUNT; i++) {
         const work = await createWorkUnit(app.db, context, {
@@ -221,34 +223,90 @@ describe('the dispatcher killed in the middle of a batch (WORK-06)', () => {
         await requestExecution(app.db, context, work.id);
         ids.push(work.id);
       }
-    } finally {
+      expect((await deliveries(ids)).length).toBeGreaterThanOrEqual(COUNT * 2);
+
+      // Hold the outcome of one generated event after the real dispatcher claims its batch.
+      // The barrier leaves other tenants and non-dispatcher transactions alone.
+      const {
+        rows: [pause],
+      } = await su.query<{ id: string; trigger: string }>(
+        `select e.id, format(
+          'create trigger stack_dispatcher_pause before update on platform.outbox_events
+           for each row when (old.event_id = %L::uuid and old.state = ''queued''
+             and new.state = ''published'' and session_user = ''ensemus_dispatcher'')
+           execute function platform.stack_dispatcher_pause()', e.id) as trigger
+         from platform.domain_events e join platform.outbox_events o
+           on o.organization_id = e.organization_id and o.event_id = e.id
+         where e.organization_id = $1 and e.aggregate_id = any($2::uuid[])
+         order by e.occurred_at, e.id offset 6 limit 1`,
+        [context.organizationId, ids],
+      );
+      if (!pause) throw new Error('MISSING_DISPATCHER_PAUSE_EVENT');
+      pausedEvent = pause.id;
+      await su.query('select pg_advisory_lock(hashtextextended($1::text, 0))', [pausedEvent]);
+      await su.query(`
+        create function platform.stack_dispatcher_pause() returns trigger
+        language plpgsql set search_path = pg_catalog as $fixture$
+        begin
+          perform pg_advisory_xact_lock(hashtextextended(new.event_id::text, 0));
+          return new;
+        end $fixture$;
+        ${pause.trigger};
+      `);
+      pauseInstalled = true;
+
       compose('start', 'dispatcher');
+      const blockedDispatcher = async () => {
+        const {
+          rows: [blocked],
+        } = await su.query<{ pid: number }>(
+          `select pid from pg_stat_activity where usename = 'ensemus_dispatcher'
+           and pg_backend_pid() = any(pg_blocking_pids(pid))`,
+        );
+        return blocked?.pid;
+      };
+      await expect.poll(blockedDispatcher, { timeout: 90_000, interval: 250 }).toBeDefined();
+      const blockedPid = await blockedDispatcher();
+      if (!blockedPid) throw new Error('MISSING_BLOCKED_DISPATCHER_SESSION');
+
+      const container = compose('ps', '-q', 'dispatcher').trim();
+      execFileSync('docker', ['kill', container], { encoding: 'utf8' });
+      const exit = execFileSync(
+        'docker',
+        ['inspect', container, '--format', '{{.State.ExitCode}}'],
+        {
+          encoding: 'utf8',
+        },
+      ).trim();
+      expect(exit).toBe('137');
+      // A PostgreSQL statement waiting on a lock may outlive its client socket. End only the
+      // proven blocked session before releasing the barrier so this delivery stays unacknowledged.
+      await su.query(
+        `select pg_terminate_backend(pid, 5000) from pg_stat_activity where pid = $1
+         and usename = 'ensemus_dispatcher' and pg_backend_pid() = any(pg_blocking_pids(pid))`,
+        [blockedPid],
+      );
+      atKill = await deliveries(ids);
+    } finally {
+      try {
+        if (pausedEvent)
+          await su.query('select pg_advisory_unlock(hashtextextended($1::text, 0))', [pausedEvent]);
+        if (pauseInstalled)
+          await su.query(`
+            drop trigger stack_dispatcher_pause on platform.outbox_events;
+            drop function platform.stack_dispatcher_pause();
+          `);
+      } finally {
+        compose('start', 'dispatcher');
+      }
     }
-    expect((await deliveries(ids)).length).toBeGreaterThanOrEqual(COUNT * 2);
 
-    // As soon as it has delivered a few, in the middle of what it claimed.
-    await expect
-      .poll(async () => (await deliveries(ids)).filter((e) => e.state === 'published').length, {
-        timeout: 90_000,
-        interval: 20,
-      })
-      .toBeGreaterThan(5);
-    const container = compose('ps', '-q', 'dispatcher').trim();
-    execFileSync('docker', ['kill', container], { encoding: 'utf8' });
-    const exit = execFileSync('docker', ['inspect', container, '--format', '{{.State.ExitCode}}'], {
-      encoding: 'utf8',
-    }).trim();
-    expect(exit).toBe('137');
-
-    // Nothing shut down cleanly: what it had claimed is still claimed, by a process that is gone.
-    const atKill = await deliveries(ids);
     const held = atKill.filter((event) => event.state === 'queued' && event.leased);
     const published = atKill.filter((event) => event.state === 'published').length;
-    expect(held.length, 'the kill landed between batches').toBeGreaterThan(0);
+    expect(held.some((event) => event.id === pausedEvent)).toBe(true);
+    expect(published).toBeGreaterThan(0);
     expect(published).toBeLessThan(atKill.length);
     const heldIds = new Set(held.map((event) => event.id));
-
-    compose('start', 'dispatcher');
 
     // A new process delivers everything else, and leaves the claim of the dead one alone.
     const others = atKill.filter((event) => !heldIds.has(event.id));

@@ -123,10 +123,13 @@ describe('the hosted service settings', () => {
 });
 
 const walk = (directory: string): string[] =>
-  readdirSync(directory).flatMap((name) => {
-    const path = join(directory, name);
+  readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const { name } = entry;
     if (name === 'node_modules' || name === '.next' || name === 'dist') return [];
-    return statSync(path).isDirectory() ? walk(path) : [path];
+    const path = join(directory, name);
+    return entry.isDirectory() || (entry.isSymbolicLink() && statSync(path).isDirectory())
+      ? walk(path)
+      : [path];
   });
 
 describe('what the code leaves to the owner', () => {

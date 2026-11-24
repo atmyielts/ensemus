@@ -1,5 +1,4 @@
 import { canonicalId } from '@ensemus/application';
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { stopNotice, stopOutcomeFrom } from '@/components/assistants/present';
 import { readRunPage } from '@/components/assistants/read';
@@ -8,10 +7,11 @@ import {
   CheckAgain,
   RunFacts,
   RunSteps,
+  RunTechnical,
   StopNoticeLine,
   StopRun,
 } from '@/components/assistants/run-views';
-import { PageHead } from '@/components/ui';
+import { BackLink, PageHead } from '@/components/ui';
 import { webProductPorts } from '@/server/product-ports';
 import { orNotFound, requireTenant } from '@/server/tenant';
 
@@ -36,11 +36,7 @@ export default async function AssistantRunPage({
   if (!UUID.test(rawRunId)) notFound();
   const runId = canonicalId(rawRunId);
   const base = `/o/${organizationId}`;
-  const back = (
-    <p className="back">
-      <Link href={`${base}/assistants`}>Assistants</Link>
-    </p>
-  );
+  const back = <BackLink href={`${base}/assistants`}>Assistants</BackLink>;
 
   const state = await orNotFound(readRunPage(context, webProductPorts(), runId));
 
@@ -61,7 +57,7 @@ export default async function AssistantRunPage({
       {back}
       <PageHead
         title={run.workTitle}
-        description={`Assistant: ${run.agentName}`}
+        description={`Handed to ${run.agentName}`}
         actions={
           !run.finished && (
             <CheckAgain
@@ -72,10 +68,15 @@ export default async function AssistantRunPage({
         }
       />
       <StopNoticeLine notice={stopNotice(outcome, run)} />
-      <div className="stack">
-        <RunFacts run={run} workHref={`${base}/work/${run.workUnitId}`} />
-        <StopRun run={run} organizationId={organizationId} />
-        <RunSteps run={run} />
+      <div className="detail-layout">
+        <div className="stack">
+          <RunSteps run={run} />
+          <RunTechnical run={run} />
+        </div>
+        <aside className="stack">
+          <RunFacts run={run} workHref={`${base}/work/${run.workUnitId}`} />
+          <StopRun run={run} organizationId={organizationId} />
+        </aside>
       </div>
     </>
   );

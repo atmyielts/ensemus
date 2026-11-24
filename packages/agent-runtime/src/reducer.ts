@@ -25,9 +25,16 @@ export type ReducerState = {
   limits: ReducerLimits;
 };
 
+/**
+ * A model turn that ended on a passing outage (a rate limit, a 5xx, a timeout, a dropped connection) and
+ * says so. `round` is how many retries came before it, and `retryAfterMs` is what the provider asked for,
+ * already capped by the adapter. Old histories never carry it, so they stop exactly as they always did.
+ */
+export type ModelRetryHint = { round: number; retryAfterMs: number | null };
+
 export type LastStep =
   | { kind: 'none' }
-  | { kind: 'model'; outcome: string }
+  | { kind: 'model'; outcome: string; retry?: ModelRetryHint }
   /** Any TOOL_OUTCOMES entry, or `delegate` when a tool call asked for a child (FD-16). */
   | { kind: 'tool'; outcome: string }
   | { kind: 'wait'; state: string }
@@ -45,11 +52,46 @@ export type RunStop = { kind: 'stop'; status: StopStatus; stopCode: string };
 
 export type NextStep =
   | { kind: 'model_turn' }
+  /**
+   * Another try at a model turn after a passing outage, as a new step. `final` is the last round, which
+   * may fall back through the profile's explicit list (FD-9); earlier rounds stay on the same profile.
+   */
+  | { kind: 'retry_model'; round: number; final: boolean; retryAfterMs: number | null }
   | { kind: 'tool_call' }
   | { kind: 'wait_for_tool' }
   | { kind: 'start_child' }
   | { kind: 'verify' }
   | RunStop;
+
+/**
+ * Retries after the first try, so a turn makes at most four calls to its own profile. Each lost call may
+ * have been billed, and a provider that is down for longer than this is better met by the fallback list or
+ * by a person than by waiting inside a run.
+ */
+export const MODEL_RETRY_LIMIT = 3;
+
+/** The backoff before retry 1, doubling each round up to the cap. */
+export const MODEL_RETRY_BASE_MS = 2_000;
+/** No wait is longer than this, whatever a provider asks for, so a stop is never held up for long. */
+export const MODEL_RETRY_CAP_MS = 60_000;
+
+/**
+ * How long to wait before a retry round. Exponential, with half of each wait random so that many runs hit
+ * by the same outage do not all come back at the same moment. A provider's Retry-After is a floor, never
+ * lower than our own backoff, and both are capped. `unit` is a number in [0, 1): workflow code passes
+ * its own deterministic `Math.random()`, so a replay waits exactly as long as the first run did.
+ */
+export function retryDelayMs(round: number, retryAfterMs: number | null, unit: number): number {
+  const safeRound = Number.isSafeInteger(round) && round >= 1 ? Math.min(round, 16) : 1;
+  const safeUnit = Number.isFinite(unit) && unit >= 0 && unit < 1 ? unit : 0.5;
+  const exponential = Math.min(MODEL_RETRY_CAP_MS, MODEL_RETRY_BASE_MS * 2 ** (safeRound - 1));
+  const jittered = Math.ceil(exponential / 2 + (exponential / 2) * safeUnit);
+  const asked =
+    retryAfterMs !== null && Number.isSafeInteger(retryAfterMs) && retryAfterMs > 0
+      ? retryAfterMs
+      : 0;
+  return Math.min(MODEL_RETRY_CAP_MS, Math.max(jittered, asked));
+}
 
 const stop = (status: StopStatus, stopCode: string): RunStop => ({
   kind: 'stop',
@@ -96,7 +138,29 @@ function toolCall(state: ReducerState): NextStep {
   return spent(state, true) ?? { kind: 'tool_call' };
 }
 
-function afterModel(state: ReducerState, outcome: string): NextStep {
+/**
+ * A passing outage is tried again as a new turn, under every limit a turn has: one more try is one more
+ * call, and it may not start once the run's turns, money, tokens or time are gone.
+ */
+function retryModel(state: ReducerState, hint: ModelRetryHint): NextStep | null {
+  if (!Number.isSafeInteger(hint.round) || hint.round < 0) return null;
+  if (hint.round >= MODEL_RETRY_LIMIT) return null;
+  const allowed = modelTurn(state);
+  if (allowed.kind !== 'model_turn') return allowed;
+  const round = hint.round + 1;
+  return {
+    kind: 'retry_model',
+    round,
+    final: round === MODEL_RETRY_LIMIT,
+    retryAfterMs: hint.retryAfterMs,
+  };
+}
+
+function afterModel(state: ReducerState, outcome: string, retry?: ModelRetryHint): NextStep {
+  if (outcome === 'model_unavailable' && retry) {
+    const next = retryModel(state, retry);
+    if (next) return next;
+  }
   switch (outcome) {
     case 'tool_proposed':
       return toolCall(state);
@@ -189,7 +253,7 @@ export function decideNext(state: ReducerState, last: LastStep): NextStep {
     case 'none':
       return modelTurn(state);
     case 'model':
-      return afterModel(state, last.outcome);
+      return afterModel(state, last.outcome, last.retry);
     case 'tool':
       return afterTool(state, last.outcome);
     case 'wait':

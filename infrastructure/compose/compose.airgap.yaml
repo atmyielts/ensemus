@@ -9,12 +9,23 @@ services:
   web: *dns
   web-2: *dns
   worker: *dns
+  federation-worker: *dns
   knowledge-worker: *dns
   agent-worker: *dns
   dispatcher: *dns
   connector-worker: *dns
   egress-gateway: *dns
+  egress-google-api: *dns
+  egress-google-oauth: *dns
+  egress-ms-graph: *dns
+  egress-ms-login: *dns
+  egress-google-gmail: *dns
+  egress-google-docs: *dns
+  egress-google-sheets: *dns
   smtp-sink: *dns
+  mail-worker: *dns
+  mail-gateway: *dns
+  mailpit: *dns
   fake-model: *dns
   fake-model-test-port: *dns
   migrate: *dns
@@ -22,6 +33,7 @@ services:
   auth-restore: *dns
   restore-reconcile: *dns
   provision-roles: *dns
+  provision-federation: *dns
   postgres: *dns
   temporal: *dns
   temporal-schema: *dns

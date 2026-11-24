@@ -1,5 +1,6 @@
 // Bundles worker entry points with esbuild, and prebuilds the workflow code, so production never
-// runs a bundler. Temporal packages stay external because they load a native module.
+// runs a bundler. Temporal packages stay external because they load a native module. pdf.js stays external
+// too: it loads its own worker module and reads its character maps from its package directory.
 import { cpSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,6 +26,8 @@ await build({
     'src/reapply-ledger.ts',
     'src/connector-worker.ts',
     'src/egress-gateway.ts',
+    // Platform email (0571): queues only in the web tier, sent from here alone.
+    'src/mail-worker.ts',
     'src/agent-main.ts',
     'src/halt-global.ts',
     'src/knowledge-worker.ts',
@@ -35,13 +38,21 @@ await build({
     'src/restore-reconcile.ts',
     'src/diagnostics-export.ts',
     'src/ops.ts',
+    // The operator's live suite check, run by hand against a test tenant. Its own entry, imported by none.
+    'src/live-suite-check.ts',
+    'src/sandbox-worker.ts',
+    'src/sandbox-runner.ts',
+    'src/marketplace-operator.ts',
+    'src/federation-worker.ts',
+    'src/apply-deployment-profile.ts',
+    'src/isolation-report.ts',
   ].map((e) => path.join(root, e)),
   outdir: dist,
   bundle: true,
   platform: 'node',
   target: 'node24',
   format: 'esm',
-  external: ['@temporalio/*', 'pg-native'],
+  external: ['@temporalio/*', 'pg-native', 'pdfjs-dist', 'pdfjs-dist/*'],
   banner: {
     js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);",
   },

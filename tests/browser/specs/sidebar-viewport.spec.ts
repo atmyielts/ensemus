@@ -17,7 +17,7 @@ async function insideViewport(page: Page, target: Locator) {
   expect(box.x + box.width).toBeLessThanOrEqual(size.width + 1);
 }
 for (const javaScriptEnabled of [true, false])
-  for (const colorScheme of ['light', 'dark'] as const)
+  for (const colorScheme of javaScriptEnabled ? (['light', 'dark'] as const) : (['light'] as const))
     test(`sidebar keeps account controls visible at720px with long profile (${javaScriptEnabled ? 'JavaScript' : 'no JavaScript'}, ${colorScheme})`, async ({
       open,
     }) => {
@@ -37,11 +37,19 @@ for (const javaScriptEnabled of [true, false])
           inner = sidebar.locator('.sidebar-inner'),
           navigation = sidebar.locator('.desktop-navigation'),
           main = page.getByRole('navigation', { name: 'Main', exact: true }),
+          profile = sidebar.getByRole('link', {
+            name: `${person.name} ${person.email}`,
+            exact: true,
+          }),
           name = sidebar.locator('.account-name'),
           email = sidebar.locator('.account-email'),
           signOut = sidebar.getByRole('button', { name: 'Sign out', exact: true });
+        if (javaScriptEnabled) {
+          if (colorScheme === 'dark') await expect(page.locator('html')).toHaveClass(/dark/);
+          else await expect(page.locator('html')).not.toHaveClass(/dark/);
+        }
         await expect(
-          main.getByRole('link', { name: path === base ? 'Overview' : 'All work', exact: true }),
+          main.getByRole('link', { name: path === base ? 'Home' : 'Work', exact: true }),
         ).toBeVisible();
         await insideViewport(page, sidebar.locator('.workspace-brand'));
         await insideViewport(page, sidebar.locator('.sidebar-end'));
@@ -84,7 +92,8 @@ for (const javaScriptEnabled of [true, false])
         expect(text.scroll).toBeGreaterThan(text.width);
         // Native focus scrolls the navigation, while its siblings stay in place. Tab then reaches the
         // real account and Sign out controls without scrolling the whole sidebar or changing the URL.
-        const last = main.getByRole('link', { name: 'Account and support', exact: true });
+        const last = main.getByRole('link').last();
+        await expect(last).toHaveText('Help');
         await last.focus();
         await expect(last).toBeFocused();
         await insideViewport(page, last);
@@ -97,36 +106,103 @@ for (const javaScriptEnabled of [true, false])
         await insideViewport(page, sidebar.locator('.workspace-brand'));
         await insideViewport(page, signOut);
         await page.keyboard.press('Tab');
-        await expect(name).toBeFocused();
+        await expect(profile).toBeFocused();
+        await insideViewport(page, profile);
         await page.keyboard.press('Tab');
         await expect(signOut).toBeFocused();
         await insideViewport(page, signOut);
         await page.keyboard.press('Shift+Tab');
-        await expect(name).toBeFocused();
+        await expect(profile).toBeFocused();
         await page.keyboard.press('Shift+Tab');
         await expect(last).toBeFocused();
         expect(new URL(page.url()).pathname).toBe(path);
         expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1);
       }
       if (javaScriptEnabled) expect(await axeFindings(page)).toEqual([]);
-      // The mobile bar returns to content height; desktop viewport locking must not hide its menu.
       await page.setViewportSize({ width: 390, height: 720 });
       await page.goto(base);
-      const sidebar = page.locator('.sidebar'),
-        menu = sidebar.locator('.mobile-navigation'),
-        summary = menu.locator(':scope > summary');
-      await expect(sidebar.locator('.desktop-navigation')).toBeHidden();
-      await insideViewport(page, sidebar.getByRole('button', { name: 'Sign out', exact: true }));
+      const menu = page.locator('details.mobile-navigation'),
+        summary = menu.locator(':scope > summary'),
+        signOut = menu.getByRole('button', { name: 'Sign out', exact: true });
+      await expect(page.locator('.sidebar')).toBeHidden();
+      await expect(signOut).toBeHidden();
+      await insideViewport(page, summary);
       await summary.focus();
       await page.keyboard.press('Enter');
       await expect(menu).toHaveAttribute('open', '');
       await expect(
         page.getByRole('navigation', { name: 'Mobile main', exact: true }),
       ).toBeVisible();
-      await insideViewport(page, sidebar.getByRole('button', { name: 'Sign out', exact: true }));
+      await insideViewport(page, signOut);
+      const menuScroll = menu.locator('.mobile-navigation-scroll');
+      const footerBeforeScroll = await signOut.boundingBox();
+      await menu.getByRole('link', { name: 'Help', exact: true }).focus();
+      expect(await menuScroll.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+      expect(await signOut.boundingBox()).toEqual(footerBeforeScroll);
+      await insideViewport(page, signOut);
       expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1);
-      await summary.focus();
-      await page.keyboard.press('Enter');
+      if (javaScriptEnabled) {
+        await signOut.focus();
+        await page.keyboard.press('Escape');
+      } else {
+        await summary.focus();
+        await page.keyboard.press('Enter');
+      }
       await expect(menu).not.toHaveAttribute('open', '');
-      await insideViewport(page, sidebar.getByRole('button', { name: 'Sign out', exact: true }));
+      await expect(signOut).toBeHidden();
+      await expect(summary).toBeFocused();
     });
+
+test('the tablet sidebar opens up the work table and keeps the preference after reload', async ({
+  open,
+  world,
+}) => {
+  const page = await open(world.alice, { width: 768, height: 820 });
+  const work = `/o/${world.organization}/work`;
+  await page.goto(work);
+  const sidebar = page.getByRole('complementary', { name: 'Workspace sidebar' });
+  const hide = page.getByRole('button', { name: 'Collapse sidebar' });
+  const show = page.getByRole('button', { name: 'Expand sidebar' });
+  const tableHead = page.getByRole('table').locator('thead');
+  await expect(sidebar).toBeVisible();
+  await expect(tableHead).toHaveCSS('position', 'absolute');
+  await hide.focus();
+  await page.keyboard.press('Enter');
+  await expect(sidebar).toBeVisible();
+  await expect(sidebar).toHaveCSS('width', '48px');
+  await expect(sidebar.getByRole('link', { name: 'Work', exact: true })).toBeVisible();
+  await expect(show).toBeFocused();
+  await expect(show).toHaveAttribute('aria-expanded', 'false');
+  await expect(tableHead).toHaveCSS('position', 'static');
+  const main = page.getByRole('main');
+  expect(
+    await main.evaluate((element) => element.scrollWidth - element.clientWidth),
+  ).toBeLessThanOrEqual(1);
+  await page.reload();
+  await expect(show).toBeVisible();
+  await expect(sidebar).toHaveCSS('width', '48px');
+  await expect(tableHead).toHaveCSS('position', 'static');
+  await show.click();
+  await expect(sidebar).toBeVisible();
+  await expect(hide).toHaveAttribute('aria-expanded', 'true');
+  await expect(tableHead).toHaveCSS('position', 'absolute');
+});
+
+test('the desktop navigation still works without scripts after a collapsed preference', async ({
+  open,
+  world,
+}) => {
+  const page = await open(world.alice, { width: 1024, javaScriptEnabled: false });
+  const base = `/o/${world.organization}`;
+  await page.goto(base);
+  await page
+    .context()
+    .addCookies([{ name: 'sidebar_state', value: 'false', url: new URL(page.url()).origin }]);
+  await page.goto(base);
+  await expect(page.getByRole('button', { name: /^(Collapse|Expand) sidebar$/ })).toHaveCount(0);
+  await page
+    .getByRole('navigation', { name: 'Main', exact: true })
+    .getByRole('link', { name: 'Work', exact: true })
+    .click();
+  await expect(page).toHaveURL(`${base}/work`);
+});

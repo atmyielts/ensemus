@@ -1,17 +1,31 @@
 'use client';
+import { WorkspaceSearch } from '@/components/workspace-search';
 
 import Link, { useLinkStatus } from 'next/link';
+import {
+  SidebarTrigger,
+  useSidebar,
+  SidebarMenu,
+  SidebarMenuItem,
+  SidebarMenuButton,
+  SidebarGroup,
+  SidebarGroupLabel,
+} from '@/components/ui/sidebar';
+import { ThemeToggle } from '@/components/theme-toggle';
+import { Button } from '@/components/ui/button';
 import { usePathname } from 'next/navigation';
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import {
   currentNavigation,
   isNavigationCurrent,
+  navigationCurrentState,
   pendingDestination,
   pendingDestinationText,
   type NavGroup,
   type NavItem,
 } from './navigation-model';
 import { NavigationIcon } from './navigation-icon';
+import { BrandMark } from './brand-identity';
 
 type Announce = (label: string, pending: boolean) => void;
 const NavigationPending = createContext<Announce | null>(null);
@@ -38,7 +52,7 @@ export function NavigationPendingRegion({ children }: { children: ReactNode }) {
 }
 
 /** Shows the page is on its way, for the routes that cannot have a loading page. See error notes. */
-function Pending({ label }: { label: string }) {
+function Pending({ label, showLabel = true }: { label: string; showLabel?: boolean }) {
   const { pending } = useLinkStatus();
   const announce = useContext(NavigationPending);
   useEffect(() => {
@@ -48,7 +62,7 @@ function Pending({ label }: { label: string }) {
   }, [announce, label, pending]);
   // Seen beside the link only. The region above says it, so the link's own name never changes.
   return (
-    <span className="pending" aria-hidden="true">
+    <span className={showLabel ? 'pending' : 'visually-hidden'} aria-hidden="true">
       {pending ? 'Loading' : ''}
     </span>
   );
@@ -63,39 +77,47 @@ function NavigationLink({
   pathname: string;
   child?: boolean;
 }) {
-  const current = isNavigationCurrent(item, pathname);
+  const current = navigationCurrentState(item, pathname);
+  const { hydrated, open, isMobile } = useSidebar();
   return (
-    <Link
-      href={item.href}
-      className={child ? 'nav-child-link' : 'nav-link'}
-      onClick={(event) => {
-        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
-          return;
-        // Native details already works without scripts. Closing it on an ordinary client navigation
-        // keeps the destination in view, rather than leaving a tall mobile menu above the new page.
-        const menu = event.currentTarget.closest('details.mobile-navigation');
-        if (menu) {
-          menu.removeAttribute('open');
-          menu.querySelector('summary')?.focus();
-        }
-      }}
-      aria-current={
-        current
-          ? !child && (item.children || pathname !== item.href)
-            ? 'location'
-            : 'page'
-          : undefined
-      }
+    <SidebarMenuButton
+      asChild
+      isActive={Boolean(current)}
+      className="h-auto min-h-8 w-full whitespace-normal font-normal"
     >
-      {!child && <NavigationIcon name={item.icon} />}
-      <span className="nav-label">{item.label}</span>
-      {item.count ? (
-        <span className="count" aria-label={`${item.count} waiting`}>
-          {item.count}
-        </span>
-      ) : null}
-      <Pending label={item.label} />
-    </Link>
+      <Link
+        href={item.href}
+        className={child ? 'nav-child-link' : 'nav-link'}
+        title={hydrated && !open && !isMobile && !child ? item.label : undefined}
+        onClick={(event) => {
+          if (
+            event.button !== 0 ||
+            event.metaKey ||
+            event.ctrlKey ||
+            event.shiftKey ||
+            event.altKey
+          )
+            return;
+          // Native details already works without scripts. Closing it on an ordinary client navigation
+          // keeps the destination in view, rather than leaving a tall mobile menu above the new page.
+          const menu = event.currentTarget.closest('details.mobile-navigation');
+          if (menu) {
+            menu.removeAttribute('open');
+            menu.querySelector('summary')?.focus();
+          }
+        }}
+        aria-current={current}
+      >
+        {!child && <NavigationIcon name={item.icon} />}
+        <span className="nav-label">{item.label}</span>
+        {item.count ? (
+          <span className="count" aria-label={`${item.count} waiting`}>
+            {item.count}
+          </span>
+        ) : null}
+        <Pending label={item.label} />
+      </Link>
+    </SidebarMenuButton>
   );
 }
 
@@ -104,31 +126,81 @@ export function MainNav({ groups, label = 'Main' }: { groups: NavGroup[]; label?
   return (
     <nav className="nav" aria-label={label}>
       {groups.map((group) => (
-        <div className="nav-group" key={group.label}>
-          <span className="nav-group-label">{group.label}</span>
-          <ul className="nav-items">
+        <SidebarGroup className="nav-group p-0" key={group.label}>
+          <SidebarGroupLabel className="nav-group-label h-6 px-3">{group.label}</SidebarGroupLabel>
+          <SidebarMenu className="nav-items">
             {group.items.map((item) => (
-              <li key={item.href}>
+              <SidebarMenuItem key={item.href}>
                 <NavigationLink item={item} pathname={pathname} />
                 {item.children && isNavigationCurrent(item, pathname) && (
                   <ul className="nav-children">
-                    {item.children.map((child) => (
-                      <li key={child.href}>
-                        <NavigationLink item={child} pathname={pathname} child />
-                      </li>
-                    ))}
+                    {item.children
+                      .filter((child) => child.href !== item.href)
+                      .map((child) => (
+                        <li key={child.href}>
+                          <NavigationLink item={child} pathname={pathname} child />
+                        </li>
+                      ))}
                   </ul>
                 )}
-              </li>
+              </SidebarMenuItem>
             ))}
-          </ul>
-        </div>
+          </SidebarMenu>
+        </SidebarGroup>
       ))}
     </nav>
   );
 }
 
-/** The shell's position marker stays identical across server pages, without another feature sidebar. */
+/** Shortcuts use the same destinations and active state as the full navigation. */
+export function MobileWorkspaceNavigation({
+  groups,
+  children,
+}: {
+  groups: NavGroup[];
+  children: ReactNode;
+}) {
+  const pathname = usePathname();
+  const items = groups.flatMap((group) => group.items);
+  const shortcuts = ['home', 'work', 'approvals', 'inbox'] as const;
+
+  return (
+    <div className="mobile-tabbar">
+      <nav className="mobile-shortcuts" aria-label="Workspace shortcuts">
+        {shortcuts.map((icon) => {
+          const item = items.find((entry) => entry.icon === icon);
+          if (!item) return null;
+          const current = navigationCurrentState(item, pathname);
+          return (
+            <Button
+              asChild
+              variant="ghost"
+              className="mobile-destination text-[11px] text-muted-foreground"
+              key={item.href}
+            >
+              <Link href={item.href} aria-current={current}>
+                <span className="mobile-destination-icon">
+                  <NavigationIcon name={item.icon} />
+                  {item.count ? (
+                    <span className="mobile-destination-count" aria-hidden="true">
+                      {item.count > 99 ? '99+' : item.count}
+                    </span>
+                  ) : null}
+                </span>
+                <span>{item.label}</span>
+                {item.count ? <span className="visually-hidden">{item.count} waiting</span> : null}
+                <Pending label={item.label} showLabel={false} />
+              </Link>
+            </Button>
+          );
+        })}
+      </nav>
+      {children}
+    </div>
+  );
+}
+
+/** Position and workspace tools share the same header across desktop and mobile. */
 export function WorkspaceContext({
   groups,
   organizationName,
@@ -140,18 +212,39 @@ export function WorkspaceContext({
 }) {
   const pathname = usePathname();
   const current = currentNavigation(groups, pathname);
+  const { open, hydrated } = useSidebar();
   return (
-    <div className="workspace-context" aria-label="Workspace location">
-      <Link href={base}>{organizationName}</Link>
-      <span aria-hidden="true">/</span>
-      {current && pathname !== current.href ? (
-        <Link href={current.href}>{current.label}</Link>
-      ) : (
-        <span>{current?.label ?? 'Workspace'}</span>
+    <header className="workspace-context" aria-label="Workspace header">
+      {hydrated && (
+        <SidebarTrigger
+          className="-ms-1.5 hidden shrink-0 text-muted-foreground min-[768px]:inline-flex"
+          aria-controls="workspace-sidebar"
+          aria-expanded={open}
+          aria-label={open ? 'Collapse sidebar' : 'Expand sidebar'}
+          title={open ? 'Collapse sidebar' : 'Expand sidebar'}
+        />
       )}
-      <Link className="workspace-search" href={`${base}/search`}>
-        Search the company
+      <Link className="mobile-workspace-home" href={base}>
+        <BrandMark />
+        <span className="workspace-name" title={organizationName}>
+          {organizationName}
+        </span>
       </Link>
-    </div>
+      <div className="workspace-location">
+        <Link className="workspace-name" href={base} title={organizationName}>
+          {organizationName}
+        </Link>
+        <span aria-hidden="true">/</span>
+        {current && pathname !== current.href ? (
+          <Link href={current.href}>{current.label}</Link>
+        ) : (
+          <span>{current?.label ?? 'Workspace'}</span>
+        )}
+      </div>
+      <div className="workspace-tools">
+        <WorkspaceSearch base={base} />
+        <ThemeToggle />
+      </div>
+    </header>
   );
 }

@@ -27,8 +27,20 @@ import {
   sourceDate,
   sourceUrl,
   type OAuthRotationPort,
+  type OAuthScopesPort,
 } from '../runtime/provider-oauth';
 import { createHash } from 'node:crypto';
+import {
+  createSuiteToolDispatch,
+  parseMailIdDomain,
+  type DirectoryCapableConnector,
+  type PlatformOAuthClients,
+  type SuiteCapableConnector,
+} from '../suites';
+import { GOOGLE_ACTION_HANDLERS, GOOGLE_READ_HANDLERS } from './tools';
+import { createGoogleDirectory, directoryKey } from './directory';
+
+export { DIRECTORY_SCOPES } from './directory';
 
 export type GoogleWorkspaceConfig = {
   /** Shared drives to read, by ID. Empty means what the granted account can see. Never a host. */
@@ -61,11 +73,24 @@ type Cursor = {
 export function createGoogleWorkspaceConnector(deps: {
   http: ProviderHttpClient;
   rotation?: OAuthRotationPort;
-}): KnowledgeConnector<GoogleWorkspaceConfig> {
+  /** The operator's apps, for a credential that names `client: 'platform'` (ADR-038 D2). */
+  platformClients?: PlatformOAuthClients;
+  /** Hears the scopes each refresh reports, so a narrowing at the provider narrows the row (D3). */
+  scopes?: OAuthScopesPort;
+  /**
+   * The deployment's Message-ID domain for suite mail (`ENSEMUS_MAIL_ID_DOMAIN`). Checked as a host name
+   * here, so a bad one stops the worker. Absent means suite mail is refused, with nothing contacted.
+   */
+  messageIdDomain?: string | null;
+}): KnowledgeConnector<GoogleWorkspaceConfig> &
+  DirectoryCapableConnector<GoogleWorkspaceConfig> &
+  SuiteCapableConnector<GoogleWorkspaceConfig> {
   const auth = createProviderAuth({
     http: deps.http,
     provider: 'google',
     ...(deps.rotation ? { rotation: deps.rotation } : {}),
+    ...(deps.platformClients ? { platformClients: deps.platformClients } : {}),
+    ...(deps.scopes ? { scopes: deps.scopes } : {}),
   });
   const json = (context: ConnectorContext, token: string, path: string, expired = false) =>
     requestJson(
@@ -130,10 +155,14 @@ export function createGoogleWorkspaceConnector(deps: {
                 : requiredText(permission.id),
             access,
           });
+        // Keyed as the directory keys its groups, by email in lower case, so the grant finds the
+        // group's team (ADR-038 D4). The permission ID is the fallback when Drive gives no email, and
+        // then it matches nothing, which is the safe way round.
         else if (type === 'group')
           grants.push({
             principalKind: 'group',
-            principalExternalId: requiredText(permission.id),
+            principalExternalId:
+              directoryKey(permission.emailAddress) ?? requiredText(permission.id),
             access,
           });
         else if (type === 'domain')
@@ -170,14 +199,31 @@ export function createGoogleWorkspaceConnector(deps: {
       acl: await permissions(context, token, externalId),
     };
   };
+  // Suite tools for agents (ADR-038 D6): reads through `suiteReads`, changes as M3 intents through
+  // `actions`. The handlers are google-tools' to write, in ./tools.ts.
+  const messageIdDomain = deps.messageIdDomain ? parseMailIdDomain(deps.messageIdDomain) : null;
+  if (deps.messageIdDomain && !messageIdDomain) throw new Error('MAIL_ID_DOMAIN_INVALID');
+  const tools = createSuiteToolDispatch({
+    deps: { http: deps.http, withToken: auth.withToken, messageIdDomain },
+    connectorType: GOOGLE_WORKSPACE_MANIFEST.type,
+    reads: GOOGLE_READ_HANDLERS,
+    actions: GOOGLE_ACTION_HANDLERS,
+  });
   return {
     manifest: GOOGLE_WORKSPACE_MANIFEST,
+    suiteReads: tools.suiteReads,
+    actions: tools.actions,
     parseConfig(raw) {
       const parsed = driveConnectorConfigSchema.safeParse(raw);
       if (!parsed.success) throw new SyncUnavailable('CONFIG_INVALID');
       return { driveIds: [...new Set(parsed.data.drive_ids)] };
     },
     disposeAuthSession: auth.dispose,
+    directory: createGoogleDirectory({
+      http: deps.http,
+      withToken: auth.withToken,
+      dispose: (context) => auth.dispose(context.credentials),
+    }),
     sync: {
       async readPage(context, request) {
         scopes(context, 'drive_files');

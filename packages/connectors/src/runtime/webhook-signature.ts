@@ -3,6 +3,9 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { isWebhookEventId, withinTimestampWindow } from '@ensemus/domain/webhook';
 import type { WebhookVerification, WebhookVerifyInput } from '../index';
+import { verifyClickRequest } from '../payment/providers/click';
+import { verifyPaddleSignature } from '../payment/providers/paddle';
+import { verifyPaymeRequest } from '../payment/providers/payme';
 
 const SIGNATURE = /^[0-9a-f]{64}$/;
 // Whole seconds and nothing else. The signed bytes hold the text as sent, so `+1` or `1e9` could never
@@ -22,6 +25,11 @@ export function verifyWebhookSignature(
   secret: Buffer,
   input: WebhookVerifyInput,
 ): WebhookVerification {
+  // Hosted checkout providers sign their own way (ADR-032 D4a). Each is checked in constant time, on the
+  // bytes as stored, before anything reads the body.
+  if (input.scheme === 'paddle_signature_v1') return verifyPaddleSignature(secret, input);
+  if (input.scheme === 'payme_basic_v1') return verifyPaymeRequest(secret, input);
+  if (input.scheme === 'click_md5_v1') return verifyClickRequest(secret, input);
   if (input.scheme !== 'ensemus_hmac_sha256_v1') return { ok: false, code: 'BAD_SIGNATURE' };
   const signature = input.headers['x-ensemus-signature'];
   if (!signature) return { ok: false, code: 'SIGNATURE_MISSING' };

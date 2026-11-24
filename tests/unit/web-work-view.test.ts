@@ -5,9 +5,11 @@ import { MAX_FILE_BYTES } from '@ensemus/domain/work-unit';
 import { describe, expect, it } from 'vitest';
 import { messageFor } from '../../apps/web/src/lib/messages';
 import {
+  doneWhenSentence,
   evidenceSummary,
   fileRefusal,
   homeListNotes,
+  homeSummary,
   planNote,
   reopenDraftName,
 } from '../../apps/web/src/lib/work-view';
@@ -79,9 +81,49 @@ describe('the notes under Your work on Home', () => {
   });
 });
 
+describe('the line under the greeting on Home', () => {
+  it('counts what needs this person, in words', () => {
+    expect(homeSummary({ needsYou: 1, moreNeedYou: false, onWork: true })).toBe(
+      'One thing needs you today.',
+    );
+    expect(homeSummary({ needsYou: 3, moreNeedYou: false, onWork: true })).toBe(
+      '3 things need you today.',
+    );
+  });
+
+  it('does not give an exact count when there is more than it shows', () => {
+    expect(homeSummary({ needsYou: 12, moreNeedYou: true, onWork: true })).toBe(
+      'More than 12 things need you today.',
+    );
+  });
+
+  it('never says nothing is waiting to someone who is on work', () => {
+    expect(homeSummary({ needsYou: 0, moreNeedYou: false, onWork: true })).toBe(
+      'Nothing needs you right now. Here is what you are on.',
+    );
+    expect(homeSummary({ needsYou: 0, moreNeedYou: false, onWork: false })).toBe(
+      'Nothing is waiting for you yet.',
+    );
+  });
+});
+
+describe('what done means, in one sentence', () => {
+  it('is the owner’s word when nothing was asked for', () => {
+    expect(doneWhenSentence([])).toBe('Owner confirms');
+  });
+
+  it('names each check, joined as a sentence', () => {
+    expect(doneWhenSentence([file])).toBe('A file is attached');
+    expect(doneWhenSentence([file, review])).toBe('A file is attached and a reviewer approves');
+    expect(doneWhenSentence([file, review, { kind: 'external_receipt' }])).toBe(
+      'A file is attached, a reviewer approves and the outside system confirms it',
+    );
+  });
+});
+
 describe('evidence in a work list', () => {
-  it('says when none was asked for', () => {
-    expect(evidenceSummary('running', [], nothing)).toEqual({ text: 'None asked for', tone: null });
+  it('says the owner confirms when nothing was asked for', () => {
+    expect(evidenceSummary('running', [], nothing)).toEqual({ text: 'Owner confirms', tone: null });
   });
 
   it('counts what is still needed', () => {

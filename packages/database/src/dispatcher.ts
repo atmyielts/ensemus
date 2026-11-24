@@ -1,6 +1,7 @@
 // For the outbox dispatcher only (lint blocks this elsewhere). Its role crosses tenants, and sees
 // event metadata and outbox state, never payloads or actors (ADR-024 D4).
-import { and, asc, eq, inArray, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, lte, notInArray, sql } from 'drizzle-orm';
+import type { PgUpdateSetSource } from 'drizzle-orm/pg-core';
 import { openDatabase, type EnsemusDrizzle } from './connection';
 import { domainEvents, outboxEvents } from './schema';
 import { assertRestoreAdmission, isRestoreAdmissionDenied } from './restore-authority';
@@ -165,11 +166,8 @@ export async function dispatchDueEvents(
   options: DispatchOptions = {},
 ): Promise<ClaimResult> {
   const result: ClaimResult = { handled: 0, failed: 0, deferred: 0, dead: 0 };
-  const { due, metadata } = await claimDueEvents(
-    db,
-    options.limit ?? 50,
-    new Date(Date.now() + (options.leaseMs ?? CLAIM_LEASE_MS)),
-  );
+  const leaseUntil = new Date(Date.now() + (options.leaseMs ?? CLAIM_LEASE_MS));
+  const { due, metadata } = await claimDueEvents(db, options.limit ?? 50, leaseUntil);
   const key = (organizationId: string, id: string) => `${organizationId}/${id}`;
   const attemptsById = new Map(due.map((d) => [key(d.organizationId, d.eventId), d.attempts]));
   const classify = options.classify ?? ((): DeliveryFailure => 'fault');
@@ -182,18 +180,35 @@ export async function dispatchDueEvents(
     const where = and(
       eq(outboxEvents.organizationId, event.organizationId),
       eq(outboxEvents.eventId, event.id),
+      eq(outboxEvents.state, 'queued'),
+      eq(outboxEvents.attempts, attempts),
+      eq(outboxEvents.nextAttemptAt, leaseUntil),
     );
+    // Expiry permits another dispatcher to take the row. Only the same lease can record an outcome.
+    const updateLease = async (values: PgUpdateSetSource<typeof outboxEvents>) =>
+      (
+        await db
+          .update(outboxEvents)
+          .set(values)
+          .where(where)
+          .returning({ id: outboxEvents.eventId })
+      ).length === 1;
     // Stopping or an outage hands the rest back right away, instead of leaving them leased. Due means
     // due by the database's clock, so "now" is its clock too: this one can run a little ahead.
     const held = holding && !options.needsOnlyTheStore?.(event);
     if (held || options.shouldStop?.()) {
-      await db
-        .update(outboxEvents)
-        .set({ nextAttemptAt: held ? new Date(Date.now() + TRANSIENT_RETRY_MS) : sql`now()` })
-        .where(where);
-      if (held) result.deferred += 1;
+      const updated = await updateLease({
+        nextAttemptAt: held ? new Date(Date.now() + TRANSIENT_RETRY_MS) : sql`now()`,
+      });
+      if (held && updated) result.deferred += 1;
       continue;
     }
+    // A long batch can outlive its initial lease before reaching this event.
+    const [claim] = await db
+      .select({ id: outboxEvents.eventId })
+      .from(outboxEvents)
+      .where(and(where, gt(outboxEvents.nextAttemptAt, sql`now()`)));
+    if (!claim) continue;
     try {
       await handler({
         organizationId: event.organizationId,
@@ -205,11 +220,7 @@ export async function dispatchDueEvents(
         attempts,
       });
       await assertRestoreAdmission(db);
-      await db
-        .update(outboxEvents)
-        .set({ state: 'published', attempts: attempts + 1 })
-        .where(where);
-      result.handled += 1;
+      if (await updateLease({ state: 'published', attempts: attempts + 1 })) result.handled += 1;
       options.onEvent?.();
     } catch (error) {
       // Restore is neither a failed event nor a reason to consume its retry budget.
@@ -217,27 +228,23 @@ export async function dispatchDueEvents(
       options.onEvent?.(error);
       const failure = classify(error);
       if (failure === 'outage' || failure === 'partial_outage') {
-        if (failure === 'outage') holding = true;
-        await db
-          .update(outboxEvents)
-          .set({ nextAttemptAt: new Date(Date.now() + TRANSIENT_RETRY_MS) })
-          .where(where);
-        result.deferred += 1;
+        if (await updateLease({ nextAttemptAt: new Date(Date.now() + TRANSIENT_RETRY_MS) })) {
+          if (failure === 'outage') holding = true;
+          result.deferred += 1;
+        }
         continue;
       }
       const next = attempts + 1;
       if (next >= (failure === 'ambiguous' ? AMBIGUOUS_MAX_ATTEMPTS : MAX_ATTEMPTS)) {
-        await db.update(outboxEvents).set({ state: 'dead', attempts: next }).where(where);
-        result.dead += 1;
+        if (await updateLease({ state: 'dead', attempts: next })) result.dead += 1;
       } else {
-        await db
-          .update(outboxEvents)
-          .set({
+        if (
+          await updateLease({
             attempts: next,
             nextAttemptAt: new Date(Date.now() + nextAttemptDelayMs(next)),
           })
-          .where(where);
-        result.failed += 1;
+        )
+          result.failed += 1;
       }
     }
   }
@@ -275,6 +282,33 @@ export async function listOrganizationIds(db: EnsemusDrizzle): Promise<string[]>
     .selectDistinct({ organizationId: domainEvents.organizationId })
     .from(domainEvents)
     .where(eq(domainEvents.eventType, 'organization.created'));
+  return rows.map((row) => row.organizationId);
+}
+
+/** Isolation uses the native metadata reader, since another login can see a partial inventory under RLS. */
+export async function listIsolationOrganizationIds(db: EnsemusDrizzle): Promise<string[]> {
+  const result = await db.execute<{ role: string }>(sql`select session_user::text as role`);
+  if (result.rows[0]?.role !== 'ensemus_dispatcher') throw new Error('DISPATCHER_LOGIN_REQUIRED');
+  return listOrganizationIds(db);
+}
+
+/** Startup only repairs schedules a tenant still needs, without reading its records or payloads. */
+export async function listScheduleReconciliationTenants(db: EnsemusDrizzle): Promise<string[]> {
+  await assertRestoreAdmission(db);
+  const ended = db
+    .select({ organizationId: domainEvents.organizationId })
+    .from(domainEvents)
+    .where(eq(domainEvents.eventType, 'tenant.schedules_ended'));
+  const rows = await db
+    .selectDistinct({ organizationId: domainEvents.organizationId })
+    .from(domainEvents)
+    .where(
+      and(
+        eq(domainEvents.eventType, 'organization.created'),
+        notInArray(domainEvents.organizationId, ended),
+      ),
+    )
+    .orderBy(domainEvents.organizationId);
   return rows.map((row) => row.organizationId);
 }
 

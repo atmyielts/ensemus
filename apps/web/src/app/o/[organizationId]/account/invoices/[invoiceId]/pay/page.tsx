@@ -6,7 +6,7 @@ import { can } from '@ensemus/domain/policy';
 import Link from 'next/link';
 import { BillingMoney } from '@/components/billing-money';
 import { ConfirmForm } from '@/components/confirm-form';
-import { Empty, ErrorNotice, PageHead, formatDateTime } from '@/components/ui';
+import { BackLink, Empty, ErrorNotice, PageHead, formatDateTime } from '@/components/ui';
 import { requestPaymentAction, resolvePaymentAction } from '@/server/payment-actions';
 import { orNotFound, requireAccountTenant } from '@/server/tenant';
 
@@ -41,10 +41,10 @@ export default async function PaymentPage({
   const manageable = can(context.role, 'billing.manage');
   return (
     <div className="stack">
+      <BackLink href={base}>Invoice details</BackLink>
       <PageHead
         title="Review payment"
-        description="Check the invoice before asking the payment processor to charge it."
-        actions={<Link href={base}>Invoice details</Link>}
+        description="Check the invoice before it is charged to your saved payment method."
       />
       <ErrorNotice code={(await searchParams).error} />
       <dl className="facts">
@@ -79,8 +79,7 @@ export default async function PaymentPage({
         </p>
       ) : !config.billingEnabled || !config.paymentProcessor ? (
         <p className="notice">
-          Payments are not set up on this deployment. Contact support for the published payment
-          arrangements.
+          Paying online isn’t set up for your company. Contact support for how to pay this invoice.
         </p>
       ) : manageable ? (
         <ConfirmForm

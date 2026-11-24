@@ -132,6 +132,28 @@ A refund or a dispute is recorded and flagged for a person. It takes no credits 
 
 **What this does not cover.** A database restore to before a charge loses the attempt row, the same gap as ADR-027 D2, and the same runbook rule applies: keep the connector worker stopped until unsettled payments are reviewed. A processor that loses a charge after answering is outside what any of this can see.
 
+### D4a. Hosted checkout: Paddle, Payme and Click (addendum, 2026-11-11)
+
+**The owner chose the processors.** Payme and Click for customers paying in so'm, and Paddle, as merchant of record, for Visa and Mastercard abroad: Paddle sells to the customer, works out and remits the tax, and pays out to us. All three are customer-initiated. The customer pays on the provider's own page, and Ensemus never holds a card and never starts a charge. That does not fit D4's charge contract, which is a merchant-initiated charge on a stored payment method, so this is added beside it rather than bent into it.
+
+**Each is still a `PaymentProcessor`.** `createPaddleProcessor`, `createPaymeProcessor` and `createClickProcessor` in `@ensemus/connectors/checkout` declare their manifests, and the connector worker's registry now answers them when the server names them (`ENSEMUS_CHECKOUT_PROVIDERS`), and null otherwise. Each answers `charge` with `not_sent`, `NO_PAYMENT_METHOD`, on purpose and without contact, so the D4 charge path can never reach a checkout provider. The connector conformance suite runs against each adapter and each checkout address, with local stand-ins of the three providers built from their published wire formats.
+
+**A checkout is a row with its own state.** `billing.checkout_sessions`, one per payment, in the paying tenant: `opening` (Paddle only, while its transaction is made), `open`, `reserved` (the provider started one payment, and nobody else may), `paid`, `cancelled`, `refunded`. Its ID is the order reference the provider sends back. The payment is committed as `sending` with the checkout in one transaction, so D4's one-live-payment index stops a second payment while the first could still take money. `billing.check_payment_change` (replaced in 0580, otherwise unchanged) takes a `paid` checkout as evidence of success, and refuses to end a payment while its checkout could still be paid.
+
+**Every money move needs the provider's verified word, checked twice.** Calls come down M3's path unchanged: stored by the web tier, verified in the connector worker against the endpoint's signing secret, which is the provider's key. Paddle signs with `Paddle-Signature`, HMAC-SHA-256 over `ts:body`. Payme sends Basic auth, which the web tier keeps only as a SHA-256 of the whole header, never the key. Click signs each call with an MD5 `sign_string` that includes the key. After the signature, the worker asks the secrets role for a 60-second, single-use attestation of that exact call (0512's envelope check, reused), and the delivery's transaction spends it in `billing.apply_checkout_change`, which allows only the moves the provider's protocol allows and checks amount, currency, order and transaction again. The web tier and the worker share `ensemus_app`, so without the attestation a compromised web tier could mark a checkout paid; with it, it cannot.
+
+**Payme and Click wait on the line.** Their routes, `/api/payments/payme/{token}` and `/api/payments/click/{token}`, store the bytes, then read back the answer the worker stored for that delivery, within `ENSEMUS_CHECKOUT_REPLY_WAIT_MS`. Every answer the web tier gives by itself reveals no order: a refused or unknown caller hears "not authorized", anything unfinished hears the provider's "try again". The answer and the move commit together, so a lost reply is answered the same way when the provider asks again. Payme repeats calls, and every method is idempotent by its transaction id. `GetStatement` is answered across tenants by a fixed function that needs an attested `GetStatement` call and returns protocol columns only.
+
+**The tenant comes from our row.** As in D4, by hash: the worker binds only the digest of the order or the provider's transaction (`withCheckoutRoute`), which reveals that one row, and binds its tenant from it inside the delivery's own transaction.
+
+**Reconciliation.** Paddle's `GET /transactions/{id}` is the transaction itself, so it is authoritative: a workflow looks it up on a widening schedule when a notification never comes, and the lookup is attested by the secrets role the same way. Payme has no API for us to ask: Payme reconciles against our rows through `CheckTransaction` and `GetStatement`. Click's Merchant API status lookup is built and tested (`readClickPaymentStatus`) but not wired to settle anything, because Click does not document every `payment_status` value.
+
+**Tax.** Paddle as merchant of record: `createPaddleTaxPort` gives an invoice whose place is `provider_computed` Paddle's own figures, from a transaction preview at the customer's billing address, and only for Paddle's currencies. The checkout then charges that same total, and a Paddle total that differs is not settled and goes to a person. Payme and Click invoices keep the treatment the operator approved for their place, and the Paddle port refuses them, so no rate is invented anywhere.
+
+**What needs outside review.** Migration 0580, flagged; the three signature checks; the Basic-auth digest; the cross-tenant `GetStatement` function; the reply bridge's wait.
+
+**Owed.** A reviewed operator path that creates the three `payment_checkout_*` connections and endpoints in the deployment's own organization (the existing services need an interactive, privileged person and a shipped connector type). Integration tests for 0580 are written and have not been run here. A replay history for `checkoutWorkflow`. Click's status lookup wiring, once Click confirms its status values. Fiscal receipts (`SetFiscalData`), which are an owner decision.
+
 ### D5. Standing, suspension and downgrade
 
 `org.organizations.lifecycle` is what standing is, and it now has five values:
@@ -245,6 +267,7 @@ The final merge has to do these, and none is optional. The first fails to compil
 
 - D3: the three roles and every grant in migration 0501.
 - D4: `withPaymentCustomerTx` and its policy, and the payment triggers. Any processor adapter, before it holds a credential.
+- D4a: migration 0580, the three provider signature checks, the Payme credential digest, `checkout_payme_statement`, and the reply bridge.
 - D5: `SET TRANSACTION READ ONLY` as the enforcement, the `withAccountTx` exemption, the refusal-audit exemption in `auditRefusal`, and the standing check in `acceptInvitation`, which has no tenant context to make it read-only.
 - D7: `app.reject_change`, the eraser's reach, and `lifecycle.retained_table`.
 - D8: the design, before any read path is proposed.
@@ -255,7 +278,7 @@ The safest reversible default holds until each is made, and none blocks the code
 
 | Decision | Default until then | Needs |
 |---|---|---|
-| Payment processor | None registered, so every charge refuses | Outside security review of the adapter |
+| Payment processor | Decided 2026-11-11: Payme and Click for so'm, Paddle for cards abroad (D4a). None is offered until the server names it, and the charge path refuses all three | Outside security review of the adapters and 0580; merchant accounts and keys |
 | Tax provider, jurisdictions and treatment | None, so no invoice issues anywhere | Tax adviser (`BILL-03`) |
 | Prices, credits, plans, payment terms, top-up offers | Empty tables, so nothing bills | Finance adviser |
 | Rounding rule | Half away from zero on the total, on its own line | Finance adviser |

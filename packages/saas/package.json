@@ -11,6 +11,7 @@
     "./invoice": "./src/invoice.ts",
     "./tax": "./src/tax.ts",
     "./payment": "./src/payment.ts",
+    "./checkout": "./src/checkout.ts",
     "./usage": "./src/usage.ts",
     "./lifecycle": "./src/lifecycle.ts",
     "./offboarding": "./src/offboarding.ts",

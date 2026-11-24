@@ -1,0 +1,13 @@
+ticket,reason
+FOUND-01,"Monorepo and CI. Nothing a reader of the guides operates."
+FOUND-03,"Roles and RLS are internal. Operators meet them through install and configuration, which do not repeat them."
+FOUND-06,"Contract tooling for developers of Ensemus."
+ASSUR-01,"A test that proves a property. operator/overview.md states the property."
+ASSUR-02,"A test that proves a property. operator/overview.md states the property."
+SEC-10,"A leak test in CI. Nothing a reader operates."
+API-10,"Internal data access rule."
+API-11,"Internal rule for forms. People meet it as ordinary forms."
+LEGAL-01,"Owner-led: agreements come from counsel, and no guide drafts legal terms."
+LEGAL-02,"Owner-led: the published subprocessor list comes from counsel and the owner."
+LEGAL-03,"Owner-led: provider contracts."
+UX-24,"Usability studies with people. A process, not a feature."

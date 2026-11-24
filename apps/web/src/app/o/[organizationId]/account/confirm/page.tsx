@@ -31,10 +31,10 @@ export default async function AccountConfirmPage({
         title="Confirm it is you"
         description="Confirm your identity to continue with your account request, including while service is paused."
       />
-      <section className="sheet fields">
+      <section className="sheet stack form-width">
         <p>
-          If you opened this page from a form, leave that tab open. After confirming, return to it
-          and submit your original request again.
+          If you opened this page from a form, leave that tab open. Enter the code your
+          authenticator app shows now, then go back to that tab and send your request again.
         </p>
         {enrolled ? (
           <IdentityConfirmationForm
@@ -46,15 +46,17 @@ export default async function AccountConfirmPage({
           <>
             <FactorError code={query.error} />
             <p>
-              Add an authenticator app before making this change. Setup remains available while
+              Add an authenticator app before making this change. You can set one up even while
               service is paused.
             </p>
-            <ActionLink href={accountEnrollmentPath(organizationId, next)}>
-              Set up authenticator app
-            </ActionLink>
+            <div>
+              <ActionLink href={accountEnrollmentPath(organizationId, next)}>
+                Set up authenticator app
+              </ActionLink>
+            </div>
           </>
         )}
-        <p>
+        <p className="divided">
           <ActionLink variant="secondary" href={next}>
             Back to your account request
           </ActionLink>

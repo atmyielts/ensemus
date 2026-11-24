@@ -1,0 +1,216 @@
+{
+  "schema": "ensemus.local-qualification/1",
+  "slice": "reviewed business changes through native services and production web/API",
+  "recordedAt": "2026-11-21T20:52:04.690963+00:00",
+  "releaseReady": false,
+  "migrations": [
+    "0747_business_change_authority",
+    "0748_business_lock_source_facts",
+    "0749_business_team_grant_lock"
+  ],
+  "freshMigration": {
+    "database": "ensemus_rc_business_change_20261121205250223",
+    "appliedMigrations": 159,
+    "matchingMigrationHashes": 159,
+    "functions": [
+      {
+        "name": "integrations.business_change_reader(uuid,text,jsonb,text)",
+        "prosecdef": false,
+        "proconfig": [
+          "search_path=pg_catalog"
+        ],
+        "owner": "ensemus_migrator",
+        "public_execute": false
+      },
+      {
+        "name": "integrations.business_team_lock_scope()",
+        "prosecdef": false,
+        "proconfig": [
+          "search_path=pg_catalog"
+        ],
+        "owner": "ensemus_migrator",
+        "public_execute": false
+      },
+      {
+        "name": "integrations.lock_business_proposal_record(uuid,text,text,text)",
+        "prosecdef": true,
+        "proconfig": [
+          "search_path=pg_catalog"
+        ],
+        "owner": "ensemus_migrator",
+        "public_execute": false
+      },
+      {
+        "name": "integrations.lock_business_proposal_team(uuid,uuid,uuid)",
+        "prosecdef": true,
+        "proconfig": [
+          "search_path=pg_catalog"
+        ],
+        "owner": "ensemus_migrator",
+        "public_execute": false
+      }
+    ],
+    "policies": [
+      {
+        "schemaname": "integrations",
+        "tablename": "external_actions",
+        "policyname": "business_action_source_read",
+        "permissive": "RESTRICTIVE",
+        "roles": "{ensemus_app}",
+        "cmd": "SELECT"
+      },
+      {
+        "schemaname": "work",
+        "tablename": "approvals",
+        "policyname": "business_approval_source_read",
+        "permissive": "RESTRICTIVE",
+        "roles": "{ensemus_app}",
+        "cmd": "SELECT"
+      }
+    ],
+    "completedAt": "2026-11-21T20:52:54.291Z"
+  },
+  "validation": {
+    "nativeBusinessActions": {
+      "passed": 12,
+      "seconds": 25.16
+    },
+    "combinedNative": {
+      "passed": 25,
+      "seconds": 39.92,
+      "qualification": "before final team-race case addition"
+    },
+    "m3NativeRegression": {
+      "passed": 124,
+      "seconds": 74.85
+    },
+    "productionHttp": {
+      "passed": 5,
+      "seconds": 18.21
+    },
+    "completeUnit": {
+      "passed": 9669,
+      "failed": 2,
+      "expectedFailures": 4,
+      "skipped": 43,
+      "files": 379,
+      "seconds": 56.78,
+      "remainingFailures": [
+        "66 planned API operations",
+        "30-table complete portability inventory"
+      ]
+    },
+    "types": [
+      "application passed",
+      "connector passed",
+      "web passed",
+      "tests passed"
+    ],
+    "repositoryLint": "passed",
+    "productionBuild": "passed",
+    "guidesBuild": 30,
+    "browser": {
+      "generatedOnly": true,
+      "providerContact": false,
+      "widths": [
+        320,
+        375,
+        768,
+        1024,
+        1440
+      ],
+      "horizontalOverflow": false,
+      "javascriptDisabledInvoiceValidationAndProposal": true,
+      "exactCrmApproval": true,
+      "ticketNoteDenial": true,
+      "invoiceValidationAndReview": true,
+      "humanFindingAfterGeneratedUnknown": true,
+      "retryNewApproval": true,
+      "actualProviderDispatch": false,
+      "independentAccessibilityAcceptance": false
+    }
+  },
+  "limitations": [
+    "SQL human security review pending",
+    "Customer business connection catalog/setup incomplete",
+    "Browser revision editor incomplete; revision API implemented",
+    "No real provider adapter, credential or Cloud routing acceptance",
+    "Native service processing remains broader than per-intent least privilege",
+    "No full joined integration rerun since recorded baseline",
+    "No built-worker/Temporal, hosted, human, load, offline, restore or upgrade acceptance claimed",
+    "66 planned API operations and 30-table complete portability gate remain",
+    "No originals, volumes or user work deleted; no disk cleanup needed"
+  ],
+  "sourceSha256": {
+    "apps/web/src/app/api/v1/organizations/[organizationId]/business-actions/[externalActionId]/retries/route.ts": "c021b24bb31cebd7c8a4a8e235a54ef4f94ad0c3b7a7e7b39b8e17bfdcdf5046",
+    "apps/web/src/app/api/v1/organizations/[organizationId]/business-actions/[externalActionId]/revisions/route.ts": "6db9103ec69edcb5567cae9a0fb3f31bbd7d9a0b843eca7cfef552bad5314ca0",
+    "apps/web/src/app/api/v1/organizations/[organizationId]/business-records/[recordId]/ticket-comments/route.ts": "64e66e5fce6e5e7e7ee398dac23eb55a46958ac548fbca4533aa2cb758d5cea3",
+    "apps/web/src/app/api/v1/organizations/[organizationId]/business-records/[recordId]/updates/route.ts": "ffcdd6aeb9573dc19e2cc5cdacdba3173d49c8ac98072d29b45a465e58af28eb",
+    "apps/web/src/app/api/v1/organizations/[organizationId]/invoice-drafts/route.ts": "ccc9065844b2d8c61cafe38c01556ab07bd97fb92af397f7650855e856370747",
+    "apps/web/src/app/globals.css": "29ddc00dbc58664c917cbe696476a1a383b3bb6fbc79ae177946a347c5808408",
+    "apps/web/src/app/o/[organizationId]/approvals/[approvalId]/page.tsx": "4c504e27883db63ac870874647bab50a4392fd6d8612a74bd02a7f23759e4b8b",
+    "apps/web/src/app/o/[organizationId]/external-actions/[externalActionId]/page.tsx": "356c95af9e9a9c633f804b08b4114002839c6a65b51742591b2bdf51819182e4",
+    "apps/web/src/app/o/[organizationId]/records/[recordId]/page.tsx": "316672d8acd6ef175b68250d486ff2bf50bb3310585818c6801f1e6faab5b284",
+    "apps/web/src/app/o/[organizationId]/work/[workUnitId]/page.tsx": "af0852db79f7d8a17ecea08f0349d4300e5cef48211372dc808a84f103576f2e",
+    "apps/web/src/components/business-action-payload.tsx": "147322a12dca57b68f3a9543ca169c94d21f33e8da72bbebac2f929e29a3ff3d",
+    "apps/web/src/components/business-proposal-form.tsx": "020249aef03477b1c5e17e2641d59674779ded234b6d707c70441635cb23a226",
+    "apps/web/src/components/receipt-list.tsx": "f432679a9d02b6bdfc8dbc7ab86a5d2d8433765a2dc41ca63b91b69198a5987e",
+    "apps/web/src/generated/guides.ts": "d1250fef1fe90a711a1ad18bdfcea866743c42daee57bd317018998c276885b1",
+    "apps/web/src/lib/business-proposal-form.ts": "fefe90ce1c35282931ae8c7e5cb327904ecb760b963dc00743e9f910d9ec6485",
+    "apps/web/src/lib/business-receipt-words.ts": "7efc806d35dbb1d51d60a34faddcab3a32e6f1462caef7eabc59740a395976d2",
+    "apps/web/src/lib/messages.ts": "216df534aeee940bd96a203bf8da21096fe1cefbefd8339b3842e24dbf86f447",
+    "apps/web/src/server/business-action-api.ts": "a6a5b6199c55f03b1d4327ac022b3a388f0cc7cceec5b509c1c951e7ca4bffb7",
+    "apps/web/src/server/business-record-actions.ts": "eaf50639b8d45fad0cbd5df8559ebfc836f9c57bf588a7295de68eceefa52670",
+    "docs/guides/user/source-records.md": "caef69c15d37a7e8f1bd58d2a6fc7d2e8acbc1325a0b08fe44c5fcdfcb04b8c4",
+    "docs/specifications/openapi.yaml": "4f45f2ced343117b27cdcbb5ae1de1dd62908a52511ec1aa634ac5fbc3f6189d",
+    "packages/application/src/approvals.ts": "a95801aab63ebf9f05dcca3822160e2264b432fdb852375e20d6e5dc7b6bd2e1",
+    "packages/application/src/business-action-admission.ts": "0b54a3c395d1b1f759fbf918554633425801360be3f1d33ea8ea9d310afb97a8",
+    "packages/application/src/business-records.ts": "9d7d070519aafba9615f2d650600edf3ecbe669b19f7eaade855b6212e162c6e",
+    "packages/application/src/errors.ts": "d5d6d434e7923101a56771e6f1a18356620503077a0885655302a876d9a2a7af",
+    "packages/application/src/external-actions.ts": "970ed48303ecc007b7df8cd0804e2ad9c49f08766acce135bb84a4d4c9b04e08",
+    "packages/connectors/src/business/implementations.test.ts": "1c7995c16e92d727cd91048cb70a6fcaca4b6cafb5cdec734163b8cf53170500",
+    "packages/connectors/src/business/payload.ts": "96f8eb008057a2b992f0110900b30ca68c22400e7e5d47967b921612adfb2dbe",
+    "packages/database/migrations/0747_business_change_authority.sql": "83632b42ecbd8ebcbb538b012fefe22ea4a9fee62971e6f5eab6c56dd3f2c8fc",
+    "packages/database/migrations/0748_business_lock_source_facts.sql": "f45685345d205d4e222eb4d0c45194dba48f9116f0f4f750ed9444ab49583f52",
+    "packages/database/migrations/0749_business_team_grant_lock.sql": "90a6952773d41f5976690bfd42c6b0d806f00cd79765b9835a33d98979a8c723",
+    "packages/database/migrations/meta/_journal.json": "bf57110035d72d213e00d86f92e18d1d866f2d0b97350d4416ac57da42fcd304",
+    "packages/domain/src/business-connector.ts": "0b59291ce7d5ce6cebd1584e5e88e2f17512bef0656edbb3be60e62e088f9527",
+    "packages/domain/src/external-action.ts": "c8ac2c3cdb303e081bdf5b9191535dcd7849e3072a794ad684cd1a6a6626d7a5",
+    "tests/integration/business-actions.test.ts": "6166f0211d23a3005c2f171df851040965aa92ca28bd7fd6a1661a4f5a4bdd2b",
+    "tests/stack/business-actions-api.test.ts": "e0f9c55c99f62772e18fac3f13d3040caf7e34e5af70a6e4aec5078844cdb626"
+  },
+  "localEvidenceSha256": {
+    ".local/rc-business-actions-team-race-native.log": "dc9300477038b20b6351ef830367ee3e9e191e956130239f5a33379a8c114869",
+    ".local/rc-business-actions-combined-native.log": "0827c6778b6be16ecb86a6466cb00db45a345b746b58d5c5e33482b8872f647e",
+    ".local/rc-business-actions-m3-regression.log": "28abae74b21762592ea46df8596f0d29e1399c0763c033c0b1afbee033d48131",
+    ".local/rc-business-actions-production-http-final.log": "312fbcce956b515d53c7bb76e10c7edd953e2f1afc68265d85d7921d686c1c03",
+    ".local/rc-business-actions-full-unit.log": "53207e01bf44dee8b87ab2d217cf1efc8f1d2d8090f7b98c2226a59760bf78da",
+    ".local/rc-business-actions-lint-final.log": "43add56483e840c72325d81812bcb96949086335473ee03f2266a0b9654cd863",
+    ".local/rc-business-actions-app-final-types.log": "f4b53d71ea6e327da1c7a1ca53868e6e8accb56e465c2900744fc33a6a66f679",
+    ".local/rc-business-actions-tests-complete-types.log": "1d5b04d16c49c8c9cad76e7c5012bb207093c2ddb24665de0709467436f13771",
+    ".local/rc-business-actions-web-complete-types.log": "a72c910cb16d3c823389766c7ecd6046ec9aec2fba5c614a25b09e3186f09d46",
+    ".local/rc-business-actions-connector-types.log": "67f0b7c8df8e3b71bd2609594d32659147e9c7ea8e140f0afc6a09cb8258c834",
+    ".local/rc-business-actions-build-final.log": "d6eb916b6c43d66df9f08b93a223fc85d26cbd91b7a87eaf5d4f1febaa64e569",
+    ".local/rc-business-actions-guides-final.log": "c98d9949764c3fc911fe7f102100e0984d7031850d4f05c624a0f6b3b6ca1675",
+    ".local/rc-business-actions-fresh-migration.json": "053ed2ae8b4436cdc1aa1174d5026ecbb6aa053941e0ccd8ce1d5f66ab75e8f1",
+    ".local/rc-business-actions-fresh-final.log": "43d6a0db5438465d1fc43e2a77eb9c98f69ebde71339c31861b66ee6e7aa9cfd",
+    ".local/rc-business-browser-no-script.log": "14126e0269bec1a144199cc35a2f89793e9136d236cbeb4f8e21fe0a62e823b6",
+    ".local/rc-business-browser-layout.log": "093f305ee714f236d3d147b6e4382d4b9e2b3eaf31b53bf9d41a251c3842fc10",
+    ".local/rc-business-browser-final-receipt.log": "bf2ba3afba710634b3e4ad95611222ced03b3e4f12b78f025999c8d0756f27f8",
+    ".local/rc-business-browser-generated-uncertainty.log": "4e2d786d8df5bd377e0ba82c154386e11664a020b02b3f1d16714535e76185b2",
+    ".local/rc-business-browser-human-finding.log": "cc050ee0a6ff05cfe3fa0eda41787d003757358bd3d4ad560c1742c59aa49543",
+    ".local/rc-business-browser-retry-final.log": "51fd13479c7aa4bde54bf5d88b718c1b4354022f2bd2be612f3221c46680d403",
+    ".local/rc-business-browser-retry-result.log": "727f84d0f77b9013fbdf7c980ae23805199c2ca948b2bf320fbf0e25e7878122",
+    "output/playwright/business-crm-receipt-mobile-final.png": "0d1206735a0246fcc0fb97163f2f15650b84dc4b1354b4e039f72962fbc41547",
+    "output/playwright/business-human-finding-mobile-final.png": "1e1e65e7f32361febe67a1e30c85bcd2129219157be1f812ed15d26ce9b7cda9",
+    "output/playwright/business-invoice-review-mobile.png": "ba64b8b87b33843d0657a7355ccd0a3f17831dff2721b7da5aa5c0d6a0933cfc",
+    ".local/rc-business-actions-fresh-committed-bytes.log": "2e3e4875e5faec90258d6cbf71e691026c573ec68c7c6ca86b49bd8029b5f55b"
+  },
+  "committedBytesQualification": {
+    "migrationSourceMatchesGitBlob": true,
+    "preservedPreNormalizationBytes": ".local/business-migration-pre-lf/",
+    "change": "Only one CRLF per new migration normalized to repository-required LF by Git; SQL unchanged",
+    "appliedMigrationLedgerRewritten": false,
+    "freshMatchingHashes": 159
+  }
+}

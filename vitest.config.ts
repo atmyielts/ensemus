@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     projects: [
       {
+        oxc: { jsx: { runtime: 'automatic' } },
         test: {
           name: 'unit',
           include: [
@@ -61,6 +62,16 @@ export default defineConfig({
           setupFiles: ['tests/helpers/api-record-setup.ts'],
           fileParallelism: false,
           testTimeout: 120_000,
+          hookTimeout: 120_000,
+        },
+      },
+      {
+        // Runs against a stack that infrastructure/scripts/parity-gate.mjs started in one mode.
+        test: {
+          name: 'parity',
+          include: ['tests/parity/**/*.parity.ts'],
+          fileParallelism: false,
+          testTimeout: 180_000,
           hookTimeout: 120_000,
         },
       },

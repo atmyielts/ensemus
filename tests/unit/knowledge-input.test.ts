@@ -56,8 +56,23 @@ describe('bounded knowledge upload input', () => {
       readKnowledgeUpload(new Request('http://example.invalid', { method: 'POST', body: form })),
     ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
     expect(() =>
-      uploadMediaType(new File(['data'], 'sample.pdf', { type: 'application/pdf' })),
+      uploadMediaType(new File(['data'], 'sample.zip', { type: 'application/zip' })),
     ).toThrow();
+    expect(() => uploadMediaType(new File(['data'], 'sample.exe'))).toThrow();
+  });
+  it('names PDF and Office files by their type, or by extension when a browser sends none', () => {
+    expect(uploadMediaType(new File(['%PDF-'], 'plan.pdf', { type: 'application/pdf' }))).toBe(
+      'application/pdf',
+    );
+    expect(uploadMediaType(new File(['PK'], 'plan.DOCX'))).toBe(
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    );
+    expect(
+      uploadMediaType(new File(['PK'], 'deck.pptx', { type: 'application/octet-stream' })),
+    ).toBe('application/vnd.openxmlformats-officedocument.presentationml.presentation');
+    expect(uploadMediaType(new File(['PK'], 'book.xlsx'))).toBe(
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
   });
   it('accepts exact classified metadata and returns bytes, never a filename path', async () => {
     const form = new FormData();

@@ -20,16 +20,18 @@ export function TokenForm({
       )}
       {state.status === 'ready' ? (
         <div className="notice" role="status">
-          <p>Save this provisioning token now. It is shown once.</p>
-          <code style={{ overflowWrap: 'anywhere' }}>{state.token}</code>
-          <p>
-            Store it in your identity provider’s protected provisioning settings. Never send it in a
-            URL or email.
+          <p>Copy this provisioning token now. It is shown only once.</p>
+          <p className="mono gap-above-small">{state.token}</p>
+          <p className="gap-above-small">
+            Paste it into your sign-in service’s provisioning settings, where it is kept protected.
+            Never send it in a link or an email.
           </p>
         </div>
       ) : (
         <div>
-          <SubmitButton working="Creating token">Create provisioning token</SubmitButton>
+          <SubmitButton className="secondary" working="Creating token">
+            Create provisioning token
+          </SubmitButton>
         </div>
       )}
     </form>

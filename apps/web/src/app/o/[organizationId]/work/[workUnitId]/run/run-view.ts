@@ -129,6 +129,9 @@ const STEP_LABEL = new Map<string, string>(
     WAITING_FOR_CHILD: 'Waiting for the other agent',
     CHECKING_RESULT: 'Checking the result',
     STOPPING: 'Stopping',
+    READING_ACCOUNT: 'Reading from a connected account',
+    WRITING_DRAFT: 'Saving a draft in a connected account',
+    PROPOSING_CHANGE: 'Proposing a change in a connected account',
   } satisfies Record<StepLabelCode, string>),
 );
 
@@ -152,6 +155,7 @@ const STOP_REASON = new Map<string, string>(
     TURN_LIMIT: 'It reached the most steps this agent is allowed.',
     TOOL_LIMIT: 'It reached the most tool uses this agent is allowed.',
     TOKEN_LIMIT: 'It reached the most text this agent is allowed to process.',
+    CONTEXT_TOO_LONG: 'The information needed for the next step did not fit the approved model.',
     COST_LIMIT: 'It reached the most this agent is allowed to spend on one run.',
     TIME_LIMIT: 'It reached this agent’s time limit.',
     BUDGET_EXHAUSTED: 'The budget for this has been used up.',
@@ -191,6 +195,8 @@ const DECISION_NOTE = new Map<string, string>(
     PURPOSE_NOT_ON_PROFILE: 'This model is not approved for this purpose.',
     WRONG_REGION: 'This model is in the wrong region.',
     REGION_REQUIRED: 'This model has no region recorded.',
+    RESIDENCY_DENIED:
+      "This model request could not meet your organization's data-region requirement.",
     CONTRACT_MISSING: 'No contract is recorded for this model.',
     PROFILE_NOT_ACTIVE: 'This model is not active.',
     PROFILE_CHANGED: 'This model’s settings changed during the run.',
@@ -217,6 +223,9 @@ const DECISION_NOTE = new Map<string, string>(
     DELEGATION_WIDENED: 'It asked another agent to have more than it has itself.',
     DELEGATION_DEPTH: 'Agents asking agents went too deep.',
     DELEGATION_FANOUT: 'It asked too many other agents.',
+    SCOPE_NOT_GRANTED: 'That connected account was not given permission for this.',
+    CONNECTION_NOT_YOURS: 'That connected account belongs to someone else.',
+    CONNECTION_TYPE_MISMATCH: 'That connected account cannot do this.',
   } satisfies Record<Exclude<AiReasonCode, 'ALLOWED'>, string>),
 );
 

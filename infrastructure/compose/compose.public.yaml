@@ -1,0 +1,19 @@
+# Optional direct public ingress. Only the proxy publishes ports and requests certificates.
+x-public-origin: &public-origin
+  ENSEMUS_PUBLIC_URL: https://${ENSEMUS_HOSTNAME:?Set ENSEMUS_HOSTNAME to the public hostname or IPv4 address}
+
+services:
+  proxy:
+    ports: !override
+      - '${ENSEMUS_BIND_ADDRESS:-0.0.0.0}:80:80'
+      - '${ENSEMUS_BIND_ADDRESS:-0.0.0.0}:443:443'
+    environment:
+      ENSEMUS_HOSTNAME: ${ENSEMUS_HOSTNAME:?Set ENSEMUS_HOSTNAME to the public hostname or IPv4 address}
+      ENSEMUS_TLS_PROFILE: ensemus_public_tls
+      ENSEMUS_TRUSTED_PROXIES: ''
+  web:
+    environment: *public-origin
+  connector-worker:
+    environment: *public-origin
+  mail-worker:
+    environment: *public-origin

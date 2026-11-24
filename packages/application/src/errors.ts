@@ -45,6 +45,9 @@ export type ErrorCode =
   | 'POLICY_DENIED'
   | 'AGENT_SPEC_INVALID'
   | 'AGENT_EVALUATION_REQUIRED'
+  | 'AGENT_EVALUATION_UNVERIFIED'
+  | 'AGENT_EVALUATION_STALE'
+  | 'AGENT_EVALUATION_SCRIPTED'
   | 'AGENT_RUN_ACTIVE'
   | 'AGENT_RUN_NOT_CONTROLLABLE'
   | 'AI_HALTED'
@@ -108,7 +111,64 @@ export type ErrorCode =
   | 'OFFBOARDING_NOT_CANCELLABLE'
   | 'OFFBOARDING_CONFIRMATION_MISMATCH'
   | 'BREAK_GLASS_DISABLED'
-  | 'BREAK_GLASS_NOT_AUTHORIZABLE';
+  | 'BREAK_GLASS_NOT_AUTHORIZABLE'
+  // Workspace suites (ADR-038).
+  | 'OAUTH_STATE_INVALID'
+  | 'OAUTH_DENIED'
+  | 'OAUTH_EXPIRED'
+  | 'OAUTH_EXCHANGE_FAILED'
+  | 'OAUTH_SCOPES_INSUFFICIENT'
+  | 'OAUTH_CLIENT_NOT_CONFIGURED'
+  | 'OAUTH_CAPABILITY_UNAVAILABLE'
+  | 'MEMBER_CAPABILITY_NOT_ALLOWED'
+  | 'DIRECTORY_TEAM_READ_ONLY'
+  | 'RECORD_VERSION_REQUIRED'
+  | 'RECORD_VERSION_STALE'
+  | 'CONNECTION_SCOPE_MISSING'
+  | 'MEETINGS_NOT_ENABLED'
+  | 'CONSENT_INCOMPLETE'
+  | 'CONSENT_NOT_YOURS'
+  | 'CONSENT_NOTICE_NOT_CURRENT'
+  | 'PROVIDER_NOT_APPROVED'
+  | 'PROVIDER_APPROVAL_EXPIRED'
+  | 'CLASSIFICATION_NOT_ALLOWED'
+  | 'MEETING_PURGED'
+  | 'MEETING_NOTES_REQUIRED'
+  | 'MEETING_PARTICIPANTS_FROZEN'
+  | 'PROPOSAL_ALREADY_DECIDED'
+  | 'FEATURE_NOT_ENABLED'
+  | 'SKILL_NAME_TAKEN'
+  | 'SKILL_SIGNER_KEY_INVALID'
+  | 'SKILL_SIGNER_EXISTS'
+  | 'SKILL_BUNDLE_TOO_LARGE'
+  | 'SKILL_UPLOAD_PENDING'
+  | 'SKILL_VERSION_NOT_PUBLISHABLE'
+  | 'SKILL_PUBLISH_SAME_PERSON'
+  | 'SKILL_VERSION_NOT_USABLE'
+  | 'AGENT_LINK_UNAVAILABLE'
+  | 'SANDBOX_INPUT_TOO_LARGE'
+  | 'SANDBOX_CLASSIFICATION_NOT_ALLOWED'
+  | 'SANDBOX_RUN_NOT_CANCELLABLE'
+  | 'MARKETPLACE_PUBLISHER_REQUIRED'
+  | 'MARKETPLACE_PUBLISHER_EXISTS'
+  | 'MARKETPLACE_NOT_PUBLIC'
+  | 'MARKETPLACE_VERSION_NOT_SUBMITTABLE'
+  | 'MARKETPLACE_SUBMISSION_NOT_WITHDRAWABLE'
+  | 'MARKETPLACE_LISTING_NOT_AVAILABLE'
+  | 'MARKETPLACE_ALREADY_INSTALLED'
+  | 'FEDERATION_NOT_AVAILABLE'
+  | 'FEDERATION_DISABLED'
+  | 'FEDERATION_OPEN_GRANTS'
+  | 'FEDERATION_INVITATION_ALREADY_ISSUED'
+  | 'FEDERATION_INVITATION_INVALID'
+  | 'FEDERATION_TERMS_CHANGED'
+  | 'FEDERATION_GRANT_NOT_OPEN'
+  | 'FEDERATION_KIND_NOT_ALLOWED'
+  | 'FEDERATION_CLASSIFICATION_TOO_HIGH'
+  | 'FEDERATION_ITEM_NOT_WITHDRAWABLE'
+  | 'RESIDENCY_REGION_NOT_OFFERED'
+  | 'RESIDENCY_DENIED'
+  | 'TENANCY_SINGLE_ORGANIZATION';
 
 const MESSAGES: Record<ErrorCode, string> = {
   IDEMPOTENCY_KEY_REUSED: 'This request key was already used with different details.',
@@ -162,6 +222,11 @@ const MESSAGES: Record<ErrorCode, string> = {
   AGENT_SPEC_INVALID: 'This agent definition is not valid.',
   AGENT_EVALUATION_REQUIRED:
     'This agent version needs a passing evaluation before it can be published.',
+  AGENT_EVALUATION_UNVERIFIED:
+    'This evaluation report is not signed by an evaluator this deployment trusts, or it was changed.',
+  AGENT_EVALUATION_STALE: 'This evaluation report is too old. Run the evaluation again.',
+  AGENT_EVALUATION_SCRIPTED:
+    'A scripted evaluation can only publish a sandbox agent. This agent needs an evaluation against a model.',
   AGENT_RUN_ACTIVE: 'An agent is already running on this work.',
   AGENT_RUN_NOT_CONTROLLABLE: 'This run has finished, so it cannot be changed.',
   AI_HALTED: 'Agents are stopped on this deployment right now.',
@@ -236,6 +301,77 @@ const MESSAGES: Record<ErrorCode, string> = {
   OFFBOARDING_CONFIRMATION_MISMATCH: 'That does not match this organization’s name.',
   BREAK_GLASS_DISABLED: 'Support access to content is turned off on this deployment.',
   BREAK_GLASS_NOT_AUTHORIZABLE: 'This request can no longer be decided.',
+  OAUTH_STATE_INVALID:
+    'This sign-in link is not valid or has already been used. Start connecting again from the connections page.',
+  OAUTH_DENIED: 'Access was not granted, so nothing was connected.',
+  OAUTH_EXPIRED: 'This took longer than ten minutes, so nothing was connected. Start again.',
+  OAUTH_EXCHANGE_FAILED:
+    'The provider did not finish connecting, so nothing was connected. Start again. If it was Microsoft 365, an administrator of that directory can remove the app’s consent under Enterprise applications in Microsoft Entra.',
+  OAUTH_SCOPES_INSUFFICIENT:
+    'Some of the access you chose was not granted, so nothing was connected. Start again and allow all of it. If it was Microsoft 365, an administrator of that directory can remove the app’s consent under Enterprise applications in Microsoft Entra.',
+  OAUTH_CLIENT_NOT_CONFIGURED:
+    'The app chosen to connect through is not set up on this deployment, so nothing was connected. Start again with your own app’s details, or ask whoever runs Ensemus to set up its app.',
+  OAUTH_CAPABILITY_UNAVAILABLE: 'That kind of access cannot be connected yet.',
+  MEMBER_CAPABILITY_NOT_ALLOWED:
+    'Your organization does not let members connect that kind of access, so nothing was connected. Ask an administrator to allow it.',
+  DIRECTORY_TEAM_READ_ONLY:
+    'This team comes from your directory, so it changes only there. Change the group at the provider.',
+  RECORD_VERSION_REQUIRED:
+    'The source did not provide a record version, so this update cannot be safely proposed. Make the change in the source system.',
+  RECORD_VERSION_STALE: 'This record changed at its source. Reload to see the latest version.',
+  CONNECTION_SCOPE_MISSING: 'This connection was not given permission to change records.',
+  MEETINGS_NOT_ENABLED: 'Meetings are not turned on for this organization.',
+  CONSENT_INCOMPLETE: 'Everyone listed has to agree before this can go ahead.',
+  CONSENT_NOT_YOURS: 'Only that person can record this, or the organizer for someone outside.',
+  CONSENT_NOTICE_NOT_CURRENT: 'The notice changed. Read the current one and answer again.',
+  PROVIDER_NOT_APPROVED: 'An administrator has not approved this provider for this use.',
+  PROVIDER_APPROVAL_EXPIRED: 'The approval for this provider expired.',
+  CLASSIFICATION_NOT_ALLOWED:
+    'This provider approval does not cover this meeting’s classification.',
+  MEETING_PURGED: 'This meeting was removed when someone withdrew their consent.',
+  MEETING_NOTES_REQUIRED: 'Add notes before requesting a summary or suggestions.',
+  MEETING_PARTICIPANTS_FROZEN: 'Notes exist, so who was there can no longer change.',
+  PROPOSAL_ALREADY_DECIDED: 'Someone has already decided this.',
+  FEATURE_NOT_ENABLED: 'This is not switched on for this deployment.',
+  SKILL_NAME_TAKEN: 'A skill with that name already exists here. Choose another.',
+  SKILL_SIGNER_KEY_INVALID: 'That is not a valid Ed25519 public key.',
+  SKILL_SIGNER_EXISTS:
+    'That key is already on file. A key that was revoked cannot be trusted again.',
+  SKILL_BUNDLE_TOO_LARGE: 'That bundle is larger than 8 MiB, so it was not stored.',
+  SKILL_UPLOAD_PENDING:
+    'This bundle upload is still being checked. Wait a moment, then select the same file and retry.',
+  SKILL_VERSION_NOT_PUBLISHABLE:
+    'This version cannot be published. It has to be verified, and its signer still trusted.',
+  SKILL_PUBLISH_SAME_PERSON: 'Someone other than whoever uploaded this version has to publish it.',
+  SKILL_VERSION_NOT_USABLE: 'This version cannot be used right now.',
+  AGENT_LINK_UNAVAILABLE: 'This agent cannot request a sandbox on this deployment.',
+  SANDBOX_INPUT_TOO_LARGE: 'That input is larger than 1 MiB, so it was not accepted.',
+  SANDBOX_CLASSIFICATION_NOT_ALLOWED: 'This skill cannot be given data of that classification.',
+  SANDBOX_RUN_NOT_CANCELLABLE: 'This run has already finished.',
+  MARKETPLACE_PUBLISHER_REQUIRED: 'This organization has to become a publisher first.',
+  MARKETPLACE_PUBLISHER_EXISTS: 'This organization is already a publisher.',
+  MARKETPLACE_NOT_PUBLIC:
+    'Only a package marked public can be submitted, because other organizations would see it.',
+  MARKETPLACE_VERSION_NOT_SUBMITTABLE:
+    'Only a verified version of your own package, signed by a key you still trust, can be submitted.',
+  MARKETPLACE_SUBMISSION_NOT_WITHDRAWABLE:
+    'This can no longer be withdrawn. If it is listed, ask for it to be delisted.',
+  MARKETPLACE_LISTING_NOT_AVAILABLE: 'That listing is not available.',
+  MARKETPLACE_ALREADY_INSTALLED: 'This organization already has this listing.',
+  FEDERATION_NOT_AVAILABLE: 'Working with other organizations is not available on this deployment.',
+  FEDERATION_DISABLED: 'Your organization has not turned on working with other organizations.',
+  FEDERATION_OPEN_GRANTS: 'End what is shared with other organizations before turning this off.',
+  FEDERATION_INVITATION_ALREADY_ISSUED: 'This request already created an invitation.',
+  FEDERATION_INVITATION_INVALID: 'This invitation is not valid. Ask for a new one.',
+  FEDERATION_TERMS_CHANGED: 'What was shared for review changed. Read it again before agreeing.',
+  FEDERATION_GRANT_NOT_OPEN: 'This arrangement with the other organization is not open.',
+  FEDERATION_KIND_NOT_ALLOWED: 'This arrangement does not cover sending that.',
+  FEDERATION_CLASSIFICATION_TOO_HIGH:
+    'This is more sensitive than this arrangement allows, so it was not sent.',
+  FEDERATION_ITEM_NOT_WITHDRAWABLE: 'This can no longer be withdrawn.',
+  RESIDENCY_REGION_NOT_OFFERED: 'This deployment does not run in that region.',
+  RESIDENCY_DENIED: 'Your organization requires its data to stay in a region this would leave.',
+  TENANCY_SINGLE_ORGANIZATION: 'This deployment is dedicated to one organization.',
 };
 
 export class AppError extends Error {
@@ -302,6 +438,9 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   POLICY_DENIED: 403,
   AGENT_SPEC_INVALID: 400,
   AGENT_EVALUATION_REQUIRED: 409,
+  AGENT_EVALUATION_UNVERIFIED: 409,
+  AGENT_EVALUATION_STALE: 409,
+  AGENT_EVALUATION_SCRIPTED: 409,
   AGENT_RUN_ACTIVE: 409,
   AGENT_RUN_NOT_CONTROLLABLE: 409,
   AI_HALTED: 503,
@@ -365,6 +504,62 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   OFFBOARDING_CONFIRMATION_MISMATCH: 400,
   BREAK_GLASS_DISABLED: 409,
   BREAK_GLASS_NOT_AUTHORIZABLE: 409,
+  OAUTH_STATE_INVALID: 400,
+  OAUTH_DENIED: 409,
+  OAUTH_EXPIRED: 409,
+  OAUTH_EXCHANGE_FAILED: 409,
+  OAUTH_SCOPES_INSUFFICIENT: 409,
+  OAUTH_CLIENT_NOT_CONFIGURED: 409,
+  OAUTH_CAPABILITY_UNAVAILABLE: 400,
+  MEMBER_CAPABILITY_NOT_ALLOWED: 403,
+  DIRECTORY_TEAM_READ_ONLY: 409,
+  RECORD_VERSION_REQUIRED: 409,
+  RECORD_VERSION_STALE: 409,
+  CONNECTION_SCOPE_MISSING: 409,
+  MEETINGS_NOT_ENABLED: 409,
+  CONSENT_INCOMPLETE: 409,
+  CONSENT_NOT_YOURS: 403,
+  CONSENT_NOTICE_NOT_CURRENT: 409,
+  PROVIDER_NOT_APPROVED: 409,
+  PROVIDER_APPROVAL_EXPIRED: 409,
+  CLASSIFICATION_NOT_ALLOWED: 409,
+  MEETING_PURGED: 409,
+  MEETING_NOTES_REQUIRED: 409,
+  MEETING_PARTICIPANTS_FROZEN: 409,
+  PROPOSAL_ALREADY_DECIDED: 409,
+  FEATURE_NOT_ENABLED: 409,
+  SKILL_NAME_TAKEN: 409,
+  SKILL_SIGNER_KEY_INVALID: 400,
+  SKILL_SIGNER_EXISTS: 409,
+  SKILL_BUNDLE_TOO_LARGE: 413,
+  SKILL_UPLOAD_PENDING: 409,
+  SKILL_VERSION_NOT_PUBLISHABLE: 409,
+  SKILL_PUBLISH_SAME_PERSON: 403,
+  SKILL_VERSION_NOT_USABLE: 409,
+  AGENT_LINK_UNAVAILABLE: 409,
+  SANDBOX_INPUT_TOO_LARGE: 413,
+  SANDBOX_CLASSIFICATION_NOT_ALLOWED: 403,
+  SANDBOX_RUN_NOT_CANCELLABLE: 409,
+  MARKETPLACE_PUBLISHER_REQUIRED: 409,
+  MARKETPLACE_PUBLISHER_EXISTS: 409,
+  MARKETPLACE_NOT_PUBLIC: 409,
+  MARKETPLACE_VERSION_NOT_SUBMITTABLE: 409,
+  MARKETPLACE_SUBMISSION_NOT_WITHDRAWABLE: 409,
+  MARKETPLACE_LISTING_NOT_AVAILABLE: 409,
+  MARKETPLACE_ALREADY_INSTALLED: 409,
+  FEDERATION_NOT_AVAILABLE: 404,
+  FEDERATION_DISABLED: 409,
+  FEDERATION_OPEN_GRANTS: 409,
+  FEDERATION_INVITATION_ALREADY_ISSUED: 409,
+  FEDERATION_INVITATION_INVALID: 400,
+  FEDERATION_TERMS_CHANGED: 409,
+  FEDERATION_GRANT_NOT_OPEN: 409,
+  FEDERATION_KIND_NOT_ALLOWED: 403,
+  FEDERATION_CLASSIFICATION_TOO_HIGH: 403,
+  FEDERATION_ITEM_NOT_WITHDRAWABLE: 409,
+  RESIDENCY_REGION_NOT_OFFERED: 409,
+  RESIDENCY_DENIED: 403,
+  TENANCY_SINGLE_ORGANIZATION: 403,
 };
 
 /**

@@ -26,6 +26,7 @@ export function refuseUnadmittedDeletes<T extends ObjectStore>(store: T): T {
 export type DeletionTarget =
   | { kind: 'derived'; artifactId: string; writeId: string; generation: number }
   | { kind: 'ordinary'; artifactId: string }
+  | { kind: 'skill_upload'; uploadId: string; offboardingId?: string }
   | {
       kind: 'raw_source';
       sourceId: string;
@@ -136,7 +137,13 @@ export function createSqlObjectDeletionAuthority(database: AppDatabase): ObjectD
           state: string;
           claim_id: string | null;
           object_key: string | null;
-        }>(sql`select * from lifecycle.begin_object_deletion(${JSON.stringify(target)}::jsonb)`);
+        }>(
+          target.kind === 'skill_upload'
+            ? target.offboardingId
+              ? sql`select * from lifecycle.begin_skill_offboarding_deletion(${target.offboardingId}::uuid,${target.uploadId}::uuid)`
+              : sql`select * from lifecycle.begin_skill_upload_deletion(${target.uploadId}::uuid)`
+            : sql`select * from lifecycle.begin_object_deletion(${JSON.stringify(target)}::jsonb)`,
+        );
         const row = result.rows[0];
         if (!row) throw new AppError('PREREQUISITES_INCOMPLETE');
         if (row.state === 'held' || row.state === 'unconfirmed') return { state: row.state };

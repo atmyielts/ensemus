@@ -1,15 +1,36 @@
 export * from './approvals';
 export * from './artifacts';
+export * from './business-records';
 export * from './connections';
 export * from './client-access';
+export * from './directory';
 export * from './errors';
 export * from './events';
+export * from './expansion-ports';
 export * from './external-actions';
+export * from './federation';
+export { notifyFederationGrantAccepted } from './federation-notices';
+export * from './federation-items';
+export { prepareFederationSenderFile, type SenderFilePreparation } from './federation-source-files';
+export {
+  claimFederationCopy,
+  loadFederationCopyState,
+  observeFederationCopy,
+} from './federation-file-lifecycle';
+export * from './federation-ports';
 export * from './idempotency';
 export * from './ids';
 export * from './inbox';
 export * from './integration-ports';
 export * from './licensing';
+export * from './oauth-authorizations';
+export * from './meeting-derivation';
+export * from './meeting-import';
+export * from './meeting-proposals';
+export * from './meetings';
+export * from './marketplace';
+export * from './marketplace-install';
+export * from './marketplace-review';
 export * from './people';
 export * from './portability-export';
 export * from './portability-epoch';
@@ -22,6 +43,14 @@ export * from './refusals';
 export * from './restore-reconcile';
 export * from './restore-contributors';
 export * from './sovereign-ports';
+export * from './sandbox-runs';
+export * from './skill-ports';
+export * from './skill-verification';
+export * from './skill-upload-cleanup';
+export * from './skills';
+export * from './residency';
+export * from './tenancy';
+export * from './tenancy-ports';
 export * from './tombstone-ledger';
 export * from './webhooks';
 export * from './work';

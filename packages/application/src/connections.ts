@@ -1,3 +1,11 @@
+import { meetingNotesConnectorConfigSchema } from '@ensemus/contracts/business-adapter';
+import { businessConnectorConfigSchema } from '@ensemus/contracts/business-records';
+import {
+  isBusinessConnectorType,
+  BUSINESS_STREAMS,
+  readScopeFor,
+  writeScopeFor,
+} from '@ensemus/domain/business-connector';
 // Connections and their sync state (CONNECT-01, ADR-027 D3). Managing a connection needs
 // connection.manage. A credential arrives here already sealed, as a reference, and this file never reads
 // one. The worker's half is at the end: it holds a service context, and nothing a person calls reaches it.
@@ -5,6 +13,7 @@ import { randomUUID } from 'node:crypto';
 import {
   appendAudit,
   connections,
+  directoryGroups,
   externalResourceAcl,
   externalResources,
   memberships,
@@ -124,6 +133,11 @@ export async function createConnection(
   if (!rule || !CONNECTOR_TYPE_PATTERN.test(input.connectorType)) {
     throw new AppError('INVALID_INPUT');
   }
+  if (
+    input.connectorType === 'meeting_notes_http' &&
+    !meetingNotesConnectorConfigSchema.safeParse(input.config).success
+  )
+    throw new AppError('INVALID_INPUT');
   const name = displayName.safeParse(input.displayName);
   if (!name.success) throw new AppError('INVALID_INPUT');
   if (!isSafeConnectorConfig(input.config)) throw new AppError('INVALID_INPUT');
@@ -138,6 +152,25 @@ export async function createConnection(
     throw foreignReference();
   }
 
+  let grantedScopes: string[] = [];
+  const businessType = input.connectorType;
+  if (isBusinessConnectorType(businessType)) {
+    const parsed = businessConnectorConfigSchema.safeParse(input.config);
+    if (
+      !parsed.success ||
+      parsed.data.streams.some(
+        (stream) => !Object.hasOwn(BUSINESS_STREAMS[businessType], stream),
+      ) ||
+      parsed.data.scopes.some(
+        (scope) => ![readScopeFor(businessType), writeScopeFor(businessType)].includes(scope),
+      )
+    )
+      throw new AppError('INVALID_INPUT');
+    // Manual credentials have an explicit admin-approved local ceiling. The source still authorizes
+    // each request independently; these are not an OAuth provider's consent receipt.
+    grantedScopes = [...new Set(parsed.data.scopes)];
+    input = { ...input, config: parsed.data };
+  }
   const id = randomUUID();
   return withTenantTx(database, context, async (tx) => {
     await assertInteractivePrivilege(tx, context, 'connection.manage');
@@ -151,6 +184,7 @@ export async function createConnection(
           connectorType: input.connectorType,
           displayName: name.data,
           config: input.config,
+          grantedScopes,
           credentialSecretId: input.credentialSecretId,
           createdByMembershipId: context.membershipId,
         })
@@ -835,13 +869,34 @@ export async function recordConnectionFailure(
  * The default directory: an email address finds an active membership in this tenant, and everything else
  * finds nobody. The email has to be the whole address, in any case. RLS keeps this to one tenant, so the
  * same address in another tenant is another person.
+ *
+ * A group finds the team its connection's directory made for it (ADR-038 D4): Google's by the group's
+ * email, which is what a Drive permission carries, and Microsoft's by object ID. Only the connection whose
+ * file named the group is asked, since the same ID in another connection's directory is another group.
+ * Without a connection, or before the directory has seen the group, it finds nobody.
  */
 export async function resolveSourcePrincipal(
   database: AppDatabase,
   context: TenantContext,
   principal: { kind: 'user' | 'group' | 'domain' | 'anyone'; externalId: string },
+  source: { connectionId: string } | null = null,
 ): Promise<{ membershipId: string } | { teamId: string } | null> {
   requireWorker(context);
+  if (principal.kind === 'group') {
+    if (!source || !isIdentifier(source.connectionId) || !principal.externalId) return null;
+    const [group] = await withTenantTx(database, context, (tx) =>
+      tx
+        .select({ teamId: directoryGroups.teamId })
+        .from(directoryGroups)
+        .where(
+          and(
+            eq(directoryGroups.connectionId, source.connectionId),
+            eq(directoryGroups.externalId, principal.externalId),
+          ),
+        ),
+    );
+    return group ? { teamId: group.teamId } : null;
+  }
   if (principal.kind !== 'user' || !principal.externalId.includes('@')) return null;
   const email = principal.externalId.trim().toLowerCase();
   const [row] = await withTenantTx(database, context, (tx) =>

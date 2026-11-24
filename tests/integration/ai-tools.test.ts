@@ -400,20 +400,18 @@ describe('tool gateway, as the real roles', () => {
   });
 
   describe('principal and resource ACL', () => {
-    it('reads as the initiator: restricted work the agent role could see is not found', async () => {
+    it('enforces restricted Work access through the gateway and the native agent role', async () => {
       const own = await work(a.owner);
       const closed = await work(a.owner, 'confidential');
       const run = await startRun(a.member, { workUnitId: own, allow: ['work.read'] });
       await expect(
         ask(realGateway(), run, 'work.read', { work_unit_id: closed }),
       ).resolves.toMatchObject({ outcome: 'denied', decisionCode: 'RESOURCE_NOT_PERMITTED' });
-      // The role could read that row: this is the check that the context, and not RLS, said no. Since
-      // 0411 a Work row needs an active membership or the service actor, so the role is bound as the
-      // service actor its worker also runs as; a bare tenant binding with neither sees no Work at all.
+      // The service binding on the agent login cannot bypass the Work material policy.
       const rows = await withTenantTx(agent.db, createServiceContext(a.organizationId), (tx) =>
         tx.select({ id: workUnits.id }).from(workUnits).where(eq(workUnits.id, closed)),
       );
-      expect(rows).toHaveLength(1);
+      expect(rows).toEqual([]);
     });
 
     it('refuses a resource in another tenant, with the same names on both sides', async () => {
@@ -816,6 +814,9 @@ describe('tool gateway, as the real roles', () => {
           externalActionId: seeded.id,
           requestHash: seeded.requestHash,
         }),
+        recordDraft: async () => {
+          throw new Error('No draft tool here');
+        },
         recheck: async () => ({ ok: true }),
       };
       return { connectionId, seeded, approvals };
@@ -832,6 +833,7 @@ describe('tool gateway, as the real roles', () => {
         source: source(),
         externalActions: {
           propose: () => Promise.reject(new Error('TEST_DUPLICATE_SEND')),
+          proposeDraft: () => Promise.reject(new Error('The binder proposes')),
           readState: async () => {
             reads += 1;
             return { status: 'sent', approvalId: seeded.approvalId };
@@ -889,6 +891,7 @@ describe('tool gateway, as the real roles', () => {
       const gateway = gatewayOver(
         {
           propose: () => Promise.reject(new Error('The binder proposes')),
+          proposeDraft: () => Promise.reject(new Error('The binder proposes')),
           readState: async () => ({
             status: statuses[reads++] ?? 'sent',
             approvalId: seeded.approvalId,
@@ -929,6 +932,7 @@ describe('tool gateway, as the real roles', () => {
       const gateway = gatewayOver(
         {
           propose: () => Promise.reject(new Error('The binder proposes')),
+          proposeDraft: () => Promise.reject(new Error('The binder proposes')),
           readState: async () => {
             reads += 1;
             return { status: 'unknown', approvalId: seeded.approvalId };

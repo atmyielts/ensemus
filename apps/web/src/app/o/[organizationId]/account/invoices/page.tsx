@@ -1,8 +1,17 @@
+import {
+  Table,
+  TableCaption,
+  TableHeader,
+  TableRow,
+  TableHead,
+  TableBody,
+  TableCell,
+} from '@/components/ui/table';
 import { listInvoices } from '@ensemus/application/saas/invoices';
 import { AppError } from '@ensemus/application';
 import Link from 'next/link';
 import { BillingMoney } from '@/components/billing-money';
-import { Empty, ErrorNotice, PageHead, formatDateTime } from '@/components/ui';
+import { BackLink, Empty, ErrorNotice, formatDateTime, PageHead } from '@/components/ui';
 import { orNotFound, requireAccountTenant } from '@/server/tenant';
 export const metadata = { title: 'Invoices | Ensemus' };
 const statusWords: Record<string, string> = {
@@ -37,46 +46,48 @@ export default async function InvoicesPage({
   }
   return (
     <div className="stack">
+      <BackLink href={`/o/${organizationId}/account/billing`}>Billing</BackLink>
       <PageHead
         title="Invoices"
-        description="Subscription fees and explicitly requested top-ups."
-        actions={<Link href={`/o/${organizationId}/account/billing`}>Billing</Link>}
+        description="Bills for your plan and for any top-ups you ordered."
       />
       {page.items.length === 0 ? (
-        <Empty>No invoices have been created.</Empty>
+        <Empty title="No invoices yet">
+          No invoices have been created. Bills for your plan and top-ups appear here.
+        </Empty>
       ) : (
-        <div className="table-wrap">
-          <table>
-            <caption>Invoices, most recent first</caption>
-            <thead>
-              <tr>
-                <th scope="col">Invoice</th>
-                <th scope="col">Status</th>
-                <th scope="col">Total</th>
-                <th scope="col">Due</th>
-              </tr>
-            </thead>
-            <tbody>
+        <div className="table-wrap row-titled">
+          <Table>
+            <TableCaption>Invoices, most recent first</TableCaption>
+            <TableHeader>
+              <TableRow>
+                <TableHead scope="col">Invoice</TableHead>
+                <TableHead scope="col">Status</TableHead>
+                <TableHead scope="col">Total</TableHead>
+                <TableHead scope="col">Due</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {page.items.map((row) => (
-                <tr key={row.id}>
-                  <th scope="row">
+                <TableRow key={row.id}>
+                  <TableHead scope="row">
                     <Link href={`/o/${organizationId}/account/invoices/${row.id}`}>
                       {row.invoiceNumber === null
                         ? 'Draft invoice'
                         : `Invoice ${row.invoiceNumber}`}
                     </Link>
                     <p className="muted">{row.kind === 'top_up' ? 'Top-up' : 'Subscription'}</p>
-                  </th>
-                  <td>{statusWords[row.status] ?? row.status}</td>
-                  <td>
+                  </TableHead>
+                  <TableCell>{statusWords[row.status] ?? row.status}</TableCell>
+                  <TableCell>
                     <BillingMoney amount={row.totalMicros} currency={row.currency} />
                     {row.status === 'draft' && <p className="muted">Before final tax</p>}
-                  </td>
-                  <td>{row.dueAt ? formatDateTime(row.dueAt) : 'Not issued'}</td>
-                </tr>
+                  </TableCell>
+                  <TableCell>{row.dueAt ? formatDateTime(row.dueAt) : 'Not issued'}</TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
       {page.nextCursor && (

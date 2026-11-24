@@ -1,4 +1,19 @@
 import 'server-only';
+import { assertInteractivePrivilege } from '@ensemus/application/privileged';
+import { withTenantTx } from '@ensemus/database';
+import { loadBusinessConnectorRoutes } from '@ensemus/config/business';
+import { businessConnectorConfigSchema } from '@ensemus/contracts/business-records';
+import {
+  BUSINESS_CONNECTOR_MANIFESTS,
+  MEETING_NOTES_CONNECTOR_MANIFEST,
+} from '@ensemus/connectors/manifest-business';
+import { meetingNotesConnectorConfigSchema } from '@ensemus/contracts/business-adapter';
+import {
+  isBusinessConnectorType,
+  BUSINESS_STREAMS,
+  readScopeFor,
+  writeScopeFor,
+} from '@ensemus/domain/business-connector';
 import { isRestoreAdmissionDenied } from '@ensemus/database';
 import { randomBytes, randomUUID } from 'node:crypto';
 import {
@@ -54,9 +69,12 @@ import {
   EMAIL_SEND_VERSION,
 } from '@ensemus/domain/external-action';
 import { can } from '@ensemus/domain/policy';
+import { SIGNATURE_SCHEMES } from '@ensemus/domain/webhook';
 import { storeSecret } from '@ensemus/secrets/seal';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import { z } from 'zod';
+import { readBoundedBody } from '../lib/webhook-limiter';
+import { noteClientAddress } from './client-address';
 import { getRestoreGate, getRuntime } from './runtime';
 
 // The shared wrapper for /api/v1 (API-10). Every route gets the same order of checks: who is this,
@@ -94,6 +112,20 @@ const originRefused = () =>
 const tooLarge = () => new ApiFailure(413, 'PAYLOAD_TOO_LARGE', 'The request body is too large.');
 const wrongMediaType = () =>
   new ApiFailure(415, 'UNSUPPORTED_MEDIA_TYPE', 'Send the request body as application/json.');
+
+/** Authenticated binary routes count bytes before handing a body to an application service. */
+export async function readSkillBundleBody(
+  request: Request,
+  contentType: string,
+  maxBytes: number,
+): Promise<Buffer> {
+  if (request.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase() !== contentType)
+    throw new ApiFailure(415, 'UNSUPPORTED_MEDIA_TYPE', `Send the bundle as ${contentType}.`);
+  const body = await readBoundedBody(request, { maxBytes, deadlineMs: 15_000 });
+  if (body.kind === 'too_large') throw new AppError('SKILL_BUNDLE_TOO_LARGE');
+  if (body.kind === 'too_slow') throw invalidInput();
+  return Buffer.from(body.bytes.buffer, body.bytes.byteOffset, body.bytes.byteLength);
+}
 const versionRequired = () =>
   new ApiFailure(
     428,
@@ -227,6 +259,7 @@ export function apiRoute<S extends z.ZodType<{ organizationId: string }>>(
       const { app, readInteractiveSession, config } = getRuntime();
       const session = await readInteractiveSession(request.headers);
       if (!session) throw unauthenticated();
+      noteClientAddress(request.headers.get('x-forwarded-for'), session.user.id);
       if (!READ_METHODS.has(request.method)) assertOwnOrigin(request, config.publicUrl);
 
       const params = paramsSchema.safeParse(await route.params);
@@ -262,9 +295,11 @@ export function apiRoute<S extends z.ZodType<{ organizationId: string }>>(
   };
 }
 
-async function readLimited(request: Request): Promise<Uint8Array> {
+async function readLimited(request: Request, maxBytes = MAX_JSON_BYTES): Promise<Uint8Array> {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 4 * 1024 * 1024)
+    throw new RangeError('Invalid JSON byte bound');
   // The declared length is only a quick refusal. It can be absent or wrong, so the bytes are counted.
-  if (Number(request.headers.get('content-length') ?? 0) > MAX_JSON_BYTES) throw tooLarge();
+  if (Number(request.headers.get('content-length') ?? 0) > maxBytes) throw tooLarge();
   const reader = request.body?.getReader();
   if (!reader) throw invalidInput();
   const chunks: Uint8Array[] = [];
@@ -273,7 +308,7 @@ async function readLimited(request: Request): Promise<Uint8Array> {
     const { done, value } = await reader.read();
     if (done) return Buffer.concat(chunks);
     total += value.byteLength;
-    if (total > MAX_JSON_BYTES) {
+    if (total > maxBytes) {
       await reader.cancel();
       throw tooLarge();
     }
@@ -285,10 +320,27 @@ async function readLimited(request: Request): Promise<Uint8Array> {
 export async function readJson<S extends z.ZodType>(
   request: Request,
   schema: S,
+  maxBytes = MAX_JSON_BYTES,
 ): Promise<z.output<S>> {
   const mediaType = request.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase();
   if (mediaType !== 'application/json') throw wrongMediaType();
+  return parseJsonBytes(await readLimited(request, maxBytes), schema);
+}
+
+/** An empty stream is also an absent optional body in Next's production request adapter. */
+export async function readOptionalJson<S extends z.ZodType>(
+  request: Request,
+  schema: S,
+): Promise<z.output<S> | undefined> {
+  if (request.body === null) return undefined;
   const bytes = await readLimited(request);
+  if (bytes.byteLength === 0) return undefined;
+  const mediaType = request.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase();
+  if (mediaType !== 'application/json') throw wrongMediaType();
+  return parseJsonBytes(bytes, schema);
+}
+
+function parseJsonBytes<S extends z.ZodType>(bytes: Uint8Array, schema: S): z.output<S> {
   let raw: unknown;
   try {
     raw = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
@@ -367,7 +419,7 @@ const noLineBreaks = (value: string) => !/[\r\n\0]/.test(value);
  * strict, so a `host` or a `port` is refused rather than ignored: a tenant can never say where a connector
  * connects (ADR-027 D3). The connector itself checks these again when it runs.
  */
-export const CONNECTOR_CATALOG: ReadonlyArray<{
+const BASIC_CONNECTOR_CATALOG: ReadonlyArray<{
   manifest: ConnectorManifest;
   settings: z.ZodType<Record<string, unknown>>;
 }> = [
@@ -419,8 +471,35 @@ export const CONNECTOR_CATALOG: ReadonlyArray<{
   },
 ];
 
+const BUSINESS_CATALOG = BUSINESS_CONNECTOR_MANIFESTS.filter((manifest) =>
+  isBusinessConnectorType(manifest.type),
+).map((manifest) => ({
+  manifest,
+  settings: businessConnectorConfigSchema.refine((config) => {
+    const type = manifest.type;
+    if (!isBusinessConnectorType(type)) return false;
+    return (
+      config.streams.every((stream) => Object.hasOwn(BUSINESS_STREAMS[type], stream)) &&
+      config.scopes.every((scope) => [readScopeFor(type), writeScopeFor(type)].includes(scope))
+    );
+  }),
+}));
+const MEETING_NOTES_CATALOG = {
+  manifest: MEETING_NOTES_CONNECTOR_MANIFEST,
+  settings: meetingNotesConnectorConfigSchema,
+};
+export function connectorCatalog() {
+  const routes = loadBusinessConnectorRoutes();
+  return [
+    ...BASIC_CONNECTOR_CATALOG,
+    ...BUSINESS_CATALOG.filter(({ manifest }) => Object.hasOwn(routes, manifest.type)),
+    ...(routes.meeting_notes_http ? [MEETING_NOTES_CATALOG] : []),
+  ];
+}
 export const manifestOf = (type: string) =>
-  CONNECTOR_CATALOG.find((entry) => entry.manifest.type === type)?.manifest;
+  [...BASIC_CONNECTOR_CATALOG, ...BUSINESS_CATALOG, MEETING_NOTES_CATALOG].find(
+    (entry) => entry.manifest.type === type,
+  )?.manifest;
 
 /** So no row can wait for a worker that is not coming, and nothing pretends to be connected. */
 export function assertConnectorsEnabled() {
@@ -447,7 +526,7 @@ export async function addConnection(
 ): Promise<IdempotentOutcome> {
   assertManagesConnections(context);
   assertConnectorsEnabled();
-  const entry = CONNECTOR_CATALOG.find(({ manifest }) => manifest.type === body.connector_type);
+  const entry = connectorCatalog().find(({ manifest }) => manifest.type === body.connector_type);
   if (!entry) throw new AppError('INVALID_INPUT');
   const config = entry.settings.safeParse(body.config);
   if (!config.success) throw new AppError('INVALID_INPUT');
@@ -455,6 +534,9 @@ export async function addConnection(
   if (entry.manifest.credential.required !== Boolean(secret)) {
     throw new AppError('INVALID_INPUT');
   }
+  await withTenantTx(database, context, (tx) =>
+    assertInteractivePrivilege(tx, context, 'connection.manage'),
+  );
   return runIdempotent(
     database,
     context,
@@ -496,7 +578,10 @@ export async function addWebhookEndpoint(
   assertConnectorsEnabled();
   const connection = await getConnection(database, context, connectionId);
   if (connection.state !== 'active') throw new AppError('CONNECTION_NOT_ACTIVE');
-  const scheme = manifestOf(connection.connectorType)?.capabilities.webhooks?.scheme;
+  const declared = manifestOf(connection.connectorType)?.capabilities.webhooks?.scheme;
+  // A tenant's endpoint uses the tenant scheme only. Checkout schemes belong to the deployment's own
+  // billing addresses, which an operator command creates (ADR-032 D4a).
+  const scheme = SIGNATURE_SCHEMES.find((value) => value === declared);
   if (!scheme) throw new AppError('INVALID_INPUT');
   const signingSecret = randomBytes(32).toString('base64url');
   const { secretRef } = await storeSecret(database, context, {

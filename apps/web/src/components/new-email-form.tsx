@@ -1,4 +1,8 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
+import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
 
 import { useActionState } from 'react';
 import {
@@ -63,11 +67,11 @@ export function NewEmailForm({
         {target.kind === 'propose' ? (
           <>
             <input type="hidden" name="workUnitId" value={target.workUnitId} />
-            <label>
+            <Label>
               Send through
               {help('connectionId')}
               {/* The key brings a refused choice back: React only reads defaultValue on a new select. */}
-              <select
+              <NativeSelect
                 key={`connection-${value('connectionId')}`}
                 name="connectionId"
                 required
@@ -82,8 +86,8 @@ export function NewEmailForm({
                     {connection.label}
                   </option>
                 ))}
-              </select>
-            </label>
+              </NativeSelect>
+            </Label>
           </>
         ) : (
           <>
@@ -91,45 +95,45 @@ export function NewEmailForm({
             <input type="hidden" name="version" value={target.version} />
           </>
         )}
-        <label>
+        <Label>
           To
           <small>One or more addresses, separated by commas.</small>
           {help('to')}
-          <textarea
+          <Textarea
             name="to"
             required
             rows={2}
             defaultValue={value('to')}
             aria-invalid={invalid('to')}
           />
-        </label>
-        <label>
+        </Label>
+        <Label>
           Copy to
           <small>Optional.</small>
           {help('cc')}
-          <input name="cc" defaultValue={value('cc')} aria-invalid={invalid('cc')} />
-        </label>
-        <label>
+          <Input name="cc" defaultValue={value('cc')} aria-invalid={invalid('cc')} />
+        </Label>
+        <Label>
           Blind copy to
           <small>Optional. The other recipients do not see these, and your approver does.</small>
           {help('bcc')}
-          <input name="bcc" defaultValue={value('bcc')} aria-invalid={invalid('bcc')} />
-        </label>
-        <label>
+          <Input name="bcc" defaultValue={value('bcc')} aria-invalid={invalid('bcc')} />
+        </Label>
+        <Label>
           Replies go to
           <small>Optional.</small>
           {help('replyTo')}
-          <input
+          <Input
             name="replyTo"
             type="email"
             defaultValue={value('replyTo')}
             aria-invalid={invalid('replyTo')}
           />
-        </label>
-        <label>
+        </Label>
+        <Label>
           Subject
           {help('subject')}
-          <input
+          <Input
             name="subject"
             required
             maxLength={200}
@@ -137,12 +141,12 @@ export function NewEmailForm({
             defaultValue={value('subject')}
             aria-invalid={invalid('subject')}
           />
-        </label>
-        <label>
+        </Label>
+        <Label>
           Message
           <small>Plain text. It is sent exactly as written.</small>
           {help('textBody')}
-          <textarea
+          <Textarea
             name="textBody"
             required
             rows={8}
@@ -150,12 +154,12 @@ export function NewEmailForm({
             defaultValue={value('textBody')}
             aria-invalid={invalid('textBody')}
           />
-        </label>
-        <label>
+        </Label>
+        <Label>
           Who approves it?
           <small>Someone other than you, who can see this work. They see exactly this.</small>
           {help('approverMembershipId')}
-          <select
+          <NativeSelect
             key={`approver-${value('approverMembershipId')}`}
             name="approverMembershipId"
             required
@@ -170,8 +174,8 @@ export function NewEmailForm({
                 {approver.label}
               </option>
             ))}
-          </select>
-        </label>
+          </NativeSelect>
+        </Label>
         <small>
           {target.kind === 'propose'
             ? 'Nothing is sent until they approve. Once it goes it cannot be taken back.'

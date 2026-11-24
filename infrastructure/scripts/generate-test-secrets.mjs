@@ -22,10 +22,15 @@ for (const role of [
   'migrator',
   'app',
   'agent',
+  // ADR-039: each worker's own login.
+  'worker',
+  'connector',
+  'knowledge',
   'auth',
   'dispatcher',
   'secrets',
   'temporal',
+  'mailer',
 ]) {
   put(`db_${role}_password`, password);
 }
@@ -33,17 +38,29 @@ for (const [name, role, file] of [
   ['db_migrator_url', 'ensemus_migrator', 'db_migrator_password'],
   ['db_app_url', 'ensemus_app', 'db_app_password'],
   ['db_agent_url', 'ensemus_agent', 'db_agent_password'],
+  ['db_worker_url', 'ensemus_worker', 'db_worker_password'],
+  ['db_connector_url', 'ensemus_connector', 'db_connector_password'],
+  ['db_knowledge_url', 'ensemus_knowledge', 'db_knowledge_password'],
   ['db_auth_url', 'ensemus_auth', 'db_auth_password'],
   ['db_secrets_url', 'ensemus_secrets', 'db_secrets_password'],
   ['db_dispatcher_url', 'ensemus_dispatcher', 'db_dispatcher_password'],
+  ['db_mailer_url', 'ensemus_mailer', 'db_mailer_password'],
 ]) {
   const pw = await read(file);
   put(name, () => `postgres://${role}:${pw}@postgres:5432/ensemus`);
+}
+if (process.argv.includes('--federation')) {
+  put('db_federation_password', password);
+  const pw = await read('db_federation_password');
+  put('db_federation_url', () => `postgres://ensemus_federation:${pw}@postgres:5432/ensemus`);
 }
 put('objects_access_key', () => randomBytes(12).toString('hex'));
 put('objects_secret_key', () => randomBytes(24).toString('hex'));
 put('objects_ledger_access_key', () => randomBytes(12).toString('hex'));
 put('objects_ledger_secret_key', () => randomBytes(24).toString('hex'));
+// The backup overlay's own credential (compose.backup.yaml): its bucket and nothing else.
+put('objects_backup_access_key', () => randomBytes(12).toString('hex'));
+put('objects_backup_secret_key', () => randomBytes(24).toString('hex'));
 const credentials = (access, secret) => ({
   accessKey: readFileSync(join(dir, access), 'utf8'),
   secretKey: readFileSync(join(dir, secret), 'utf8'),
@@ -66,10 +83,19 @@ writeFileSync(
         credentials: [credentials('objects_ledger_access_key', 'objects_ledger_secret_key')],
         actions: ['Read:ensemus/tombstone-ledger/*', 'Write:ensemus/tombstone-ledger/*'],
       },
+      {
+        // Backups go to a bucket of their own, which this identity can read, write and list, and no
+        // other (11-postgres-backup-and-pitr.md). It cannot create or delete a bucket.
+        name: 'ensemus-backup',
+        credentials: [credentials('objects_backup_access_key', 'objects_backup_secret_key')],
+        actions: ['Read:ensemus-backups', 'Write:ensemus-backups', 'List:ensemus-backups'],
+      },
     ],
   }),
   { mode: 0o644 },
 );
+// The test mailbox (Mailpit, compose.test.yaml) takes any login, so this only has to exist.
+put('mail_relay_password', password);
 put('auth_secret', () => randomBytes(32).toString('base64'));
 put('temporal_codec_key', () => randomBytes(32).toString('base64'));
 put('next_server_actions_key', () => randomBytes(32).toString('base64'));
@@ -126,6 +152,31 @@ writeFileSync(
     ],
     thresholds: {},
   }),
+  { mode: 0o644 },
+);
+// An evaluation signing key for the test stack (AGENT-16). compose.test.yaml mounts only its public half,
+// as ENSEMUS_EVALUATION_PUBLIC_KEYS_FILE, into web and web-2. The private half stays here, outside every
+// container, for the stack tests to sign scripted evaluation reports with, as CI would with its own key.
+const evaluationTest = join(root, '.local', 'evaluation-test');
+mkdirSync(evaluationTest, { recursive: true });
+const EVALUATION_KEY_ID = 'stack-test-evaluator';
+const evaluationKeyFile = join(evaluationTest, 'signing-key.pem');
+if (!existsSync(evaluationKeyFile)) {
+  const { privateKey } = generateKeyPairSync('ed25519');
+  writeFileSync(evaluationKeyFile, privateKey.export({ type: 'pkcs8', format: 'pem' }), {
+    mode: 0o600,
+  });
+}
+writeFileSync(join(evaluationTest, 'signing-key.id'), `${EVALUATION_KEY_ID}\n`, { mode: 0o644 });
+// Worked out from the private key every time, so web can never trust a key that is not there.
+const evaluationPublicKey = createPublicKey(
+  createPrivateKey(readFileSync(evaluationKeyFile)),
+).export({
+  format: 'jwk',
+}).x;
+writeFileSync(
+  join(evaluationTest, 'public-keys'),
+  `${EVALUATION_KEY_ID}:${evaluationPublicKey}\n`,
   { mode: 0o644 },
 );
 console.log(`Test secrets ready in ${dir}`);

@@ -1,0 +1,89 @@
+{
+  "schema": "ensemus.local-qualification/1",
+  "slice": "business proposal value revision forms with native independent approval",
+  "recordedAt": "2026-11-21T21:13:13.839674+00:00",
+  "releaseReady": false,
+  "validation": {
+    "focusedParserAndId": 8,
+    "completeUnit": {
+      "passed": 9674,
+      "failed": 2,
+      "expectedFailures": 4,
+      "skipped": 43,
+      "files": 380,
+      "seconds": 66.74,
+      "remainingFailures": [
+        "66 planned API operations",
+        "30-table complete portability inventory"
+      ]
+    },
+    "productionBuild": "passed after ID-helper correction",
+    "webTypes": "passed; final build TypeScript also passed",
+    "testTypes": "passed",
+    "focusedLint": "passed",
+    "guidePages": 30,
+    "productionHttp": {
+      "passed": 5,
+      "seconds": 55.02,
+      "qualification": "First revision build before form-only ID-helper correction; API handlers unchanged"
+    },
+    "browser": {
+      "generatedOnly": true,
+      "crmRevision": true,
+      "invoiceInvalidDecimalPreserved": true,
+      "javascriptDisabledCorrectionAndNewReview": true,
+      "oldApprovalClosedNoApprove": true,
+      "finalBuildUppercaseIdsAccepted": true,
+      "finalBuildExactDecimalAndTerms": true,
+      "mobileWidths": [
+        320,
+        375
+      ],
+      "horizontalOverflow": false,
+      "screenshotsInspected": true,
+      "providerContact": false
+    }
+  },
+  "limitations": [
+    "Only existing proposed values/lines are editable; target/field-set/line-count changes require a new proposal",
+    "Independent accessibility/customer walkthrough pending",
+    "Customer business connection setup and actual provider/durable-worker acceptance incomplete",
+    "Current candidate CI/full joined integration not qualified",
+    "Joined expansion erasure and portability inventories incomplete",
+    "SQL security review and other recorded release gates remain"
+  ],
+  "sourceSha256": {
+    "apps/web/src/app/o/[organizationId]/external-actions/[externalActionId]/page.tsx": "5a378e7f5476a0ee0e7ac4562c68d2646d1d4a09456d0f1c7143861b0d01e4f6",
+    "apps/web/src/components/business-action-payload.tsx": "1e6e6e3744eab7d914f572a301896cdeed7063f5919dc9ca0f1c7b2aa5ec947c",
+    "apps/web/src/components/business-revision-form.tsx": "4eb5c814b6ac41836fbc317970dc5283a6622defe085eda8efac8a09680744ca",
+    "apps/web/src/generated/guides.ts": "3a1625abf2a008aba709b3585eab85916de34b8b5e48ea737195011c6787bbf8",
+    "apps/web/src/lib/business-action-payload.ts": "2ec849cc00238d7ae34904703583250dbf13b904267e4a9b22b853865b67073c",
+    "apps/web/src/lib/business-revision-input.ts": "87d9e5a637242fef2befbec1fbfbd08a4d7b9b19052198f0d6a18855096d7746",
+    "apps/web/src/server/business-revision-actions.ts": "db6012c301b8eb36d01680cb1a7230ab051c0b3febb03c95f9cf853615ab853d",
+    "docs/guides/user/source-records.md": "badd80e564412a95d658b226cce7f7168f2f266913d469d2a407a8c6cd93654b",
+    "tests/unit/web-business-revision-input.test.ts": "5a0ba5765b61b88481f597f2e21cc09ee4905ffa918b1a7fb632806d362e0570"
+  },
+  "localEvidenceSha256": {
+    ".local/rc-business-revision-unit.log": "2573be936010c4056c750f47bf724b8abf4b3e214595c33120ddbbf6477d32bb",
+    ".local/rc-business-revision-unit-final.log": "91b8a2f17a804202d0e597b6e35971c4ec972f04eb4882e632ebd471a7fd900b",
+    ".local/rc-business-revision-full-unit.log": "c0e40296f07f625b967f112e61fec5b6a58e619f09f57ee9d0f7204651515b47",
+    ".local/rc-business-revision-full-unit-final.log": "fef9da9da7daa4bf7250174f53a6c319657268809ff71ab4b656861cd288621e",
+    ".local/rc-business-revision-build.log": "2f69fb7b5eabb02364dd88cad663efbae68b82a7fca9bef40f018a25dbf6ce51",
+    ".local/rc-business-revision-build-final.log": "31690b11f0bfa9952ea09bb3094fcd9bc26511c6e5c728faceb0a0f5d3223eb6",
+    ".local/rc-business-revision-web-types.log": "a72c910cb16d3c823389766c7ecd6046ec9aec2fba5c614a25b09e3186f09d46",
+    ".local/rc-business-revision-test-types.log": "1d5b04d16c49c8c9cad76e7c5012bb207093c2ddb24665de0709467436f13771",
+    ".local/rc-business-revision-lint-final.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".local/rc-business-revision-guides.log": "c98d9949764c3fc911fe7f102100e0984d7031850d4f05c624a0f6b3b6ca1675",
+    ".local/rc-business-revision-production-http.log": "2c49727ea361f7f100a64b9ef4a561a21b5c0e1cf3372464752e482eaca2587d",
+    ".local/rc-business-revision-crm-browser.log": "8e320566d4ff98646858b5a42ca0179c897056f20e1da69e4127ec234d1d3e75",
+    ".local/rc-business-revision-no-script-browser.log": "a30ad1f3e6842d330e9520b4f57ebab4015777aee37bf6c2d24a81418b72b034",
+    ".local/rc-business-revision-old-approval-browser.log": "36c07055f681d122a51082cbd90d8457b6bdb9480a7bb7278d965555d7c42295",
+    ".local/rc-business-revision-final-browser.log": "c63188d44bafc16b3675200962a2c68dea8e1f1b6258b6e4da119d72387d297f",
+    "output/playwright/business-revision-no-script-refusal.png": "9dd0d1c5ca7086fcbe0dbbdbfb59a0658a1db17aa7422c28df33754a1ac26ab4",
+    "output/playwright/business-revision-no-script-review.png": "aceaf890d1709ff4a025f3ceadff4927ab87d0457f41ca95d48364b0cd60659b",
+    "output/playwright/business-revision-final-terms-review.png": "6b3f9aebad509c6a892ec9d02cce67166bde93d84033d555479b9790dd5fd522",
+    ".local/rc-github-pr2-checks.json": "fdf05418efe25ed094aa06de537f32b864d7611866087d067381633039d347f2",
+    ".local/rc-github-pr3-checks.json": "8aded951a142aefbec593bcc3d318c266c299c75bdf2dffda585af695be5d9e8",
+    ".local/rc-github-pr2-failed-job.log": "93ecde0753c59cae07d32b0823e10ed18ead9fd5a94593e0ee31366d5e5660b1"
+  }
+}

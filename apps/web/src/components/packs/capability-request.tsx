@@ -26,39 +26,52 @@ export function CapabilityRequest({
   );
   return (
     <li className="block">
-      <div className="row">
+      <div className="spread">
         <strong>{KIND_WORDS[request.kind] ?? 'A request'}</strong>
-        <code>{request.subject}</code>
-        <DecisionBadge decision={request.decision} />
-        {request.risk === 'elevated' && <span className="badge attention">Needs extra care</span>}
-        {request.isNew && <span className="badge active">New in this version</span>}
+        <span className="row">
+          {request.isNew && <span className="badge active">New in this version</span>}
+          {request.risk === 'elevated' && <span className="badge attention">Needs extra care</span>}
+          <DecisionBadge decision={request.decision} />
+        </span>
       </div>
-      <p>{request.why}</p>
-      <dl className="facts">
-        <dt>What it can read</dt>
-        <dd>{request.dataAccess}</dd>
-        <dt>What it can change</dt>
-        <dd>{request.sideEffects}</dd>
+      <p className="gap-above-small">{request.why}</p>
+      <dl className="details gap-above-small">
+        <div>
+          <dt>What it can read</dt>
+          <dd>{request.dataAccess}</dd>
+        </div>
+        <div>
+          <dt>What it can change</dt>
+          <dd>{request.sideEffects}</dd>
+        </div>
         {request.tool && (
-          <>
-            <dt>On this deployment</dt>
+          <div>
+            <dt>In your organization</dt>
             <dd>{toolSentence(request.tool)}</dd>
-          </>
+          </div>
         )}
-        <dt>Left out if you decline</dt>
-        <dd>{request.neededBy.join(', ')}</dd>
+        <div>
+          <dt>Left out if you decline</dt>
+          <dd>{request.neededBy.join(', ')}</dd>
+        </div>
       </dl>
+      <details className="gap-above-small">
+        <summary>Technical details</summary>
+        <p className="gap-above-small">
+          Exact name: <code>{request.subject}</code>
+        </p>
+      </details>
       {canDecide && (
         <div className="row gap-above">
           <form action={decidePackCapabilityAction}>
             {hidden('accepted')}
-            <SubmitButton className="quiet" label={`Accept ${request.subject}`}>
+            <SubmitButton className="secondary" label={`Accept ${request.subject}`}>
               Accept
             </SubmitButton>
           </form>
           <form action={decidePackCapabilityAction}>
             {hidden('declined')}
-            <SubmitButton className="quiet" label={`Decline ${request.subject}`}>
+            <SubmitButton className="ghost" label={`Decline ${request.subject}`}>
               Decline
             </SubmitButton>
           </form>

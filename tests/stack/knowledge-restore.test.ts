@@ -209,12 +209,13 @@ describe('knowledge survives a real database restore as a closed source', () => 
       // The ledger is the stack's own and holds every earlier suite's deletions too, so a failure is
       // named by its codes (never a key or a name) and the next run says which entry kind failed.
       const failures: string[] = [];
+      const replayer = openAppDatabase(urls.worker());
       const applied = await reapplyTombstoneLedger(
-        database.db,
-        store,
+        replayer.db,
+        withRawKnowledgeObjects({ database: replayer.db, store: transport }),
         createServiceContext,
         (error) => failures.push(failureCodes(error)),
-      );
+      ).finally(() => replayer.close());
       expect(applied.failed, failures.join('; ')).toBe(0);
       expect(applied.tombstonesAdded).toBeGreaterThanOrEqual(1);
       const [closed] = await withTenantTx(database.db, service, (tx) =>

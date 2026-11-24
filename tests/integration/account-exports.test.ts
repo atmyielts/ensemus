@@ -66,6 +66,7 @@ const collect = async (chunks: AsyncIterable<Buffer>) => {
 };
 describe('account-only M6 exports while suspended', () => {
   const database = openAppDatabase(urls.app()),
+    serviceDatabase = openAppDatabase(urls.worker()),
     recipient = testRecipient(),
     store = new Store(),
     deps = {
@@ -95,7 +96,10 @@ describe('account-only M6 exports while suspended', () => {
     );
     owner = await nativePersonContext(database.db, world.a.owner, world.a.organizationId);
   });
-  afterAll(() => database.close());
+  afterAll(async () => {
+    await database.close();
+    await serviceDatabase.close();
+  });
   it('requests and lists a real export in suspended standing without changing the original context', async () => {
     expect(owner.serving).toBe('suspended');
     const requested = await requestAccountExport(database.db, owner, {
@@ -154,14 +158,14 @@ describe('account-only M6 exports while suspended', () => {
   });
   it('uses actual M6 section/manifest proof and downloads sealed bytes while still suspended', async () => {
     const worker = createServiceContext(owner.organizationId);
-    let step = await beginExport(database.db, worker, { exportId }, deps),
+    let step = await beginExport(serviceDatabase.db, worker, { exportId }, deps),
       count = 0;
     while (step.state === 'continue' && count++ < 250)
-      step = await exportNextBatch(database.db, store, worker, { exportId }, deps);
+      step = await exportNextBatch(serviceDatabase.db, store, worker, { exportId }, deps);
     expect(step.state).toBe('finished');
-    step = await finishExport(database.db, store, worker, { exportId }, deps);
+    step = await finishExport(serviceDatabase.db, store, worker, { exportId }, deps);
     while (step.state === 'continue' && count++ < 350)
-      step = await finishExport(database.db, store, worker, { exportId }, deps);
+      step = await finishExport(serviceDatabase.db, store, worker, { exportId }, deps);
     expect(step.state).toBe('finished');
     expect((await getAccountExport(database.db, owner, exportId)).status).toBe('ready');
     let transactions = 0;

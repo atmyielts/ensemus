@@ -66,6 +66,9 @@
 - [ADR-028: governed AI](00-foundation/adr/ADR-028-governed-ai.md)
 - [ADR-031: full product depth](00-foundation/adr/ADR-031-full-product-depth.md)
 - [ADR-032: SaaS operations and billing](00-foundation/adr/ADR-032-saas-operations-and-billing.md)
+- [ADR-036: release readiness: parity suite, guides and license inventory](00-foundation/adr/ADR-036-release-readiness.md)
+- [Guides for people using Ensemus and for operators](guides/README.md)
+- [ADR-035: cross-organization work, dedicated tenants and regions](00-foundation/adr/ADR-035-cross-org-tenants-regions.md)
 - [Document governance and implementation discipline](00-foundation/04-doc-governance.md)
 
 ### Product and commercial UX
@@ -122,6 +125,7 @@
 - [Efficiency, cost controls, and capacity planning](05-operations/04-cost-and-capacity.md)
 - [Container-first runbook (reference design, not runnable product)](05-operations/05-container-deployment-runbook.md)
 - [Performance, load and chaos test plan](05-operations/06-performance-and-load-plan.md)
+- [Image size and rebuild disk use: Dockerfile guidance](05-operations/07-image-size-and-rebuild-guidance.md)
 
 ### Engineering delivery
 

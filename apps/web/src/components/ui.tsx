@@ -1,8 +1,14 @@
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { BrandIdentity } from '@/components/brand-identity';
+import { ThemeToggle } from '@/components/theme-toggle';
 // Shared display pieces (UX-11). Copy follows the spec's employee-facing terms: "work", "approval"
 // and plain status words, never internal names.
 import Link from 'next/link';
 import { messageFor } from '@/lib/messages';
 import type { ReactNode } from 'react';
+import { LocalTime } from './local-time';
 import { NavigationIcon } from './navigation-icon';
 import type { NavigationIcon as NavigationIconName } from './navigation-model';
 
@@ -56,6 +62,13 @@ const STATUS: Record<string, { label: string; tone: string }> = {
   draft: { label: 'Draft', tone: '' },
   editing: { label: 'Draft', tone: '' },
   in_review: { label: 'In review', tone: 'attention' },
+  submitted: { label: 'Submitted', tone: 'attention' },
+  withdrawn: { label: 'Withdrawn', tone: '' },
+  suspended: { label: 'Suspended', tone: 'bad' },
+  requested: { label: 'Requested', tone: 'attention' },
+  installing: { label: 'Installing', tone: 'active' },
+  installed: { label: 'Installed', tone: 'done' },
+  removed: { label: 'Removed', tone: '' },
   published: { label: 'Published', tone: 'done' },
   archived: { label: 'Archived', tone: '' },
   passed: { label: 'Passed', tone: 'done' },
@@ -74,7 +87,21 @@ export function personLabel(person: { name: string; email: string | null }) {
 
 export function StatusBadge({ status }: { status: string }) {
   const known = STATUS[status] ?? { label: status, tone: '' };
-  return <span className={`badge ${known.tone}`}>{known.label}</span>;
+  const tone: Record<string, string> = {
+    active: 'bg-[var(--active-soft)] text-[var(--active)]',
+    attention: 'bg-[var(--warn-soft)] text-[var(--warn)]',
+    done: 'bg-[var(--good-soft)] text-[var(--good)]',
+    bad: 'bg-[var(--danger-soft)] text-[var(--danger)]',
+    unknown: 'bg-[var(--unknown-soft)] text-[var(--unknown)]',
+  };
+  return (
+    <Badge
+      variant="outline"
+      className={`badge ${known.tone} border-transparent max-w-full whitespace-normal ${tone[known.tone] ?? 'bg-secondary text-muted-foreground'}`}
+    >
+      {known.label}
+    </Badge>
+  );
 }
 
 const CLASSIFICATION: Record<string, string> = {
@@ -84,17 +111,28 @@ const CLASSIFICATION: Record<string, string> = {
   restricted: 'Restricted',
 };
 
+/** Who can see something. A label, not a status, so it is drawn as an outline without a dot. */
 export function ClassificationBadge({ value }: { value: string }) {
-  const tone = value === 'restricted' || value === 'confidential' ? 'attention' : '';
-  return <span className={`badge ${tone}`}>{CLASSIFICATION[value] ?? value}</span>;
+  const tone = value === 'restricted' || value === 'confidential' ? ' attention' : '';
+  return (
+    <Badge
+      variant="outline"
+      className={`badge tag${tone} max-w-full whitespace-normal ${tone ? 'text-[var(--warn)]' : 'text-muted-foreground'}`}
+    >
+      {CLASSIFICATION[value] ?? value}
+    </Badge>
+  );
 }
 
 /** The product's name, above the pages shown outside an organization. */
 export function Wordmark() {
   return (
-    <Link className="wordmark" href="/">
-      Ensemus
-    </Link>
+    <div className="wordmark">
+      <Link className="inline-flex items-center gap-2.5 text-foreground no-underline" href="/">
+        <BrandIdentity />
+      </Link>
+      <ThemeToggle />
+    </div>
   );
 }
 
@@ -104,7 +142,7 @@ export function PageHead({
   actions,
 }: {
   title: string;
-  description?: string;
+  description?: ReactNode;
   actions?: ReactNode;
 }) {
   return (
@@ -122,9 +160,9 @@ export function PageHead({
 export function ErrorNotice({ code }: { code?: string | undefined }) {
   if (!code) return null;
   return (
-    <p className="notice error" role="alert">
-      {messageFor(code)}
-    </p>
+    <Alert variant="destructive" className="border-destructive/35 bg-destructive/5">
+      <AlertDescription className="text-destructive">{messageFor(code)}</AlertDescription>
+    </Alert>
   );
 }
 
@@ -205,14 +243,15 @@ export function ActionLink({
   target?: '_blank' | undefined;
 }) {
   return (
-    <Link
-      className={`button${variant === 'primary' ? '' : ` ${variant === 'quiet' ? 'ghost' : variant}`}`}
-      href={href}
-      target={target}
-      rel={target === '_blank' ? 'noopener' : undefined}
+    <Button
+      asChild
+      variant={variant === 'primary' ? 'default' : variant === 'quiet' ? 'ghost' : 'outline'}
+      className="h-10 whitespace-normal text-center px-4"
     >
-      {children}
-    </Link>
+      <Link href={href} target={target} rel={target === '_blank' ? 'noopener' : undefined}>
+        {children}
+      </Link>
+    </Button>
   );
 }
 
@@ -226,14 +265,11 @@ export function ReloadLink({ href, children }: { href: string; children: ReactNo
 }
 
 const dateFormat = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeZone: 'UTC' });
-const dateTimeFormat = new Intl.DateTimeFormat('en-GB', {
-  dateStyle: 'medium',
-  timeStyle: 'short',
-  timeZone: 'UTC',
-});
 
+/** A calendar day, such as a due date. Days are stored as whole UTC days, so they are shown as that day. */
 export const formatDate = (value: Date) => dateFormat.format(value);
-export const formatDateTime = (value: Date) => `${dateTimeFormat.format(value)} UTC`;
+/** A moment, shown in the reader's own time zone once the page is in the browser (UTC without JavaScript). */
+export const formatDateTime = (value: Date) => <LocalTime iso={value.toISOString()} />;
 
 export function formatBytes(size: number) {
   if (size < 1024) return `${size} B`;

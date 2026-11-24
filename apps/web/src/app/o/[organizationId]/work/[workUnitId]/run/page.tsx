@@ -1,3 +1,6 @@
+import { Card } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
 import { randomUUID } from 'node:crypto';
 import { listDirectory } from '@ensemus/application';
 import {
@@ -14,7 +17,14 @@ import { Suspense } from 'react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { SubmitButton } from '@/components/submit-button';
-import { ClassificationBadge, Empty, ErrorNotice, formatDateTime, PageHead } from '@/components/ui';
+import {
+  BackLink,
+  ClassificationBadge,
+  Empty,
+  ErrorNotice,
+  formatDateTime,
+  PageHead,
+} from '@/components/ui';
 import { orNotFound, requireTenant } from '@/server/tenant';
 import { controlRunAction, startRunAction } from './actions';
 import {
@@ -33,7 +43,7 @@ import { RunLoading } from './run-loading';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export const metadata: Metadata = { title: 'Agent run | Ensemus' };
+export const metadata: Metadata = { title: 'Assistant activity | Ensemus' };
 
 const CONTROL_LABEL: Record<RunControlKind, string> = {
   stop: 'Stop this run',
@@ -64,16 +74,16 @@ function StartForm({
       <input type="hidden" name="organizationId" value={organizationId} />
       <input type="hidden" name="workUnitId" value={workUnitId} />
       <input type="hidden" name="requestKey" value={randomUUID()} />
-      <label>
-        Agent
-        <select name="agentVersionId" required>
+      <Label>
+        Assistant
+        <NativeSelect name="agentVersionId" required>
           {agents.map((agent) => (
             <option key={agent.versionId} value={agent.versionId}>
               {agent.name} (version {agent.versionNumber})
             </option>
           ))}
-        </select>
-      </label>
+        </NativeSelect>
+      </Label>
       <p className="muted">
         It works with your access and no more, within the limits set when it was published. Anything
         it wants to send outside Ensemus needs someone’s approval first.
@@ -97,7 +107,7 @@ function RunFacts({ run, startedBy }: { run: RunSummary; startedBy: string }) {
         </dd>
       </div>
       <div>
-        <dt>Agent</dt>
+        <dt>Assistant</dt>
         <dd>
           {run.agentName} (version {run.versionNumber})
         </dd>
@@ -107,23 +117,9 @@ function RunFacts({ run, startedBy }: { run: RunSummary; startedBy: string }) {
         <dd>{startedBy}</dd>
       </div>
       <div>
-        <dt>Sensitivity of what it has read</dt>
+        <dt>Who can see what it has read</dt>
         <dd>
           <ClassificationBadge value={view.effective_classification} />
-        </dd>
-      </div>
-      <div>
-        <dt>Steps</dt>
-        <dd>{view.model_turns}</dd>
-      </div>
-      <div>
-        <dt>Tool uses</dt>
-        <dd>{view.tool_calls}</dd>
-      </div>
-      <div>
-        <dt>Tokens in and out</dt>
-        <dd>
-          {view.input_tokens} in, {view.output_tokens} out
         </dd>
       </div>
       <div>
@@ -144,6 +140,32 @@ function RunFacts({ run, startedBy }: { run: RunSummary; startedBy: string }) {
         </div>
       )}
     </dl>
+  );
+}
+
+/** Counts a builder looks for, kept out of the way of everyone else. */
+function RunCounts({ run }: { run: RunSummary }) {
+  const { view } = run;
+  return (
+    <details className="gap-above">
+      <summary>Technical details</summary>
+      <dl className="facts gap-above">
+        <div>
+          <dt>Model steps</dt>
+          <dd>{view.model_turns}</dd>
+        </div>
+        <div>
+          <dt>Tool uses</dt>
+          <dd>{view.tool_calls}</dd>
+        </div>
+        <div>
+          <dt>Tokens in and out</dt>
+          <dd>
+            {view.input_tokens} in, {view.output_tokens} out
+          </dd>
+        </div>
+      </dl>
+    </details>
   );
 }
 
@@ -229,118 +251,131 @@ async function AgentRunContent({
       />
     ) : (
       <p className="muted">
-        No agent has been published yet, so there is nothing to start. Someone who manages agents
-        has to publish one first.
+        No assistant has been published yet, so there is nothing to start. Someone who manages
+        assistants has to publish one first.
       </p>
     )
   ) : null;
 
   return (
     <>
-      <p className="back">
-        <Link href={`/o/${organizationId}/work/${work.id}`}>Back to the work</Link>
-      </p>
-      <PageHead title={`Agent on ${work.title}`} />
+      <BackLink href={`/o/${organizationId}/work/${work.id}`}>Back to the work</BackLink>
+      <PageHead
+        title="Assistant activity"
+        description={`What assistants have done on “${work.title}”, and starting a new run.`}
+      />
       <ErrorNotice code={error} />
       <div className="stack">
         {selected && words ? (
-          <section className="card" aria-labelledby="run-heading">
-            <h2 id="run-heading">
-              {live ? 'This run' : selected === latest ? 'Last run' : 'An earlier run'}
-            </h2>
-            {live && (
-              <RunWatcher
-                runUrl={`/api/v1/organizations/${organizationId}/agent-runs/${selected.view.id}`}
-                stepsUrl={`/api/v1/organizations/${organizationId}/agent-runs/${selected.view.id}/steps`}
-                signature={runSignature(selected.view, steps)}
-              />
-            )}
-            <p>{words.note}</p>
-            {selected.view.stop_code && <p>{stopReason(selected.view.stop_code)}</p>}
-            {pending && (
-              <p className="notice warn" role="status">
-                {pending}
-              </p>
-            )}
-            <RunFacts run={selected} startedBy={startedBy} />
-            {controls.length > 0 && (
-              <div className="row gap-above">
-                {controls.map((kind) => (
-                  <form key={kind} action={controlRunAction}>
-                    <input type="hidden" name="organizationId" value={organizationId} />
-                    <input type="hidden" name="workUnitId" value={work.id} />
-                    <input type="hidden" name="agentRunId" value={selected.view.id} />
-                    <input type="hidden" name="kind" value={kind} />
-                    <SubmitButton
-                      className={kind === 'stop' ? 'danger' : 'quiet'}
-                      working="Recording that"
-                    >
-                      {CONTROL_LABEL[kind]}
-                    </SubmitButton>
-                  </form>
-                ))}
-              </div>
-            )}
-            {live && (
-              <p className="muted gap-above">
-                This page keeps itself up to date. <Link href={page}>Check again</Link>
-              </p>
-            )}
-          </section>
+          <Card asChild>
+            <section className="card" aria-labelledby="run-heading">
+              <h2 id="run-heading">
+                {live ? 'This run' : selected === latest ? 'Last run' : 'An earlier run'}
+              </h2>
+              {live && (
+                <RunWatcher
+                  runUrl={`/api/v1/organizations/${organizationId}/agent-runs/${selected.view.id}`}
+                  stepsUrl={`/api/v1/organizations/${organizationId}/agent-runs/${selected.view.id}/steps`}
+                  signature={runSignature(selected.view, steps)}
+                />
+              )}
+              <p>{words.note}</p>
+              {selected.view.stop_code && <p>{stopReason(selected.view.stop_code)}</p>}
+              {pending && (
+                <p className="notice warn" role="status">
+                  {pending}
+                </p>
+              )}
+              <RunFacts run={selected} startedBy={startedBy} />
+              <RunCounts run={selected} />
+              {controls.length > 0 && (
+                <div className="row gap-above">
+                  {controls.map((kind) => (
+                    <form key={kind} action={controlRunAction}>
+                      <input type="hidden" name="organizationId" value={organizationId} />
+                      <input type="hidden" name="workUnitId" value={work.id} />
+                      <input type="hidden" name="agentRunId" value={selected.view.id} />
+                      <input type="hidden" name="kind" value={kind} />
+                      <SubmitButton
+                        className={kind === 'stop' ? 'danger' : 'secondary'}
+                        working="Recording that"
+                      >
+                        {CONTROL_LABEL[kind]}
+                      </SubmitButton>
+                    </form>
+                  ))}
+                </div>
+              )}
+              {live && (
+                <p className="muted gap-above">
+                  This page keeps itself up to date. <Link href={page}>Check again</Link>
+                </p>
+              )}
+            </section>
+          </Card>
         ) : (
-          <Empty>No agent has run on this work yet.</Empty>
+          <Empty title="Nothing has run yet">
+            No assistant has run on this work yet.
+            {start ? ' You can start one below.' : ''}
+          </Empty>
         )}
 
         {selected && (
-          <section className="card" aria-labelledby="steps-heading">
-            <h2 id="steps-heading">What it did</h2>
-            <p className="muted">
-              This shows what kind of step each one was. What the model read and wrote is not kept
-              here, and it is deleted when the run ends.
-            </p>
-            {steps.length === 0 ? (
-              <Empty>No steps yet.</Empty>
-            ) : (
-              <ol className="list">
-                {steps.map((step) => {
-                  const note = stepNote(step);
-                  return (
-                    <li key={step.step_number} className="block">
-                      <div className="row">
-                        <span>{stepLabel(step.label_code)}</span>
-                        <span className="muted">{stepStateWords(step.state, live)}</span>
-                        <span className="muted">{when(step.started_at)}</span>
-                      </div>
-                      {note && <p className="muted">{note}</p>}
-                    </li>
-                  );
-                })}
-              </ol>
-            )}
-          </section>
+          <Card asChild>
+            <section className="card" aria-labelledby="steps-heading">
+              <h2 id="steps-heading">What it did</h2>
+              <p className="muted">
+                This shows what kind of step each one was. What the model read and wrote is not kept
+                here, and it is deleted when the run ends.
+              </p>
+              {steps.length === 0 ? (
+                <Empty>No steps yet.</Empty>
+              ) : (
+                <ol className="list">
+                  {steps.map((step) => {
+                    const note = stepNote(step);
+                    return (
+                      <li key={step.step_number} className="block">
+                        <div className="row">
+                          <span>{stepLabel(step.label_code)}</span>
+                          <span className="muted">{stepStateWords(step.state, live)}</span>
+                          <span className="muted">{when(step.started_at)}</span>
+                        </div>
+                        {note && <p className="muted">{note}</p>}
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+            </section>
+          </Card>
         )}
 
         {start && (
-          <section className="card" aria-labelledby="start-heading">
-            <h2 id="start-heading">{runs.length > 0 ? 'Try again' : 'Start'}</h2>
-            {start}
-          </section>
+          <Card asChild>
+            <section className="card" aria-labelledby="start-heading">
+              <h2 id="start-heading">{runs.length > 0 ? 'Try again' : 'Start'}</h2>
+              {start}
+            </section>
+          </Card>
         )}
 
         {earlier.length > 0 && (
-          <section className="card" aria-labelledby="earlier-heading">
-            <h2 id="earlier-heading">Other runs on this work</h2>
-            <ul className="list">
-              {earlier.map((run) => (
-                <li key={run.view.id}>
-                  <Link href={`${page}?run=${run.view.id}`}>
-                    {run.agentName}, requested {when(run.view.created_at)}
-                  </Link>
-                  <RunBadge status={run.view.status} />
-                </li>
-              ))}
-            </ul>
-          </section>
+          <Card asChild>
+            <section className="card" aria-labelledby="earlier-heading">
+              <h2 id="earlier-heading">Other runs on this work</h2>
+              <ul className="list">
+                {earlier.map((run) => (
+                  <li key={run.view.id}>
+                    <Link href={`${page}?run=${run.view.id}`}>
+                      {run.agentName}, requested {when(run.view.created_at)}
+                    </Link>
+                    <RunBadge status={run.view.status} />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          </Card>
         )}
       </div>
     </>

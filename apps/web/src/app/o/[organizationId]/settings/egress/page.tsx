@@ -1,10 +1,27 @@
+import { Card } from '@/components/ui/card';
+import {
+  Table,
+  TableCaption,
+  TableHeader,
+  TableRow,
+  TableHead,
+  TableBody,
+  TableCell,
+} from '@/components/ui/table';
 import { AppError } from '@ensemus/application';
 import { listEgressLedger } from '@ensemus/application/knowledge/egress';
 import { can } from '@ensemus/domain/policy';
 import Link from 'next/link';
 import { KnowledgeForm } from '@/components/knowledge-form';
 import { KNOWLEDGE_CLASSES } from '@/components/knowledge-view';
-import { PageHead, Empty, ErrorNotice, ClassificationBadge, formatDateTime } from '@/components/ui';
+import {
+  BackLink,
+  ClassificationBadge,
+  Empty,
+  ErrorNotice,
+  formatDateTime,
+  PageHead,
+} from '@/components/ui';
 import { simulateKnowledgeEgressAction } from '@/server/knowledge-actions';
 import { getKnowledgeReadPorts } from '@/server/knowledge-ports';
 import { requireTenant } from '@/server/tenant';
@@ -39,86 +56,97 @@ export default async function EgressPage({
   });
   return (
     <>
-      <Link href={`/o/${organizationId}/settings`}>Back to administration</Link>
+      <BackLink href={`/o/${organizationId}/settings`}>Back to administration</BackLink>
       <PageHead
         title="Model data sharing"
-        description="See recorded model decisions, and compare a proposed provider without sending company data."
+        description="Each time company information was sent to an AI model, or held back, and why. You can also check a proposed AI model arrangement without sending anything."
       />
       <ErrorNotice code={error} />
       {ports.coverage !== 'complete' && (
         <p className="notice">
-          The table currently covers knowledge calls only. Assistant-run sharing history and full
-          policy comparison are unavailable on this build. Simulation cannot confirm any
-          transmission while that information is unavailable.
+          This record covers knowledge (search and answers) only for now. Assistant runs are not
+          included yet, so a comparison cannot confirm what would be sent for them.
         </p>
       )}
-      <section className="stack">
-        <h2>Recorded decisions</h2>
-        <a
-          href={
-            '/api/v1/organizations/' +
-            organizationId +
-            '/egress-ledger' +
-            (cursor ? '?cursor=' + encodeURIComponent(cursor) : '')
-          }
-          download="model-sharing-decisions.json"
-        >
-          Download these decisions as JSON
-        </a>
-        {!page.items.length ? (
-          <Empty>No model decisions are recorded in the available ledger.</Empty>
-        ) : (
-          <div className="table-wrap">
-            <table>
-              <caption>Model transmission decisions</caption>
-              <thead>
-                <tr>
-                  <th scope="col">When</th>
-                  <th scope="col">Purpose</th>
-                  <th scope="col">Sensitivity</th>
-                  <th scope="col">Destination</th>
-                  <th scope="col">Decision</th>
-                </tr>
-              </thead>
-              <tbody>
-                {page.items.map((row) => (
-                  <tr key={row.id}>
-                    <td>{formatDateTime(row.occurredAt)}</td>
-                    <td>
-                      {(
-                        {
-                          embed: 'Search indexing',
-                          rerank: 'Passage ranking',
-                          answer: 'Answer',
-                          agent_run: 'Assistant run',
-                        } as Record<string, string>
-                      )[row.purpose] ?? row.purpose}
-                    </td>
-                    <td>
-                      <ClassificationBadge value={row.dataClass} />
-                    </td>
-                    <td>{row.destinationHost ?? 'No destination selected'}</td>
-                    <td>
-                      {row.decision === 'allow' ? 'Allowed' : 'Refused'}
-                      <details>
-                        <summary>Decision details</summary>
-                        <p>
-                          {row.reasonCode} · Policy {row.policyVersion}
-                        </p>
-                        {row.requestSha256 && <p>Request digest: {row.requestSha256}</p>}
-                      </details>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <Card asChild>
+        <section className="card stack" aria-labelledby="decisions-heading">
+          <div className="spread">
+            <h2 id="decisions-heading">Recorded decisions</h2>
+            <a
+              className="button secondary"
+              href={
+                '/api/v1/organizations/' +
+                organizationId +
+                '/egress-ledger' +
+                (cursor ? '?cursor=' + encodeURIComponent(cursor) : '')
+              }
+              download="model-sharing-decisions.json"
+            >
+              Download these decisions as JSON
+            </a>
           </div>
-        )}
-        {page.next && (
-          <Link href={`?cursor=${encodeURIComponent(page.next)}`}>Earlier decisions</Link>
-        )}
-      </section>
-      <details>
+          {!page.items.length ? (
+            <Empty title="Nothing recorded yet">
+              When company information is sent to an AI model, or held back, the decision is
+              recorded here.
+            </Empty>
+          ) : (
+            <div className="table-wrap">
+              <Table>
+                <TableCaption className="visually-hidden">
+                  Model transmission decisions
+                </TableCaption>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead scope="col">When</TableHead>
+                    <TableHead scope="col">Purpose</TableHead>
+                    <TableHead scope="col">Who can see it</TableHead>
+                    <TableHead scope="col">Sent to</TableHead>
+                    <TableHead scope="col">Decision</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {page.items.map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell>{formatDateTime(row.occurredAt)}</TableCell>
+                      <TableCell>
+                        {(
+                          {
+                            embed: 'Search indexing',
+                            rerank: 'Passage ranking',
+                            answer: 'Answer',
+                            agent_run: 'Assistant run',
+                          } as Record<string, string>
+                        )[row.purpose] ?? row.purpose}
+                      </TableCell>
+                      <TableCell>
+                        <ClassificationBadge value={row.dataClass} />
+                      </TableCell>
+                      <TableCell>{row.destinationHost ?? 'No destination selected'}</TableCell>
+                      <TableCell>
+                        {row.decision === 'allow' ? 'Allowed' : 'Refused'}
+                        <details>
+                          <summary>Technical details</summary>
+                          <p>
+                            {row.reasonCode} · Policy {row.policyVersion}
+                          </p>
+                          {row.requestSha256 && <p>Request digest: {row.requestSha256}</p>}
+                        </details>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+          {page.next && (
+            <p className="link-line">
+              <Link href={`?cursor=${encodeURIComponent(page.next)}`}>Earlier decisions</Link>
+            </p>
+          )}
+        </section>
+      </Card>
+      <details className="card gap-above-large">
         <summary>Compare a proposed provider</summary>
         <KnowledgeForm
           action={simulateKnowledgeEgressAction}

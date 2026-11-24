@@ -194,6 +194,7 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
     const calls = createKnowledgeCallStore(agent.db);
     let sends = 0;
     const gateway = createKnowledgeModelGateway({
+      residency: { check: async () => ({ allowed: true, requiredRegion: null }) },
       store: calls,
       entitlements: createEntitlements(agent.db),
       credentials: {

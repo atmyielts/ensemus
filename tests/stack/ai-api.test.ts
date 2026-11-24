@@ -6,6 +6,7 @@ import { openAppDatabase, type TenantContext } from '@ensemus/database';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { assuranceSpec, syntheticCases } from '../../evaluations/agents/fixtures';
 import { evaluateScripted } from '../../evaluations/agents/harness';
+import { stackEvaluationSigner } from '../helpers/ai/evaluation';
 import { openAgentTestDatabase, seedActiveProfile, seedRateCard } from '../helpers/ai/fixtures';
 import { createOrganization, signUp, type Person } from '../helpers/forms';
 import { enrollAuthenticator, nativeStackContext } from '../helpers/native-mfa';
@@ -136,11 +137,13 @@ describe.skipIf(!enabled)('governed AI public API', () => {
       spec: assuranceSpec,
       policyVersion: await getAgentPolicyVersion(app.db, context),
       cases: syntheticCases(),
+      // Signed as CI would sign it. The spec is a sandbox agent, so a scripted report may publish it.
+      signer: stackEvaluationSigner(),
     });
     expect(evaluation.report.passed).toBe(true);
     const version = await call(owner, 'POST', `${root}/agent-versions`, 201, {
       spec: assuranceSpec,
-      evaluation_report: evaluation.report,
+      evaluation_report: evaluation.attestation,
     });
     versionId = (version.json as { id: string }).id;
     await call(owner, 'GET', `${root}/agent-versions`, 200);

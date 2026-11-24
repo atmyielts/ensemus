@@ -7,7 +7,7 @@ test('account navigation and billing details work without JavaScript', async ({ 
   await page.getByRole('link', { name: 'Billing and subscription' }).click();
   await page.getByLabel('Billing name', { exact: true }).fill('Test account');
   await page.getByLabel('Billing email', { exact: true }).fill('billing@example.invalid');
-  await page.getByLabel('Country code').fill('XX');
+  await page.getByLabel('Country', { exact: true }).fill('XX');
   await page.getByRole('button', { name: 'Save billing details' }).click();
   await expect(
     page.getByRole('status').filter({ hasText: 'Billing details saved.' }),

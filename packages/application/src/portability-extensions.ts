@@ -4,15 +4,29 @@ import { createHash } from 'node:crypto';
 import {
   extensionRecordSchema,
   EXTENSION_SECTION_KINDS,
-  M7_PORTABLE_RECORD_KINDS,
+  assertPortableExtensionProfile,
   type ExtensionRecord,
 } from '@ensemus/contracts/portability-records';
 import {
-  PORTABILITY_INVENTORY,
+  BUSINESS_RECORD_PORTABILITY_VERSION,
+  MEETING_CONFIGURATION_PORTABILITY_VERSION,
+  MEETING_HISTORY_PORTABILITY_VERSION,
+  MARKETPLACE_PUBLISHER_PORTABILITY_VERSION,
+  SKILL_METADATA_PORTABILITY_VERSION,
+  MARKETPLACE_HISTORY_PORTABILITY_INVENTORY,
+  MARKETPLACE_HISTORY_PORTABILITY_VERSION,
+  SANDBOX_HISTORY_PORTABILITY_VERSION,
+  SKILL_BUNDLE_PORTABILITY_VERSION,
+  carriesSkillBundleOriginals,
+  RESIDENCY_PORTABILITY_VERSION,
+  SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION,
+  PORTABILITY_INVENTORY_PROFILES,
   PORTABILITY_INVENTORY_VERSION,
+  type JoinedPortabilityVersion,
   MAX_JOINED_RECORD_BYTES,
   type ExportSection,
 } from '@ensemus/domain/portability';
+import { skillBundleObjectKey } from '@ensemus/domain/skill';
 import { assertPortableDefinitionIntegrity } from '@ensemus/domain/portable-definition';
 import { sql } from 'drizzle-orm';
 import { withTenantTx, type AppDatabase, type TenantContext, type Tx } from '@ensemus/database';
@@ -21,6 +35,8 @@ import { RecordRefused } from './portability-sections-import';
 import { CORE_PORTABILITY_SECTIONS } from './portability-sections';
 import { queryRows } from './portability-sql';
 import { M7_PORTABLE_READERS, type PortableReader } from './portability-m7-readers';
+import { MEETING_HISTORY_READERS } from './portability-meeting-readers';
+import { PENDING_PORTABILITY_TABLES } from './portability-pending-modules';
 
 const portableId = (text: string) => {
   const hex = createHash('sha256').update(text).digest('hex');
@@ -31,6 +47,188 @@ const instant = (column: string) =>
 const nullableInstant = (column: string) =>
   `CASE WHEN ${column} IS NULL THEN NULL ELSE ${instant(column)} END`;
 const viewer = `sovereign.portable_export_viewer()`;
+const catalogReaders: readonly PortableReader[] = [
+  {
+    table: 'skills.packages',
+    kind: 'skill_package_metadata',
+    where: "t.origin='tenant'",
+    fields: {
+      id: 't.id',
+      name: 't.name',
+      display_name: 't.display_name',
+      classification: 't.content_classification',
+      state: 't.state',
+      owner_membership_id: 't.owner_membership_id',
+      version: 't.version',
+      created_at: instant('t.created_at'),
+      updated_at: instant('t.updated_at'),
+    },
+  },
+  {
+    table: 'skills.trusted_signers',
+    kind: 'skill_signer_metadata',
+    fields: {
+      id: 't.id',
+      display_name: 't.display_name',
+      key_id: 't.key_id',
+      public_key_hex: "encode(t.public_key, 'hex')",
+      state: 't.state',
+      created_at: instant('t.created_at'),
+      revoked_at: nullableInstant('t.revoked_at'),
+    },
+  },
+];
+const failedInstallationReader: PortableReader = {
+  table: 'marketplace.installations',
+  kind: 'marketplace_failed_installation',
+  fields: {
+    id: 't.id',
+    listing_id: 't.listing_id',
+    requested_by_membership_id: 't.requested_by_membership_id',
+    failure_code: 't.failure_code',
+    state: 't.state',
+    created_at: instant('t.created_at'),
+    updated_at: instant('t.updated_at'),
+  },
+};
+const legacyCatalogReaders = [...catalogReaders, failedInstallationReader];
+const publisherHistoryReader: PortableReader = {
+  table: 'marketplace.publishers',
+  kind: 'marketplace_publisher_history',
+  fields: {
+    id: 't.id',
+    display_name: 't.display_name',
+    state: 't.state',
+    version: 't.version::text',
+    created_at: instant('t.created_at'),
+    updated_at: instant('t.updated_at'),
+  },
+};
+const publisherReaders = [...legacyCatalogReaders, publisherHistoryReader];
+const sandboxRunReceiptReader: PortableReader = {
+  table: 'sovereign.portable_sandbox_run_receipts',
+  kind: 'sandbox_run_receipt',
+  fields: {
+    id: 't.id',
+    skill_version_id: 't.skill_version_id',
+    purpose: 't.purpose',
+    status: 't.status',
+    attempts: 't.attempts',
+    created_at: instant('t.created_at'),
+    finished_at: instant('t.finished_at'),
+  },
+};
+const marketplaceHistoryReaders: readonly PortableReader[] = [
+  {
+    table: 'sovereign.portable_marketplace_submissions',
+    kind: 'marketplace_submission_history',
+    fields: {
+      id: 't.id',
+      publisher_id: 't.publisher_id',
+      package_id: 't.package_id',
+      skill_version_id: 't.skill_version_id',
+      name: 't.name',
+      semver: 't.semver',
+      state: 't.state',
+      created_at: instant('t.created_at'),
+      decided_at: nullableInstant('t.decided_at'),
+      delist_requested_at: nullableInstant('t.delist_requested_at'),
+    },
+  },
+  {
+    table: 'sovereign.portable_marketplace_listings',
+    kind: 'marketplace_listing_history',
+    fields: {
+      id: 't.id',
+      publisher_id: 't.publisher_id',
+      submission_id: 't.submission_id',
+      review_id: 't.review_id',
+      display_name: 't.display_name',
+      summary: 't.summary',
+      semver: 't.semver',
+      state: 't.state',
+      delist_mode: 't.delist_mode',
+      delist_code: 't.delist_code',
+      listed_at: instant('t.listed_at'),
+      delisted_at: nullableInstant('t.delisted_at'),
+    },
+  },
+  {
+    table: 'sovereign.portable_marketplace_reviews',
+    kind: 'marketplace_review_history',
+    fields: {
+      id: 't.id',
+      submission_id: 't.submission_id',
+      verdict: 't.verdict',
+      finding_codes: 't.finding_codes',
+      decided_at: instant('t.decided_at'),
+      recorded_at: instant('t.recorded_at'),
+    },
+  },
+];
+
+const skillReadersByProfile: Partial<Record<JoinedPortabilityVersion, readonly PortableReader[]>> =
+  {
+    [SKILL_METADATA_PORTABILITY_VERSION]: legacyCatalogReaders,
+    [MARKETPLACE_PUBLISHER_PORTABILITY_VERSION]: publisherReaders,
+    [MEETING_CONFIGURATION_PORTABILITY_VERSION]: publisherReaders,
+    [MEETING_HISTORY_PORTABILITY_VERSION]: publisherReaders,
+    [BUSINESS_RECORD_PORTABILITY_VERSION]: publisherReaders,
+    [SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION]: publisherReaders,
+    [RESIDENCY_PORTABILITY_VERSION]: publisherReaders,
+    [SKILL_BUNDLE_PORTABILITY_VERSION]: publisherReaders,
+    [SANDBOX_HISTORY_PORTABILITY_VERSION]: [...publisherReaders, sandboxRunReceiptReader],
+    [MARKETPLACE_HISTORY_PORTABILITY_VERSION]: [
+      ...catalogReaders,
+      publisherHistoryReader,
+      sandboxRunReceiptReader,
+      ...marketplaceHistoryReaders,
+    ],
+  };
+const residencyRequirementReader: PortableReader = {
+  table: 'sovereign.portable_residency_requirements',
+  kind: 'residency_requirement',
+  key: "t.organization_id::text||':'||t.scope",
+  fields: {
+    scope: 't.scope',
+    region: 't.region',
+    version: 't.version::text',
+    set_by_membership_id: 't.set_by_membership_id',
+    created_at: instant('t.created_at'),
+    updated_at: instant('t.updated_at'),
+  },
+};
+const meetingConfigurationReaders: readonly PortableReader[] = [
+  {
+    table: 'meetings.settings',
+    kind: 'meeting_settings_history',
+    key: 't.organization_id::text',
+    fields: {
+      enabled: 't.enabled',
+      notice_ref: 't.notice_ref',
+      version: 't.version::text',
+      updated_by_membership_id: 't.updated_by_membership_id',
+      updated_at: instant('t.updated_at'),
+    },
+  },
+  {
+    table: 'meetings.provider_approvals',
+    kind: 'meeting_provider_approval_history',
+    fields: {
+      id: 't.id',
+      provider_kind: 't.kind',
+      target_ref: 't.target_ref',
+      purposes: 't.purposes',
+      max_classification: 't.max_classification',
+      terms_ref: 't.terms_ref',
+      approved_by_membership_id: 't.approved_by_membership_id',
+      approved_at: instant('t.approved_at'),
+      expires_at: instant('t.expires_at'),
+      revoked_at: nullableInstant('t.revoked_at'),
+      revoked_by_membership_id: 't.revoked_by_membership_id',
+    },
+  },
+];
 const readableSource = (column: string) => `${column} IN (SELECT s.id FROM knowledge.sources s
   WHERE s.organization_id=app.current_organization_id() AND s.state='active' AND s.classification<>'restricted'
   AND s.id IN (SELECT knowledge.readable_source_ids(${viewer})))`;
@@ -384,8 +582,14 @@ const readers: Readonly<Partial<Record<ExportSection, readonly Reader[]>>> = {
   ],
 };
 
-export async function assertJoinedPortabilitySchema(tx: Tx): Promise<void> {
-  const required = PORTABILITY_INVENTORY.map((entry) => entry.table);
+// Distinguish actual unsupported tenant material from an unknown/missing schema at interactive admission.
+export class PendingModuleData extends RecordRefused {}
+
+export async function assertJoinedPortabilitySchema(
+  tx: Tx,
+  profile: JoinedPortabilityVersion = PORTABILITY_INVENTORY_VERSION,
+): Promise<void> {
+  const required = PORTABILITY_INVENTORY_PROFILES[profile].map((entry) => entry.table);
   const rows = await queryRows<{ table_name: string | null }>(
     tx,
     sql`select to_regclass(name)::text as table_name
@@ -399,7 +603,16 @@ export async function assertJoinedPortabilitySchema(tx: Tx): Promise<void> {
     from pg_catalog.pg_tables where schemaname NOT LIKE 'pg_%'
       AND schemaname NOT IN ('information_schema','drizzle')`,
   );
-  if (present.some((row) => !required.includes(row.table_name))) throw new RecordRefused();
+  const known = new Set<string>([
+    ...MARKETPLACE_HISTORY_PORTABILITY_INVENTORY.map((entry) => entry.table),
+    ...PENDING_PORTABILITY_TABLES,
+  ]);
+  if (present.some((row) => !known.has(row.table_name))) throw new RecordRefused();
+  const [pending] = await queryRows<{ empty: boolean }>(
+    tx,
+    sql`select sovereign.portable_profile_clear(${profile}) as empty`,
+  );
+  if (pending?.empty !== true) throw new PendingModuleData();
 }
 
 async function assertExportViewer(tx: Tx) {
@@ -408,18 +621,135 @@ async function assertExportViewer(tx: Tx) {
     sql`select sovereign.portable_export_viewer() as id`,
   );
   if (rows.length !== 1 || !rows[0]?.id) throw new RecordRefused();
+  return rows[0].id;
+}
+
+export async function assertMeetingHistoryViewer(tx: Tx, organizationId: string, viewerId: string) {
+  const [result] = await queryRows<{ allowed: boolean }>(
+    tx,
+    sql`
+    select not exists (
+      select 1 from meetings.meetings m
+      where m.organization_id=${organizationId}::uuid and (
+        (m.organizer_membership_id <> ${viewerId}::uuid and not exists (
+          select 1 from meetings.participants p
+          where p.organization_id=m.organization_id and p.meeting_id=m.id
+            and p.membership_id=${viewerId}::uuid
+        ))
+        or not exists (
+          select 1 from platform.tombstones t
+          where t.organization_id=m.organization_id and t.target_type='meeting' and t.target_id=m.id
+        )
+      )
+    ) as allowed`,
+  );
+  if (result?.allowed !== true) throw new RecordRefused();
+}
+
+export async function hasPortableBusinessRecords(tx: Tx): Promise<boolean> {
+  const [proof] = await queryRows<{ allowed: boolean }>(
+    tx,
+    sql`select record->'allowed' as allowed from sovereign.portable_business_page('check',null,1)`,
+  );
+  return proof?.allowed === true;
 }
 
 function exporter(section: ExportSection): PortabilitySection['exportPage'] {
-  return async (tx, context, { cursor, limit }): Promise<ExportPage> => {
-    await assertJoinedPortabilitySchema(tx);
-    await assertExportViewer(tx);
-    const list = [...(readers[section] ?? []), ...(M7_PORTABLE_READERS[section] ?? [])];
-    if (section === 'skills') return { recordKind: 'skills', records: [], nextCursor: null };
+  return async (tx, context, { cursor, limit, inventoryVersion }): Promise<ExportPage> => {
+    await assertJoinedPortabilitySchema(tx, inventoryVersion);
+    const exportViewer = await assertExportViewer(tx);
+    const includesSkillBundles = carriesSkillBundleOriginals(inventoryVersion);
+    const includesResidency =
+      inventoryVersion === RESIDENCY_PORTABILITY_VERSION || includesSkillBundles;
+    const includesUploadCleanup =
+      inventoryVersion === SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION || includesResidency;
+    const includesBusinessReferences =
+      inventoryVersion === BUSINESS_RECORD_PORTABILITY_VERSION || includesUploadCleanup;
+    const includesMeetingHistory =
+      inventoryVersion === MEETING_HISTORY_PORTABILITY_VERSION || includesBusinessReferences;
+    if (section === 'policy' && includesMeetingHistory)
+      await assertMeetingHistoryViewer(tx, context.organizationId, exportViewer);
+    const list =
+      section === 'skills'
+        ? (skillReadersByProfile[inventoryVersion ?? PORTABILITY_INVENTORY_VERSION] ?? [])
+        : [
+            ...(readers[section] ?? []),
+            ...(M7_PORTABLE_READERS[section] ?? []),
+            ...(section === 'policy' &&
+            (inventoryVersion === MEETING_CONFIGURATION_PORTABILITY_VERSION ||
+              includesMeetingHistory)
+              ? meetingConfigurationReaders
+              : []),
+            ...(section === 'policy' && includesMeetingHistory ? MEETING_HISTORY_READERS : []),
+            ...(section === 'policy' && includesResidency ? [residencyRequirementReader] : []),
+          ];
+    if (section === 'skills' && !list.length)
+      return { recordKind: 'skills', records: [], nextCursor: null };
     const state =
       cursor === null
         ? { index: 0, key: null as string | null }
         : (JSON.parse(cursor) as { index: number; key: string | null });
+    const nativeReaders =
+      section === 'connections' && includesBusinessReferences
+        ? ([
+            { mode: 'record', kind: 'business_record_reference' },
+            { mode: 'action', kind: 'business_record_action_reference' },
+          ] as const)
+        : section === 'skills' && includesUploadCleanup
+          ? ([
+              { mode: 'cleanup', kind: 'skill_upload_cleanup_history' },
+              ...(includesSkillBundles
+                ? ([
+                    { mode: 'bundle', kind: 'skill_bundle_version' },
+                    { mode: 'test', kind: 'skill_test_history' },
+                  ] as const)
+                : []),
+              ...(inventoryVersion === MARKETPLACE_HISTORY_PORTABILITY_VERSION
+                ? ([{ mode: 'installation', kind: 'marketplace_installation_history' }] as const)
+                : []),
+            ] as const)
+          : [];
+    const totalReaders = list.length + nativeReaders.length;
+    const next = (after: string | null) =>
+      after !== null
+        ? JSON.stringify({ index: state.index, key: after })
+        : state.index + 1 < totalReaders
+          ? JSON.stringify({ index: state.index + 1, key: null })
+          : null;
+    const nativeReader = nativeReaders[state.index - list.length];
+    if (nativeReader) {
+      const { mode, kind } = nativeReader;
+      const pageSize = Math.min(limit, mode === 'bundle' ? 1 : 200);
+      const rows = await queryRows<{ key: string; record: unknown }>(
+        tx,
+        mode === 'cleanup'
+          ? sql`select key,record from sovereign.portable_skill_upload_cleanup_page(${state.key}::uuid,${pageSize})`
+          : mode === 'bundle' || mode === 'test'
+            ? sql`select key,record from sovereign.portable_skill_bundle_page(${mode},${state.key}::uuid,${pageSize})`
+            : mode === 'installation'
+              ? sql`select key,record from sovereign.portable_marketplace_installation_page(${state.key}::uuid,${pageSize})`
+              : sql`select key,record from sovereign.portable_business_page(${mode},${state.key}::uuid,${pageSize})`,
+      );
+      const records = rows.map(({ record }) => extensionRecordSchema.parse(record));
+      const originals = records.flatMap((record) =>
+        record.kind === 'skill_bundle_version'
+          ? [
+              {
+                resourceId: record.id,
+                objectKey: skillBundleObjectKey(context.organizationId, record.id),
+                sha256: record.bundle_sha256,
+                sizeBytes: record.size_bytes,
+              },
+            ]
+          : [],
+      );
+      return {
+        recordKind: kind,
+        records,
+        nextCursor: next(rows.length === pageSize ? (rows.at(-1)?.key ?? null) : null),
+        ...(originals.length ? { originals } : {}),
+      };
+    }
     const reader = list[state.index];
     if (!reader) throw new RecordRefused();
     const key = reader.key ?? 't.id::text';
@@ -436,7 +766,8 @@ function exporter(section: ExportSection): PortabilitySection['exportPage'] {
       reader.fields.first_seen_at ??
       reader.fields.updated_at ??
       reader.fields.started_at ??
-      reader.fields.recorded_at;
+      reader.fields.recorded_at ??
+      reader.fields.approved_at;
     const payload = `jsonb_build_object('kind','${reader.kind}',${projection})`;
     const rows = await queryRows<{ key: string; record: Record<string, unknown> | null }>(
       tx,
@@ -464,16 +795,12 @@ function exporter(section: ExportSection): PortabilitySection['exportPage'] {
     });
     const last = rows.at(-1);
     const more = rows.length === pageSize && last;
-    const nextCursor = more
-      ? JSON.stringify({ index: state.index, key: last.key })
-      : state.index + 1 < list.length
-        ? JSON.stringify({ index: state.index + 1, key: null })
-        : null;
+    const nextCursor = next(more ? last.key : null);
     const originals = records.flatMap((record) =>
       record.kind === 'knowledge_document'
         ? [
             {
-              documentId: record.id,
+              resourceId: record.id,
               objectKey: `${context.organizationId}/knowledge/${record.id}`,
               sha256: record.content_sha256,
               sizeBytes: record.size_bytes,
@@ -515,11 +842,7 @@ export async function quarantinePortableRecord(
   if (!section) throw new RecordRefused();
   // Validate twice at the trust boundary; caller-supplied JSON cannot become an accepted definition.
   const checked = extensionRecordSchema.parse(record);
-  if (
-    (M7_PORTABLE_RECORD_KINDS as readonly string[]).includes(checked.kind) &&
-    scope.inventoryVersion !== PORTABILITY_INVENTORY_VERSION
-  )
-    throw new RecordRefused();
+  assertPortableExtensionProfile(checked.kind, scope.inventoryVersion);
   assertPortableDefinitionIntegrity(checked);
   const bindings = portableDefinitionBindings(checked);
   await tx.execute(sql`insert into sovereign.imported_definitions
@@ -705,7 +1028,17 @@ export const EXTENDED_PORTABILITY_SECTIONS: readonly PortabilitySection[] = (
           return rows.length === ids.length;
         },
       }
-    : {}),
+    : section === 'skills'
+      ? {
+          confirmOriginals: async (tx: Tx, _context: TenantContext, ids: readonly string[]) => {
+            const [proof] = await queryRows<{ allowed: boolean }>(
+              tx,
+              sql`select sovereign.portable_skill_bundles_confirm(${sql.param([...ids])}::uuid[]) as allowed`,
+            );
+            return proof?.allowed === true;
+          },
+        }
+      : {}),
 }));
 
 export const SOURCE_PORTABILITY_SECTIONS: readonly PortabilitySection[] = [

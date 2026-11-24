@@ -29,7 +29,10 @@ describe('replayed billing work with hosted billing disabled', () => {
         () => billing.issueDraftInvoice({ ...input, invoiceId: randomUUID() }),
         () => credits.consumeUsagePage(input),
       ])
-        await expect(invoke()).rejects.toMatchObject({ code: 'BILLING_NOT_ENABLED' });
+        await expect(invoke()).rejects.toMatchObject({
+          type: 'BILLING_NOT_ENABLED',
+          nonRetryable: true,
+        });
       expect(touched).not.toHaveBeenCalled();
       expect(usage.listSince).not.toHaveBeenCalled();
       expect(usage.sumForPeriod).not.toHaveBeenCalled();

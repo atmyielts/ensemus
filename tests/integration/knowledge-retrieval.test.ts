@@ -22,6 +22,7 @@ import {
 } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
 import { eq } from 'drizzle-orm';
+import { EXACT_VECTOR_SEARCH_MAX_ROWS } from '@ensemus/domain/knowledge';
 import { knowledgeCanary, seedMember, seedSearchableSource, sha256 } from '../helpers/knowledge';
 import { urls } from '../helpers/stack';
 
@@ -237,4 +238,105 @@ describe('authorized lexical and hybrid retrieval', () => {
       }),
     ).rejects.toEqual(new AppError('INVALID_INPUT'));
   });
+  it('walks the HNSW index past a large authorized set, and never past the ACL', async () => {
+    // ADR-029 D6 addendum. More authorized vectors than the exact threshold, in an indexed width, so
+    // retrieval takes the approximate path; a hidden source holds the query's exact vector as well.
+    const dimension = 384;
+    const vectorOf = (n: number) =>
+      Array.from({ length: dimension }, (_, d) => Math.sin((n + 1) * (d + 1) * 0.37));
+    const word = knowledgeCanary();
+    const readable = await seedSearchableSource(database.db, owner, {
+      passages: [word],
+      grants: [{ kind: 'membership', membershipId: reader.membershipId }],
+      generatedChunks: EXACT_VECTOR_SEARCH_MAX_ROWS + 50,
+    });
+    const hidden = await seed(knowledgeCanary(), owner.membershipId);
+    const route = await seedQualifiedKnowledgeRoute(database.db, owner, {
+      dimension,
+      modelId: 'generated-hnsw',
+      vectorSpaceVersion: '1',
+    });
+    const service = createServiceContext(owner.organizationId);
+    const spaceId = (await ensureEmbeddingSpace(database.db, service, route)).id;
+    // Build the exact production index once over the full fixture. Incremental HNSW maintenance
+    // spends most of this test's limit on seeding. A transaction keeps both data and index changes
+    // atomic. The actual inserts still go through the native tenant service role and its guards.
+    const fixture = new pg.Client({ connectionString: urls.superuser() });
+    await fixture.connect();
+    try {
+      await fixture.query('begin');
+      const index = await fixture.query<{ definition: string }>(`
+        select pg_get_indexdef('knowledge.knowledge_embeddings_hnsw_384'::regclass) as definition
+        where exists (select 1 from pg_roles where rolname='ensemus_delegation_qualification_ci')
+      `);
+      const definition = index.rows[0]?.definition;
+      if (!definition) throw new Error('A qualification database and its HNSW index are required');
+      await fixture.query('drop index knowledge.knowledge_embeddings_hnsw_384');
+
+      await fixture.query('set local session authorization ensemus_app');
+      await fixture.query(
+        "select set_config('app.organization_id',$1,true),set_config('app.actor_type','service',true)",
+        [owner.organizationId],
+      );
+      await fixture.query(
+        `insert into knowledge.embeddings (organization_id, chunk_id, source_id, space_id,
+           dimension, embedding, content_sha256)
+         select c.organization_id, c.id, c.source_id, $1::uuid, $2::integer,
+                (select array_agg(sin((c.ordinal + 1) * d * 0.37) order by d)
+                   from generate_series(1, $2::integer) d)::public.vector,
+                c.content_sha256
+           from knowledge.chunks c
+          where c.organization_id=$3::uuid and c.document_id=$4::uuid`,
+        [spaceId, dimension, owner.organizationId, readable.documentId],
+      );
+      await fixture.query(
+        `insert into knowledge.embeddings (organization_id, chunk_id, source_id, space_id,
+           dimension, embedding, content_sha256)
+         values ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::integer,$6::public.vector,$7)`,
+        [
+          owner.organizationId,
+          hidden.chunkIds[0]!,
+          hidden.sourceId,
+          spaceId,
+          dimension,
+          `[${vectorOf(4321).join(',')}]`,
+          sha256('hidden'),
+        ],
+      );
+
+      await fixture.query('reset session authorization');
+      await fixture.query("set local maintenance_work_mem='128 MB'");
+      // The test container's shared-memory mount has less space than a parallel HNSW build.
+      // Building the same index serially keeps that workspace in the fixture backend.
+      await fixture.query('set local max_parallel_maintenance_workers=0');
+      await fixture.query(definition);
+      // This fixture queries immediately after bulk loading, before autoanalyze can run.
+      await fixture.query(
+        'analyze knowledge.embeddings, knowledge.chunks, knowledge.documents, knowledge.sources',
+      );
+      await fixture.query('commit');
+    } catch (error) {
+      await fixture.query('rollback');
+      throw error;
+    } finally {
+      await fixture.end();
+    }
+    const result = await retrieveHybrid(database.db, reader, {
+      query: word,
+      queryVector: { spaceId, vector: vectorOf(4321) },
+    });
+    expect(result.vectorSearch).toBe('approximate');
+    const vectorHits = result.passages.filter((hit) => hit.vectorRank !== null);
+    expect(vectorHits.length).toBeGreaterThan(0);
+    expect(result.passages.every((hit) => hit.sourceId === readable.sourceId)).toBe(true);
+    // The nearest authorized vector is the one generated from the same seed.
+    expect(vectorHits.find((hit) => hit.vectorRank === 1)?.text).toBe('generated passage 4321');
+    // The owner, who cannot read the readable source, gets neither it nor anything approximate.
+    const ownerResult = await retrieveHybrid(database.db, owner, {
+      query: word,
+      queryVector: { spaceId, vector: vectorOf(4321) },
+    });
+    expect(ownerResult.vectorSearch).toBe('exact');
+    expect(ownerResult.passages.map((hit) => hit.sourceId)).toEqual([hidden.sourceId]);
+  }, 300_000);
 });

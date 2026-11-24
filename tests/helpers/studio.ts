@@ -1,6 +1,11 @@
 // Real native author/reviewer, worker intent and M4-backed publication. No published-row seed.
 import pg from 'pg';
-import { interactiveSessionOf, type AppDatabase, type TenantContext } from '@ensemus/database';
+import {
+  interactiveSessionOf,
+  openAppDatabase,
+  type AppDatabase,
+  type TenantContext,
+} from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
 import { createRuntimeProductPorts } from '@ensemus/application/product-runtime';
 import {
@@ -54,12 +59,17 @@ export async function publishReviewedProcess(
     subject: { kind: 'process_draft', draftId: draft.id },
     scenarioKey: 'standard.process',
   });
-  if (
-    (await runSimulationStep(database, createServiceContext(context.organizationId), {
-      simulationId: simulation.id,
-    })) !== 'passed'
-  )
-    throw Error('TEST_PROCESS_REHEARSAL_FAILED');
+  const worker = openAppDatabase(urls.worker());
+  try {
+    if (
+      (await runSimulationStep(worker.db, createServiceContext(context.organizationId), {
+        simulationId: simulation.id,
+      })) !== 'passed'
+    )
+      throw Error('TEST_PROCESS_REHEARSAL_FAILED');
+  } finally {
+    await worker.close();
+  }
   const review = await requestPublishReview(database, context, {
     subjectKind: 'process_draft',
     subjectId: draft.id,

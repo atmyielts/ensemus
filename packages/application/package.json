@@ -28,9 +28,14 @@
     "./ai-input-ledger": "./src/ai/input-ledger.ts",
     "./ai-model-admission": "./src/ai/model-admission.ts",
     "./ai-egress-log": "./src/ai/egress-log.ts",
+    "./suite-connections": "./src/suite-connections.ts",
+    "./suite-reads": "./src/suite-reads.ts",
+    "./suite-settings": "./src/suite-settings.ts",
+    "./suite-live-check": "./src/suite-live-check.ts",
     "./knowledge/ports": "./src/knowledge/ports.ts",
     "./knowledge/model-jobs": "./src/knowledge/model-jobs.ts",
     "./knowledge/sources": "./src/knowledge/sources.ts",
+    "./knowledge/domain-grants": "./src/knowledge/domain-grants.ts",
     "./knowledge/ingest": "./src/knowledge/ingest.ts",
     "./knowledge/embeddings": "./src/knowledge/embeddings.ts",
     "./knowledge/egress": "./src/knowledge/egress.ts",
@@ -70,7 +75,9 @@
     "./process-runs": "./src/product/process-runs.ts",
     "./custom-objects": "./src/product/custom-objects.ts",
     "./packs": "./src/product/packs.ts",
-    "./saas/*": "./src/saas/*.ts"
+    "./saas/*": "./src/saas/*.ts",
+    "./sandbox-worker-control": "./src/sandbox-worker-control.ts",
+    "./platform-mail": "./src/platform-mail.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

@@ -1,6 +1,7 @@
 // NEXT-01, WORK-03, WORK-05, LIFE-01: rules about which tenant, which person and which reason a request
 // names, each of which used to hold on one path and not another. Against the real database roles.
 import { randomUUID } from 'node:crypto';
+import { sql } from 'drizzle-orm';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
@@ -42,6 +43,7 @@ import {
   createOrganization,
   openAppDatabase,
   resolveTenantContext,
+  withTenantTx,
   type TenantContext,
 } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
@@ -739,6 +741,41 @@ describe('tenant rules', () => {
       expect(JSON.stringify({ hidden, visible })).not.toContain(title);
     });
 
+    it('keeps a caller-set recovery selector out of the ordinary Work body read', async () => {
+      const { org, work } = await stranded();
+      await withTenantTx(db(), org, async (tx) => {
+        await tx.execute(sql`select set_config('work.owner_recovery_target', ${work.id}, true)`);
+        const rows = await tx.execute(
+          sql`select title from work.work_units where id=${work.id}::uuid`,
+        );
+        expect(rows.rows).toEqual([]);
+        const metadata = await tx.execute(
+          sql`select * from work.list_disabled_owner_recovery('{}'::uuid[])`,
+        );
+        expect(metadata.rows).toEqual([
+          { id: work.id, version: String(work.version), status: work.status },
+        ]);
+      });
+    });
+
+    it('refuses copied owner bindings on the native worker login', async () => {
+      const { org, member, work } = await stranded();
+      const worker = openAppDatabase(urls.worker());
+      try {
+        await withTenantTx(worker.db, org, async (tx) => {
+          const listed = await tx.execute(
+            sql`select * from work.list_disabled_owner_recovery('{}'::uuid[])`,
+          );
+          expect(listed.rows).toEqual([]);
+          const transfer = await tx.execute(sql`select work.recover_disabled_owner(
+            ${work.id}::uuid,${work.version}::bigint,${member.membershipId}::uuid) as outcome`);
+          expect(transfer.rows).toEqual([{ outcome: 'FORBIDDEN' }]);
+        });
+      } finally {
+        await worker.close();
+      }
+    });
+
     it('is not listed for anyone else', async () => {
       const { admin, member } = await stranded();
       expect((await listWorkWithDisabledOwner(db(), admin)).hidden).toEqual([]);
@@ -788,6 +825,20 @@ describe('tenant rules', () => {
         [org.organizationId],
       );
       expect(told.rows).toEqual([{ who: secondOwner.membershipId }]);
+      const { rows: events } = await su.query(
+        `select e.aggregate_version::text as version, e.payload, o.state
+         from platform.domain_events e join platform.outbox_events o
+           on o.organization_id=e.organization_id and o.event_id=e.id
+         where e.organization_id=$1 and e.aggregate_id=$2 and e.event_type='work.owner_changed'`,
+        [org.organizationId, work.id],
+      );
+      expect(events).toEqual([
+        {
+          version: String(work.version + 1),
+          payload: { work_unit_id: work.id, owner_membership_id: member.membershipId },
+          state: 'queued',
+        },
+      ]);
     });
 
     it('refuses an admin and a member, even with the right form', async () => {

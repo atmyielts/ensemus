@@ -1,6 +1,6 @@
 import type { getPublishReviewSnapshot } from '@ensemus/application/publish-reviews';
 import { ClassificationBadge } from '@/components/ui';
-import { studioToolName } from '@/lib/studio-present';
+import { toolName } from './tool-words';
 
 type FrozenSpec = Awaited<ReturnType<typeof getPublishReviewSnapshot>>;
 
@@ -19,11 +19,11 @@ export function SpecSummary({
       agent_task: 'Published assistant step',
       human_approval: 'Approval by a person',
       external_action: 'Proposed outside action',
-      evidence_check: 'Evidence check',
+      evidence_check: 'A check that it is done',
     };
     const approverName = {
       process_owner: 'The workflow publisher or an eligible organization administrator',
-      starter_manager: 'Manager approval is unavailable here; no manager relationship is recorded',
+      starter_manager: 'The starter’s manager, which Ensemus cannot look up',
       named_reviewer: 'The named reviewer for the run',
     };
     const evidenceName = {
@@ -34,20 +34,18 @@ export function SpecSummary({
     return (
       <>
         <p>
-          Sensitivity: <ClassificationBadge value={spec.classification} />
-        </p>
-        <p className="muted">
-          These are the frozen workflow steps and their prerequisites. This view starts no workflow.
+          Who can see this: <ClassificationBadge value={spec.classification} />
         </p>
         <ul className="list" aria-label="Frozen workflow steps">
           {spec.steps.map((step) => (
             <li key={step.key}>
-              <div className="fields">
+              <div>
                 <strong>{step.label}</strong>
-                <p>{kindName[step.kind]}</p>
-                <p className="muted">
+                <br />
+                <small>
+                  {kindName[step.kind]} ·{' '}
                   {step.after.length
-                    ? 'After: ' +
+                    ? 'Waits for ' +
                       step.after
                         .map(
                           (key) =>
@@ -55,11 +53,11 @@ export function SpecSummary({
                             'An earlier configured step',
                         )
                         .join(', ')
-                    : 'No earlier step required'}
-                </p>
-                {step.toolId && <p>Permission: {studioToolName(step.toolId)}</p>}
+                    : 'First step'}
+                </small>
+                {step.toolId && <p>Action: {toolName(step.toolId)}</p>}
                 {step.approverRole && <p>Who decides: {approverName[step.approverRole]}</p>}
-                {step.evidence && <p>Required evidence: {evidenceName[step.evidence]}</p>}
+                {step.evidence && <p>Done when: {evidenceName[step.evidence]}</p>}
               </div>
             </li>
           ))}
@@ -78,29 +76,29 @@ export function SpecSummary({
   });
   const output =
     spec.output.schema_ref === 'schemas/markdown-brief.schema.json'
-      ? 'A brief with supporting citations'
+      ? 'A brief with sources'
       : spec.output.schema_ref === 'schemas/structured-report.schema.json'
-        ? 'A structured report with supporting citations'
-        : 'The output shape defined in the technical snapshot';
+        ? 'A structured report with sources'
+        : 'The shape set out in the technical details';
   return (
     <>
-      <h3>Intended result</h3>
+      <h3>What a good result contains</h3>
       <p>{spec.objective}</p>
       <dl className="details">
         <div>
-          <dt>Output</dt>
+          <dt>Result format</dt>
           <dd>{output}</dd>
         </div>
         <div>
-          <dt>Fact writing</dt>
+          <dt>Company memory</dt>
           <dd>
             {spec.context.memory_write_policy === 'none'
-              ? 'Cannot write facts'
-              : 'Can propose facts for a person to verify'}
+              ? 'Does not suggest new facts'
+              : 'Suggests facts for a person to check'}
           </dd>
         </div>
         <div>
-          <dt>Model preference</dt>
+          <dt>Model quality</dt>
           <dd>
             {spec.model.quality_tier === 'economy'
               ? 'Economy'
@@ -110,34 +108,31 @@ export function SpecSummary({
           </dd>
         </div>
         <div>
-          <dt>Fallback</dt>
+          <dt>If that model is unavailable</dt>
           <dd>
             {spec.model.fallback === 'disabled'
-              ? 'No fallback model'
-              : 'Only profiles approved by the current policy'}
+              ? 'It does not switch to another model'
+              : 'It may switch to another model your organization has approved'}
           </dd>
         </div>
         <div>
-          <dt>Maximum spend</dt>
+          <dt>Most it may spend per run</dt>
+          <dd>USD {spec.execution.max_cost_usd}, a ceiling rather than a charge</dd>
+        </div>
+        <div>
+          <dt>Other limits per run</dt>
           <dd>
-            USD {spec.execution.max_cost_usd} per run, as a limit. This is not a price or a measured
-            charge.
+            {spec.execution.max_model_turns} model replies · {spec.execution.max_tool_calls} ability
+            uses · {spec.execution.max_total_tokens} tokens · {spec.execution.timeout_seconds}{' '}
+            seconds
           </dd>
         </div>
         <div>
-          <dt>Run limits</dt>
-          <dd>
-            {spec.execution.max_model_turns} model turns · {spec.execution.max_tool_calls} tool
-            calls · {spec.execution.max_total_tokens} total tokens ·{' '}
-            {spec.execution.timeout_seconds} seconds
-          </dd>
-        </div>
-        <div>
-          <dt>Delegation limit</dt>
-          <dd>{spec.execution.max_delegation_depth} levels</dd>
+          <dt>Hand-offs to other assistants</dt>
+          <dd>Up to {spec.execution.max_delegation_depth} levels deep</dd>
         </div>
       </dl>
-      <h3>What it may access</h3>
+      <h3 className="gap-above-large">What it may see</h3>
       {classes.length ? (
         <ul aria-label="Permitted data classes">
           {classes.map((value) => (
@@ -147,51 +142,50 @@ export function SpecSummary({
           ))}
         </ul>
       ) : (
-        <p>No company data class is granted by this snapshot.</p>
+        <p className="muted">No company information beyond the work it is given.</p>
       )}
       {sourceIds.length ? (
         <ul aria-label="Selected knowledge sources">
           {sourceIds.map((id) => (
             <li key={id}>
-              {sourceNames[id.toLowerCase()] ??
-                'A selected source is not currently available to you. Its title is hidden.'}
+              {sourceNames[id.toLowerCase()] ?? 'A source you cannot see. Its name is hidden.'}
             </li>
           ))}
         </ul>
       ) : (
-        <p>No individual knowledge source is selected.</p>
+        <p className="muted">Not limited to particular Knowledge sources.</p>
       )}
       <p className="muted">
-        Source grants and sensitivity are checked again when a run reads data. A saved permission
-        never overrides current access.
+        <small>Each person’s current access is checked again whenever it reads anything.</small>
       </p>
-      <h3>Permitted tools</h3>
+      <h3 className="gap-above">What it may do</h3>
       {spec.tools.allow.length ? (
         <ul>
           {spec.tools.allow.map((tool) => (
-            <li key={tool}>{studioToolName(tool)}</li>
+            <li key={tool}>{toolName(tool)}</li>
           ))}
         </ul>
       ) : (
-        <p>No additional tool permissions.</p>
+        <p className="muted">Read and answer only.</p>
       )}
       {spec.tools.deny && spec.tools.deny.length > 0 && (
         <>
-          <h3>Explicitly excluded tools</h3>
+          <h3 className="gap-above">Never allowed</h3>
           <ul>
             {spec.tools.deny.map((tool) => (
-              <li key={tool}>{studioToolName(tool)}</li>
+              <li key={tool}>{toolName(tool)}</li>
             ))}
           </ul>
         </>
       )}
       <details>
-        <summary>Full instructions and behavior rules</summary>
+        <summary>Full instructions</summary>
         <pre>{spec.instructions}</pre>
       </details>
-      <p className="notice">
-        This definition and its rehearsal do not qualify a real model or provider. Current runtime
-        policy, source access, approved profiles and budget still apply.
+      <p className="muted gap-above">
+        <small>
+          Your organization’s current model, access and budget settings still apply when it runs.
+        </small>
       </p>
     </>
   );

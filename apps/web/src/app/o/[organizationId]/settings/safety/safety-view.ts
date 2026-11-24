@@ -28,7 +28,7 @@ export function scopeLabel(
 ): string {
   switch (row.scope) {
     case 'global':
-      return 'Every agent, in every organization on this deployment';
+      return 'Every agent, in every organization on this Ensemus installation';
     case 'organization':
       return 'Every agent in this organization';
     case 'provider':
@@ -36,6 +36,6 @@ export function scopeLabel(
     case 'agent_version':
       return versionName ? `One agent: ${versionName}` : 'One agent version';
     default:
-      return 'Agents on this deployment';
+      return 'Agents across this Ensemus installation';
   }
 }

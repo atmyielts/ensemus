@@ -3,9 +3,23 @@ import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createOnboardingAgentRuns } from '@ensemus/application/knowledge/onboarding-run-port';
-import { loadSaasConfig, readSecret } from '@ensemus/config';
+import {
+  loadResidencyPolicy,
+  loadSaasConfig,
+  loadSkillFeatures,
+  readSecret,
+} from '@ensemus/config';
+import { createEntitlementChecker } from '@ensemus/application/saas/entitlements';
 import { loadSovereignConfig } from '@ensemus/config/sovereign';
+import {
+  denyAllMeetingEgress,
+  entitledSkillFeatureGate,
+  noMeetingModel,
+} from '@ensemus/application';
+import { loadSkillWorkerConfig } from '@ensemus/config';
+import { loadTelemetryConfig } from '@ensemus/config';
 import { openAppDatabase } from '@ensemus/database';
+import { assertLoginRole } from '@ensemus/database/service';
 import { S3ObjectStore } from '@ensemus/storage';
 import { withRawKnowledgeObjects } from '@ensemus/application/knowledge/raw-objects';
 import { createLogger, errorCode } from '@ensemus/telemetry';
@@ -23,6 +37,11 @@ import { createPortabilityActivities } from '@ensemus/workflows/portability-acti
 import { createOffboardingActivities } from '@ensemus/workflows/offboarding-activities';
 import { createPaymentPlatformActivities } from '@ensemus/workflows/payment-activities';
 import { createRetentionActivities } from '@ensemus/workflows/retention-activities';
+import { createMeetingDerivationActivities } from '@ensemus/workflows/meeting-derivation-activities';
+import { createMeetingImportPlatformActivities } from '@ensemus/workflows/meeting-import-activities';
+import { createMarketplaceInstallActivities } from '@ensemus/workflows/marketplace-install-activities';
+import { createSandboxRunPlatformActivities } from '@ensemus/workflows/sandbox-run-activities';
+import { createSkillVerificationActivities } from '@ensemus/workflows/skill-verification-activities';
 import { createTemporalLogger } from '@ensemus/workflows/safe-logger';
 import { workflowIdFor } from '@ensemus/workflows/schemas';
 import { Client, Connection, WorkflowNotFoundError } from '@temporalio/client';
@@ -36,6 +55,7 @@ import {
   PLATFORM_ACTIVITY_SLOTS,
   PLATFORM_DATABASE_POOL,
 } from './worker-limits';
+import { activityTracing } from './activity-tracing';
 
 const log = createLogger('worker');
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -48,6 +68,14 @@ async function main() {
     logger: createTemporalLogger(log),
     telemetryOptions: { logging: { filter: 'WARN', forward: {} } },
   });
+  const tracingConfig = loadTelemetryConfig();
+  const release = process.env.ENSEMUS_RELEASE;
+  // Only when an operator named a collector, so that a default install never loads the SDK (ADR-037 D3).
+  const tracing = tracingConfig.enabled
+    ? await (
+        await import('@ensemus/telemetry/otel')
+      ).startTelemetry('worker', tracingConfig, release ? { release } : {})
+    : null;
   const connection = await NativeConnection.connect({
     address: process.env.TEMPORAL_ADDRESS ?? 'temporal:7233',
   });
@@ -55,6 +83,8 @@ async function main() {
   const { db, close } = openAppDatabase(readSecret('DATABASE_URL_APP'), {
     max: PLATFORM_DATABASE_POOL,
   });
+  // Its own login, never the web tier's (ADR-039 D1).
+  await assertLoginRole(db, 'ensemus_worker');
   const nativeStore = new S3ObjectStore({
     endpoint: process.env.OBJECT_STORAGE_ENDPOINT ?? 'http://objects:8333',
     bucket: process.env.OBJECT_STORAGE_BUCKET ?? 'ensemus',
@@ -95,6 +125,18 @@ async function main() {
   const ports = createSaasPorts(store);
   const saas = loadSaasConfig();
   const billingEnabled = saas.billingEnabled;
+  // The platform worker admits fixture IDs. Only the dedicated worker reaches the runner.
+  const skills = loadSkillWorkerConfig();
+  const skillGate = entitledSkillFeatureGate(
+    loadSkillFeatures(),
+    createEntitlementChecker(db, billingEnabled),
+  );
+  const skillDeps = {
+    database: db,
+    store,
+    ceilings: skills.ceilings,
+    reviewKeys: skills.reviewKeys,
+  };
   const worker = await Worker.create({
     connection,
     namespace: process.env.TEMPORAL_NAMESPACE ?? 'default',
@@ -103,10 +145,19 @@ async function main() {
     maxConcurrentActivityTaskExecutions: PLATFORM_ACTIVITY_SLOTS,
     workflowBundle: { codePath: path.join(here, 'workflow-bundle.cjs') },
     activities: {
-      ...createActivities({ database: db, store: generatedObjects, probeWorkflow }),
+      ...createActivities({
+        database: db,
+        store: generatedObjects,
+        skillCleanupStore: generatedObjects,
+        probeWorkflow,
+      }),
       // Only what reads PostgreSQL. Anything holding a credential is on the connector queue.
       ...createExternalActionPlatformActivities({ database: db }),
-      ...createClientOnboardingActivities({ database: db, agentRuns: createOnboardingAgentRuns() }),
+      ...createClientOnboardingActivities({
+        database: db,
+        agentRuns: createOnboardingAgentRuns(),
+        store: generatedObjects,
+      }),
       // M7 (ADR-031). None of these holds a credential, or calls anything outside PostgreSQL.
       ...createSimulationActivities({ database: db }),
       ...createProcessRunActivities({ database: db, ports: workerProductPorts(db) }),
@@ -119,6 +170,7 @@ async function main() {
           sections: PORTABILITY_SECTIONS,
           sourceRelease: sovereign.release,
           retentionHours: sovereign.exportRetentionHours,
+          residencyPolicy: loadResidencyPolicy(),
         },
       }),
       // M8 (ADR-032). Its ports refuse until sibling milestones are wired in, in saas-ports.ts.
@@ -145,11 +197,22 @@ async function main() {
       ),
       ...createRetentionActivities({ database: db, sources: ports.retentionSources }),
       ...createOffboardingActivities({ database: db, ports: ports.offboarding }),
+      // The platform worker retains legacy replay and cleanup. New provider calls use the agent queue.
+      ...createMeetingDerivationActivities({
+        database: db,
+        model: noMeetingModel,
+        egress: denyAllMeetingEgress,
+      }),
+      ...createMeetingImportPlatformActivities({ database: db }),
+      ...createSkillVerificationActivities({ ...skillDeps, sandboxGate: skillGate }),
+      ...createSandboxRunPlatformActivities(skillDeps),
+      ...createMarketplaceInstallActivities({ ...skillDeps, gate: skillGate }),
     },
     dataConverter: {
       payloadCodecs: [new AesGcmPayloadCodec(readSecret('TEMPORAL_CODEC_KEY'))],
       failureConverterPath: path.join(here, 'failure-converter.cjs'),
     },
+    interceptors: { activity: [activityTracing()] },
   });
 
   // The container health check reads this file. Crashes stop updates, so they are never hidden.
@@ -166,6 +229,10 @@ async function main() {
   await close();
   await clientConnection.close();
   await connection.close();
+  // Last, and losing the last spans is not a failed stop, so it says so and stops anyway.
+  await tracing?.shutdown().catch((error: unknown) => {
+    log.warn('worker.tracing_shutdown_failed', { errorCode: errorCode(error) });
+  });
 }
 
 main().catch((error: unknown) => {

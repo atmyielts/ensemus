@@ -22,7 +22,7 @@ test('someone new can sign up, create an organization, and sign out and back in'
 
   await page.getByLabel('Organization name').fill('No Script Ltd');
   await page.getByRole('button', { name: 'Create organization' }).click();
-  await expect(page.getByRole('heading', { name: 'Hello, Noor' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'My work' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page.getByRole('heading', { name: 'Sign in to Ensemus' })).toBeVisible();
@@ -35,7 +35,7 @@ test('someone new can sign up, create an organization, and sign out and back in'
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Password').fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page.getByRole('heading', { name: 'Hello, Noor' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'My work' })).toBeVisible();
 });
 
 test('new work is created, and a refused one comes back with what was typed', async ({
@@ -45,14 +45,14 @@ test('new work is created, and a refused one comes back with what was typed', as
   const page = await open(world.alice, off);
   await page.goto(`/o/${world.organization}/work/new`);
   await page.getByLabel('What should be true when this is done?').fill('   ');
-  await page.getByLabel('Objective').fill('Kept without any scripts.');
+  await page.getByLabel('Details').fill('Kept without any scripts.');
   await page.getByLabel('A reviewer approves').check();
   await page.getByRole('button', { name: 'Create work' }).click();
 
   await expect(page.getByRole('main').getByRole('alert')).toHaveText(
     'Please check the details and try again.',
   );
-  await expect(page.getByLabel('Objective')).toHaveValue('Kept without any scripts.');
+  await expect(page.getByLabel('Details')).toHaveValue('Kept without any scripts.');
   await expect(page.getByLabel('A reviewer approves')).toBeChecked();
 
   const title = `No script work ${randomUUID()}`;
@@ -150,7 +150,7 @@ test('every section of an organization shows its content, not a loading message'
 }) => {
   const page = await open(world.alice, off);
   const sections: Array<[string, string]> = [
-    ['', 'Hello, Alice'],
+    ['', 'My work'],
     ['/work', 'Work'],
     ['/work/new', 'New work'],
     ['/approvals', 'Approvals'],

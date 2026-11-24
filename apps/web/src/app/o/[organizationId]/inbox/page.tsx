@@ -1,18 +1,34 @@
+import { Card } from '@/components/ui/card';
+import {
+  NOTIFY_FEDERATION_GRANT_ACCEPTED,
+  NOTIFY_FEDERATION_ITEM_RECEIVED,
+} from '@ensemus/domain/federation-events';
+import {
+  NOTIFY_SKILL_VERSION_REJECTED,
+  NOTIFY_SKILL_VERSION_VERIFIED,
+  NOTIFY_SKILL_VERSION_YANKED,
+} from '@ensemus/domain/skill-events';
 import {
   countUnread,
   INBOX_SIZE,
   listMyNotifications,
   listMyPendingApprovals,
 } from '@ensemus/application';
-import Link from 'next/link';
+import { ChevronRightIcon } from 'lucide-react';
 import { SubmitButton } from '@/components/submit-button';
-import { Empty, ErrorNotice, formatDateTime, PageHead } from '@/components/ui';
+import { Badge } from '@/components/ui/badge';
+import { ActionLink, Empty, ErrorNotice, formatDateTime, PageHead } from '@/components/ui';
 import { requireTenant } from '@/server/tenant';
 import { openNotificationAction } from '@/server/work-actions';
 
 export const metadata = { title: 'Inbox | Ensemus' };
 
 const KIND_WORDS: Record<string, string> = {
+  [NOTIFY_SKILL_VERSION_VERIFIED]: 'Your skill bundle passed verification',
+  [NOTIFY_SKILL_VERSION_REJECTED]: 'Your skill bundle did not pass verification',
+  [NOTIFY_SKILL_VERSION_YANKED]: 'Your skill version was withdrawn',
+  [NOTIFY_FEDERATION_GRANT_ACCEPTED]: 'A collaboration invitation was accepted',
+  [NOTIFY_FEDERATION_ITEM_RECEIVED]: 'An organization shared an item with you',
   'approval.requested': 'An approval needs your decision',
   'approval.decided': 'A review of your work was decided',
   'approval.expired': 'A review of your work ran out of time',
@@ -42,6 +58,9 @@ function targetPath(base: string, targetRef: string) {
   if (separator > 0 && type === 'approval') return `${base}/approvals/${id}`;
   if (separator > 0 && type === 'work_unit') return `${base}/work/${id}`;
   if (separator > 0 && type === 'invitation') return `${base}/people`;
+  if (separator > 0 && type === 'federation_grant') return `${base}/collaboration#grant-${id}`;
+  if (separator > 0 && type === 'federation_item') return `${base}/collaboration/received/${id}`;
+  if (separator > 0 && type === 'skill_version') return `${base}/skills/versions/${id}`;
   if (separator > 0 && type === 'external_action') return `${base}/external-actions/${id}`;
   return `${base}/inbox`;
 }
@@ -73,7 +92,12 @@ export default async function InboxPage({
     <>
       <PageHead
         title="Inbox"
-        description="What needs you. Reminders come first, then anything else you have not opened. Reminders appear here, and nothing is sent by email yet."
+        description="Review requests and work updates. Reminders come first, followed by unread items."
+        actions={
+          <ActionLink href={`${base}/notifications`} variant="secondary">
+            Email settings
+          </ActionLink>
+        }
       />
       <ErrorNotice code={error} />
       {unread > INBOX_SIZE && (
@@ -83,42 +107,65 @@ export default async function InboxPage({
         </p>
       )}
       {ordered.length === 0 ? (
-        <Empty action={<Link href={`${base}/work`}>Go to your work</Link>}>
-          Nothing here. When an approval needs your decision, it appears here.
+        <Empty
+          title="You are all caught up"
+          action={
+            <ActionLink href={`${base}/work`} variant="secondary">
+              Go to your work
+            </ActionLink>
+          }
+        >
+          Nothing here. When a decision needs you, or something you own changes, it appears here.
         </Empty>
       ) : (
-        <div className="card">
-          <ul className="list">
-            {ordered.map((notification) => (
-              <li key={notification.id}>
-                <form className="inbox-item" action={openNotificationAction}>
-                  <input type="hidden" name="organizationId" value={organizationId} />
-                  <input type="hidden" name="id" value={notification.id} />
-                  <input
-                    type="hidden"
-                    name="target"
-                    value={targetPath(base, notification.targetRef)}
-                  />
-                  <SubmitButton className="link">
-                    {KIND_WORDS[notification.kind] ?? 'Something needs your attention'}
-                  </SubmitButton>
-                  {titleOf.has(notification.targetRef) && (
-                    <small>{titleOf.get(notification.targetRef)}</small>
-                  )}
-                </form>
-                <span className="row">
-                  <small>
-                    {formatDateTime(notification.lastRemindedAt ?? notification.createdAt)}
-                  </small>
-                  {notification.remindersSent > 0 && !notification.readAt && (
-                    <span className="badge attention">Reminder</span>
-                  )}
-                  {!notification.readAt && <span className="badge active">New</span>}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <Card asChild className="block bg-transparent">
+          <div className="activity-list">
+            <ul className="activity-rows" role="list">
+              {ordered.map((notification) => {
+                const workTitle = titleOf.get(notification.targetRef);
+                const message = KIND_WORDS[notification.kind] ?? 'Something needs your attention';
+                return (
+                  <li key={notification.id}>
+                    <form action={openNotificationAction}>
+                      <input type="hidden" name="organizationId" value={organizationId} />
+                      <input type="hidden" name="id" value={notification.id} />
+                      <input
+                        type="hidden"
+                        name="target"
+                        value={targetPath(base, notification.targetRef)}
+                      />
+                      <SubmitButton
+                        className="quiet activity-row grid h-auto w-full grid-cols-[var(--activity-columns)] gap-x-3 gap-y-1 rounded-none border-0 px-3 py-2.5 text-start whitespace-normal hover:bg-accent dark:hover:bg-accent"
+                        working="Opening notification"
+                      >
+                        <span className="activity-subject">
+                          <span className="activity-title">{workTitle ?? message}</span>
+                          {workTitle && <small>{message}</small>}
+                        </span>
+                        <span className="activity-meta">
+                          <small>
+                            {formatDateTime(notification.lastRemindedAt ?? notification.createdAt)}
+                          </small>
+                          {notification.remindersSent > 0 && !notification.readAt && (
+                            <Badge variant="outline" className="badge attention border-transparent">
+                              Reminder
+                            </Badge>
+                          )}
+                          {!notification.readAt && (
+                            <Badge variant="outline" className="badge active border-transparent">
+                              New
+                            </Badge>
+                          )}
+                        </span>
+                        <ChevronRightIcon className="activity-chevron" aria-hidden="true" />
+                      </SubmitButton>
+                    </form>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </Card>
       )}
     </>
   );

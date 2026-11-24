@@ -58,6 +58,18 @@ const REASONS = new Map<string, string>([
   ['CREDENTIAL_UNAVAILABLE', 'The credential for your mail server could not be opened.'],
   ['PAYLOAD_CHANGED', 'What was stored no longer matched what was approved, so it was stopped.'],
   ['ATTEMPTS_EXHAUSTED', 'Ensemus could not reach your mail server after several tries.'],
+  [
+    'CONNECTION_CHANGED',
+    'The account it would go through is no longer one the person who started it may use.',
+  ],
+  [
+    'SCOPE_NOT_GRANTED',
+    'The account it would go through no longer allows this, so nothing was sent.',
+  ],
+  [
+    'ACCESS_REVOKED',
+    'The person who started it, or their access to what it changes, is gone, so nothing was sent.',
+  ],
   ['CONNECT_FAILED', 'Ensemus could not connect to your mail server.'],
   ['TLS_REQUIRED', 'Your mail server did not offer an encrypted connection, so nothing was sent.'],
   ['AUTH_FAILED', 'Your mail server did not accept the credential.'],

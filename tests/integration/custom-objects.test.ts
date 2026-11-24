@@ -26,16 +26,19 @@ import { urls } from '../helpers/stack';
 
 describe('custom objects through real tenant roles', () => {
   let database: ReturnType<typeof openAppDatabase>;
+  let worker: ReturnType<typeof openAppDatabase>;
   let tenants: Awaited<ReturnType<typeof makeTwoTenants>>;
   const fields = [
     { key: 'name', label: 'Name', kind: 'text', required: true, indexed: true },
   ] as const;
   beforeAll(async () => {
     database = openAppDatabase(urls.app(), { max: 2 });
+    worker = openAppDatabase(urls.worker(), { max: 2 });
     tenants = await makeTwoTenants(database.db);
   });
   afterAll(async () => {
     await database?.close();
+    await worker?.close();
   });
   const type = (classification: 'internal' | 'restricted' = 'internal') =>
     createObjectType(database.db, tenants.a.owner.context, {
@@ -387,24 +390,24 @@ describe('custom objects through real tenant roles', () => {
     if (!created.migrationId) throw new Error('MIGRATION_NOT_CREATED');
     const svc = createServiceContext(tenants.a.organizationId);
     expect(
-      await migrateObjectBatch(database.db, svc, {
+      await migrateObjectBatch(worker.db, svc, {
         migrationId: created.migrationId,
         batchSize: 1,
       }),
     ).toEqual({ more: true });
     expect(
-      await migrateObjectBatch(database.db, svc, {
+      await migrateObjectBatch(worker.db, svc, {
         migrationId: created.migrationId,
         batchSize: 1,
       }),
     ).toEqual({ more: false });
     expect(
-      await migrateObjectBatch(database.db, svc, {
+      await migrateObjectBatch(worker.db, svc, {
         migrationId: created.migrationId,
         batchSize: 1,
       }),
     ).toEqual({ more: false });
-    await withTenantTx(database.db, svc, async (tx) => {
+    await withTenantTx(worker.db, svc, async (tx) => {
       const totals = await tx.execute<{ migrated_count: number; failed_count: number }>(
         sql`select migrated_count,failed_count from objects.migrations where id=${created.migrationId}::uuid`,
       );
@@ -461,12 +464,12 @@ describe('custom objects through real tenant roles', () => {
     });
     if (!update.migrationId) throw new Error('MIGRATION_NOT_CREATED');
     const svc = createServiceContext(tenants.a.organizationId);
-    await migrateObjectBatch(database.db, svc, { migrationId: update.migrationId, batchSize: 200 });
-    await migrateObjectBatch(database.db, svc, { migrationId: update.migrationId, batchSize: 200 });
+    await migrateObjectBatch(worker.db, svc, { migrationId: update.migrationId, batchSize: 200 });
+    await migrateObjectBatch(worker.db, svc, { migrationId: update.migrationId, batchSize: 200 });
     expect(
       (await getObjectRecord(database.db, tenants.a.member.context, wide.id)).typeVersionNumber,
     ).toBe(1);
-    await withTenantTx(database.db, svc, async (tx) => {
+    await withTenantTx(worker.db, svc, async (tx) => {
       const r = await tx.execute<{
         migrated_count: number;
         failed_count: number;
@@ -498,7 +501,7 @@ describe('custom objects through real tenant roles', () => {
         migrationId: update.migrationId,
         expectedTypeVersion: fresh.version,
       });
-    await migrateObjectBatch(database.db, svc, { migrationId: retry.id, batchSize: 200 });
+    await migrateObjectBatch(worker.db, svc, { migrationId: retry.id, batchSize: 200 });
     expect(
       await getObjectMigration(database.db, tenants.a.owner.context, {
         typeId: t.id,

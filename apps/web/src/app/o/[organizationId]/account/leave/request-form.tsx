@@ -1,4 +1,7 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+
 import { useActionState } from 'react';
 import { requestOffboardingFormAction } from '@/server/offboarding-actions';
 import { AccountActionNotice } from '@/components/account-action-notice';
@@ -33,9 +36,9 @@ export function OffboardingRequestForm({
           Your offboarding request is recorded. Review its current status above.
         </p>
       )}
-      <label>
+      <Label>
         Organization name
-        <input
+        <Input
           name="confirmName"
           required
           maxLength={120}
@@ -43,12 +46,12 @@ export function OffboardingRequestForm({
           defaultValue={state.values.confirmName}
           aria-describedby="leave-name-help"
         />
-      </label>
+      </Label>
       <small id="leave-name-help">Type {organizationName} exactly to confirm.</small>
-      <label className="check">
+      <Label className="check">
         <input type="checkbox" name="confirm" value="yes" required />I understand that new work will
         stop and offboarding will begin. This request does not erase data automatically.
-      </label>
+      </Label>
       <div>
         <SubmitButton className="danger" working="Requesting offboarding">
           Request offboarding

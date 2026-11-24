@@ -1,10 +1,13 @@
+import { Card } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
 import { listModelProfiles } from '@ensemus/application/ai-model-profiles';
 import { can } from '@ensemus/domain/policy';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { KeptInput } from '@/components/kept-field';
 import { SubmitButton } from '@/components/submit-button';
-import { Empty, ErrorNotice, PageHead } from '@/components/ui';
+import { ActionLink, Empty, ErrorNotice, PageHead } from '@/components/ui';
 import { requireTenant } from '@/server/tenant';
 import { createProfileAction } from './actions';
 import { PROVIDER_LABEL, STATUS_LOOK } from './model-form';
@@ -31,78 +34,86 @@ export default async function ModelsPage({
     <>
       <PageHead
         title="Models"
-        description="The AI models this organization has approved. An agent can only use one that is active here."
+        description="The AI models your company has approved. An assistant can only use a model that is active here."
         actions={
           can(context.role, 'model.activate') && can(context.role, 'budget.manage') ? (
-            <Link href={`/o/${organizationId}/settings/models/workloads`}>
+            <ActionLink variant="secondary" href={`/o/${organizationId}/settings/models/workloads`}>
               Knowledge workload approvals
-            </Link>
+            </ActionLink>
           ) : undefined
         }
       />
       <ErrorNotice code={error} />
       <div className="stack">
-        <section className="card" aria-labelledby="models-heading">
-          <h2 id="models-heading">Approved models</h2>
-          {profiles.length === 0 ? (
-            <Empty>{canManage ? 'None yet. Add the first below.' : 'None yet.'}</Empty>
-          ) : (
-            <ul className="list">
-              {profiles.map((profile) => {
-                const look = STATUS_LOOK[profile.status] ?? { label: profile.status, tone: '' };
-                return (
-                  <li key={profile.id}>
-                    <span>
-                      <Link href={`/o/${organizationId}/settings/models/${profile.id}`}>
-                        {profile.alias}
-                      </Link>{' '}
-                      <small>
-                        {PROVIDER_LABEL[profile.provider_kind] ?? profile.provider_kind},{' '}
-                        {profile.has_credential ? 'key on file' : 'no key on file'}
-                      </small>
-                    </span>
-                    <span className={`badge ${look.tone}`}>{look.label}</span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
+        <Card asChild>
+          <section className="card" aria-labelledby="models-heading">
+            <h2 id="models-heading">Approved models</h2>
+            {profiles.length === 0 ? (
+              <Empty title="No models yet">
+                {canManage
+                  ? 'Add the first one below. Assistants can use it once it has passed a test and been turned on.'
+                  : 'An administrator adds models here. Assistants can use one once it is turned on.'}
+              </Empty>
+            ) : (
+              <ul className="list">
+                {profiles.map((profile) => {
+                  const look = STATUS_LOOK[profile.status] ?? { label: profile.status, tone: '' };
+                  return (
+                    <li key={profile.id}>
+                      <span>
+                        <Link href={`/o/${organizationId}/settings/models/${profile.id}`}>
+                          {profile.alias}
+                        </Link>{' '}
+                        <small>
+                          {PROVIDER_LABEL[profile.provider_kind] ?? profile.provider_kind},{' '}
+                          {profile.has_credential ? 'key on file' : 'no key on file'}
+                        </small>
+                      </span>
+                      <span className={`badge ${look.tone}`}>{look.label}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+        </Card>
 
         {canManage && (
-          <section className="card" aria-labelledby="add-model-heading">
-            <h2 id="add-model-heading">Add a model</h2>
-            <p className="muted">
-              A new model cannot be used until it has passed a test. You add its key on the next
-              page.
-            </p>
-            <form className="fields" action={createProfileAction}>
-              <input type="hidden" name="organizationId" value={organizationId} />
-              <label>
-                Who provides it
-                <select name="providerKind" required defaultValue="">
-                  <option value="" disabled>
-                    Choose a provider
-                  </option>
-                  {Object.entries(PROVIDER_LABEL).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
+          <Card asChild>
+            <section className="card" aria-labelledby="add-model-heading">
+              <h2 id="add-model-heading">Add a model</h2>
+              <p className="muted">
+                A new model cannot be used until it has passed a test. You add its key on the next
+                page.
+              </p>
+              <form className="fields gap-above" action={createProfileAction}>
+                <input type="hidden" name="organizationId" value={organizationId} />
+                <Label>
+                  Who provides it
+                  <NativeSelect name="providerKind" required defaultValue="">
+                    <option value="" disabled>
+                      Choose a provider
                     </option>
-                  ))}
-                </select>
-              </label>
-              <ProfileFields
-                profile={null}
-                others={profiles.map(({ id, alias }) => ({ id, alias }))}
-                text={({ name, defaultValue, ...rest }) => (
-                  <KeptInput keep={`model-${name}`} name={name} autoComplete="off" {...rest} />
-                )}
-              />
-              <div>
-                <SubmitButton>Add model</SubmitButton>
-              </div>
-            </form>
-          </section>
+                    {Object.entries(PROVIDER_LABEL).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </Label>
+                <ProfileFields
+                  profile={null}
+                  others={profiles.map(({ id, alias }) => ({ id, alias }))}
+                  text={({ name, defaultValue, ...rest }) => (
+                    <KeptInput keep={`model-${name}`} name={name} autoComplete="off" {...rest} />
+                  )}
+                />
+                <div>
+                  <SubmitButton>Add model</SubmitButton>
+                </div>
+              </form>
+            </section>
+          </Card>
         )}
       </div>
     </>

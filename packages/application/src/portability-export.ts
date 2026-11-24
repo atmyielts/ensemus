@@ -23,13 +23,30 @@ import {
   type TenantContext,
   type Tx,
 } from '@ensemus/database';
+import { assertLoginRole } from '@ensemus/database/service';
 import { can } from '@ensemus/domain/policy';
 import {
   artifactPartPath,
   knowledgePartPath,
+  skillBundlePartPath,
   assertPortabilitySections,
-  PORTABILITY_INVENTORY,
+  FEDERATION_PORTABILITY_VERSION,
+  SKILL_METADATA_PORTABILITY_VERSION,
+  MARKETPLACE_PUBLISHER_PORTABILITY_VERSION,
+  MEETING_CONFIGURATION_PORTABILITY_VERSION,
+  MEETING_HISTORY_PORTABILITY_VERSION,
+  BUSINESS_RECORD_PORTABILITY_VERSION,
+  RESIDENCY_PORTABILITY_VERSION,
+  SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION,
+  SKILL_BUNDLE_PORTABILITY_VERSION,
+  SANDBOX_HISTORY_PORTABILITY_VERSION,
+  MARKETPLACE_HISTORY_PORTABILITY_VERSION,
+  carriesSandboxHistory,
+  carriesSkillBundleOriginals,
+  isJoinedPortabilityVersion,
+  PORTABILITY_INVENTORY_PROFILES,
   PORTABILITY_INVENTORY_VERSION,
+  type JoinedPortabilityVersion,
   EXPORT_FAILURE_CODES,
   EXPORT_MANIFEST_PATH,
   EXPORT_SECTIONS,
@@ -66,8 +83,15 @@ import { AppError } from './errors';
 import { emit } from './events';
 import { idSchema } from './ids';
 import { CORE_SECTION_EXPORTERS, nextExportableFile } from './portability-sections-export';
-import { assertJoinedPortabilitySchema } from './portability-extensions';
+import {
+  assertJoinedPortabilitySchema,
+  assertMeetingHistoryViewer,
+  hasPortableBusinessRecords,
+} from './portability-extensions';
+import { RecordRefused } from './portability-sections-import';
 import { queryRows } from './portability-sql';
+import type { ResidencyPolicy } from '@ensemus/domain/residency';
+import { SKILL_BUNDLE_MAX_BYTES, skillBundleObjectKey } from '@ensemus/domain/skill';
 import { assertExportEpoch, isExportEpochCurrent } from './portability-epoch';
 import type { ExportPage, PortabilitySection } from './sovereign-ports';
 import { auditAction, notify } from './work';
@@ -95,6 +119,7 @@ export type ExportDeps = {
   sourceRelease: string;
   /** Hours an archive stays in the store. Configuration: `ENSEMUS_EXPORT_RETENTION_HOURS`. */
   retentionHours: number;
+  residencyPolicy?: ResidencyPolicy;
   now?: () => Date;
 };
 
@@ -196,8 +221,11 @@ function requireOwner(context: TenantContext) {
  * These read past every person's own view, because `standard` scope has its own rule about what stays out. So
  * only the worker may call them, and a person only ever reaches an export through the capability above.
  */
-function requireWorker(context: TenantContext) {
+async function requireWorker(database: AppDatabase, context: TenantContext) {
   if (context.actorType !== 'service') throw new AppError('FORBIDDEN');
+  // An app session with a service context cannot see Work material. Refuse before creating a
+  // snapshot or touching the store so a wrong connection cannot produce an incomplete archive.
+  await assertLoginRole(database, 'ensemus_worker');
 }
 
 function exportIdFrom(exportId: string) {
@@ -496,6 +524,21 @@ function settledStep(row: ExportRow): ExportStep | null {
 const stepOf = (row: ExportRow): ExportStep =>
   settledStep(row) ?? { state: 'continue', ...counters(row) };
 
+async function archiveStorageMatchesResidency(tx: Tx, policy: ResidencyPolicy | undefined) {
+  const regions = policy?.surfaces.storage?.regions;
+  const region = policy?.homeRegion;
+  const declared =
+    region && regions?.length && regions.every((value) => value === region) ? region : null;
+  const [proof] = await queryRows<{ allowed: boolean }>(
+    tx,
+    sql`select sovereign.portable_residency_storage_matches(${declared}) as allowed`,
+  );
+  return proof?.allowed === true;
+}
+
+const checksArchiveResidency = (profile: string | null) =>
+  profile === RESIDENCY_PORTABILITY_VERSION || carriesSkillBundleOriginals(profile);
+
 /** Moves it to `running` and records `snapshot_at`. On a row already finished, answers `finished`. */
 export async function beginExport(
   database: AppDatabase,
@@ -503,17 +546,56 @@ export async function beginExport(
   input: { exportId: string },
   deps: ExportDeps,
 ): Promise<ExportStep> {
-  requireWorker(context);
+  await requireWorker(database, context);
   assertPortabilitySections(deps.sections.map((section) => section.section));
   const id = exportIdFrom(input.exportId);
   return withTenantTx(database, context, async (tx) => {
-    await assertJoinedPortabilitySchema(tx);
     const row = await findExport(tx, context, id, true);
     if (row.status !== 'requested') return stepOf(row);
+    const [admitted] = await queryRows<{ profile: JoinedPortabilityVersion | null }>(
+      tx,
+      sql`select case
+        when sovereign.portable_profile_clear(${PORTABILITY_INVENTORY_VERSION}) then ${PORTABILITY_INVENTORY_VERSION}
+        when sovereign.portable_profile_clear(${FEDERATION_PORTABILITY_VERSION}) then ${FEDERATION_PORTABILITY_VERSION}
+        when sovereign.portable_profile_clear(${SKILL_METADATA_PORTABILITY_VERSION}) then ${SKILL_METADATA_PORTABILITY_VERSION}
+        when sovereign.portable_profile_clear(${MARKETPLACE_PUBLISHER_PORTABILITY_VERSION}) then ${MARKETPLACE_PUBLISHER_PORTABILITY_VERSION}
+        when sovereign.portable_profile_clear(${MEETING_CONFIGURATION_PORTABILITY_VERSION}) then ${MEETING_CONFIGURATION_PORTABILITY_VERSION}
+        when sovereign.portable_profile_clear(${MEETING_HISTORY_PORTABILITY_VERSION}) then ${MEETING_HISTORY_PORTABILITY_VERSION}
+        when sovereign.portable_profile_clear(${BUSINESS_RECORD_PORTABILITY_VERSION}) then ${BUSINESS_RECORD_PORTABILITY_VERSION}
+        when sovereign.portable_profile_clear(${SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION}) then ${SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION}
+        when sovereign.portable_profile_clear(${RESIDENCY_PORTABILITY_VERSION}) then ${RESIDENCY_PORTABILITY_VERSION}
+        when sovereign.portable_profile_clear(${SKILL_BUNDLE_PORTABILITY_VERSION}) then ${SKILL_BUNDLE_PORTABILITY_VERSION}
+        when sovereign.portable_profile_clear(${SANDBOX_HISTORY_PORTABILITY_VERSION}) then ${SANDBOX_HISTORY_PORTABILITY_VERSION}
+        when sovereign.portable_profile_clear(${MARKETPLACE_HISTORY_PORTABILITY_VERSION}) then ${MARKETPLACE_HISTORY_PORTABILITY_VERSION}
+        else null end as profile`,
+    );
+    const profile = admitted?.profile;
+    if (
+      !profile ||
+      (checksArchiveResidency(profile) &&
+        !(await archiveStorageMatchesResidency(tx, deps.residencyPolicy)))
+    ) {
+      await recordFailure(tx, context, row, 'RECORD_REFUSED');
+      return { state: 'failed', code: 'RECORD_REFUSED' };
+    }
+    const includesBusinessReferences =
+      profile === BUSINESS_RECORD_PORTABILITY_VERSION ||
+      profile === SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION ||
+      checksArchiveResidency(profile);
+    try {
+      await assertJoinedPortabilitySchema(tx, profile);
+      if (profile === MEETING_HISTORY_PORTABILITY_VERSION || includesBusinessReferences)
+        await assertMeetingHistoryViewer(tx, context.organizationId, row.requestedByMembershipId);
+    } catch (error) {
+      if (!(error instanceof RecordRefused)) throw error;
+      await recordFailure(tx, context, row, 'RECORD_REFUSED');
+      return { state: 'failed', code: 'RECORD_REFUSED' };
+    }
     const [claimed] = await tx
       .update(organizationExports)
       .set({
         status: 'running',
+        inventoryVersion: profile === PORTABILITY_INVENTORY_VERSION ? undefined : profile,
         exportEpoch: sql`(select epoch from sovereign.export_epochs where organization_id=${context.organizationId}::uuid)`,
         // The database's own clock, because every row this is compared with was stamped by it.
         snapshotAt: sql`now()`,
@@ -525,6 +607,17 @@ export async function beginExport(
       .where(exportIs(context, id))
       .returning();
     if (!claimed) throw new AppError('NOT_FOUND');
+    if (
+      includesBusinessReferences &&
+      !(await withPortabilityScope(
+        tx,
+        { 'app.portability_export_id': id },
+        hasPortableBusinessRecords,
+      ))
+    ) {
+      await recordFailure(tx, context, claimed, 'RECORD_REFUSED');
+      return { state: 'failed', code: 'RECORD_REFUSED' };
+    }
     await auditAction(tx, context, 'organization_export.started', exportTargetRef(id));
     return stepOf(claimed);
   });
@@ -537,13 +630,17 @@ type EncodedPage =
  * One page as JSONL. Each core record goes through its strict schema and what comes out is what is written, so
  * a new column, a credential or a restricted class has nowhere to go. No text from a record reaches the answer.
  */
-export function encodeExportPage(section: string, records: readonly unknown[]): EncodedPage {
+export function encodeExportPage(
+  section: string,
+  records: readonly unknown[],
+  inventoryVersion: JoinedPortabilityVersion = PORTABILITY_INVENTORY_VERSION,
+): EncodedPage {
   const lines: Buffer[] = [];
   let total = 0;
   for (const record of records) {
     let checked: unknown;
     try {
-      checked = validatePortableRecord(section, record);
+      checked = validatePortableRecord(section, record, inventoryVersion);
       assertPortableDefinitionIntegrity(checked);
     } catch {
       return { ok: false, why: 'refused' };
@@ -734,6 +831,8 @@ async function writeRecords(
   ) => ReturnType<CommitChange['next']>,
 ): Promise<ExportStep> {
   const { database, context, row, progress } = run;
+  const inventoryVersion = row.inventoryVersion ?? PORTABILITY_INVENTORY_VERSION;
+  if (!isJoinedPortabilityVersion(inventoryVersion)) return failStep(run, 'RECORD_REFUSED');
   let limit = MAX_RECORDS_PER_PART;
   let page: ExportPage;
   let encoded: EncodedPage;
@@ -742,12 +841,16 @@ async function writeRecords(
     page = await withTenantTx(database, context, (tx) =>
       withPortabilityScope(tx, { 'app.portability_export_id': row.id }, async (tx) => {
         await assertExportEpoch(tx, context, row.id);
-        const page = await exportPage(tx, context, { cursor: progress.cursor, limit: size });
+        const page = await exportPage(tx, context, {
+          cursor: progress.cursor,
+          limit: size,
+          inventoryVersion,
+        });
         await assertExportEpoch(tx, context, row.id);
         return page;
       }),
     );
-    encoded = encodeExportPage(section, page.records);
+    encoded = encodeExportPage(section, page.records, inventoryVersion);
     if (encoded.ok || encoded.why === 'refused' || limit === 1) break;
     limit = Math.max(1, Math.floor(limit / 2));
   }
@@ -776,19 +879,29 @@ async function writeRecords(
   const part = await storePart(run, section, path, encoded.count, encoded.body);
   const originals: PartValues[] = [];
   for (const original of read.originals ?? []) {
+    const id = original.resourceId;
+    const isSkillBundle = section === 'skills' && carriesSkillBundleOriginals(inventoryVersion);
     if (
-      section !== 'knowledge' ||
-      original.objectKey !== `${context.organizationId}/knowledge/${original.documentId}` ||
-      original.sizeBytes > 26214400 ||
+      (section !== 'knowledge' && !isSkillBundle) ||
+      original.objectKey !==
+        (isSkillBundle
+          ? skillBundleObjectKey(context.organizationId, id)
+          : `${context.organizationId}/knowledge/${id}`) ||
+      original.sizeBytes > (isSkillBundle ? SKILL_BUNDLE_MAX_BYTES : 26_214_400) ||
       row.partCount + originals.length + 2 > MAX_ARCHIVE_PARTS
     )
       return failStep(run, 'RECORD_REFUSED');
     await assertRunEpoch(run);
-    const bytes = await fromStore(() => run.store.get(original.objectKey));
+    const bytes = await fromStore(() =>
+      isSkillBundle
+        ? run.store.get(original.objectKey, SKILL_BUNDLE_MAX_BYTES)
+        : run.store.get(original.objectKey),
+    );
     await assertRunEpoch(run);
     if (bytes.length !== original.sizeBytes || sha256(bytes) !== original.sha256)
       return failStep(run, 'BYTES_CHANGED');
-    originals.push(await storePart(run, section, knowledgePartPath(original.documentId), 0, bytes));
+    const path = isSkillBundle ? skillBundlePartPath(id) : knowledgePartPath(id);
+    originals.push(await storePart(run, section, path, 0, bytes));
   }
   const sequences = { ...progress.sequences, [sequenceKey]: sequence };
   return commitStep(run, {
@@ -804,7 +917,7 @@ async function writeRecords(
             owner.confirmOriginals!(
               scoped,
               context,
-              (read.originals ?? []).map((item) => item.documentId),
+              (read.originals ?? []).map((item) => item.resourceId),
             ),
           ))
         )
@@ -1089,13 +1202,36 @@ async function manifestPiece(run: Run): Promise<ExportStep> {
     where organization_id=${context.organizationId}::uuid and alive and provenance_state<>'ordinary'`,
     ),
   );
+  const inventoryVersion = row.inventoryVersion ?? PORTABILITY_INVENTORY_VERSION;
+  if (!isJoinedPortabilityVersion(inventoryVersion)) return failStep(run, 'RECORD_REFUSED');
+  let sandboxReceiptsExcluded: number | undefined;
+  if (carriesSandboxHistory(inventoryVersion)) {
+    const [sandbox] = await withTenantTx(database, context, (tx) =>
+      withPortabilityScope(tx, { 'app.portability_export_id': row.id }, (scoped) =>
+        queryRows<{ count: number | null }>(
+          scoped,
+          sql`select sovereign.portable_sandbox_run_count() as count`,
+        ),
+      ),
+    );
+    const exported = parts.reduce(
+      (count, part) =>
+        count + (part.path.startsWith('skills/sandbox_run_receipt-') ? part.records : 0),
+      0,
+    );
+    if (sandbox?.count == null || sandbox.count < exported) return failStep(run, 'RECORD_REFUSED');
+    sandboxReceiptsExcluded = sandbox.count - exported;
+  }
   const manifest = exportManifestSchema.safeParse({
     format: 'ensemus.organization_export',
     schema_version: 2,
-    inventory_version: PORTABILITY_INVENTORY_VERSION,
+    inventory_version: inventoryVersion,
     record_max_bytes: MAX_JOINED_RECORD_BYTES,
-    inventory: PORTABILITY_INVENTORY,
+    inventory: PORTABILITY_INVENTORY_PROFILES[inventoryVersion],
     generated_bodies_excluded: omitted?.count ?? 0,
+    ...(sandboxReceiptsExcluded !== undefined
+      ? { sandbox_receipts_excluded: sandboxReceiptsExcluded }
+      : {}),
     export_id: row.id,
     organization_id: context.organizationId,
     exported_at: now.toISOString(),
@@ -1198,21 +1334,33 @@ async function readRun(
   exportId: string,
   deps: ExportDeps,
 ): Promise<Run | ExportStep> {
-  const row = await withTenantTx(database, context, (tx) => findExport(tx, context, exportId));
-  const settled = settledStep(row);
-  if (settled) return settled;
-  // Nothing has claimed it, so nothing has a snapshot to read against. A workflow always begins first.
-  if (row.status === 'requested') throw new AppError('INVALID_STATE');
-  await withTenantTx(database, context, (tx) => assertExportEpoch(tx, context, row.id));
-  return {
-    database,
-    store,
-    context,
-    row,
-    progress: readProgress(row),
-    deps,
-    startedAtMs: Date.now(),
-  };
+  return withTenantTx(database, context, async (tx) => {
+    const row = await findExport(tx, context, exportId);
+    const settled = settledStep(row);
+    if (settled) return settled;
+    // A workflow must first claim the export and pin its snapshot.
+    if (row.status === 'requested') throw new AppError('INVALID_STATE');
+    await assertExportEpoch(tx, context, row.id);
+    if (
+      checksArchiveResidency(row.inventoryVersion) &&
+      !(await archiveStorageMatchesResidency(tx, deps.residencyPolicy))
+    ) {
+      const latest = await findExport(tx, context, exportId, true);
+      const settled = settledStep(latest);
+      if (settled) return settled;
+      await recordFailure(tx, context, latest, 'RECORD_REFUSED');
+      return { state: 'failed', code: 'RECORD_REFUSED' };
+    }
+    return {
+      database,
+      store,
+      context,
+      row,
+      progress: readProgress(row),
+      deps,
+      startedAtMs: Date.now(),
+    };
+  });
 }
 
 const isRun = (value: Run | ExportStep): value is Run => 'row' in value;
@@ -1269,7 +1417,7 @@ export async function exportNextBatch(
   input: { exportId: string },
   deps: ExportDeps,
 ): Promise<ExportStep> {
-  requireWorker(context);
+  await requireWorker(database, context);
   const id = exportIdFrom(input.exportId);
   return closingSuperseded(database, context, id, async () => {
     const run = await readRun(database, store, context, id, deps);
@@ -1293,7 +1441,7 @@ export async function finishExport(
   input: { exportId: string },
   deps: ExportDeps,
 ): Promise<ExportStep> {
-  requireWorker(context);
+  await requireWorker(database, context);
   const id = exportIdFrom(input.exportId);
   const stopAt = Date.now() + FINISH_BUDGET_MS;
   return closingSuperseded(database, context, id, async () => {
@@ -1312,7 +1460,7 @@ export async function failExport(
   context: TenantContext,
   input: { exportId: string; code: ExportFailureCode },
 ): Promise<void> {
-  requireWorker(context);
+  await requireWorker(database, context);
   if (!EXPORT_FAILURE_CODES.includes(input.code)) throw new AppError('INVALID_INPUT');
   const id = exportIdFrom(input.exportId);
   await withTenantTx(database, context, async (tx) => {
@@ -1405,7 +1553,7 @@ export async function purgeExpiredExports(
   context: TenantContext,
   now: Date,
 ): Promise<number> {
-  requireWorker(context);
+  await requireWorker(database, context);
   const due = await withTenantTx(database, context, async (tx) => {
     const rows = await tx
       .select()

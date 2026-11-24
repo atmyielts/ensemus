@@ -1,9 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { listDirectory, listTeams } from '@ensemus/application';
 import { can } from '@ensemus/domain/policy';
-import Link from 'next/link';
 import { KnowledgeUploadForm } from '@/components/knowledge-upload-form';
-import { PageHead, Empty } from '@/components/ui';
+import { PageHead, Empty, BackLink } from '@/components/ui';
 import { requireTenant } from '@/server/tenant';
 export const metadata = { title: 'Add a source | Ensemus' };
 export default async function NewSourcePage({
@@ -17,7 +16,9 @@ export default async function NewSourcePage({
     return (
       <>
         <PageHead title="Add a source" />
-        <Empty>Your role cannot add company sources. Ask an organization administrator.</Empty>
+        <Empty title="Adding documents is not part of your role">
+          Ask an administrator in your organization to add the document for you.
+        </Empty>
       </>
     );
   const [people, teams] = await Promise.all([
@@ -25,11 +26,11 @@ export default async function NewSourcePage({
     listTeams(database, context),
   ]);
   return (
-    <>
-      <Link href={`/o/${organizationId}/knowledge`}>Back to sources</Link>
+    <div>
+      <BackLink href={`/o/${organizationId}/knowledge`}>Back to sources</BackLink>
       <PageHead
         title="Add a source"
-        description="Add a text document. Processing happens in the background after the file is saved."
+        description="Upload a document your team relies on. Ensemus reads it in the background, and then you can search it and ask questions about it."
       />
       <KnowledgeUploadForm
         organizationId={organizationId}
@@ -41,6 +42,6 @@ export default async function NewSourcePage({
           .map((person) => ({ membershipId: person.membershipId, name: person.name }))}
         teams={teams.map((team) => ({ id: team.id, name: team.name }))}
       />
-    </>
+    </div>
   );
 }

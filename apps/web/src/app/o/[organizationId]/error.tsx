@@ -1,4 +1,5 @@
 'use client';
+import { Card } from '@/components/ui/card';
 
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
@@ -25,23 +26,34 @@ export default function OrganizationError({
     });
   return (
     <>
-      <PageHead title="This page could not be shown" />
-      <p role="alert">
-        Something went wrong on our side. Nothing you saved has been lost, and the rest of Ensemus
-        may still work.
-      </p>
-      <div className="row">
-        <button type="button" onClick={tryAgain}>
-          Try again
-        </button>
-        <Link className="button quiet" href={`/o/${organizationId}`}>
-          Go to Home
-        </Link>
-      </div>
+      <PageHead
+        title="This page could not be shown"
+        description="Something went wrong on our side, not because of anything you did."
+      />
+      <Card asChild>
+        <div className="card">
+          <p role="alert">
+            Nothing you saved has been lost, and the rest of Ensemus should still work. Try this
+            page again, or go back to Home and carry on from there.
+          </p>
+          <div className="row">
+            <button type="button" onClick={tryAgain}>
+              Try again
+            </button>
+            <Link className="button secondary" href={`/o/${organizationId}`}>
+              Go to Home
+            </Link>
+          </div>
+        </div>
+      </Card>
       {error.digest && (
-        <p className="muted gap-above-large">
-          If this keeps happening, give your administrator this reference: {error.digest}
-        </p>
+        <details className="error-reference gap-above-large">
+          <summary>If this keeps happening</summary>
+          <p>
+            Give your administrator this reference, so they can find what went wrong:{' '}
+            <code>{error.digest}</code>
+          </p>
+        </details>
       )}
     </>
   );

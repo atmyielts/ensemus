@@ -672,14 +672,11 @@ describe('binding an agent action to a person, as the real roles', () => {
       await expect(recheck(seeded)).resolves.toEqual({ ok: false, code: 'POLICY_DENIED' });
     });
 
-    it('refuses an initiator disabled after the gate admitted the run (POLICY_DENIED)', async () => {
+    it('refuses an initiator disabled while recheck waits on the Work lock', async () => {
       const seeded = await approved();
-      // 0414's preflight and 0411's Work policy both need an active initiator at every statement, so
-      // a disable committed before the recheck reads the Work hides it (the case above). The
-      // recheck's own initiator rule is the backstop for a disable that commits after it has
-      // locked the Work. That window is made deterministic here: a superuser holds the Work row, the
-      // gate's recheck queues on it with the run admitted and the Work visible in its snapshot, the
-      // initiator is disabled and committed, and only then is the Work released.
+      // The recheck first queues on a visible Work row. Disable the initiator and commit before
+      // releasing the lock, so subsequent statement snapshots must hide the approval and intent
+      // through the Work material policy. An incomplete binding must never authorize the action.
       const holder = new pg.Client({ connectionString: urls.superuser() });
       const watcher = new pg.Client({ connectionString: urls.superuser() });
       await holder.connect();
@@ -707,7 +704,7 @@ describe('binding an agent action to a person, as the real roles', () => {
         expect(queued).toBe(true);
         await setMemberStatus(a.member.membershipId, 'disabled');
         await holder.query('rollback');
-        expect(await rechecking).toEqual({ value: { ok: false, code: 'POLICY_DENIED' } });
+        expect(await rechecking).toEqual({ value: { ok: false, code: 'APPROVAL_NOT_VALID' } });
       } finally {
         await holder.query('rollback').catch(() => undefined);
         await Promise.all([holder.end(), watcher.end()]);

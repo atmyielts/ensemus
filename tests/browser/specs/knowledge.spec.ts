@@ -11,7 +11,11 @@ test.describe('company knowledge native forms', () => {
         title = `Generated knowledge ${randomUUID()}`;
       await page.goto(`/o/${world.organization}/knowledge/new`);
       await page.getByLabel('Source name', { exact: true }).fill(title);
-      await expect(page.getByLabel('Sensitivity', { exact: true })).toHaveValue('restricted');
+      await expect(
+        page
+          .getByRole('group', { name: 'Who can see this', exact: true })
+          .getByRole('radio', { name: /^Restricted\b/ }),
+      ).toBeChecked();
       await page.getByLabel('Document', { exact: true }).setInputFiles({
         name: 'source.txt',
         mimeType: 'text/plain',
@@ -38,16 +42,16 @@ test.describe('company knowledge native forms', () => {
       question = `Generated private question ${randomUUID()}`;
     await page.goto(`/o/${world.organization}/knowledge/ask`);
     await page.getByLabel('Your question', { exact: true }).fill(question);
-    await expect(page.getByLabel('Question sensitivity', { exact: true })).toHaveValue(
-      'restricted',
-    );
+    await expect(
+      page
+        .getByRole('group', { name: 'How private is your question?', exact: true })
+        .getByRole('radio', { name: /^Restricted\b/ }),
+    ).toBeChecked();
     await page.getByRole('button', { name: 'Ask question', exact: true }).click();
     await expect(page).toHaveURL(/\/knowledge\/answers\/[0-9a-f-]{36}$/);
     expect(page.url()).not.toContain(encodeURIComponent(question));
     await expect(page.getByRole('heading', { name: question, exact: true })).toBeVisible();
-    await expect(page.getByText('Question sensitivity:', { exact: false })).toContainText(
-      'Restricted',
-    );
+    await expect(page.locator('dt:text-is("How private") + dd')).toHaveText('Restricted');
   });
   test('preserves source form text when a wider grant is refused', async ({ open, world }) => {
     const page = await open(world.alice),
@@ -70,6 +74,10 @@ test.describe('company knowledge native forms', () => {
     await page.getByRole('button', { name: 'Add source', exact: true }).click();
     await expect(page.getByRole('main').getByRole('alert')).toBeVisible();
     await expect(page.getByLabel('Source name', { exact: true })).toHaveValue(title);
-    await expect(page.getByLabel('Sensitivity', { exact: true })).toHaveValue('restricted');
+    await expect(
+      page
+        .getByRole('group', { name: 'Who can see this', exact: true })
+        .getByRole('radio', { name: /^Restricted\b/ }),
+    ).toBeChecked();
   });
 });

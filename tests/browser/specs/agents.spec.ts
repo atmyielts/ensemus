@@ -1,7 +1,12 @@
-// AGENT-01, AGENT-16: publishing an agent from the settings page, as a person does it. Written and
-// typechecked. It has not been run yet, because it needs the built images behind the proxy.
+// AGENT-01, AGENT-16: publishing an agent from the settings page, as a person does it.
 import { createHash, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import type { Page } from '@playwright/test';
+import { evaluationSigner } from '../../../packages/application/src/ai/evaluation-attestation';
+import {
+  reportV2,
+  signedReport,
+} from '../../../packages/application/src/ai/evaluation-attestation.test-support';
 import {
   assembled,
   BASE,
@@ -17,6 +22,7 @@ import {
 import { previousTotpFromUri } from '../../helpers/totp';
 import { expect, test } from '../support/fixtures';
 import { axeFindings, sidewaysOverflow, THEMES, WIDTHS } from '../support/look';
+import { alertIn } from '../support/notices';
 
 /** What a fresh organization's report has to carry. It has no policy document of its own yet. */
 const POLICY_VERSION = 'default';
@@ -64,28 +70,19 @@ function canonical(value: unknown): string {
 
 const specHash = (spec: unknown) => createHash('sha256').update(canonical(spec)).digest('hex');
 
-function reportFor(spec: unknown, overrides: Record<string, unknown> = {}) {
-  return {
-    report_version: 1,
-    spec_sha256: specHash(spec),
-    policy_version: POLICY_VERSION,
-    suite_ref: 'evaluations/agents/work-brief',
-    dataset_version: 'synthetic-1',
-    model_label: 'scripted',
-    pass_rate: 1,
-    cases: 3,
-    passed: true,
-    scripted_model: true,
-    ...overrides,
-  };
+function reportFor(spec: unknown) {
+  // The assembled test stack generates this signer and supplies only its public key to web.
+  const keyFolder = new URL('../../../.local/evaluation-test/', import.meta.url);
+  const signer = evaluationSigner({
+    keyId: readFileSync(new URL('signing-key.id', keyFolder), 'utf8').trim(),
+    privateKeyPem: readFileSync(new URL('signing-key.pem', keyFolder), 'utf8'),
+  });
+  return signedReport(reportV2(specHash(spec), POLICY_VERSION), signer);
 }
 
 const pretty = (value: unknown) => JSON.stringify(value, null, 2);
 const agentsPath = (organization: string) => `/o/${organization}/settings/agents`;
 const apiPath = (organization: string) => `/api/v1/organizations/${organization}/agent-versions`;
-
-/** A class and not the alert role: Next.js keeps an alert of its own on every page, for navigation. */
-const refusal = (page: Page) => page.locator('p.notice.error');
 
 /**
  * Turns on two-step sign-in for this person's session, through the security page's own forms, as an owner
@@ -129,7 +126,7 @@ test.describe('publishing an agent', () => {
     const { owner, organization } = await team();
     const page = await open(owner);
     await page.goto(agentsPath(organization));
-    await expect(page.getByText('No agent has been published yet.')).toBeVisible();
+    await expect(page.getByText('No assistant has been published yet')).toBeVisible();
 
     const spec = testSpec();
     await fillAndPublish(page, spec, reportFor(spec));
@@ -199,12 +196,12 @@ test.describe('what publishing refuses', () => {
     const spec = testSpec({ tools: { allow: ['secrets.read'] } });
     await fillAndPublish(page, spec, reportFor(spec));
 
-    await expect(refusal(page)).toHaveText('This agent definition is not valid.');
+    await expect(alertIn(page)).toHaveText('This agent definition is not valid.');
     await expect(
       page.getByText('It allows a tool no agent may have', { exact: false }),
     ).toBeVisible();
     await expect(page.getByLabel('Agent manifest')).toHaveValue(pretty(spec));
-    await expect(page.getByText('No agent has been published yet.')).toBeVisible();
+    await expect(page.getByText('No assistant has been published yet')).toBeVisible();
   });
 
   test('a report for another spec', async ({ open }) => {
@@ -214,9 +211,9 @@ test.describe('what publishing refuses', () => {
     const report = reportFor(testSpec({ version: 2 }));
     await fillAndPublish(page, testSpec(), report);
 
-    await expect(refusal(page)).toContainText('needs a passing evaluation');
+    await expect(alertIn(page)).toContainText('needs a passing evaluation');
     await expect(page.getByLabel('Evaluation report')).toHaveValue(pretty(report));
-    await expect(page.getByText('No agent has been published yet.')).toBeVisible();
+    await expect(page.getByText('No assistant has been published yet')).toBeVisible();
   });
 
   test('text that is not JSON', async ({ open }) => {
@@ -228,7 +225,7 @@ test.describe('what publishing refuses', () => {
     await page.getByLabel('Agent manifest').fill('not json');
     await page.getByLabel('Evaluation report').fill('not json either');
     await page.getByRole('button', { name: 'Publish this version' }).click();
-    await expect(refusal(page)).toHaveText('This agent definition is not valid.');
+    await expect(alertIn(page)).toHaveText('This agent definition is not valid.');
     await expect(page.getByLabel('Agent manifest')).toHaveValue('not json');
   });
 });
@@ -252,8 +249,10 @@ test.describe('who can reach this', () => {
 
     const page = await open(member);
     await page.goto(agentsPath(organization));
-    await expect(page.getByRole('heading', { name: 'Agents' })).toBeVisible();
-    await expect(page.getByText('Owners and admins manage agents here.')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Assistant versions' })).toBeVisible();
+    await expect(
+      page.getByText('Owners and administrators manage assistant versions here.'),
+    ).toBeVisible();
     await expect(page.getByLabel('Agent manifest')).toHaveCount(0);
     await expect(page.getByText('work-brief')).toHaveCount(0);
 
@@ -319,7 +318,7 @@ test.describe('how it reads', () => {
     await scan('empty');
     const bad = testSpec({ tools: { allow: ['secrets.read'] } });
     await fillAndPublish(page, bad, reportFor(bad));
-    await expect(refusal(page)).toBeVisible();
+    await expect(alertIn(page)).toBeVisible();
     await scan('refused');
     const good = testSpec();
     await fillAndPublish(page, good, reportFor(good));

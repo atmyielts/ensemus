@@ -190,9 +190,15 @@ async function stepFor(
     now,
   );
 }
+async function requireDeferredErasureClear(tx: Tx, offboardingId: string) {
+  const result = await tx.execute<{ ready: boolean }>(
+    sql`select lifecycle.deferred_erasure_clear(${offboardingId}::uuid) as ready`,
+  );
+  if (result.rows[0]?.ready !== true) throw new AppError('PREREQUISITES_INCOMPLETE');
+}
 async function contentTables(tx: Tx) {
   const result = await tx.execute(
-    sql`select n.nspname as schema_name,c.relname as table_name,has_table_privilege('ensemus_eraser',c.oid,'DELETE') as granted from pg_class c join pg_namespace n on n.oid=c.relnamespace join pg_attribute a on a.attrelid=c.oid and a.attname='organization_id' and not a.attisdropped where c.relkind in ('r','p') and not c.relispartition and n.nspname not like 'pg_%' and n.nspname<>'information_schema' and not lifecycle.retained_table(n.nspname::text,c.relname::text) order by n.nspname,c.relname`,
+    sql`select n.nspname as schema_name,c.relname as table_name,has_table_privilege('ensemus_eraser',c.oid,'DELETE') as granted from pg_class c join pg_namespace n on n.oid=c.relnamespace join pg_attribute a on a.attrelid=c.oid and a.attname='organization_id' and not a.attisdropped where c.relkind in ('r','p') and not c.relispartition and n.nspname not like 'pg_%' and n.nspname<>'information_schema' and not lifecycle.retained_table(n.nspname::text,c.relname::text) and not lifecycle.erasure_requires_empty(n.nspname::text,c.relname::text) order by n.nspname,c.relname`,
   );
   return result.rows.map((row) => {
     if (
@@ -659,6 +665,7 @@ export async function assertErasureAdmittedInTx(
   const pending = await effects(tx, context);
   if (pending.activeHolds) throw new AppError('LEGAL_HOLD_ACTIVE');
   if (pending.actions || pending.payments) throw new AppError('PREREQUISITES_INCOMPLETE');
+  await requireDeferredErasureClear(tx, id);
   return { row, finished: false };
 }
 
@@ -812,6 +819,7 @@ export async function finishErasure(
     throw new AppError('PREREQUISITES_INCOMPLETE');
   return withAccountTx(database, context, async (tx) => {
     const { row } = await locked(tx, context, id, true);
+    await requireDeferredErasureClear(tx, id);
     const physical = await tx.execute<{ ready: boolean }>(
       sql`select lifecycle.erasure_object_proofs(${id}::uuid) as ready`,
     );
@@ -877,6 +885,9 @@ export async function finishErasure(
       )
       .limit(1);
     if (!blobBaseline || !row.erasureStartedAt) throw new AppError('PREREQUISITES_INCOMPLETE');
+    const skillReceipts = await tx.execute<{ n: string }>(
+      sql`select lifecycle.skill_offboarding_bundles_removed(${id}::uuid)::text as n`,
+    );
     const report: ErasureReport = {
       schemaVersion: 1,
       offboardingId: id,
@@ -891,7 +902,9 @@ export async function finishErasure(
             ? 'BACKUP_EXPIRY_REQUIRES_OPERATOR_VERIFICATION'
             : 'RETAINED_BY_RULE',
       })),
-      blobsRemoved: Math.max(0, count(evidence.blobs_purged) - blobBaseline.rowsLeft),
+      blobsRemoved:
+        Math.max(0, count(evidence.blobs_purged) - blobBaseline.rowsLeft) +
+        count(skillReceipts.rows[0]?.n),
       backups: 'expire_on_schedule',
       startedAt: row.erasureStartedAt.toISOString(),
       finishedAt: new Date().toISOString(),

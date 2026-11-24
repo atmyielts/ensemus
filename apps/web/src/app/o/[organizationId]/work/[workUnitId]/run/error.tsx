@@ -38,7 +38,7 @@ export default function RunError({
         <button type="button" onClick={tryAgain}>
           Try again
         </button>
-        <Link className="button quiet" href={`/o/${organizationId}/work/${workUnitId}`}>
+        <Link className="button secondary" href={`/o/${organizationId}/work/${workUnitId}`}>
           Back to the work
         </Link>
       </div>

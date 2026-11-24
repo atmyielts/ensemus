@@ -1,0 +1,170 @@
+{
+  "sections": [
+    {
+      "id": "start",
+      "title": "Getting started",
+      "audience": "user",
+      "slice": "docs-user-work",
+      "pages": [
+        "user/getting-started.md",
+        "user/home.md",
+        "user/members-and-invitations.md",
+        "user/people-and-teams.md"
+      ]
+    },
+    {
+      "id": "work",
+      "title": "Work and approvals",
+      "audience": "user",
+      "slice": "docs-user-work",
+      "pages": [
+        "user/work-units.md",
+        "user/dependencies.md",
+        "user/evidence-and-completion.md",
+        "user/approvals.md",
+        "user/notifications.md",
+        "user/clients-and-projects.md",
+        "user/deleted-content.md",
+        "user/live-status.md",
+        "user/public-api.md",
+        "user/meetings.md"
+      ]
+    },
+    {
+      "id": "connections",
+      "title": "Connections and external actions",
+      "audience": "user",
+      "slice": "docs-user-data",
+      "pages": [
+        "user/connections.md",
+        "user/source-records.md",
+        "user/sending-email.md",
+        "user/sent-failed-unknown.md",
+        "user/webhooks.md",
+        "user/google-workspace.md",
+        "user/microsoft-365.md",
+        "user/mcp-tools.md"
+      ]
+    },
+    {
+      "id": "knowledge",
+      "title": "Search and knowledge",
+      "audience": "user",
+      "slice": "docs-user-data",
+      "pages": [
+        "user/search.md",
+        "user/knowledge-and-citations.md",
+        "user/embeddings.md",
+        "user/memory-and-facts.md",
+        "user/removing-access.md",
+        "user/company-graph.md",
+        "user/custom-objects.md",
+        "user/company-pulse.md"
+      ]
+    },
+    {
+      "id": "agents",
+      "title": "Models and agents",
+      "audience": "user",
+      "slice": "docs-user-agents",
+      "pages": [
+        "user/model-providers.md",
+        "user/your-own-models.md",
+        "user/usage-and-budgets.md",
+        "user/data-classes-and-egress.md",
+        "user/agents-and-runs.md",
+        "user/agent-tools-and-approvals.md",
+        "user/delegation.md",
+        "user/stopping-agents.md",
+        "user/agent-output.md",
+        "user/agent-studio.md",
+        "user/assistants.md",
+        "user/outcome-composer.md",
+        "user/workflows-and-packs.md"
+      ]
+    },
+    {
+      "id": "admin",
+      "title": "Your organization",
+      "audience": "user",
+      "slice": "docs-user-admin",
+      "pages": [
+        "user/onboarding.md",
+        "user/sign-in.md",
+        "user/sso.md",
+        "user/mfa.md",
+        "user/exporting-your-organization.md",
+        "user/plans-and-credits.md",
+        "user/billing-and-invoices.md",
+        "user/sovereign-license-status.md",
+        "user/retention.md",
+        "user/legal-hold.md",
+        "user/closing-your-account.md",
+        "user/support.md",
+        "user/reporting-a-vulnerability.md",
+        "user/accessibility.md"
+      ]
+    },
+    {
+      "id": "op-install",
+      "title": "Installing and configuring",
+      "audience": "operator",
+      "slice": "docs-ops-install",
+      "pages": [
+        "operator/overview.md",
+        "operator/install-compose.md",
+        "operator/configuration.md",
+        "operator/secrets.md",
+        "operator/identity-providers.md",
+        "operator/first-owner.md"
+      ]
+    },
+    {
+      "id": "op-recover",
+      "title": "Upgrading and recovering",
+      "audience": "operator",
+      "slice": "docs-ops-install",
+      "pages": [
+        "operator/upgrade.md",
+        "operator/rollback.md",
+        "operator/backup-and-restore.md",
+        "operator/after-a-restore.md"
+      ]
+    },
+    {
+      "id": "op-sovereign",
+      "title": "Sovereign",
+      "audience": "operator",
+      "slice": "docs-ops-sovereign",
+      "pages": [
+        "operator/offline-install.md",
+        "operator/verify-a-release.md",
+        "operator/license-issuance.md",
+        "operator/offline-upgrades.md",
+        "operator/advisories-and-branches.md",
+        "operator/local-models.md",
+        "operator/diagnostics-export.md",
+        "operator/outbound-traffic.md",
+        "operator/third-party-licenses.md"
+      ]
+    },
+    {
+      "id": "op-run",
+      "title": "Running the service",
+      "audience": "operator",
+      "slice": "docs-ops-run",
+      "pages": [
+        "operator/workers-and-workflows.md",
+        "operator/connector-worker.md",
+        "operator/observability.md",
+        "operator/scaling-and-load.md",
+        "operator/incidents.md",
+        "operator/support-access.md",
+        "operator/hosted-environments.md",
+        "operator/provisioning-and-suspension.md",
+        "operator/billing-operations.md",
+        "operator/mode-parity.md"
+      ]
+    }
+  ]
+}

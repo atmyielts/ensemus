@@ -1,7 +1,6 @@
 import { getTicket, supportContentWritable } from '@ensemus/application/saas/support';
-import Link from 'next/link';
 import { ConfirmForm } from '@/components/confirm-form';
-import { ErrorNotice, PageHead, formatDateTime } from '@/components/ui';
+import { BackLink, ErrorNotice, PageHead, formatDateTime } from '@/components/ui';
 import { closeTicketAction } from '@/server/support-actions';
 import { orNotFound, requireAccountTenant } from '@/server/tenant';
 import { SupportMessageForm } from '../message-form';
@@ -21,10 +20,10 @@ export default async function TicketPage({
     ]);
   return (
     <div className="stack">
+      <BackLink href={`/o/${organizationId}/account/support`}>All tickets</BackLink>
       <PageHead
         title={ticket.subject}
         description={`${ticket.category} · ${ticket.status.replaceAll('_', ' ')}`}
-        actions={<Link href={`/o/${organizationId}/account/support`}>All tickets</Link>}
       />
       <ErrorNotice code={(await searchParams).error} />
       <p className="notice">

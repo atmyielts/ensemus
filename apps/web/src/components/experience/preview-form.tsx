@@ -1,4 +1,9 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { NativeSelect } from '@/components/ui/native-select';
+
 import { useActionState, useEffect, useId, useRef } from 'react';
 import type { OutcomeDraftView } from '@ensemus/application/outcomes';
 import Link from 'next/link';
@@ -45,16 +50,16 @@ export function PreviewForm({
       <input type="hidden" name="organizationId" value={organizationId} />
       <input type="hidden" name="draftId" value={draft.id} />
       <input type="hidden" name="version" value={draft.version} />
-      <label htmlFor={`${prefix}-title`}>Work title</label>
-      <input
+      <Label htmlFor={`${prefix}-title`}>Work title</Label>
+      <Input
         id={`${prefix}-title`}
         name="title"
         required
         maxLength={200}
         defaultValue={value('title', p.title)}
       />
-      <label htmlFor={`${prefix}-objective`}>Outcome</label>
-      <textarea
+      <Label htmlFor={`${prefix}-objective`}>Outcome</Label>
+      <Textarea
         id={`${prefix}-objective`}
         name="objective"
         required
@@ -62,8 +67,8 @@ export function PreviewForm({
         rows={4}
         defaultValue={value('objective', p.objective)}
       />
-      <label htmlFor={`${prefix}-due`}>Due date (optional)</label>
-      <input
+      <Label htmlFor={`${prefix}-due`}>Due date (optional)</Label>
+      <Input
         id={`${prefix}-due`}
         name="dueAt"
         type="date"
@@ -73,8 +78,8 @@ export function PreviewForm({
       <p id={`${prefix}-due-help`} className="muted">
         A date without a time. Unclear dates stay empty until you choose one.
       </p>
-      <label htmlFor={`${prefix}-owner`}>Accountable owner</label>
-      <select
+      <Label htmlFor={`${prefix}-owner`}>Accountable owner</Label>
+      <NativeSelect
         id={`${prefix}-owner`}
         name="ownerMembershipId"
         required
@@ -90,9 +95,9 @@ export function PreviewForm({
             {person.name}
           </option>
         ))}
-      </select>
-      <label htmlFor={`${prefix}-class`}>Sensitivity</label>
-      <select
+      </NativeSelect>
+      <Label htmlFor={`${prefix}-class`}>Who can see this</Label>
+      <NativeSelect
         id={`${prefix}-class`}
         name="classification"
         defaultValue={value('classification', p.classification)}
@@ -102,9 +107,9 @@ export function PreviewForm({
             {c.charAt(0).toUpperCase() + c.slice(1)}
           </option>
         ))}
-      </select>
-      <label htmlFor={`${prefix}-process`}>Related workflow suggestion (optional)</label>
-      <select
+      </NativeSelect>
+      <Label htmlFor={`${prefix}-process`}>Related workflow suggestion (optional)</Label>
+      <NativeSelect
         id={`${prefix}-process`}
         name="suggestedProcessKey"
         defaultValue={value('suggestedProcessKey', p.suggestedProcessKey ?? '')}
@@ -116,12 +121,12 @@ export function PreviewForm({
             {process.name}
           </option>
         ))}
-      </select>
+      </NativeSelect>
       <p id={`${prefix}-process-help`} className="muted">
         A suggestion for later. Confirming this preview creates ordinary Work and does not start
         this workflow.
       </p>
-      <fieldset>
+      <fieldset className="group">
         <legend>Success requirements</legend>
         <p className="muted">
           File attached; a person checks the requested name and content. Approval is required only
@@ -129,29 +134,29 @@ export function PreviewForm({
         </p>
         {criteria.map((c, i) => (
           <div key={i} className="fields">
-            <label htmlFor={`${prefix}-criterion-${i}`}>
+            <Label htmlFor={`${prefix}-criterion-${i}`}>
               {i < p.successCriteria.length
                 ? `Requirement ${i + 1}`
                 : 'Add a requirement (optional)'}
-            </label>
-            <input
+            </Label>
+            <Input
               id={`${prefix}-criterion-${i}`}
               name={`criterion_${i}_label`}
               maxLength={200}
               defaultValue={value(`criterion_${i}_label`, c.label)}
             />
-            <label htmlFor={`${prefix}-kind-${i}`}>How requirement {i + 1} is checked</label>
-            <select
+            <Label htmlFor={`${prefix}-kind-${i}`}>How requirement {i + 1} is checked</Label>
+            <NativeSelect
               id={`${prefix}-kind-${i}`}
               name={`criterion_${i}_kind`}
               defaultValue={value(`criterion_${i}_kind`, c.kind)}
             >
               <option value="none">A person checks it</option>
               <option value="artifact_named">A file is attached; a person checks it</option>
-              <option value="reviewer_approved">Current Work review is approved</option>
-            </select>
+              <option value="reviewer_approved">A reviewer approves the work</option>
+            </NativeSelect>
             {i < p.successCriteria.length && (
-              <label className="check">
+              <Label className="check">
                 <input
                   type="checkbox"
                   name={`criterion_${i}_keep`}
@@ -159,12 +164,12 @@ export function PreviewForm({
                   defaultChecked={state.values ? value(`criterion_${i}_keep`) === 'yes' : true}
                 />
                 Keep requirement {i + 1}
-              </label>
+              </Label>
             )}
           </div>
         ))}
       </fieldset>
-      <fieldset>
+      <fieldset className="group">
         <legend>Work that must finish first</legend>
         <p className="muted">
           Browse 50 readable items at a time. Saved selections remain shown on every page. Save
@@ -172,7 +177,7 @@ export function PreviewForm({
         </p>
         {dependencies.length ? (
           dependencies.map((work) => (
-            <label className="check" key={work.id}>
+            <Label className="check" key={work.id}>
               <input
                 type="checkbox"
                 name="dependency"
@@ -180,7 +185,7 @@ export function PreviewForm({
                 defaultChecked={selected.includes(work.id)}
               />
               {work.title}
-            </label>
+            </Label>
           ))
         ) : (
           <p>No readable Work is available to select.</p>

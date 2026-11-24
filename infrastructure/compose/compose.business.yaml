@@ -1,0 +1,49 @@
+# Optional BYOM/Sovereign adapter relays. Profiles are independent; nothing starts by default.
+# Use with compose.yaml and --profile connectors plus the selected business-* profile.
+# Set the matching ENSEMUS_EGRESS_GATEWAY_* to egress-*:2525 in the shared operator env file.
+# Targets are operator-only HOST:PORT values; API tokens stay sealed in the connector worker.
+x-business-relay: &business-relay
+  restart: unless-stopped
+  build:
+    context: ../..
+    dockerfile: infrastructure/containers/Dockerfile.worker
+  image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+  command: ['node', 'dist/egress-gateway.js']
+  read_only: true
+  tmpfs: ['/tmp']
+  deploy:
+    resources: { limits: { memory: 128M } }
+services:
+  egress-crm:
+    <<: *business-relay
+    profiles: ['business-crm']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.21' }
+      outbound: {}
+    environment:
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_CRM_ADAPTER_TARGET:-}
+  egress-ticketing:
+    <<: *business-relay
+    profiles: ['business-ticketing']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.22' }
+      outbound: {}
+    environment:
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_TICKETING_ADAPTER_TARGET:-}
+  egress-accounting:
+    <<: *business-relay
+    profiles: ['business-accounting']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.23' }
+      outbound: {}
+    environment:
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_ACCOUNTING_ADAPTER_TARGET:-}
+
+  egress-meeting-notes:
+    <<: *business-relay
+    profiles: ['business-meeting-notes']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.24' }
+      outbound: {}
+    environment:
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_MEETING_NOTES_ADAPTER_TARGET:-}

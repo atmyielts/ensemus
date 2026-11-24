@@ -52,11 +52,13 @@ class MemoryStore implements ObjectStore, LedgerReader {
 
 describe('the re-apply command', () => {
   let app: ReturnType<typeof openAppDatabase>;
+  let worker: ReturnType<typeof openAppDatabase>;
   let auth: pg.Client;
   const folder = mkdtempSync(join(tmpdir(), 'reapply-command-'));
 
   beforeAll(async () => {
     app = openAppDatabase(urls.app());
+    worker = openAppDatabase(urls.worker());
     auth = new pg.Client({ connectionString: urls.auth() });
     await auth.connect();
   });
@@ -64,6 +66,7 @@ describe('the re-apply command', () => {
   afterAll(async () => {
     rmSync(folder, { recursive: true, force: true });
     await app?.close();
+    await worker?.close();
     await auth?.end();
   });
 
@@ -102,7 +105,7 @@ describe('the re-apply command', () => {
   }
 
   const run = (store: MemoryStore, ...args: string[]) =>
-    reapplyCommand(args, { database: app.db, store });
+    reapplyCommand(args, { database: worker.db, store });
 
   const bytesOf = (context: TenantContext, id: string) => objectKey(context.organizationId, id);
 

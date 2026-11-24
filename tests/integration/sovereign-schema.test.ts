@@ -43,6 +43,7 @@ const client = async (url: string) => {
 
 describe('sovereign rules in the database', () => {
   let database: ReturnType<typeof openAppDatabase>;
+  let serviceDatabase: ReturnType<typeof openAppDatabase>;
   let auth: pg.Client;
   let su: pg.Client;
   let ctxA: TenantContext;
@@ -67,6 +68,7 @@ describe('sovereign rules in the database', () => {
 
   beforeAll(async () => {
     database = openAppDatabase(urls.app());
+    serviceDatabase = openAppDatabase(urls.worker());
     auth = await client(urls.auth());
     su = await client(urls.superuser());
     ctxA = await makeOwner('alice');
@@ -75,6 +77,7 @@ describe('sovereign rules in the database', () => {
 
   afterAll(async () => {
     await database.close();
+    await serviceDatabase.close();
     await auth.end();
     await su.end();
   });
@@ -170,7 +173,7 @@ describe('sovereign rules in the database', () => {
     const move = (context: TenantContext, id: string, status: string, extra: object = {}) => {
       if (status === 'running')
         return beginExport(
-          database.db,
+          serviceDatabase.db,
           createServiceContext(context.organizationId),
           { exportId: id },
           {

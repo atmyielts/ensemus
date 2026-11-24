@@ -16,8 +16,8 @@ export async function clientOnboardingWorkflow(
   const local = proxyActivities<ClientOnboardingActivities>({
     taskQueue: 'ensemus-platform',
     startToCloseTimeout: '1 minute',
-    // SQL-only, atomically bound and idempotent. A prolonged outage must not strand the saved
-    // onboarding. Declared permanent refusals leave the activity as non-retryable failures.
+    // SQL transitions and draft verification are idempotent. A prolonged outage must not strand
+    // the saved onboarding. Declared permanent refusals are non-retryable.
     retry: { initialInterval: '1 second', backoffCoefficient: 2, maximumInterval: '1 minute' },
   });
   const result = await runClientOnboarding({

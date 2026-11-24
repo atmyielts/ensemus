@@ -10,7 +10,8 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Let the release candidate finish browser and stack checks while its newest push waits.
+  cancel-in-progress: ${{ github.head_ref != 'codex/release-candidate' || github.event.pull_request.head.repo.full_name != github.repository }}
 
 env:
   NEXT_TELEMETRY_DISABLED: '1'
@@ -39,6 +40,12 @@ jobs:
         run: pnpm check:contracts
       - name: Licenses reviewed
         run: pnpm check:licenses
+      - name: Tools, images and actions are pinned
+        run: pnpm check:pins
+      - name: License inventory accounts for every distributed component
+        run: pnpm check:inventory
+      - name: Guides are well formed, make no forbidden claim, and cover every ticket
+        run: pnpm check:guides
       - name: Dependency audit (production, high and above)
         run: pnpm audit --prod --audit-level high
       - name: Docs manifest is current
@@ -74,6 +81,17 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
+      - name: Verify fresh-install secrets against the public Compose stack
+        env:
+          ENSEMUS_HOSTNAME: ensemus.example.invalid
+        run: |
+          umask 077
+          node infrastructure/scripts/generate-install-secrets.mjs
+          test "$(stat -c %a .local/secrets)" = 700
+          test "$(stat -c %a .local/secrets/sealing_private_key.pem)" = 644
+          docker compose --profile connectors --profile federation \
+            -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.public.yaml \
+            config --format json | node infrastructure/scripts/check-compose-secrets.mjs
       - name: Deployed proxy - forged client address, trusted proxy and hostname
         run: node infrastructure/scripts/check-proxy.mjs
 
@@ -85,6 +103,10 @@ jobs:
       COMPOSE_PROJECT_NAME: ensemus-ci-stack
       # The test overlay supplies a private wire-format model; these gates must not silently skip.
       ENSEMUS_AI_ENABLED: 'true'
+      # Generated tenant input exercises Sandbox HTTP admission. No dedicated runner is started.
+      ENSEMUS_SANDBOX_ENABLED: 'true'
+      ENSEMUS_MARKETPLACE_ENABLED: 'true'
+      ENSEMUS_SKILL_CATALOG_ENABLED: 'true'
     # Two builds, the whole stack suite on the Sovereign stack, the billing suites again on web, web-2 and the
     # worker recreated as a hosted deployment (ENSEMUS_MODE=cloud, ENSEMUS_BILLING_ENABLED=true, the generated test
     # processor's name and break-glass on, for web and web-2 only; no connector worker runs), API-12's check
@@ -103,16 +125,68 @@ jobs:
         run: >-
           sudo --non-interactive --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_WORKSPACE --
           "$(command -v node)" infrastructure/scripts/ci-disk-preflight.mjs
-      - run: pnpm stack:secrets
+      - run: pnpm stack:secrets --federation
+      - name: Generate a Marketplace reviewer for the test stack
+        run: |
+          node --input-type module <<'NODE'
+          import { generateKeyPairSync } from 'node:crypto';
+          import { appendFileSync, mkdtempSync, writeFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+          const fixture = mkdtempSync(join(process.env.RUNNER_TEMP, 'marketplace-review-'));
+          const privateKeyFile = join(fixture, 'private.pem');
+          writeFileSync(privateKeyFile, privateKey.export({ format: 'pem', type: 'pkcs8' }), { mode: 0o600 });
+          const rawKey = publicKey.export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64');
+          appendFileSync(process.env.GITHUB_ENV,
+            `ENSEMUS_MARKETPLACE_REVIEW_KEYS=${rawKey}\nENSEMUS_TEST_MARKETPLACE_REVIEW_PRIVATE_KEY_FILE=${privateKeyFile}\n`);
+          NODE
       - name: Control - the air-gap gate detects a deliberate outbound attempt
         run: node infrastructure/scripts/air-gap-gate.mjs --control
       - name: Air-gap gate - full stack tests with outbound traffic blocked
         run: node infrastructure/scripts/air-gap-gate.mjs --keep
       - name: SBOMs and signed manifest, verified with no network
         run: node infrastructure/scripts/build-release.mjs
+      # Scans the SBOMs from the step above, so it can never pass on images it did not look at. It
+      # fetches the vulnerability database, so it stays outside the air-gap gate (ADR-037 D2).
+      - name: Image vulnerability scan
+        run: node infrastructure/scripts/scan-images.mjs
+      - name: Keep the scan report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image-scan
+          path: .local/release/scan-*.json
+          include-hidden-files: true
+          if-no-files-found: ignore
       - name: Show service logs on failure
         if: failure()
         run: docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml -f infrastructure/compose/compose.airgap.yaml logs --tail 50
+
+  # Two builds of each image, compared. --report-only passes while the images differ, and says so in the
+  # log and the report, because the Dockerfile changes that can make them match have not been made yet. It
+  # still fails if a build fails. ADR-037 D1 says when to drop the flag, here and in run-all-gates.sh.
+  reproducible:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - name: Prepare hosted runner disk headroom
+        run: >-
+          sudo --non-interactive --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_WORKSPACE --
+          "$(command -v node)" infrastructure/scripts/ci-disk-preflight.mjs
+      - name: Reproducible images
+        run: node infrastructure/scripts/reproducible-gate.mjs --report-only
+      - name: Keep the comparison
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: reproducible-report
+          path: .local/reproducible/report.json
+          include-hidden-files: true
+          if-no-files-found: ignore
 
   # ADR-027's exit: Slice 2 and the fault tests, on real containers with the connectors profile on. A job
   # of its own, so the stack job above still proves the stack with no profile and no way out. Both settings
@@ -167,6 +241,8 @@ jobs:
         shard: [1, 2, 3]
     env:
       COMPOSE_PROJECT_NAME: ensemus-ci-browser
+      ENSEMUS_MARKETPLACE_ENABLED: 'true'
+      ENSEMUS_SANDBOX_ENABLED: 'true'
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -210,6 +286,31 @@ jobs:
       - name: Show service logs on failure
         if: failure() || cancelled()
         run: docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml logs --tail 50
+
+  # One build, then the same images in Cloud, BYOM and Sovereign (COMM-06). It fails on anything that
+  # contradicts parity. Until M3 to M8 are wired in, it says NOT PROVEN and passes: only --release, at
+  # launch sign-off (REL-03), requires parity to have been shown.
+  parity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm stack:secrets
+      - name: Mode parity - one release in all three modes
+        run: node infrastructure/scripts/parity-gate.mjs
+      - name: Keep the reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: parity-reports
+          path: .local/parity
+          include-hidden-files: true
+          if-no-files-found: ignore
 
   upgrade:
     runs-on: ubuntu-24.04

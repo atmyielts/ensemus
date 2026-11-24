@@ -1,4 +1,9 @@
 'use client';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
+import { Textarea } from '@/components/ui/textarea';
+
 import { useActionState } from 'react';
 import { TICKET_CATEGORIES } from '@ensemus/saas/support';
 import { openTicketFormAction, replyTicketFormAction } from '@/server/support-actions';
@@ -43,25 +48,25 @@ export function SupportMessageForm({
       )}
       {!ticket && (
         <>
-          <label>
+          <Label>
             Subject
-            <input name="subject" required maxLength={200} defaultValue={state.values.subject} />
-          </label>
-          <label>
+            <Input name="subject" required maxLength={200} defaultValue={state.values.subject} />
+          </Label>
+          <Label>
             Category
-            <select name="category" defaultValue={state.values.category}>
+            <NativeSelect name="category" defaultValue={state.values.category}>
               {TICKET_CATEGORIES.map((category) => (
                 <option key={category} value={category}>
                   {category}
                 </option>
               ))}
-            </select>
-          </label>
+            </NativeSelect>
+          </Label>
         </>
       )}
-      <label>
+      <Label>
         {ticket ? 'Your reply' : 'Message'}
-        <textarea
+        <Textarea
           name="body"
           required
           maxLength={20000}
@@ -69,7 +74,7 @@ export function SupportMessageForm({
           defaultValue={state.values.body}
           aria-describedby="support-message-help"
         />
-      </label>
+      </Label>
       <small id="support-message-help">
         Do not paste secrets, credentials or unnecessary personal information.
       </small>

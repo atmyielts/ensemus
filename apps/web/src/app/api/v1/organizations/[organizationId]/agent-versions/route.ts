@@ -1,11 +1,13 @@
 import { auditRefusal } from '@ensemus/application';
 import {
   AgentSpecRefused,
+  evaluationTrust,
   getAgentPolicyVersion,
   isPublishGateRefusal,
   listAgentVersions,
   publishAgentVersion,
 } from '@ensemus/application/ai-agents';
+import { loadEvaluationTrustSettings } from '@ensemus/config';
 import type { components } from '@ensemus/contracts/openapi';
 import { errorCode } from '@ensemus/telemetry';
 import { z } from 'zod';
@@ -37,6 +39,8 @@ export const POST = apiRoute(
         evaluationReport: body.evaluation_report,
         // The server's own answer, and it is read again inside the publish: a caller names no policy.
         policyVersion: await getAgentPolicyVersion(database, context),
+        // Public keys only: web can check an evaluator's signature and never make one.
+        evaluationTrust: evaluationTrust(loadEvaluationTrustSettings()),
       });
       return Response.json(version, { status: 201 });
     } catch (error) {

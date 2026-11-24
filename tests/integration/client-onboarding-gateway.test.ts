@@ -7,11 +7,12 @@ import { createMinimalContextCompiler, type RunRef } from '@ensemus/agent-runtim
 import {
   AppError,
   addArtifact,
+  createWorkUnit,
   updateWorkUnit,
   unassign,
   type ObjectStore,
 } from '@ensemus/application';
-import { agentSpecSha256, publishAgentVersion } from '@ensemus/application/ai-agents';
+import { publishAgentVersion } from '@ensemus/application/ai-agents';
 import { createContextSource } from '@ensemus/application/ai-context-source';
 import {
   createEgressLog,
@@ -27,6 +28,7 @@ import { createOnboardingAgentRuns } from '@ensemus/application/knowledge/onboar
 import {
   advanceClientOnboarding,
   startClientOnboarding,
+  withOnboardingTx,
 } from '@ensemus/application/knowledge/onboarding';
 import { agentSpecV1Schema } from '@ensemus/contracts/ai';
 import {
@@ -44,13 +46,16 @@ import {
   usageLedger,
   withTenantTx,
   workAssignments,
+  workUnits,
   type AgentContext,
   type TenantContext,
+  type Tx,
 } from '@ensemus/database';
 import { createDelegatedContext, createServiceContext } from '@ensemus/database/service';
 import { withRunLookupTx } from '@ensemus/database/agent';
 import { AGENT_RUN_REQUESTED } from '@ensemus/domain/ai-events';
 import { EMAIL_CONNECTOR_TYPE } from '@ensemus/domain/external-action';
+import { signedReportFor, TEST_TRUST } from '../helpers/ai/evaluation';
 import {
   makeTestUser,
   openAgentTestDatabase,
@@ -71,8 +76,10 @@ import { createModelRouter } from '@ensemus/intelligence';
 import { createScriptedModelPort } from '@ensemus/knowledge/testing';
 import { createAgentContextAuthorizer } from '../../workers/workflow/src/agent-context-authorizer';
 import { urls } from '../helpers/stack';
+import { LifecycleMemoryStore } from './saas-lifecycle-fixture';
 
 const port = createOnboardingAgentRuns();
+const noBriefStore = new LifecycleMemoryStore();
 const refused = (code: string, action: Promise<unknown>) =>
   expect(action).rejects.toSatisfy(
     (error: unknown) => error instanceof AppError && error.code === code,
@@ -80,16 +87,19 @@ const refused = (code: string, action: Promise<unknown>) =>
 
 describe('onboarding uses one authorized actual M4 run', () => {
   let app: ReturnType<typeof openAppDatabase>;
+  let worker: ReturnType<typeof openAppDatabase>;
   let agent: ReturnType<typeof openAgentTestDatabase>;
   let su: pg.Client;
   beforeAll(async () => {
     app = openAppDatabase(urls.app(), { max: 4 });
+    worker = openAppDatabase(urls.worker(), { max: 4 });
     agent = openAgentTestDatabase();
     su = new pg.Client({ connectionString: urls.superuser() });
     await su.connect();
   });
   afterAll(async () => {
     await app?.close();
+    await worker?.close();
     await agent?.close();
     await su?.end();
   });
@@ -149,18 +159,8 @@ describe('onboarding uses one authorized actual M4 run', () => {
         : await publishAgentVersion(app.db, owner, {
             spec,
             policyVersion: 'default',
-            evaluationReport: {
-              report_version: 1,
-              spec_sha256: agentSpecSha256(spec),
-              policy_version: 'default',
-              suite_ref: spec.evaluation.suite_ref,
-              dataset_version: 'synthetic-gateway-1',
-              model_label: 'scripted',
-              pass_rate: 1,
-              cases: 3,
-              passed: true,
-              scripted_model: true,
-            },
+            evaluationReport: signedReportFor(spec, 'default'),
+            evaluationTrust: TEST_TRUST,
           });
     const delegated = await createDelegatedContext(
       app.db,
@@ -181,7 +181,11 @@ describe('onboarding uses one authorized actual M4 run', () => {
       requestKey: snapshot.id,
     };
     const requestRun = (context = delegated, input = request) =>
-      withTenantTx(app.db, context, (tx) => port.requestRun(tx, context, input));
+      context.actorType === 'delegated'
+        ? withOnboardingTx(worker.db, context, snapshot.id, (tx) =>
+            port.requestRun(tx, context, input),
+          )
+        : withTenantTx(app.db, context, (tx) => port.requestRun(tx, context, input));
     const runRows = () =>
       withTenantTx(app.db, service, (tx) =>
         tx.select().from(agentRuns).where(eq(agentRuns.workUnitId, request.workUnitId)),
@@ -241,17 +245,23 @@ describe('onboarding uses one authorized actual M4 run', () => {
     return (context, request) => authorize(context, turn, { ...request, task: base.task });
   }
 
-  const rawBind = (f: Awaited<ReturnType<typeof fixture>>, runId: string, context = f.delegated) =>
-    withTenantTx(app.db, context, (tx) =>
-      tx
+  const rawBind = (
+    f: Awaited<ReturnType<typeof fixture>>,
+    runId: string,
+    context = f.delegated,
+    database = context.actorType === 'user' ? app.db : worker.db,
+  ) =>
+    withTenantTx(database, context, async (tx) => {
+      await tx.execute(sql`select set_config('app.client_onboarding_id',${f.onboardingId},true)`);
+      return tx
         .update(clientOnboardings)
         .set({
           agentRunId: runId,
           state: 'waiting_for_brief',
           version: sql`${clientOnboardings.version}+1`,
         })
-        .where(eq(clientOnboardings.id, f.onboardingId)),
-    );
+        .where(eq(clientOnboardings.id, f.onboardingId));
+    });
   const unboundRun = (f: Awaited<ReturnType<typeof fixture>>) =>
     startAgentRun(app.db, f.owner, {
       work_unit_id: f.request.workUnitId,
@@ -280,9 +290,26 @@ describe('onboarding uses one authorized actual M4 run', () => {
     for (const context of [f.owner, f.service] as TenantContext[])
       await sqlRefused('42501', rawBind(f, run.id, context));
     await sqlRefused('EN215', rawBind(f, randomUUID()));
+    await sqlRefused('EN215', rawBind(f, run.id, f.delegated, app.db));
     expect(await f.row()).toMatchObject({ state: 'started', agentRunId: null });
     await rawBind(f, run.id);
     expect(await f.row()).toMatchObject({ state: 'waiting_for_brief', agentRunId: run.id });
+  });
+
+  it('limits delegated Work visibility to the native worker and the exact onboarding', async () => {
+    const f = await fixture();
+    await createWorkUnit(app.db, f.owner, { title: 'Generated work outside onboarding' });
+    const other = await createDelegatedContext(worker.db, f.organizationId, f.member.membershipId);
+    const readWorkIds = (tx: Tx) => tx.select({ id: workUnits.id }).from(workUnits);
+    const row = await f.row();
+    const visible = await withOnboardingTx(worker.db, f.delegated, f.onboardingId, readWorkIds);
+    expect(visible.map(({ id }) => id).sort()).toEqual(
+      [row.workUnitId, row.briefWorkUnitId, row.reviewWorkUnitId, row.sendWorkUnitId].sort(),
+    );
+    expect(await withOnboardingTx(worker.db, f.delegated, randomUUID(), readWorkIds)).toEqual([]);
+    expect(await withOnboardingTx(worker.db, other, f.onboardingId, readWorkIds)).toEqual([]);
+    expect(await withTenantTx(worker.db, f.delegated, readWorkIds)).toEqual([]);
+    expect(await withOnboardingTx(app.db, f.delegated, f.onboardingId, readWorkIds)).toEqual([]);
   });
 
   it.each(['reviewer assignment', 'publication set', 'service identity'] as const)(
@@ -377,7 +404,7 @@ describe('onboarding uses one authorized actual M4 run', () => {
     );
     expect(events).toHaveLength(1);
     expect(
-      await withTenantTx(app.db, f.delegated, (tx) =>
+      await withOnboardingTx(worker.db, f.delegated, f.onboardingId, (tx) =>
         port.statusOf(tx, f.delegated, first.agentRunId),
       ),
     ).toMatchObject({
@@ -400,7 +427,7 @@ describe('onboarding uses one authorized actual M4 run', () => {
   it('rolls the run, event and binding back together if the caller transaction fails', async () => {
     const f = await fixture();
     await expect(
-      withTenantTx(app.db, f.delegated, async (tx) => {
+      withOnboardingTx(worker.db, f.delegated, f.onboardingId, async (tx) => {
         await port.requestRun(tx, f.delegated, f.request);
         throw new Error('TEST_CALLER_ROLLBACK');
       }),
@@ -420,9 +447,10 @@ describe('onboarding uses one authorized actual M4 run', () => {
       });
       await expect(
         advanceClientOnboarding(
-          app.db,
+          worker.db,
           f.service,
           {
+            store: noBriefStore,
             agentRuns: {
               ...port,
               requestRun: async () => {
@@ -437,9 +465,9 @@ describe('onboarding uses one authorized actual M4 run', () => {
       expect(await f.runRows()).toHaveLength(0);
       expect(
         await advanceClientOnboarding(
-          app.db,
+          worker.db,
           f.service,
-          { agentRuns: port },
+          { agentRuns: port, store: noBriefStore },
           { onboardingId: f.onboardingId },
         ),
       ).toMatchObject({ state: 'waiting_for_brief' });
@@ -450,9 +478,10 @@ describe('onboarding uses one authorized actual M4 run', () => {
     const f = await fixture();
     expect(
       await advanceClientOnboarding(
-        app.db,
+        worker.db,
         f.service,
         {
+          store: noBriefStore,
           agentRuns: { ...port, requestRun: async () => ({ agentRunId: randomUUID() }) },
         },
         { onboardingId: f.onboardingId },
@@ -468,9 +497,9 @@ describe('onboarding uses one authorized actual M4 run', () => {
     expect(await f.runRows()).toHaveLength(0);
     expect(
       await advanceClientOnboarding(
-        app.db,
+        worker.db,
         f.service,
-        { agentRuns: port },
+        { agentRuns: port, store: noBriefStore },
         { onboardingId: f.onboardingId },
       ),
     ).toMatchObject({ state: 'failed' });
@@ -563,9 +592,9 @@ describe('onboarding uses one authorized actual M4 run', () => {
   it('stops later advancement when the selected reviewer assignment has been removed', async () => {
     const f = await fixture();
     await advanceClientOnboarding(
-      app.db,
+      worker.db,
       f.service,
-      { agentRuns: port },
+      { agentRuns: port, store: noBriefStore },
       { onboardingId: f.onboardingId },
     );
     await unassign(app.db, f.owner, {
@@ -574,9 +603,9 @@ describe('onboarding uses one authorized actual M4 run', () => {
     });
     expect(
       await advanceClientOnboarding(
-        app.db,
+        worker.db,
         f.service,
-        { agentRuns: port },
+        { agentRuns: port, store: noBriefStore },
         { onboardingId: f.onboardingId },
       ),
     ).toMatchObject({ state: 'failed' });
@@ -653,7 +682,7 @@ describe('onboarding uses one authorized actual M4 run', () => {
       });
       await tx.update(agentRuns).set({ costMicros: 999 }).where(eq(agentRuns.id, run.agentRunId));
     });
-    const status = await withTenantTx(app.db, f.delegated, (tx) =>
+    const status = await withOnboardingTx(worker.db, f.delegated, f.onboardingId, (tx) =>
       port.statusOf(tx, f.delegated, run.agentRunId),
     );
     expect(status?.costMicros).toBe(400);
@@ -682,23 +711,26 @@ describe('onboarding uses one authorized actual M4 run', () => {
     // manifest does not name (0414).
     const authorizeAgentContext = await runtimeEgress(writer, run.agentRunId, f.request.workUnitId);
     expect(await listEgressDecisions(app.db, f.owner, { runId: run.agentRunId })).toEqual([]);
-    expect(
-      await compileEvidence(
-        agent.db,
-        writer,
-        { model: createScriptedModelPort({}), authorizeAgentContext },
-        {
-          purpose: 'agent_turn',
-          question: text,
-          queryClassification: 'internal',
-          workUnitId: f.request.workUnitId,
-          runId: run.agentRunId,
-          sourceIds: [source.sourceId],
-          budgetTokens: 1000,
-          signal: AbortSignal.timeout(10_000),
-        },
-      ),
-    ).toMatchObject({ ok: true, items: [{ sourceId: source.sourceId }] });
+    const evidence = await compileEvidence(
+      agent.db,
+      writer,
+      { model: createScriptedModelPort({}), authorizeAgentContext },
+      {
+        purpose: 'agent_turn',
+        question: text,
+        queryClassification: 'internal',
+        workUnitId: f.request.workUnitId,
+        runId: run.agentRunId,
+        sourceIds: [source.sourceId],
+        budgetTokens: 1000,
+        // The scripted model test is bounded by Vitest; it does not exercise cancellation.
+        signal: new AbortController().signal,
+      },
+    );
+    expect(evidence, evidence.ok ? undefined : evidence.code).toMatchObject({
+      ok: true,
+      items: [{ sourceId: source.sourceId }],
+    });
     // The decision that let it through is recorded: one allow, for this tenant's profile and class.
     expect(await listEgressDecisions(app.db, f.owner, { runId: run.agentRunId })).toEqual([
       expect.objectContaining({
@@ -734,7 +766,9 @@ describe('onboarding uses one authorized actual M4 run', () => {
       text,
     });
     const status = () =>
-      withTenantTx(app.db, f.delegated, (tx) => port.statusOf(tx, f.delegated, run.agentRunId));
+      withOnboardingTx(worker.db, f.delegated, f.onboardingId, (tx) =>
+        port.statusOf(tx, f.delegated, run.agentRunId),
+      );
     expect((await status())?.artifactIds).toEqual([output.id]);
     await revokeSource(app.db, f.owner, {
       sourceId: source.sourceId,
@@ -808,7 +842,8 @@ describe('onboarding uses one authorized actual M4 run', () => {
         runId: run.agentRunId,
         sourceIds: [source.sourceId],
         budgetTokens: 1000,
-        signal: AbortSignal.timeout(10_000),
+        // The scripted model test is bounded by Vitest; it does not exercise cancellation.
+        signal: new AbortController().signal,
       },
     );
 
@@ -836,7 +871,7 @@ describe('onboarding uses one authorized actual M4 run', () => {
       bound: null,
     });
     expect(
-      await withTenantTx(app.db, f.delegated, (tx) =>
+      await withOnboardingTx(worker.db, f.delegated, f.onboardingId, (tx) =>
         port.statusOf(tx, f.delegated, run.agentRunId),
       ),
     ).toMatchObject({ artifactIds: [] });
@@ -854,9 +889,10 @@ describe('onboarding uses one authorized actual M4 run', () => {
     } as unknown as NonNullable<Awaited<ReturnType<typeof port.statusOf>>>;
     expect(
       await advanceClientOnboarding(
-        app.db,
+        worker.db,
         f.service,
         {
+          store: noBriefStore,
           agentRuns: { ...port, statusOf: async () => legacy },
         },
         { onboardingId: f.onboardingId },
@@ -897,7 +933,9 @@ describe('onboarding uses one authorized actual M4 run', () => {
     const first = await create('First actual generated output.txt', 1);
     const second = await create('Second actual generated output.txt', 2);
     const status = () =>
-      withTenantTx(app.db, f.delegated, (tx) => port.statusOf(tx, f.delegated, run.agentRunId));
+      withOnboardingTx(worker.db, f.delegated, f.onboardingId, (tx) =>
+        port.statusOf(tx, f.delegated, run.agentRunId),
+      );
     expect(await status()).toMatchObject({ artifactState: 'ambiguous', artifactIds: [] });
     // This is a real per-artifact access fence written under the actual application role. No source
     // read is omitted from the run inventory, and the test makes no physical-byte-erasure claim.
@@ -924,9 +962,9 @@ describe('onboarding uses one authorized actual M4 run', () => {
     });
     expect(
       await advanceClientOnboarding(
-        app.db,
+        worker.db,
         f.service,
-        { agentRuns: port },
+        { agentRuns: port, store: noBriefStore },
         { onboardingId: f.onboardingId },
       ),
     ).toMatchObject({ state: 'failed' });
@@ -957,12 +995,14 @@ describe('onboarding uses one authorized actual M4 run', () => {
       mimeType: 'text/plain',
       body: Buffer.from('Generated test attachment'),
     });
-    const state = await withTenantTx(app.db, f.delegated, (tx) =>
+    const state = await withOnboardingTx(worker.db, f.delegated, f.onboardingId, (tx) =>
       port.statusOf(tx, f.delegated, run.agentRunId),
     );
     expect(state?.artifactIds).toEqual([]);
     expect(
-      await withTenantTx(app.db, f.delegated, (tx) => port.statusOf(tx, f.delegated, randomUUID())),
+      await withOnboardingTx(worker.db, f.delegated, f.onboardingId, (tx) =>
+        port.statusOf(tx, f.delegated, randomUUID()),
+      ),
     ).toBeNull();
   });
 });

@@ -70,6 +70,13 @@ export type SourceSummary = {
 
 export type SourcePage = { items: readonly SourceSummary[]; next: string | null };
 
+/**
+ * A document's malware check as a page reads it. `flagged` is never produced: migration 0710 renamed it
+ * `infected`. It stays in this view type only so the source page, which the design session owns, keeps
+ * compiling until it shows `infected` and `scan_failed` (ADR-029 D4 addendum). Remove it with that change.
+ */
+export type ScanStateView = ScanState | 'flagged';
+
 export type SourceDetail = SourceSummary & {
   canManage: boolean;
   documentId: string | null;
@@ -77,7 +84,7 @@ export type SourceDetail = SourceSummary & {
   sizeBytes: number | null;
   sourceUrl: string | null;
   sourceVersion: string | null;
-  scanState: ScanState | null;
+  scanState: ScanStateView | null;
   rejectCode: string | null;
   grants: readonly (SourceGrantInput & { id: string })[];
   /** True for a connector's source, whose permissions come from the provider and cannot be edited here. */
@@ -88,7 +95,7 @@ export type SourceDetail = SourceSummary & {
     id: string;
     number: number;
     state: DocumentState;
-    scanState: ScanState;
+    scanState: ScanStateView;
     rejectCode: string | null;
   } | null;
 };

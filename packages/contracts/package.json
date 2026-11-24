@@ -8,6 +8,7 @@
     "./external-actions": "./src/external-actions.ts",
     "./ai": "./src/ai.ts",
     "./ai-tools": "./src/ai-tools.ts",
+    "./suite-tools": "./src/suite-tools.ts",
     "./openapi": "./generated/openapi.d.ts",
     "./knowledge": "./src/knowledge.ts",
     "./knowledge-models": "./src/knowledge-models.ts",
@@ -18,7 +19,14 @@
     "./identity-admin": "./src/identity-admin.ts",
     "./sovereign": "./src/sovereign.ts",
     "./portability-records": "./src/portability-records.ts",
-    "./saas": "./src/saas.ts"
+    "./saas": "./src/saas.ts",
+    "./workspace-suites": "./src/workspace-suites.ts",
+    "./business-adapter": "./src/business-adapter.ts",
+    "./business-records": "./src/business-records.ts",
+    "./meetings": "./src/meetings.ts",
+    "./skills": "./src/skills.ts",
+    "./federation": "./src/federation.ts",
+    "./tenancy": "./src/tenancy.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

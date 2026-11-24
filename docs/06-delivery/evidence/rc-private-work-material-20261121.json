@@ -1,0 +1,186 @@
+{
+  "schema": "ensemus.local-qualification/1",
+  "slice": "private Work, review, external-action and free-text history native readers",
+  "recordedAt": "2026-11-21T19:25:08.327255+00:00",
+  "releaseReady": false,
+  "backlog": [
+    "WORK-03",
+    "QA-007",
+    "ADR-024 D4",
+    "ADR-027 D1",
+    "ADR-028",
+    "ADR-039 D2"
+  ],
+  "migrations": [
+    "0741_work_material_readers",
+    "0742_work_reader_role_dispatch",
+    "0743_process_work_material_scope",
+    "0744_hidden_prerequisite_status",
+    "0745_terminal_review_metadata",
+    "0746_work_history_material_readers"
+  ],
+  "freshMigration": {
+    "database": "ensemus_rc_work_material_20261121192201432",
+    "appliedMigrations": 156,
+    "matchingMigrationHashes": 156,
+    "functions": [
+      {
+        "name": "work.agent_terminal_close_reviews(uuid,uuid,bigint,text)",
+        "prosecdef": true,
+        "proconfig": [
+          "search_path=pg_catalog"
+        ],
+        "owner": "ensemus_migrator",
+        "public_execute": false
+      },
+      {
+        "name": "work.material_reader(uuid)",
+        "prosecdef": false,
+        "proconfig": [
+          "search_path=pg_catalog"
+        ],
+        "owner": "ensemus_migrator",
+        "public_execute": false
+      },
+      {
+        "name": "work.prerequisite_status(uuid,uuid)",
+        "prosecdef": true,
+        "proconfig": [
+          "search_path=pg_catalog"
+        ],
+        "owner": "ensemus_migrator",
+        "public_execute": false
+      }
+    ],
+    "policies": [
+      {
+        "schemaname": "work",
+        "tablename": "approvals",
+        "policyname": "approval_work_material_read",
+        "permissive": "RESTRICTIVE",
+        "roles": "{ensemus_app}",
+        "cmd": "SELECT"
+      },
+      {
+        "schemaname": "work",
+        "tablename": "approval_decisions",
+        "policyname": "decision_work_material_read",
+        "permissive": "RESTRICTIVE",
+        "roles": "{ensemus_app}",
+        "cmd": "SELECT"
+      },
+      {
+        "schemaname": "integrations",
+        "tablename": "external_actions",
+        "policyname": "external_action_work_material_read",
+        "permissive": "RESTRICTIVE",
+        "roles": "{ensemus_app}",
+        "cmd": "SELECT"
+      },
+      {
+        "schemaname": "work",
+        "tablename": "work_transitions",
+        "policyname": "transition_work_material_read",
+        "permissive": "RESTRICTIVE",
+        "roles": "{ensemus_app}",
+        "cmd": "SELECT"
+      },
+      {
+        "schemaname": "work",
+        "tablename": "work_units",
+        "policyname": "work_material_read",
+        "permissive": "RESTRICTIVE",
+        "roles": "{ensemus_app}",
+        "cmd": "SELECT"
+      }
+    ],
+    "completedAt": "2026-11-21T19:22:05.719Z"
+  },
+  "verification": {
+    "coreNativeBeforeHistoryExtension": {
+      "files": 4,
+      "passed": 326,
+      "seconds": 337.96
+    },
+    "agentScopeBeforeTerminalFix": {
+      "files": 5,
+      "passed": 50,
+      "failed": 1,
+      "seconds": 88.83,
+      "failure": "terminal paused review remained open; subsequently fixed and requalified"
+    },
+    "terminalAndStatusAfterFix": {
+      "files": 2,
+      "passed": 21,
+      "seconds": 35.72
+    },
+    "finalHistoryProcessAgentStatus": {
+      "files": 4,
+      "passed": 37,
+      "seconds": 76.33
+    },
+    "finalUnit": {
+      "files": 379,
+      "passed": 9661,
+      "failed": 2,
+      "expectedFailures": 4,
+      "skipped": 43,
+      "seconds": 58.26,
+      "remainingFailures": [
+        "71 planned API operations",
+        "30-table complete portability inventory"
+      ]
+    },
+    "applicationTypes": "passed",
+    "testTypes": "passed",
+    "repositoryLint": "passed"
+  },
+  "limitations": [
+    "SQL human security review pending",
+    "Native platform and connector service logins still have trusted tenant processing reads; individual intent-purpose least privilege remains open",
+    "No full joined integration rerun after the recorded baseline",
+    "No built-worker/Temporal, hosted, provider, human, load, offline, restore or upgrade acceptance claimed",
+    "Business write proposals/review and customer connection setup remain unfinished",
+    "No original branch, worktree, volume or user data was deleted; no cleanup needed with about 29 GiB free"
+  ],
+  "sourceSha256": {
+    "packages/application/src/work.ts": "d6daa5875876dc245a2abcd7ca867c90046a7c5834d03cd32fa45c133b5241e2",
+    "packages/application/src/ai/terminal-work-control.ts": "b603e9205c7f49ba767af7502d5296d5e529ad33675a72eb54aa19d9fc2303c6",
+    "packages/database/migrations/meta/_journal.json": "9d8890be6b87010ad71c099419ee091c673834cf2490f58195145533ecdb0128",
+    "packages/database/migrations/0741_work_material_readers.sql": "0e6090a67edd9dd1ae9a038f1fa25d5ae01c43d9c6332524d9c34c2768876687",
+    "packages/database/migrations/0742_work_reader_role_dispatch.sql": "e791f5373a5c366f0820aeb785f9255af16e2f1074911c182259381321a857d2",
+    "packages/database/migrations/0743_process_work_material_scope.sql": "0d643d6d47f141f181127cf5891af0aeed03046c487e95319af16c2b036cf18b",
+    "packages/database/migrations/0744_hidden_prerequisite_status.sql": "ac6aaf42a9ebed5ee44ee69659395a8b61c20c0ce3945e6a0971e8390eba4c90",
+    "packages/database/migrations/0745_terminal_review_metadata.sql": "c116f04eae02ee8b38f212ff7fd1a81e0c07f01b030be22b2509172a432082f3",
+    "packages/database/migrations/0746_work_history_material_readers.sql": "5a812646921691cf6253342e2709a2056b48b71ed920d2da163a6ba03b58146f",
+    "tests/integration/private-work-material-readers.test.ts": "a070c7e743d9410b3f4a4e7beb4e1c52d4bf2d2c40a77a5b2ee21461664bec5c",
+    "tests/integration/private-prerequisite-status.test.ts": "a2031d87972e302ca2f11fe4538b8dc7ed617b38b802aa69d3bec58c3db7ba29",
+    "tests/integration/work.test.ts": "659c28034abc3550903eff1e8f9cc4d6969707ad7bbfecbbbdc9003be71263f1",
+    "tests/integration/external-actions.test.ts": "24d82ddb6f33eaeb0bf0db0c2c544d18d7ab79338605a4e9a1d4b9fe1dad082a",
+    "tests/integration/process-run-authority.test.ts": "12988ccd5e5c8362f60476570c9ab5aad99d8b17cdd93050983b70332977d912",
+    "tests/integration/agent-read-authority.test.ts": "806ad2cac4596f8bc2fa823f461a39e1da5fbae327fde6dd803861099bb1a4c3"
+  },
+  "localEvidenceSha256": {
+    ".local/rc-private-work-material-red.log": "139c34977aeeb6ef1753df5d56801eeffcc174adeebfa01dd23cd4b9f7ae48ee",
+    ".local/rc-private-history-red.log": "b60b2893cfc9f0457798a7a0f8f6747c5553c8317f8505a3504ae5edac02d1c5",
+    ".local/rc-work-material-prerequisite-native.log": "eb96f6b1aba93d7e8cde747c06a0edc6ba315b27de44a42bf81ab673d94ba876",
+    ".local/rc-work-material-agent-native.log": "b8bbdcbb7ccee162cea49232daa45cc470ca06706e2135cc4bb8f3ec75dbeb80",
+    ".local/rc-terminal-review-native.log": "650e706978ccdf618781f0a114fce3624c146b0c347cc198ce9ff50a0e972efd",
+    ".local/rc-work-material-final-native.log": "a9656e8b6c81cd001ff7f4094ddc8b749d896b26a80796be1dd57b1a145e9eb8",
+    ".local/rc-work-material-full-unit.log": "92387b43fa914d011bb86d259a1feac80b659d724c0132196a0bc51f564dea0a",
+    ".local/rc-work-material-full-unit-final.log": "59fbcedbae596cfaf2d741b3fe7d05654d004c6df7912ed93d747bb0b44d1eae",
+    ".local/rc-work-material-fresh-migration.json": "d1aa8f1aa324994e9d9fa36d6edfd1490f1f83251a0717e6087b6f288d52bd6e",
+    ".local/rc-work-material-app-types-final.log": "f4b53d71ea6e327da1c7a1ca53868e6e8accb56e465c2900744fc33a6a66f679",
+    ".local/rc-work-material-test-types-complete.log": "1d5b04d16c49c8c9cad76e7c5012bb207093c2ddb24665de0709467436f13771",
+    ".local/rc-work-material-lint-complete.log": "43add56483e840c72325d81812bcb96949086335473ee03f2266a0b9654cd863"
+  },
+  "commentOnlyMarkerCorrection": {
+    "files": [
+      "0744_hidden_prerequisite_status.sql",
+      "0745_terminal_review_metadata.sql"
+    ],
+    "preMarkerBytesPreserved": ".local/work-material-pre-marker/",
+    "migrationLedgerRewritten": false,
+    "finalFreshHashMatches": 156
+  }
+}

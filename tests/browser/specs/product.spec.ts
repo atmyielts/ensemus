@@ -31,11 +31,11 @@ test.describe('Home', () => {
   }) => {
     const page = await open(world.quiet);
     await page.goto(`/o/${world.quietOrganization}`);
-    await expect(page.getByRole('heading', { name: 'Hello, Quinn' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'My work' })).toBeVisible();
     await expect(page.getByText('You are not on any open work.')).toBeVisible();
     await expect(page.getByRole('link', { name: 'Describe an outcome' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Needs attention' })).toHaveCount(0);
-    await expect(page.getByRole('heading', { name: 'Waiting for your approval' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Needs you' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Your work' })).toHaveCount(0);
   });
 
   test('a decision waiting for someone comes first, and links to it', async ({ open, world }) => {
@@ -49,11 +49,20 @@ test.describe('Home', () => {
     const approval = await world.latestApproval(id);
 
     const page = await open(bob);
-    await page.goto(`/o/${organization}`);
+    await page.goto(`/o/${organization}?view=attention`);
     const headings = await page.getByRole('heading', { level: 2 }).allTextContents();
-    expect(headings[0]).toBe('Waiting for your approval');
-    const link = section(page, 'Waiting for your approval').getByRole('link', { name: title });
+    expect(headings[0]).toMatch(/^Your decisions/);
+    const link = page.getByRole('link', { name: new RegExp(title) });
     await expect(link).toHaveAttribute('href', `/o/${organization}/approvals/${approval}`);
+    // Decisions appear before work that needs attention.
+    const hrefs = await page
+      .locator('.workbench-queue')
+      .getByRole('link')
+      .evaluateAll((links) => links.map((a) => a.getAttribute('href') ?? ''));
+    const lastApproval = hrefs.findLastIndex((href) => href.includes('/approvals/'));
+    const firstWork = hrefs.findIndex((href) => href.includes('selected='));
+    expect(lastApproval).toBeGreaterThanOrEqual(0);
+    if (firstWork >= 0) expect(lastApproval).toBeLessThan(firstWork);
   });
 
   test('the attention queue holds overdue, blocked and failed work, and nothing else', async ({
@@ -61,21 +70,20 @@ test.describe('Home', () => {
     world,
   }) => {
     const page = await open(world.alice);
-    await page.goto(`/o/${world.organization}`);
-    const queue = section(page, 'Needs attention');
+    await page.goto(`/o/${world.organization}?view=attention`);
+    const queue = page.locator('.workbench-queue');
     await expect(
-      queue.getByRole('link', { name: 'Renew the design software licences' }),
+      queue.getByRole('link', { name: /Renew the design software licences/ }),
     ).toBeVisible();
     await expect(
-      queue.getByRole('link', { name: 'Migrate the client newsletter list' }),
+      queue.getByRole('link', { name: /Migrate the client newsletter list/ }),
     ).toBeVisible();
-    await expect(queue.getByRole('link', { name: 'Import last year’s time sheets' })).toBeVisible();
-    await expect(queue.getByText(/Was due /)).toBeVisible();
-    // Moving along normally, so it belongs under Your work, not here.
-    await expect(queue.getByRole('link', { name: 'Redesign the pricing page' })).toHaveCount(0);
-    await expect(
-      section(page, 'Your work').getByRole('link', { name: 'Redesign the pricing page' }),
-    ).toBeVisible();
+    await expect(queue.getByRole('link', { name: /Import last year’s time sheets/ })).toBeVisible();
+    await expect(queue.getByLabel(/^Was due /).first()).toBeVisible();
+    // Moving along normally, so it belongs in the assigned view.
+    await expect(queue.getByRole('link', { name: /Redesign the pricing page/ })).toHaveCount(0);
+    await page.getByRole('link', { name: /^Assigned to you/ }).click();
+    await expect(page.getByRole('link', { name: /Redesign the pricing page/ })).toBeVisible();
     // Finished and stopped work needs nothing from anyone.
     await expect(page.getByRole('link', { name: 'Publish the autumn newsletter' })).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'Plan the summer offsite' })).toHaveCount(0);
@@ -88,14 +96,14 @@ test.describe('Home', () => {
     const page = await open(world.carol);
     await page.goto(`/o/${world.organization}`);
     await expect(
-      page.getByRole('link', { name: 'Renew the design software licences' }),
+      page.getByRole('link', { name: /Renew the design software licences/ }),
     ).toHaveCount(0);
-    await expect(page.getByRole('link', { name: 'Redesign the pricing page' })).toBeVisible();
+    await expect(page.getByRole('link', { name: /Redesign the pricing page/ })).toBeVisible();
   });
 });
 
 test.describe('what the pages say', () => {
-  test('Home lists work once, and says so when all of it needs attention', async ({ open }) => {
+  test('Home lists each work item once in each matching view', async ({ open }) => {
     const person = await signUp('Una Single');
     const organization = await createOrganization(person, 'Single Item Ltd');
     const title = `Only trouble ${randomUUID()}`;
@@ -104,9 +112,17 @@ test.describe('what the pages say', () => {
 
     const page = await open(person);
     await page.goto(`/o/${organization}`);
-    await expect(section(page, 'Needs attention').getByRole('link', { name: title })).toBeVisible();
-    await expect(section(page, 'Your work').getByRole('link', { name: title })).toHaveCount(0);
-    await expect(section(page, 'Your work')).toContainText('Everything you are on is listed above');
+    await expect(page.locator('.queue-row').filter({ hasText: title })).toHaveCount(1);
+    await page.getByRole('link', { name: /^Needs attention/ }).click();
+    await expect(page.locator('.queue-row').filter({ hasText: title })).toHaveCount(1);
+    await page.locator('.queue-row').filter({ hasText: title }).click();
+    await expect(page.getByRole('complementary', { name: 'Selected work' })).toContainText(title);
+    await expect(page.getByRole('link', { name: 'Open work details' })).toHaveAttribute(
+      'href',
+      workPath(organization, id),
+    );
+    await page.getByRole('link', { name: 'Close work preview' }).click();
+    await expect(page.getByRole('complementary', { name: 'Selected work' })).toHaveCount(0);
   });
 
   test('a filter that matches nothing offers the way back, not new work', async ({
@@ -125,7 +141,7 @@ test.describe('what the pages say', () => {
     await page.goto(workPath(world.organization, world.work.done));
     await expect(section(page, 'Progress')).toHaveText(/This is done\.$/);
     await expect(page.getByText('People do this work')).toHaveCount(0);
-    await expect(section(page, 'Verification')).not.toContainText('This is done.');
+    await expect(section(page, 'Checks and reviews')).not.toContainText('This is done.');
     await expect(page.getByText('Nobody was asked to review this.')).toBeVisible();
 
     await page.goto(workPath(world.organization, world.work.running));
@@ -141,12 +157,12 @@ test.describe('what the pages say', () => {
     const page = await open(bob);
     await page.goto(`/o/${organization}/approvals/${approvals.denied}`);
     await expect(page.getByRole('heading', { name: 'What was asked' })).toBeVisible();
-    await expect(page.getByText('Risk', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('What could happen', { exact: true })).toHaveCount(0);
     await expect(page.getByText('This work. No files are attached to it.')).toBeVisible();
 
     await page.goto(`/o/${organization}/approvals/${approvals.holding}`);
-    await expect(page.getByRole('heading', { name: 'What is being asked' })).toBeVisible();
-    await expect(page.getByText('Risk', { exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'What would change' })).toBeVisible();
+    await expect(page.getByText('What could happen', { exact: true })).toBeVisible();
     await expect(page.getByText('This work, and one file.')).toBeVisible();
   });
 
@@ -198,11 +214,11 @@ test.describe('dependencies', () => {
 
     const page = await open(alice);
     await page.goto(workPath(organization, id));
-    const box = section(page, 'Dependencies');
+    const box = section(page, 'Waits for');
     await expect(box.getByText('Nothing.', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Mark ready' })).toBeVisible();
 
-    await box.getByLabel('Add').selectOption({ label: first });
+    await box.getByLabel('Add work it waits for').selectOption({ label: first });
     await box.getByRole('button', { name: 'Add dependency' }).click();
 
     await expect(box.getByRole('link', { name: first })).toBeVisible();
@@ -211,7 +227,9 @@ test.describe('dependencies', () => {
       page.getByText('This cannot be marked ready until what it depends on is done.'),
     ).toBeVisible();
     // It is no longer offered, because it has already been added.
-    await expect(box.getByLabel('Add').getByRole('option', { name: first })).toHaveCount(0);
+    await expect(
+      box.getByLabel('Add work it waits for').getByRole('option', { name: first }),
+    ).toHaveCount(0);
 
     await box.getByRole('button', { name: `Stop waiting on ${first}` }).click();
     await expect(box.getByRole('link', { name: first })).toHaveCount(0);
@@ -229,17 +247,19 @@ test.describe('dependencies', () => {
 
     const page = await open(alice);
     await page.goto(workPath(organization, idB));
-    const box = section(page, 'Dependencies');
-    await box.getByLabel('Add').selectOption({ label: a });
+    const box = section(page, 'Waits for');
+    await box.getByLabel('Add work it waits for').selectOption({ label: a });
     await box.getByRole('button', { name: 'Add dependency' }).click();
-    await expect(alertIn(page)).toHaveText('That dependency would create a loop.');
+    await expect(alertIn(page)).toHaveText(
+      'That would make these pieces of work wait for each other forever, so it was not added.',
+    );
     await expect(page).toHaveURL(new RegExp(`/work/${idB}`));
   });
 
   test('someone who cannot change the work gets no controls', async ({ open, world }) => {
     const page = await open(world.bob);
     await page.goto(workPath(world.organization, world.work.queued));
-    const box = section(page, 'Dependencies');
+    const box = section(page, 'Waits for');
     await expect(box.getByRole('link').first()).toBeVisible();
     await expect(box.getByRole('button')).toHaveCount(0);
     await expect(box.getByRole('combobox')).toHaveCount(0);
@@ -251,10 +271,10 @@ test.describe('a refused save keeps what was typed', () => {
     const page = await open(world.alice);
     await page.goto(`/o/${world.organization}/work/new`);
     await page.getByLabel('What should be true when this is done?').fill('   ');
-    await page.getByLabel('Objective').fill('Everything I typed, kept.');
+    await page.getByLabel('Details').fill('Everything I typed, kept.');
     await page.getByLabel('Due date').fill('2031-03-04');
     await page.getByLabel('Project').selectOption({ label: 'Spring campaign' });
-    await page.getByLabel('Sensitivity').selectOption('confidential');
+    await page.getByRole('radio', { name: /^Confidential/ }).check();
     await page.getByLabel('A reviewer approves').check();
     await page.getByLabel('Ensemus runs the checklist plan').check();
     await page.getByRole('button', { name: 'Create work' }).click();
@@ -267,10 +287,10 @@ test.describe('a refused save keeps what was typed', () => {
     );
     // Goes to the problem, because the button that was pressed is a long way below it.
     await expect(page.getByLabel('What should be true when this is done?')).toBeFocused();
-    await expect(page.getByLabel('Objective')).toHaveValue('Everything I typed, kept.');
+    await expect(page.getByLabel('Details')).toHaveValue('Everything I typed, kept.');
     await expect(page.getByLabel('Due date')).toHaveValue('2031-03-04');
     await expect(page.getByLabel('Project')).toHaveValue(/.+/);
-    await expect(page.getByLabel('Sensitivity')).toHaveValue('confidential');
+    await expect(page.getByRole('radio', { name: /^Confidential/ })).toBeChecked();
     await expect(page.getByLabel('A reviewer approves')).toBeChecked();
     await expect(page.getByLabel('Ensemus runs the checklist plan')).toBeChecked();
     await expect(page.getByLabel('Someone attaches a file')).not.toBeChecked();
@@ -284,7 +304,7 @@ test.describe('a refused save keeps what was typed', () => {
     const page = await open(alice);
     await page.goto(workPath(organization, id));
     await page.getByText('Edit the details').click();
-    await page.getByLabel('Objective').fill('What I was writing.');
+    await page.getByLabel('Details').fill('What I was writing.');
 
     // The same person in another tab, which is enough: only the version matters here.
     await submit(workPath(organization, id), alice.jar, /Save changes/, {
@@ -294,7 +314,7 @@ test.describe('a refused save keeps what was typed', () => {
     });
     // The page has now heard about the change, or is about to. Either way this must not be lost.
     await expect(page.getByText('This changed while you were editing.')).toBeVisible();
-    await expect(page.getByLabel('Objective')).toHaveValue('What I was writing.');
+    await expect(page.getByLabel('Details')).toHaveValue('What I was writing.');
     await expect(page.getByText('What was saved first.').first()).toBeVisible();
   });
 
@@ -317,7 +337,7 @@ test.describe('a refused save keeps what was typed', () => {
     const page = await open(alice);
     await page.goto(workPath(organization, id));
     await page.getByText('Edit the details').click();
-    await page.getByLabel('Objective').fill('What I was writing.');
+    await page.getByLabel('Details').fill('What I was writing.');
     await submit(workPath(organization, id), alice.jar, /Save changes/, {
       title,
       objective: 'What was saved first.',
@@ -334,7 +354,7 @@ test.describe('a refused save keeps what was typed', () => {
     await expect(save).toBeEnabled();
     // A refused save moved nothing, so the rest of the page comes back without a new version too.
     await expect(page.getByRole('button', { name: 'Mark ready' })).toBeEnabled();
-    await expect(page.getByLabel('Objective')).toHaveValue('What I was writing.');
+    await expect(page.getByLabel('Details')).toHaveValue('What I was writing.');
     expect(await stored()).toEqual(first);
 
     // Having been shown what is there now, saving again is a knowing choice, and it has to go through.
@@ -589,9 +609,9 @@ test.describe('submitting', () => {
     await slowPosts(page, 500);
     await page.getByLabel('Organization name').fill('Only One Ltd');
     await page.getByRole('button', { name: 'Create organization' }).dblclick();
-    await expect(page.getByRole('heading', { name: 'Hello, Dee' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'My work' })).toBeVisible();
     await page.goto('/');
-    await expect(page.getByRole('heading', { name: 'Hello, Dee' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'My work' })).toBeVisible();
   });
 
   test('stale work gives a plain message, not a crash', async ({ open, world }) => {

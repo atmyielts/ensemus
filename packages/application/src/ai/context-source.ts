@@ -1,6 +1,7 @@
 // Owned by the context slice (AGENT-15). What an agent can read, loaded under its initiator's context, so
 // every read goes through the same Work Unit access rules a person gets. The tool gateway reads through
 // this as well. Only agent-worker uses it.
+import { CLIENT_BRIEF_SCHEMA_REF } from '@ensemus/contracts/knowledge';
 import { createHash } from 'node:crypto';
 import { agentSpecV1Schema } from '@ensemus/contracts/ai';
 import {
@@ -44,7 +45,9 @@ import {
 } from './read-scope';
 import { currentRunInputClassInTx } from './model-admission';
 import { lockReadAuthorityBeforeBody } from './read-authority';
+import { listUsableConnections, type UsableConnection } from '../suite-connections';
 export { loadAgentReadScope } from './read-scope';
+export type { UsableConnection } from '../suite-connections';
 
 export type LoadedWork = {
   id: string;
@@ -97,6 +100,11 @@ export type LoadedRunBrief = {
   classification: AiClassification;
   pinned: { profileId: string; profileVersion: number } | null;
   remaining: { tokens: number; activeMs: number };
+  /**
+   * The suite connections the initiator may name (ADR-038 D5): the organization's and their own, active,
+   * with the suite tools each could serve. Never scopes, settings or a credential. Absent means none.
+   */
+  usableConnections?: readonly UsableConnection[];
 };
 
 export interface ContextSource {
@@ -245,9 +253,9 @@ export function createContextSource(deps: {
       const workUnitId = idSchema.safeParse(run.workUnitId);
       const agentVersionId = idSchema.safeParse(run.agentVersionId);
       if (!workUnitId.success || !agentVersionId.success) throw new AppError('NOT_FOUND');
-      const [row] = await withTenantTx(database, context, async (tx) => {
+      const [[row], usableConnections] = await withTenantTx(database, context, async (tx) => {
         await assertRunInputsOpen(tx, context);
-        return tx
+        const rows = await tx
           .select({ run: agentRuns, spec: agentVersions.spec })
           .from(agentRuns)
           .innerJoin(agentVersions, eq(agentVersions.id, agentRuns.agentVersionId))
@@ -260,6 +268,7 @@ export function createContextSource(deps: {
               eq(agentRuns.initiatorMembershipId, context.membershipId),
             ),
           );
+        return [rows, await listUsableConnections(tx, context.membershipId)] as const;
       });
       if (!row) throw new AppError('NOT_FOUND');
       // Both were checked when written. A row that no longer parses stops the run rather than guessing.
@@ -269,7 +278,10 @@ export function createContextSource(deps: {
       const { run: stored } = row;
       return {
         objective: spec.data.objective,
-        instructions: spec.data.instructions,
+        instructions:
+          spec.data.id === 'client-brief' && spec.data.output.schema_ref === CLIENT_BRIEF_SCHEMA_REF
+            ? `${spec.data.instructions}\n\nAfter the draft tool succeeds, return one JSON object with artifact_id (the exact tool result ID), summary (one short string) and open_questions (an array of strings). Use no Markdown fences. If the tool has not created a draft, do not invent its ID.`
+            : spec.data.instructions,
         requiredCapabilities: spec.data.model.required_capabilities,
         qualityTier: spec.data.model.quality_tier,
         allowFallback: spec.data.model.fallback === 'approved_profiles_only',
@@ -286,6 +298,7 @@ export function createContextSource(deps: {
           tokens: stored.maxTotalTokens - stored.inputTokens - stored.outputTokens,
           activeMs: stored.timeoutSeconds * 1000 - stored.activeMs,
         },
+        usableConnections,
       };
     },
 

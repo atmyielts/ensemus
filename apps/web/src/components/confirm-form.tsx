@@ -1,3 +1,4 @@
+import { Label } from '@/components/ui/label';
 import type { ReactNode } from 'react';
 import { KeptTextarea } from './kept-field';
 import { SubmitButton } from './submit-button';
@@ -36,7 +37,7 @@ export function ConfirmForm({
         {fields}
         {children}
         {reasonLabel && (
-          <label>
+          <Label>
             {reasonLabel}
             <KeptTextarea
               keep={`confirm-${confirmLabel}`}
@@ -44,12 +45,12 @@ export function ConfirmForm({
               required
               maxLength={2000}
             />
-          </label>
+          </Label>
         )}
-        <label className="check">
+        <Label className="check">
           <input type="checkbox" name="confirm" value="yes" required />
           {consequence}
-        </label>
+        </Label>
         <div>
           <SubmitButton className="danger" label={confirmFullLabel}>
             {confirmLabel}

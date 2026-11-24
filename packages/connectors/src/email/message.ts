@@ -1,6 +1,7 @@
 // Turns an approved payload into the exact bytes that go out. Pure, so the rules can be tested with no
 // socket. The contract schema already refuses a line break in any field, and this refuses it again on its
-// own, because an injected header is an email to someone nobody approved (ADR-027 D1).
+// own, because an injected header is an email to someone nobody approved (ADR-027 D1). The platform
+// mailer (workers/workflow/src/mail) builds its messages from the same header and body rules.
 import type { EmailSendPayload } from '@ensemus/contracts/external-actions';
 
 /** Carries no text from what it refused, since that could be anything in the payload. */
@@ -31,12 +32,12 @@ const MAX_ENCODED_WORD_BYTES = 42;
 const MAX_BODY_LINE = 998;
 const MAX_QP_LINE = 76;
 
-function checkAddress(address: string): string {
+export function checkAddress(address: string): string {
   if (typeof address !== 'string' || !ADDRESS.test(address)) throw new UnsafeMessage();
   return address;
 }
 
-function checkText(text: string): string {
+export function checkText(text: string): string {
   if (typeof text !== 'string' || LINE_BREAKING.test(text)) throw new UnsafeMessage();
   return text;
 }
@@ -66,7 +67,7 @@ function encodedWords(text: string): string[] {
 }
 
 /** Folds on spaces. An encoded word or an address is never split, because neither holds a space. */
-function header(name: string, value: string): string {
+export function header(name: string, value: string): string {
   const lines: string[] = [];
   let line = `${name}:`;
   for (const token of value.split(' ')) {
@@ -81,19 +82,19 @@ function header(name: string, value: string): string {
   return lines.join('\r\n');
 }
 
-function phrase(name: string): string {
+export function phrase(name: string): string {
   if (isPlainHeaderText(name)) return `"${name.replace(/(["\\])/g, '\\$1')}"`;
   return encodedWords(name).join(' ');
 }
 
-const unstructured = (text: string) =>
+export const unstructured = (text: string) =>
   isPlainHeaderText(text) ? text : encodedWords(text).join(' ');
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const pad = (value: number) => String(value).padStart(2, '0');
 
-function rfc5322Date(date: Date): string {
+export function rfc5322Date(date: Date): string {
   return (
     `${DAYS[date.getUTCDay()]}, ${pad(date.getUTCDate())} ${MONTHS[date.getUTCMonth()]} ` +
     `${date.getUTCFullYear()} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:` +
@@ -123,7 +124,7 @@ function quotedPrintableLine(line: string): string {
   return out.join('');
 }
 
-function encodeBody(text: string): { encoding: '7bit' | 'quoted-printable'; body: string } {
+export function encodeBody(text: string): { encoding: '7bit' | 'quoted-printable'; body: string } {
   const lines = text.split(/\r\n|\r|\n/);
   const plain = lines.every(
     (line) => line.length <= MAX_BODY_LINE && /^[\t\x20-\x7e]*$/.test(line),

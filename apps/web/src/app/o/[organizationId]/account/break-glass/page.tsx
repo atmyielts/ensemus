@@ -2,7 +2,7 @@ import { listBreakGlassRequests } from '@ensemus/application/saas/break-glass';
 import { loadSaasConfig } from '@ensemus/config';
 import Link from 'next/link';
 import { ConfirmForm } from '@/components/confirm-form';
-import { Empty, ErrorNotice, PageHead, formatDateTime } from '@/components/ui';
+import { BackLink, Empty, ErrorNotice, formatDateTime, PageHead } from '@/components/ui';
 import { decideBreakGlassAction } from '@/server/support-actions';
 import { orNotFound, requireAccountTenant } from '@/server/tenant';
 export const metadata = { title: 'Support access requests | Ensemus' };
@@ -19,15 +19,14 @@ export default async function BreakGlassPage({
     config = loadSaasConfig().breakGlass;
   return (
     <div className="stack">
+      <BackLink href={`/o/${organizationId}/account/support`}>Support</BackLink>
       <PageHead
         title="Support access requests"
         description="Review the exact record, duration and signatures before recording a decision."
-        actions={<Link href={`/o/${organizationId}/account/support`}>Support</Link>}
       />
       <ErrorNotice code={(await searchParams).error} />
       <p className="notice">
-        These requests record consent only. This deployment provides no support read path to your
-        work through an authorization.
+        These requests record your consent only. Approving one does not let support read your work.
       </p>
       {!config.enabled && (
         <p className="notice">

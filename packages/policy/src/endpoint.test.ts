@@ -1,7 +1,13 @@
 // TR-022 and the check half of FAULT-10: what an endpoint may look like, before any DNS or socket. A tenant
 // supplies `endpointUrl` and an operator supplies `settings`, so every case here is a tenant trying it on.
 import { describe, expect, it } from 'vitest';
-import { checkEndpoint, classifyAddress, sameAddress, type EndpointSettings } from './endpoint';
+import {
+  bedrockRegionOf,
+  checkEndpoint,
+  classifyAddress,
+  sameAddress,
+  type EndpointSettings,
+} from './endpoint';
 
 const NO_LIST: EndpointSettings = { privateEndpoints: [] };
 const refused = { ok: false, code: 'MODEL_ENDPOINT_NOT_ALLOWED' };
@@ -45,6 +51,139 @@ describe('hosted kinds have a fixed host list', () => {
   it('never takes a hosted kind from the operator list, even an origin the list names', () => {
     const settings = { privateEndpoints: ['https://evil.example'] };
     expect(checkEndpoint('openai_hosted', 'https://evil.example/v1', settings)).toEqual(refused);
+  });
+});
+
+describe('Gemini, Azure OpenAI, Bedrock, Cohere and Voyage have fixed host rules in code', () => {
+  const ok = (host: string) => ({ ok: true, host, port: 443, viaPrivateAllowlist: false });
+
+  it.each([
+    [
+      'gemini_hosted',
+      'https://generativelanguage.googleapis.com/v1beta',
+      'generativelanguage.googleapis.com',
+    ],
+    [
+      'gemini_hosted',
+      'https://generativelanguage.googleapis.com/v1beta/',
+      'generativelanguage.googleapis.com',
+    ],
+    ['azure_openai', 'https://contoso-eu.openai.azure.com/openai', 'contoso-eu.openai.azure.com'],
+    [
+      'azure_openai',
+      'https://contoso.cognitiveservices.azure.com/openai/',
+      'contoso.cognitiveservices.azure.com',
+    ],
+    [
+      'bedrock_hosted',
+      'https://bedrock-runtime.us-east-1.amazonaws.com',
+      'bedrock-runtime.us-east-1.amazonaws.com',
+    ],
+    [
+      'bedrock_hosted',
+      'https://bedrock-runtime.eu-central-2.amazonaws.com/',
+      'bedrock-runtime.eu-central-2.amazonaws.com',
+    ],
+    [
+      'bedrock_hosted',
+      'https://bedrock-runtime.ap-southeast-2.amazonaws.com',
+      'bedrock-runtime.ap-southeast-2.amazonaws.com',
+    ],
+    [
+      'bedrock_hosted',
+      'https://bedrock-runtime-fips.us-gov-west-1.amazonaws.com',
+      'bedrock-runtime-fips.us-gov-west-1.amazonaws.com',
+    ],
+    ['cohere_hosted', 'https://api.cohere.com/v2', 'api.cohere.com'],
+    ['voyage_hosted', 'https://api.voyageai.com/v1', 'api.voyageai.com'],
+  ] as const)('%s accepts %s', (kind, url, host) => {
+    expect(checkEndpoint(kind, url, NO_LIST)).toEqual(ok(host));
+  });
+
+  it.each([
+    // Lookalikes, extra labels and other providers' hosts.
+    ['gemini_hosted', 'https://generativelanguage.googleapis.com.evil.example/v1beta'],
+    ['gemini_hosted', 'https://evil.generativelanguage.googleapis.com/v1beta'],
+    ['gemini_hosted', 'https://generativelanguage.googleapis.co/v1beta'],
+    ['gemini_hosted', 'https://aiplatform.googleapis.com/v1beta'],
+    ['azure_openai', 'https://contoso.openai.azure.com.evil.example/openai'],
+    ['azure_openai', 'https://a.contoso.openai.azure.com/openai'],
+    ['azure_openai', 'https://openai.azure.com/openai'],
+    ['azure_openai', 'https://-contoso.openai.azure.com/openai'],
+    ['azure_openai', 'https://contoso-.openai.azure.com/openai'],
+    ['azure_openai', `https://${'a'.repeat(65)}.openai.azure.com/openai`],
+    ['azure_openai', 'https://contoso.services.ai.azure.com/openai'],
+    ['azure_openai', 'https://contoso.openai.azure.us/openai'],
+    ['azure_openai', 'https://contoso.openaiazure.com/openai'],
+    ['bedrock_hosted', 'https://bedrock-runtime.us-east-1.amazonaws.com.evil.example'],
+    ['bedrock_hosted', 'https://bedrock-runtime.evil.us-east-1.amazonaws.com'],
+    ['bedrock_hosted', 'https://bedrock.us-east-1.amazonaws.com'],
+    ['bedrock_hosted', 'https://bedrock-agent-runtime.us-east-1.amazonaws.com'],
+    ['bedrock_hosted', 'https://bedrock-runtime.us-east.amazonaws.com'],
+    ['bedrock_hosted', 'https://bedrock-runtime.localhost-east-1.amazonaws.com'],
+    ['bedrock_hosted', 'https://bedrock-runtime.cn-north-1.amazonaws.com.cn'],
+    ['bedrock_hosted', 'https://s3.us-east-1.amazonaws.com'],
+    ['cohere_hosted', 'https://api.cohere.ai/v2'],
+    ['voyage_hosted', 'https://api.voyageai.com.evil.example/v1'],
+    // A host that is right, for the wrong kind.
+    ['gemini_hosted', 'https://api.openai.com/v1'],
+    ['openai_hosted', 'https://generativelanguage.googleapis.com/v1beta'],
+    ['cohere_hosted', 'https://api.voyageai.com/v1'],
+    // Scheme, port and userinfo.
+    ['gemini_hosted', 'http://generativelanguage.googleapis.com/v1beta'],
+    ['azure_openai', 'https://contoso.openai.azure.com:8443/openai'],
+    ['azure_openai', 'https://contoso.openai.azure.com:443/openai'],
+    ['bedrock_hosted', 'https://user:pass@bedrock-runtime.us-east-1.amazonaws.com'],
+    ['azure_openai', 'https://contoso.openai.azure.com@evil.example/openai'],
+    // Query strings, fragments and an api-version the adapter did not choose.
+    ['azure_openai', 'https://contoso.openai.azure.com/openai?api-version=2024-10-21'],
+    ['azure_openai', 'https://contoso.openai.azure.com/openai#x'],
+    ['bedrock_hosted', 'https://bedrock-runtime.us-east-1.amazonaws.com/?x=1'],
+    ['gemini_hosted', 'https://generativelanguage.googleapis.com/v1beta?key=abc'],
+    // Paths: wrong, deeper, traversal and encoded.
+    ['gemini_hosted', 'https://generativelanguage.googleapis.com/v1'],
+    ['gemini_hosted', 'https://generativelanguage.googleapis.com/v1beta/models'],
+    ['azure_openai', 'https://contoso.openai.azure.com/'],
+    ['azure_openai', 'https://contoso.openai.azure.com/openai/deployments/x'],
+    ['azure_openai', 'https://contoso.openai.azure.com/openai/../other'],
+    ['azure_openai', 'https://contoso.openai.azure.com/%6Fpenai'],
+    ['azure_openai', 'https://contoso.openai.azure.com/openai%2F..%2Fother'],
+    ['bedrock_hosted', 'https://bedrock-runtime.us-east-1.amazonaws.com/model'],
+    ['bedrock_hosted', 'https://bedrock-runtime.us-east-1.amazonaws.com//'],
+    // Other spellings of the same host, which a joined string would then carry.
+    ['azure_openai', 'https://Contoso.openai.azure.com/openai'],
+    ['azure_openai', 'https://contoso%2eopenai.azure.com/openai'],
+    ['bedrock_hosted', 'https://bedrock-runtime.us-east-1.amazonaws.com.'],
+    ['cohere_hosted', 'https://API.cohere.com/v2'],
+    ['voyage_hosted', ' https://api.voyageai.com/v1'],
+    ['voyage_hosted', 'https://api.voyageai.com\\v1'],
+  ] as const)('%s refuses %s', (kind, url) => {
+    expect(checkEndpoint(kind, url, NO_LIST)).toEqual(refused);
+  });
+
+  it('never takes one of these kinds from the operator list', () => {
+    const settings = { privateEndpoints: ['https://evil.example', 'http://10.0.0.5:8080'] };
+    for (const kind of [
+      'gemini_hosted',
+      'azure_openai',
+      'bedrock_hosted',
+      'cohere_hosted',
+    ] as const) {
+      expect(checkEndpoint(kind, 'https://evil.example/openai', settings)).toEqual(refused);
+      expect(checkEndpoint(kind, 'http://10.0.0.5:8080', settings)).toEqual(refused);
+    }
+  });
+
+  it('reads the region a Bedrock host names, and nothing from any other address', () => {
+    expect(bedrockRegionOf('https://bedrock-runtime.us-west-2.amazonaws.com')).toBe('us-west-2');
+    expect(bedrockRegionOf('https://bedrock-runtime-fips.ca-central-1.amazonaws.com/')).toBe(
+      'ca-central-1',
+    );
+    expect(
+      bedrockRegionOf('https://bedrock-runtime.us-west-2.amazonaws.com.evil.example'),
+    ).toBeNull();
+    expect(bedrockRegionOf('https://api.openai.com/v1')).toBeNull();
+    expect(bedrockRegionOf('not a url')).toBeNull();
   });
 });
 

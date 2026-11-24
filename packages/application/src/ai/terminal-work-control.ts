@@ -48,6 +48,7 @@ export type TerminalWorkControl = {
   readonly contentSha256: string;
   write(patch: Patch): Promise<WorkTransitionMetadata>;
   visibleArtifactIds(): Promise<readonly string[]>;
+  closeReviews(currentHash?: string): Promise<readonly { id: string; requestedBy: string }[]>;
 };
 export function isTerminalWorkControl(value: TerminalWorkControl, tx: Tx, context: TenantContext) {
   const issued = genuine.get(value);
@@ -143,6 +144,16 @@ export async function loadTerminalWorkControlInTx(
           throw new AppError('INVALID_STATE');
         current = next;
         return metadata(current);
+      } catch (error) {
+        throw safeFailure(error);
+      }
+    },
+    async closeReviews(currentHash?: string) {
+      try {
+        const rows = await tx.execute(
+          sql`select id,"requestedBy" from work.agent_terminal_close_reviews(${runId}::uuid,${originalId}::uuid,${current.version}::bigint,${currentHash ?? null}::text)`,
+        );
+        return z.array(z.strictObject({ id: idSchema, requestedBy: idSchema })).parse(rows.rows);
       } catch (error) {
         throw safeFailure(error);
       }

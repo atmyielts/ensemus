@@ -1,0 +1,22 @@
+{
+  "name": "@ensemus/sandbox",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./protocol": "./src/protocol.ts",
+    "./oci": "./src/oci.ts",
+    "./client": "./src/client.ts",
+    "./runner": "./src/runner.ts",
+    "./probe": "./src/probe.ts",
+    "./testing": "./src/testing/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ensemus/domain": "workspace:*",
+    "@ensemus/telemetry": "workspace:*",
+    "zod": "4.6.7"
+  }
+}

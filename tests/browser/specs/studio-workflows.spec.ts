@@ -15,7 +15,10 @@ test.describe('native workflow authoring against actual compiler and review serv
         name = `Generated workflow ${randomUUID().slice(0, 8)}`;
       await page.goto(`${base}/workflows/new`);
       await page.getByLabel('Workflow name', { exact: true }).fill(name);
-      await page.getByLabel('Definition sensitivity', { exact: true }).selectOption('internal');
+      await page
+        .getByRole('group', { name: 'Who can see this', exact: true })
+        .getByRole('radio', { name: /^Internal\b/ })
+        .check();
       await page.getByRole('button', { name: 'Create workflow draft', exact: true }).click();
       await expect(page.getByRole('heading', { name: 'Edit workflow', exact: true })).toBeVisible();
       const add = page.getByRole('region', { name: 'Add a point', exact: true });
@@ -31,14 +34,14 @@ test.describe('native workflow authoring against actual compiler and review serv
       await expect(
         page.getByRole('heading', { name: 'Rehearsal report', exact: true }),
       ).toBeVisible();
-      await expect(page.getByText('Synthetic rule check only.', { exact: false })).toBeVisible();
+      await expect(
+        page.getByText('This was a practice run with made-up examples.', { exact: false }),
+      ).toBeVisible();
       await expect
         .poll(
           async () => {
             await page.reload();
-            return page
-              .getByRole('heading', { name: 'The fixed scenario passed', exact: true })
-              .count();
+            return page.getByRole('heading', { name: 'The rehearsal passed', exact: true }).count();
           },
           { timeout: 60_000 },
         )

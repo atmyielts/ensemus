@@ -2,13 +2,14 @@
 // web tier has no client and no network route. Delivery is at least once, so every action here is
 // idempotent, and a crash just repeats it.
 import { writeFileSync } from 'node:fs';
+import { setTimeout as sleep } from 'node:timers/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readSecret } from '@ensemus/config';
+import { loadTelemetryConfig, readSecret } from '@ensemus/config';
 import {
   dispatchDueEvents,
   eventBacklog,
-  listOrganizationIds,
+  listScheduleReconciliationTenants,
   openDispatcherDatabase,
   processWakeTargets,
   type DispatchableEvent,
@@ -19,6 +20,14 @@ import {
   AGGREGATE_MODEL_PROFILE,
   MODEL_PROFILE_PROBE_REQUESTED,
 } from '@ensemus/domain/ai-events';
+import {
+  AGGREGATE_FEDERATION_GRANT,
+  AGGREGATE_FEDERATION_ITEM,
+  FEDERATION_GRANT_ACCEPTED,
+  FEDERATION_GRANT_ENDED,
+  FEDERATION_ITEM_PUBLISHED,
+  FEDERATION_ITEM_WITHDRAWN,
+} from '@ensemus/domain/federation-events';
 import {
   AGGREGATE_CONNECTION,
   AGGREGATE_EXTERNAL_ACTION,
@@ -53,7 +62,27 @@ import {
   AGGREGATE_ORGANIZATION_EXPORT,
   ORGANIZATION_EXPORT_REQUESTED,
 } from '@ensemus/domain/sovereign-events';
+import {
+  AGGREGATE_MEETING_DERIVATION,
+  AGGREGATE_MEETING_IMPORT,
+  MEETING_DERIVATION_REQUESTED,
+  MEETING_IMPORT_REQUESTED,
+} from '@ensemus/domain/expansion-events';
+import {
+  AGGREGATE_MARKETPLACE_INSTALLATION,
+  AGGREGATE_SANDBOX_RUN,
+  AGGREGATE_SKILL_VERSION,
+  MARKETPLACE_INSTALL_REQUESTED,
+  SANDBOX_RUN_CANCEL_REQUESTED,
+  SANDBOX_RUN_REQUESTED,
+  SKILL_VERSION_UPLOADED,
+} from '@ensemus/domain/skill-events';
 import { TOMBSTONE_RECORDED } from '@ensemus/domain/tombstone-ledger';
+import {
+  AGGREGATE_OAUTH_AUTHORIZATION,
+  OAUTH_AUTHORIZATION_CODE_RECEIVED,
+  OAUTH_AUTHORIZATION_ENDED,
+} from '@ensemus/domain/workspace-suites';
 import { MODEL_JOB_REQUESTED, AGGREGATE_MODEL_JOB } from '@ensemus/domain/knowledge-models';
 import {
   knowledgeModelJobInputSchema,
@@ -66,6 +95,8 @@ import {
   OFFBOARDING_REQUESTED,
   OFFBOARDING_RESUMED,
   PAYMENT_EVENT_RECEIVED,
+  CHECKOUT_REQUESTED,
+  AGGREGATE_CHECKOUT,
   PAYMENT_REQUESTED,
   RETENTION_RULE_SET,
   SUBSCRIPTION_STARTED,
@@ -73,6 +104,7 @@ import {
 } from '@ensemus/saas/events';
 import { S3ObjectStore } from '@ensemus/storage';
 import { createLogger, errorCode } from '@ensemus/telemetry';
+import { withSpan } from '@ensemus/telemetry/tracing';
 import { AesGcmPayloadCodec } from '@ensemus/workflows/codec';
 import { modelProbeInputSchema, modelProbeWorkflowIdFor } from '@ensemus/workflows/agent-schemas';
 import { AGENT_RUN_CONTROL_SIGNAL, PLATFORM_TASK_QUEUE } from '@ensemus/workflows/constants';
@@ -97,15 +129,17 @@ import {
   simulationWorkflowIdFor,
 } from '@ensemus/workflows/product-schemas';
 import {
-  BILLING_SWEEP_INTERVAL,
+  BILLING_SWEEP_INTERVAL_SECONDS,
   billingScheduleIdFor,
   offboardingInputSchema,
   offboardingWorkflowIdFor,
   paymentEventInputSchema,
   paymentEventWorkflowIdFor,
+  checkoutInputSchema,
+  checkoutWorkflowIdFor,
   paymentInputSchema,
   paymentWorkflowIdFor,
-  RETENTION_SWEEP_INTERVAL,
+  RETENTION_SWEEP_INTERVAL_SECONDS,
   retentionScheduleIdFor,
 } from '@ensemus/workflows/saas-schemas';
 import {
@@ -114,35 +148,61 @@ import {
   connectorSyncWorkflowIdFor,
   externalActionInputSchema,
   externalActionWorkflowIdFor,
+  oauthExchangeInputSchema,
+  oauthExchangeWorkflowIdFor,
   organizationExportInputSchema,
   organizationExportWorkflowIdFor,
+  meetingDerivationInputSchema,
+  meetingDerivationWorkflowIdFor,
+  meetingImportInputSchema,
+  meetingImportWorkflowIdFor,
+  federationDeliveryWorkflowIdFor,
+  federationGrantAcceptedInputSchema,
+  federationGrantAcceptedWorkflowIdFor,
+  federationGrantEndedInputSchema,
+  federationItemInputSchema,
+  federationPurgeWorkflowIdFor,
+  federationWithdrawalWorkflowIdFor,
   reminderScheduleIdFor,
+  suiteUpkeepScheduleIdFor,
+  suiteUpkeepWorkflowIdFor,
+  tenantInputSchema,
+  marketplaceInstallInputSchema,
+  marketplaceInstallWorkflowIdFor,
+  sandboxRunInputSchema,
+  sandboxRunWorkflowIdFor,
+  skillVerificationInputSchema,
+  skillVerificationWorkflowIdFor,
   webhookDeliveryInputSchema,
   webhookWorkflowIdFor,
   workflowIdFor,
   workInputSchema,
-  type TenantInput,
   type WorkInput,
 } from '@ensemus/workflows/schemas';
 import {
   Client,
   ScheduleNotFoundError,
-  ScheduleOverlapPolicy,
   WorkflowExecutionAlreadyStartedError,
   WorkflowNotFoundError,
-  ScheduleAlreadyRunning,
 } from '@temporalio/client';
 import { classifyDeliveryError, needsOnlyTheStore } from './dispatch-errors';
 import { recordPurgeStartFor, startRecordPurge } from './record-purge-route';
 import { openDispatcherConnection } from './temporal-connection';
 import { createLedgerWriter } from './tombstone-ledger';
+import { createBackgroundReconciliation } from './background-reconciliation';
+import { ensureTenantSchedule } from './tenant-schedules';
 
 const log = createLogger('dispatcher');
 const here = path.dirname(fileURLToPath(import.meta.url));
 const IDLE_MS = 500;
-const REMINDER_INTERVAL = '15 minutes';
+const REMINDER_INTERVAL_SECONDS = 15 * 60;
 /** How often a tenant's connector content is looked at. A revoke does not wait for this (ADR-029 D1). */
-const KNOWLEDGE_SWEEP_INTERVAL = '15 minutes';
+const KNOWLEDGE_SWEEP_INTERVAL_SECONDS = 15 * 60;
+/**
+ * How often a tenant's consent attempts and directories are looked after (ADR-038 D1, D4). Ending an
+ * attempt does not wait for this, and a directory goes stale over a day, so this is well inside both.
+ */
+const SUITE_UPKEEP_INTERVAL_SECONDS = 15 * 60;
 /** One Temporal call may never hold up the signals behind it for longer than this. */
 const CALL_DEADLINE_MS = 10_000;
 /** How often to try checking the reminder schedules again if Temporal was down at startup. */
@@ -157,6 +217,14 @@ const LEDGER_REQUEST_MS = CALL_DEADLINE_MS;
 const LEDGER_BACKLOG_CHECK_MS = 60_000;
 
 async function main() {
+  const tracingConfig = loadTelemetryConfig();
+  const release = process.env.ENSEMUS_RELEASE;
+  // Only when an operator named a collector, so that a default install never loads the SDK (ADR-037 D3).
+  const tracing = tracingConfig.enabled
+    ? await (
+        await import('@ensemus/telemetry/otel')
+      ).startTelemetry('dispatcher', tracingConfig, release ? { release } : {})
+    : null;
   const connection = openDispatcherConnection(process.env.TEMPORAL_ADDRESS ?? 'temporal:7233');
   const client = new Client({
     connection,
@@ -179,62 +247,25 @@ async function main() {
     }),
   );
 
-  const ensureReminderSchedule = async (organizationId: string) => {
-    const scheduleInput: TenantInput = { organizationId };
-    try {
-      await client.schedule.create({
+  const ensureReminderSchedules = async (organizationId: string, reconcile = false) => {
+    for (const target of [
+      {
         scheduleId: reminderScheduleIdFor(organizationId),
-        spec: { intervals: [{ every: REMINDER_INTERVAL }] },
-        policies: { overlap: ScheduleOverlapPolicy.SKIP },
-        action: {
-          type: 'startWorkflow',
-          workflowType: 'tenantRemindersWorkflow',
-          args: [scheduleInput],
-          taskQueue: PLATFORM_TASK_QUEUE,
-        },
-      });
-    } catch (error) {
-      if (!(error instanceof ScheduleAlreadyRunning)) throw error;
-    }
-    try {
-      await client.schedule.create({
+        workflowType: 'tenantRemindersWorkflow',
+        everySeconds: REMINDER_INTERVAL_SECONDS,
+      },
+      {
         scheduleId: knowledgeSweepScheduleIdFor(organizationId),
-        spec: { intervals: [{ every: KNOWLEDGE_SWEEP_INTERVAL }] },
-        policies: { overlap: ScheduleOverlapPolicy.SKIP },
-        action: {
-          type: 'startWorkflow',
-          workflowType: 'knowledgeSweepWorkflow',
-          args: [scheduleInput],
-          taskQueue: PLATFORM_TASK_QUEUE,
-        },
-      });
-    } catch (error) {
-      if (!(error instanceof ScheduleAlreadyRunning)) throw error;
-    }
-  };
-
-  /** A per-tenant schedule, carrying only the organization ID. Finding it there already is success. */
-  const ensureTenantSchedule = async (
-    organizationId: string,
-    scheduleId: string,
-    workflowType: string,
-    every: typeof BILLING_SWEEP_INTERVAL | typeof RETENTION_SWEEP_INTERVAL,
-  ) => {
-    const scheduleInput: TenantInput = { organizationId };
-    try {
-      await client.schedule.create({
-        scheduleId,
-        spec: { intervals: [{ every }] },
-        policies: { overlap: ScheduleOverlapPolicy.SKIP },
-        action: {
-          type: 'startWorkflow',
-          workflowType,
-          args: [scheduleInput],
-          taskQueue: PLATFORM_TASK_QUEUE,
-        },
-      });
-    } catch (error) {
-      if (!(error instanceof ScheduleAlreadyRunning)) throw error;
+        workflowType: 'knowledgeSweepWorkflow',
+        everySeconds: KNOWLEDGE_SWEEP_INTERVAL_SECONDS,
+      },
+      {
+        scheduleId: suiteUpkeepScheduleIdFor(organizationId),
+        workflowType: 'suiteUpkeepWorkflow',
+        everySeconds: SUITE_UPKEEP_INTERVAL_SECONDS,
+      },
+    ]) {
+      await ensureTenantSchedule(client.schedule, { ...target, organizationId }, reconcile);
     }
   };
 
@@ -243,6 +274,7 @@ async function main() {
     for (const scheduleId of [
       reminderScheduleIdFor(organizationId),
       knowledgeSweepScheduleIdFor(organizationId),
+      suiteUpkeepScheduleIdFor(organizationId),
       billingScheduleIdFor(organizationId),
       retentionScheduleIdFor(organizationId),
     ]) {
@@ -386,7 +418,7 @@ async function main() {
       }
 
       case 'organization.created':
-        await ensureReminderSchedule(event.organizationId);
+        await ensureReminderSchedules(event.organizationId);
         return;
 
       case TOMBSTONE_RECORDED:
@@ -414,6 +446,30 @@ async function main() {
             deliveryId: event.aggregateId,
           }),
           workflowIdFor: webhookWorkflowIdFor,
+        });
+        return;
+
+      // ADR-038 D1. A code is single use, so its exchange runs once, ever: a repeated event finds the
+      // first run, started or finished, and never sends the code again.
+      case OAUTH_AUTHORIZATION_CODE_RECEIVED:
+        if (event.aggregateType !== AGGREGATE_OAUTH_AUTHORIZATION) return;
+        await startOnce('oauthExchangeWorkflow', {
+          input: oauthExchangeInputSchema.parse({
+            organizationId: event.organizationId,
+            authorizationId: event.aggregateId,
+          }),
+          workflowIdFor: oauthExchangeWorkflowIdFor,
+        });
+        return;
+
+      // The web tier ended an attempt early. Its sealed values are revoked now, not at the next sweep. One
+      // run per attempt, so a repeated event finds it, started or finished.
+      case OAUTH_AUTHORIZATION_ENDED:
+        if (event.aggregateType !== AGGREGATE_OAUTH_AUTHORIZATION) return;
+        await startOnce('suiteUpkeepWorkflow', {
+          input: tenantInputSchema.parse({ organizationId: event.organizationId }),
+          workflowIdFor: (tenant) =>
+            suiteUpkeepWorkflowIdFor(tenant.organizationId, event.aggregateId),
         });
         return;
 
@@ -584,21 +640,21 @@ async function main() {
 
       // M8 (ADR-032). Charging belongs to one run, ever, as an external action does (ADR-027 D2).
       case SUBSCRIPTION_STARTED:
-        await ensureTenantSchedule(
-          event.organizationId,
-          billingScheduleIdFor(event.organizationId),
-          'billingCycleWorkflow',
-          BILLING_SWEEP_INTERVAL,
-        );
+        await ensureTenantSchedule(client.schedule, {
+          organizationId: event.organizationId,
+          scheduleId: billingScheduleIdFor(event.organizationId),
+          workflowType: 'billingCycleWorkflow',
+          everySeconds: BILLING_SWEEP_INTERVAL_SECONDS,
+        });
         return;
 
       case RETENTION_RULE_SET:
-        await ensureTenantSchedule(
-          event.organizationId,
-          retentionScheduleIdFor(event.organizationId),
-          'retentionSweepWorkflow',
-          RETENTION_SWEEP_INTERVAL,
-        );
+        await ensureTenantSchedule(client.schedule, {
+          organizationId: event.organizationId,
+          scheduleId: retentionScheduleIdFor(event.organizationId),
+          workflowType: 'retentionSweepWorkflow',
+          everySeconds: RETENTION_SWEEP_INTERVAL_SECONDS,
+        });
         return;
 
       case PAYMENT_REQUESTED:
@@ -609,6 +665,18 @@ async function main() {
             paymentId: event.aggregateId,
           }),
           workflowIdFor: paymentWorkflowIdFor,
+        });
+        return;
+
+      // ADR-032 D4a. A Paddle checkout's transaction is made by one run, ever.
+      case CHECKOUT_REQUESTED:
+        if (event.aggregateType !== AGGREGATE_CHECKOUT) return;
+        await startOnce('checkoutWorkflow', {
+          input: checkoutInputSchema.parse({
+            organizationId: event.organizationId,
+            sessionId: event.aggregateId,
+          }),
+          workflowIdFor: checkoutWorkflowIdFor,
         });
         return;
 
@@ -649,6 +717,125 @@ async function main() {
         await endTenantSchedules(event.organizationId);
         return;
 
+      // A person asked for one run, and one run happens, whatever the outbox delivers again (ADR-033 D6).
+      case MEETING_DERIVATION_REQUESTED:
+        if (event.aggregateType !== AGGREGATE_MEETING_DERIVATION) return;
+        await startOnce('meetingDerivationWorkflow', {
+          input: meetingDerivationInputSchema.parse({
+            organizationId: event.organizationId,
+            derivationRunId: event.aggregateId,
+          }),
+          workflowIdFor: meetingDerivationWorkflowIdFor,
+        });
+        return;
+
+      case MEETING_IMPORT_REQUESTED:
+        if (event.aggregateType !== AGGREGATE_MEETING_IMPORT) return;
+        await startOnce('meetingImportWorkflow', {
+          input: meetingImportInputSchema.parse({
+            organizationId: event.organizationId,
+            importRequestId: event.aggregateId,
+          }),
+          workflowIdFor: meetingImportWorkflowIdFor,
+        });
+        return;
+
+      // M11B (ADR-034). One verification per version, one run per sandbox row, one install per request.
+      // A finished one stays finished, so an event delivered again cannot run anything a second time.
+      case SKILL_VERSION_UPLOADED:
+        if (event.aggregateType !== AGGREGATE_SKILL_VERSION) return;
+        await startOnce('skillVerificationWorkflow', {
+          input: skillVerificationInputSchema.parse({
+            organizationId: event.organizationId,
+            skillVersionId: event.aggregateId,
+          }),
+          workflowIdFor: skillVerificationWorkflowIdFor,
+        });
+        return;
+
+      case SANDBOX_RUN_REQUESTED:
+        if (event.aggregateType !== AGGREGATE_SANDBOX_RUN) return;
+        await startOnce('sandboxRunWorkflow', {
+          input: sandboxRunInputSchema.parse({
+            organizationId: event.organizationId,
+            sandboxRunId: event.aggregateId,
+          }),
+          workflowIdFor: sandboxRunWorkflowIdFor,
+        });
+        return;
+
+      // The row was marked first, and is rechecked before a start, so losing this race loses nothing.
+      case SANDBOX_RUN_CANCEL_REQUESTED: {
+        if (event.aggregateType !== AGGREGATE_SANDBOX_RUN) return;
+        const runInput = sandboxRunInputSchema.parse({
+          organizationId: event.organizationId,
+          sandboxRunId: event.aggregateId,
+        });
+        try {
+          await client.workflow.getHandle(sandboxRunWorkflowIdFor(runInput)).cancel();
+        } catch (error) {
+          if (!(error instanceof WorkflowNotFoundError)) throw error;
+        }
+        return;
+      }
+
+      case MARKETPLACE_INSTALL_REQUESTED:
+        if (event.aggregateType !== AGGREGATE_MARKETPLACE_INSTALLATION) return;
+        await startOnce('marketplaceInstallWorkflow', {
+          input: marketplaceInstallInputSchema.parse({
+            organizationId: event.organizationId,
+            installationId: event.aggregateId,
+          }),
+          workflowIdFor: marketplaceInstallWorkflowIdFor,
+        });
+        return;
+
+      // Cross-organization work (ADR-035 D3). No event like these exists unless someone turned it on,
+      // and nothing runs but the workflows' code until the federation worker polls its queue.
+      case FEDERATION_ITEM_PUBLISHED:
+        if (event.aggregateType !== AGGREGATE_FEDERATION_ITEM) return;
+        await startOnce('federationDeliveryWorkflow', {
+          input: federationItemInputSchema.parse({
+            organizationId: event.organizationId,
+            itemId: event.aggregateId,
+          }),
+          workflowIdFor: federationDeliveryWorkflowIdFor,
+        });
+        return;
+
+      case FEDERATION_ITEM_WITHDRAWN:
+        if (event.aggregateType !== AGGREGATE_FEDERATION_ITEM) return;
+        await startOnce('federationPurgeWorkflow', {
+          input: federationItemInputSchema.parse({
+            organizationId: event.organizationId,
+            itemId: event.aggregateId,
+          }),
+          workflowIdFor: federationWithdrawalWorkflowIdFor,
+        });
+        return;
+
+      case FEDERATION_GRANT_ACCEPTED:
+        if (event.aggregateType !== AGGREGATE_FEDERATION_GRANT) return;
+        await startOnce('federationGrantAcceptedWorkflow', {
+          input: federationGrantAcceptedInputSchema.parse({
+            organizationId: event.organizationId,
+            grantId: event.aggregateId,
+          }),
+          workflowIdFor: federationGrantAcceptedWorkflowIdFor,
+        });
+        return;
+
+      case FEDERATION_GRANT_ENDED:
+        if (event.aggregateType !== AGGREGATE_FEDERATION_GRANT) return;
+        await startOnce('federationPurgeWorkflow', {
+          input: federationGrantEndedInputSchema.parse({
+            organizationId: event.organizationId,
+            grantId: event.aggregateId,
+          }),
+          workflowIdFor: federationPurgeWorkflowIdFor,
+        });
+        return;
+
       default:
         // Nothing consumes this event yet. It stays in domain_events for projections.
         return;
@@ -656,7 +843,11 @@ async function main() {
   };
 
   const handle = (event: DispatchableEvent) =>
-    connection.withDeadline(Date.now() + CALL_DEADLINE_MS, () => deliver(event));
+    withSpan(
+      'dispatcher.deliver',
+      { eventType: event.eventType, organizationId: event.organizationId },
+      () => connection.withDeadline(Date.now() + CALL_DEADLINE_MS, () => deliver(event)),
+    );
 
   let running = true;
   const stop = () => {
@@ -667,23 +858,35 @@ async function main() {
 
   const beat = () => writeFileSync('/tmp/worker-alive', String(Date.now()));
 
-  /** A tenant whose first event was lost before this existed still gets its reminders. */
+  let reconciledOrganizations = 0;
+  let organizationsToReconcile: string[] | undefined;
+  /** Existing tenants get their original schedules back or moved off the common interval boundary. */
   const reconcileReminderSchedules = async () => {
-    const organizations = await listOrganizationIds(db);
-    for (const organizationId of organizations) {
+    organizationsToReconcile ??= await listScheduleReconciliationTenants(db);
+    for (const organizationId of organizationsToReconcile.slice(reconciledOrganizations)) {
       if (!running) return false;
       beat();
       await connection.withDeadline(Date.now() + CALL_DEADLINE_MS, () =>
-        ensureReminderSchedule(organizationId),
+        ensureReminderSchedules(organizationId, true),
       );
+      // Resume after the last success on a temporary Temporal failure. Give the live outbox room
+      // between tenants, including when Temporal can answer every reconciliation call immediately.
+      reconciledOrganizations++;
+      await sleep(100);
     }
-    log.info('dispatcher.schedules_reconciled', { count: organizations.length });
+    log.info('dispatcher.schedules_reconciled', { count: reconciledOrganizations });
+    organizationsToReconcile = undefined;
     return true;
   };
 
   log.info('dispatcher.started');
-  let reconciled = false;
-  let nextReconcileAt = 0;
+  const scheduleReconciliation = createBackgroundReconciliation({
+    run: reconcileReminderSchedules,
+    retryMs: RECONCILE_RETRY_MS,
+    onError: (error) => {
+      log.warn('dispatcher.reconcile_failed', { errorCode: errorCode(error) });
+    },
+  });
   let nextBacklogCheckAt = Date.now() + LEDGER_BACKLOG_CHECK_MS;
   while (running) {
     beat();
@@ -700,17 +903,7 @@ async function main() {
         },
       );
     }
-    if (!reconciled && Date.now() >= nextReconcileAt) {
-      nextReconcileAt = Date.now() + RECONCILE_RETRY_MS;
-      await reconcileReminderSchedules().then(
-        (done) => {
-          reconciled = done;
-        },
-        (error: unknown) => {
-          log.warn('dispatcher.reconcile_failed', { errorCode: errorCode(error) });
-        },
-      );
-    }
+    scheduleReconciliation.poll();
     try {
       writeLedgerEntry.startBatch();
       const result = await dispatchDueEvents(db, handle, {
@@ -734,8 +927,13 @@ async function main() {
       await new Promise((done) => setTimeout(done, IDLE_MS * 4));
     }
   }
+  await scheduleReconciliation.stop();
   await close();
   await connection.close();
+  // Last, and losing the last spans is not a failed stop, so it says so and stops anyway.
+  await tracing?.shutdown().catch((error: unknown) => {
+    log.warn('dispatcher.tracing_shutdown_failed', { errorCode: errorCode(error) });
+  });
   log.info('dispatcher.stopped');
 }
 

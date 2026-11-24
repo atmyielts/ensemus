@@ -14,10 +14,15 @@ export function secret(name: string): string {
 }
 
 /** A connection URL for a role, reaching Postgres through the test-only published port. */
-export function dbUrl(role: string, passwordFile: string, database = 'ensemus'): string {
-  // Parallel runs each set their own port and COMPOSE_PROJECT_NAME, so they share no database.
+export function dbUrl(
+  role: string,
+  passwordFile: string,
+  database = process.env.ENSEMUS_TEST_DATABASE ?? 'ensemus',
+): string {
+  // Parallel stacks set their own port and COMPOSE_PROJECT_NAME. An operator may instead select
+  // an already provisioned qualification database; PostgreSQL roles are still cluster-wide.
   const port = process.env.ENSEMUS_TEST_PG_PORT ?? '55432';
-  return `postgres://${role}:${secret(passwordFile)}@127.0.0.1:${port}/${database}`;
+  return `postgres://${role}:${secret(passwordFile)}@127.0.0.1:${port}/${encodeURIComponent(database)}`;
 }
 
 export const urls = {
@@ -25,9 +30,15 @@ export const urls = {
   app: () => dbUrl('ensemus_app', 'db_app_password'),
   auth: () => dbUrl('ensemus_auth', 'db_auth_password'),
   dispatcher: () => dbUrl('ensemus_dispatcher', 'db_dispatcher_password'),
+  mailer: () => dbUrl('ensemus_mailer', 'db_mailer_password'),
   secrets: () => dbUrl('ensemus_secrets', 'db_secrets_password'),
   // Needs the provisioning step recorded in ADR-028 under "Role provisioning".
   agent: () => dbUrl('ensemus_agent', 'db_agent_password'),
+  // ADR-039 D1: each worker's own login, a member of ensemus_app. A test acting as a worker uses the one
+  // that worker holds, since the rules only that worker passes (0701) refuse the web tier's.
+  worker: () => dbUrl('ensemus_worker', 'db_worker_password'),
+  connector: () => dbUrl('ensemus_connector', 'db_connector_password'),
+  knowledge: () => dbUrl('ensemus_knowledge', 'db_knowledge_password'),
   superuser: () => dbUrl('postgres', 'db_superuser_password'),
 };
 

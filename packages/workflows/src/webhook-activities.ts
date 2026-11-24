@@ -18,6 +18,11 @@ import { MalformedWebhook, type ConnectorContext } from '@ensemus/connectors';
 import { PAYMENT_CONNECTOR_PREFIX } from '@ensemus/connectors/payment';
 import { verifyWebhookSignature } from '@ensemus/connectors/runtime';
 import { recordPaymentEventInTx } from '@ensemus/application/saas/payment-events';
+import { applyCheckoutCallbackInTx } from '@ensemus/application/saas/checkout-callbacks';
+import { checkoutRoute } from '@ensemus/database/payment-routing';
+import { CHECKOUT_CONNECTOR_PREFIX } from '@ensemus/domain/checkout';
+import { checkoutAttestationFacts } from '@ensemus/saas/checkout';
+import { createLogger } from '@ensemus/telemetry';
 import { connections, webhookEndpoints, withTenantTx, workUnits, type Tx } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
 import { SECRET_PURPOSE_WEBHOOK_SIGNING } from '@ensemus/domain/connector';
@@ -54,6 +59,31 @@ export type VerifiedPaymentWebhook = Readonly<{
 export const isVerifiedPaymentWebhook = (value: unknown): value is VerifiedPaymentWebhook =>
   typeof value === 'object' && value !== null && paymentWebhookProofs.has(value);
 
+const checkoutProofs = new WeakSet<object>();
+/** ADR-032 D4a. Made only here, after the signature passed and the body was read, and never serialized. */
+export type VerifiedCheckoutCallback = Readonly<{
+  organizationId: string;
+  deliveryId: string;
+  rowVersion: string;
+  restoreGeneration: string;
+  endpointId: string;
+  connectionId: string;
+  signingSecretId: string;
+  processor: 'paddle' | 'payme' | 'click';
+  bodySha256: string;
+  requestDigest: string;
+  action: string;
+  routeSha256: string | null;
+  txnRef: string | null;
+  amountMinor: bigint | null;
+  currency: string | null;
+  verifiedAtEpochMs: number;
+}>;
+export const isVerifiedCheckoutCallback = (value: unknown): value is VerifiedCheckoutCallback =>
+  typeof value === 'object' && value !== null && checkoutProofs.has(value);
+
+const log = createLogger('webhook-activities');
+
 type ProposeInTx = (
   tx: Tx,
   context: Parameters<typeof proposeExternalActionInTx>[1],
@@ -76,8 +106,31 @@ const isSecretUnavailable = (error: unknown) => (error as Error).name === 'Secre
 export function createWebhookEffectHandlers(
   propose: ProposeInTx = proposeExternalActionInTx,
   payment: ConnectorActivityDeps['paymentWebhook'] = undefined,
+  checkout: ConnectorActivityDeps['checkoutWebhook'] = undefined,
 ): WebhookEffectHandlers {
   return {
+    async applyCheckoutCallback(tx, context, effect, source) {
+      // Only the deployment's own organization holds a checkout address, and only a service applies one.
+      if (
+        !checkout?.billingOrganizationId ||
+        context.actorType !== 'service' ||
+        checkout.billingOrganizationId.toLowerCase() !== context.organizationId
+      )
+        throw new AppError('NOT_FOUND');
+      const outcome = await applyCheckoutCallbackInTx(
+        tx,
+        context,
+        effect.callback,
+        { deliveryId: source.deliveryId, verificationToken: source.checkoutVerificationToken },
+        checkout.agents,
+      );
+      if (outcome !== 'answered' && outcome !== 'applied')
+        log.warn('checkout.needs_person', {
+          organizationId: context.organizationId,
+          reasonCode: outcome,
+          processor: effect.callback.provider,
+        });
+    },
     async proposeAction(tx, context, effect) {
       const [work] = await tx
         .select({ owner: workUnits.ownerMembershipId })
@@ -350,11 +403,68 @@ export function createWebhookVerifier(deps: ConnectorActivityDeps): WebhookVerif
             throw new AppError('PREREQUISITES_INCOMPLETE');
           paymentVerificationToken = attestation.token;
         }
+        let checkoutVerificationToken: string | undefined;
+        const checkout = effects.find((effect) => effect.kind === 'checkout_callback');
+        if (checkout?.kind === 'checkout_callback') {
+          const provider = checkout.callback.provider;
+          if (
+            effects.length !== 1 ||
+            delivery.connectorType !== CHECKOUT_CONNECTOR_PREFIX + provider
+          )
+            throw new MalformedWebhook();
+          const facts = checkoutAttestationFacts(checkout.callback);
+          if (facts) {
+            if (
+              !deps.attestCheckoutCallback ||
+              !delivery.rowVersion ||
+              !delivery.restoreGeneration ||
+              !delivery.bodySha256 ||
+              !delivery.requestDigest
+            )
+              throw new AppError('PREREQUISITES_INCOMPLETE');
+            const bodySha256 = createHash('sha256').update(delivery.body).digest('hex');
+            if (
+              bodySha256 !== delivery.bodySha256 ||
+              webhookRequestDigest(delivery.body, delivery.headers) !== delivery.requestDigest
+            )
+              throw new MalformedWebhook();
+            const proof: VerifiedCheckoutCallback = Object.freeze({
+              organizationId,
+              deliveryId: delivery.id,
+              rowVersion: delivery.rowVersion,
+              restoreGeneration: delivery.restoreGeneration,
+              endpointId: delivery.endpointId,
+              connectionId: delivery.connectionId,
+              signingSecretId: verdict.signingSecretId,
+              processor: facts.processor,
+              bodySha256,
+              requestDigest: delivery.requestDigest,
+              action: facts.action,
+              routeSha256: facts.route
+                ? checkoutRoute(facts.route.kind, facts.processor, facts.route.ref)
+                : null,
+              txnRef: facts.txnRef,
+              amountMinor: facts.amountMinor,
+              currency: facts.currency,
+              verifiedAtEpochMs: Date.now(),
+            });
+            checkoutProofs.add(proof);
+            const attestation = await deps.attestCheckoutCallback(proof);
+            if (
+              !/^[0-9a-f]{64}$/.test(attestation.token) ||
+              !(attestation.expiresAt instanceof Date) ||
+              attestation.expiresAt.getTime() <= Date.now()
+            )
+              throw new AppError('PREREQUISITES_INCOMPLETE');
+            checkoutVerificationToken = attestation.token;
+          }
+        }
         return {
           ok: true,
           providerEventId: verdict.providerEventId,
           effects,
           ...(paymentVerificationToken ? { paymentVerificationToken } : {}),
+          ...(checkoutVerificationToken ? { checkoutVerificationToken } : {}),
         };
       } catch (error) {
         if (error instanceof MalformedWebhook) return { ok: false, code: 'MALFORMED_PAYLOAD' };
@@ -367,7 +477,11 @@ export function createWebhookVerifier(deps: ConnectorActivityDeps): WebhookVerif
 /** On the connector queue, because this opens a signing secret and reads what a stranger sent. */
 export function createWebhookActivities(
   deps: ConnectorActivityDeps,
-  handlers: WebhookEffectHandlers = createWebhookEffectHandlers(undefined, deps.paymentWebhook),
+  handlers: WebhookEffectHandlers = createWebhookEffectHandlers(
+    undefined,
+    deps.paymentWebhook,
+    deps.checkoutWebhook,
+  ),
 ) {
   const verifier = createWebhookVerifier(deps);
   return {
@@ -392,6 +506,9 @@ export function createWebhookActivities(
           effects: verdict.effects,
           ...(verdict.paymentVerificationToken
             ? { paymentVerificationToken: verdict.paymentVerificationToken }
+            : {}),
+          ...(verdict.checkoutVerificationToken
+            ? { checkoutVerificationToken: verdict.checkoutVerificationToken }
             : {}),
         },
         handlers,

@@ -6,6 +6,11 @@ import { describe, it, expect } from 'vitest';
 import { canonicalJson } from './approval';
 import { assertPortableDefinitionIntegrity } from './portable-definition';
 import {
+  FEDERATION_PORTABILITY_INVENTORY,
+  FEDERATION_PORTABILITY_VERSION,
+  SKILL_METADATA_PORTABILITY_INVENTORY,
+  SKILL_METADATA_PORTABILITY_VERSION,
+  MARKETPLACE_HISTORY_PORTABILITY_INVENTORY,
   matchesPortabilityInventory,
   portableRecordByteLimit,
   PORTABILITY_INVENTORY,
@@ -137,7 +142,39 @@ function migratedTables(): Set<string> {
 }
 
 describe('the joined inventory names every migrated table', () => {
-  const named = new Set(PORTABILITY_INVENTORY.map((entry) => entry.table));
+  it('pins the federation exclusions without changing a legacy inventory', () => {
+    expect(
+      matchesPortabilityInventory(FEDERATION_PORTABILITY_INVENTORY, FEDERATION_PORTABILITY_VERSION),
+    ).toBe(true);
+    expect(matchesPortabilityInventory(PORTABILITY_INVENTORY, FEDERATION_PORTABILITY_VERSION)).toBe(
+      false,
+    );
+    expect(
+      matchesPortabilityInventory(FEDERATION_PORTABILITY_INVENTORY, PORTABILITY_INVENTORY_VERSION),
+    ).toBe(false);
+    const inbound = FEDERATION_PORTABILITY_INVENTORY.find(
+      (entry) => entry.table === 'federation.inbound_items',
+    );
+    expect(inbound?.disposition).toBe('private_excluded');
+    expect(portableRecordByteLimit(FEDERATION_PORTABILITY_VERSION)).toBe(
+      portableRecordByteLimit(PORTABILITY_INVENTORY_VERSION),
+    );
+  });
+  it('admits catalog records only in a separate frozen profile', () => {
+    expect(
+      matchesPortabilityInventory(
+        SKILL_METADATA_PORTABILITY_INVENTORY,
+        SKILL_METADATA_PORTABILITY_VERSION,
+      ),
+    ).toBe(true);
+    expect(
+      matchesPortabilityInventory(
+        SKILL_METADATA_PORTABILITY_INVENTORY,
+        FEDERATION_PORTABILITY_VERSION,
+      ),
+    ).toBe(false);
+  });
+  const named = new Set(MARKETPLACE_HISTORY_PORTABILITY_INVENTORY.map((entry) => entry.table));
   it('has a reviewed line for each table a migration creates, and none for a table that is gone', () => {
     const tables = migratedTables();
     expect(tables.size).toBeGreaterThan(200);

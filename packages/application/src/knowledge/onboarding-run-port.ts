@@ -1,31 +1,14 @@
 // AGENT-12: actual M4 metadata, without provider calls or private transcript privileges.
-import {
-  agentRuns,
-  artifactAclCatalog,
-  artifactLineage,
-  artifactWorkLinks,
-  clientOnboardings,
-  memberships,
-  usageLedger,
-} from '@ensemus/database';
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { agentRuns, clientOnboardings, memberships, usageLedger } from '@ensemus/database';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { requestOnboardingAgentRunInTx } from '../ai/run-control';
 import { AppError } from '../errors';
 import { idSchema } from '../ids';
 import { loadReadable } from '../work';
 import type { AgentRuns } from './ports';
+import { readOnboardingOutputs } from './onboarding-output';
 
-/** The SQL supplies up to two retained exact-run headers, not a filtered list of visible winners. */
-export function assessOnboardingOutputs(outputs: readonly { id: string; readable: boolean }[]): {
-  artifactState: 'none' | 'ready' | 'ambiguous' | 'unavailable';
-  artifactIds: readonly string[];
-} {
-  if (outputs.length > 1) return { artifactState: 'ambiguous', artifactIds: [] };
-  const only = outputs[0];
-  if (!only) return { artifactState: 'none', artifactIds: [] };
-  if (!only.readable) return { artifactState: 'unavailable', artifactIds: [] };
-  return { artifactState: 'ready', artifactIds: [only.id] };
-}
+export { assessOnboardingOutputs } from './onboarding-output';
 
 /** Each read remains in its supplied tenant transaction; no tenant-sensitive cache or fake default. */
 export function createOnboardingAgentRuns(): AgentRuns {
@@ -90,54 +73,12 @@ export function createOnboardingAgentRuns(): AgentRuns {
       const total = ledger ? Number(ledger.total) : NaN;
       const costMicros =
         ledger && ledger.measured > 0 && Number.isSafeInteger(total) && total >= 0 ? total : null;
-      const readable = and(
-        eq(artifactLineage.workUnitId, bound.run.workUnitId),
-        eq(artifactLineage.viewerMembershipId, bound.run.initiatorMembershipId),
-        eq(artifactLineage.state, 'bound'),
-        eq(artifactLineage.writeState, 'settled'),
-        eq(artifactLineage.inventoryComplete, true),
-        eq(artifactLineage.structuredInventoryComplete, true),
-        eq(artifactLineage.restoreReapplyPending, false),
-        isNull(artifactLineage.physicalPurgedAt),
-        eq(artifactAclCatalog.sha256, artifactLineage.artifactSha256),
-        eq(artifactAclCatalog.provenanceState, 'bound'),
-        eq(artifactAclCatalog.alive, true),
-        sql`exists(select 1 from ${artifactWorkLinks} where ${artifactWorkLinks.organizationId}=${artifactLineage.organizationId}
-          and ${artifactWorkLinks.artifactId}=${artifactLineage.artifactId} and ${artifactWorkLinks.workUnitId}=${bound.run.workUnitId}::uuid)`,
-        sql`knowledge.artifact_readable(${artifactLineage.artifactId},${context.membershipId}::uuid)`,
-      );
-      const outputs = await tx
-        .select({
-          id: artifactLineage.artifactId,
-          readable: sql<boolean>`coalesce(${readable},false)`,
-        })
-        .from(artifactLineage)
-        .leftJoin(
-          artifactAclCatalog,
-          and(
-            eq(artifactAclCatalog.organizationId, artifactLineage.organizationId),
-            eq(artifactAclCatalog.artifactId, artifactLineage.artifactId),
-          ),
-        )
-        .where(
-          and(
-            eq(artifactLineage.executionKind, 'agent_run'),
-            eq(artifactLineage.executionId, bound.run.id),
-            eq(artifactLineage.workUnitId, bound.run.workUnitId),
-            eq(artifactLineage.viewerMembershipId, bound.run.initiatorMembershipId),
-            // Mutable bound/blocked state cannot prove a header was never a published output.
-            // Until a final-output authority exists, even abandoned/blocked attempts retain ambiguity.
-          ),
-        )
-        // Two are enough to refuse ambiguity. Readability is a value, never a candidate WHERE filter.
-        .orderBy(asc(artifactLineage.artifactId))
-        .limit(2);
       return {
         status: bound.run.status,
         costMicros,
         workUnitId: bound.run.workUnitId,
         initiatorMembershipId: bound.run.initiatorMembershipId,
-        ...assessOnboardingOutputs(outputs),
+        ...(await readOnboardingOutputs(tx, bound.run)),
       };
     },
   };

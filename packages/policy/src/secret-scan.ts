@@ -55,14 +55,43 @@ const INVISIBLE = /[\u00AD\u200B-\u200D\u2060\uFEFF]/g;
 
 const normalise = (text: string) => text.normalize('NFKC').replace(INVISIBLE, '');
 
+/** Shorter encoded runs turn up in ordinary text by chance, and would say nothing about a canary. */
+const MIN_ENCODED_CANARY = 16;
+
+/**
+ * A canary as a model hands it back when an injected instruction says to encode it "so the filter will not
+ * see it": its bytes in hex, and in base64 or base64url from each of the three places it can start inside a
+ * longer encoded run. Only the characters its own bytes fix are kept, so it is found whatever surrounds it.
+ * Base64 is matched exactly, since the case of its letters carries bits; hex is matched folded.
+ */
+function encodedForms(canary: string): { folded: string[]; exact: string[] } {
+  const bytes = Buffer.from(canary, 'utf8');
+  const exact: string[] = [];
+  for (const offset of [0, 1, 2]) {
+    const encoded = Buffer.concat([Buffer.alloc(offset), bytes]).toString('base64');
+    const fixed = encoded.slice(
+      Math.ceil((8 * offset) / 6),
+      Math.floor((8 * (offset + bytes.length)) / 6),
+    );
+    if (fixed.length >= MIN_ENCODED_CANARY) {
+      exact.push(fixed, fixed.replaceAll('+', '-').replaceAll('/', '_'));
+    }
+  }
+  return { folded: [bytes.toString('hex')], exact };
+}
+
 export function scanForSecrets(
   parts: readonly ContentPart[],
   canaries: readonly string[] = [],
 ): ScanResult {
   // An empty canary would match every part, and tell us nothing about any of them.
-  const wanted = canaries
-    .filter((canary) => typeof canary === 'string' && canary.trim().length > 0)
-    .map((canary) => normalise(canary).toLowerCase());
+  const kept = canaries.filter((canary) => typeof canary === 'string' && canary.trim().length > 0);
+  const encoded = kept.map(encodedForms);
+  const wanted = [
+    ...kept.map((canary) => normalise(canary).toLowerCase()),
+    ...encoded.flatMap((forms) => forms.folded),
+  ];
+  const wantedExactly = encoded.flatMap((forms) => forms.exact);
 
   const hits: { partId: string; code: SecretCode }[] = [];
   for (const part of parts) {
@@ -76,7 +105,10 @@ export function scanForSecrets(
       if (patterns.some((pattern) => pattern.test(text))) hits.push({ partId: part.id, code });
     }
     const folded = text.toLowerCase();
-    if (wanted.some((canary) => folded.includes(canary))) {
+    if (
+      wanted.some((canary) => folded.includes(canary)) ||
+      wantedExactly.some((form) => text.includes(form))
+    ) {
       hits.push({ partId: part.id, code: 'TENANT_CANARY' });
     }
   }

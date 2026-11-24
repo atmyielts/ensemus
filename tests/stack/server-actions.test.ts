@@ -190,7 +190,8 @@ describe('Server Actions through real forms', () => {
     const html = await page.text();
     expect(page.status).toBe(200);
     expect(html).toContain(name);
-    expect(html).toMatch(/Hello, (<!-- -->)?Form/);
+    expect(html).toContain('My work');
+    expect(html).toMatch(/class="account-name"[^>]*>Form/);
   });
 
   it('rejects an empty organization name', async () => {

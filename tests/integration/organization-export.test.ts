@@ -5,16 +5,26 @@
 // Needs migrations 0300 and 0301 in the journal, which the final merge stitches. Until then this cannot pass, and
 // it has never run. Generated values only: `@example.invalid`, generated keys, and canaries made up here.
 import { createHash, generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join as joinPath } from 'node:path';
 import pg from 'pg';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Context } from '@temporalio/activity';
 import {
   acceptInvitation,
+  addTrustedSigner,
   addArtifact,
   addTeamMember,
+  approveMeetingProvider,
+  applyBusinessRecordPage,
   beginExport,
+  cancelSandboxRun,
   SOURCE_PORTABILITY_SECTIONS,
   createClient,
   createInvitation,
+  createMeeting,
+  createPublisher,
   createProject,
   createTeam,
   createWorkUnit,
@@ -24,27 +34,58 @@ import {
   failExport,
   finishExport,
   getOrganizationExport,
+  getMeetingSettings,
+  getPublisher,
+  getWorkUnit,
+  inspectOrganizationArchive,
   listOrganizationExports,
+  listImportedDefinitions,
+  listResidencyRequirements,
+  listMeetings,
+  listMeetingProviderApprovals,
   openExportArchive,
+  proposeRecordUpdate,
+  purgeAbandonedSkillUpload,
   purgeExpiredExports,
+  recordMeetingConsent,
+  requestMeetingNotesImport,
   requestOrganizationExport,
+  requestOrganizationImport,
+  requestSandboxRun,
+  runOrganizationImport,
+  setResidencyRequirement,
   requestWorkReview,
+  revokeMeetingProvider,
   transitionWorkUnit,
+  updateMeetingSettings,
+  uploadSkillBundle,
   type ExportDeps,
   type ExportStep,
   type ObjectStore,
   type PortabilitySection,
 } from '@ensemus/application';
-import { exportManifestSchema, type ExportManifest } from '@ensemus/contracts/portability-records';
+import { createSandboxWorkerControl } from '@ensemus/application/sandbox-worker-control';
+import {
+  exportManifestSchema,
+  validatePortableRecord,
+  type ExportManifest,
+} from '@ensemus/contracts/portability-records';
 import {
   connections,
+  businessRecords,
   createOrganization,
   domainEvents,
+  externalResourceAcl,
+  externalResources,
+  interactiveSessionOf,
   notifications,
   openAppDatabase,
   organizationExportParts,
   organizationExports,
+  sandboxRuns,
   sealedSecrets,
+  skillBundleUploads,
+  skillVersions,
   webhookEndpoints,
   withTenantTx,
   workArtifacts,
@@ -53,21 +94,51 @@ import {
   type TenantContext,
 } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
+import { canonicalJson } from '@ensemus/domain/approval';
+import { storeSecret } from '@ensemus/secrets/seal';
 import {
   artifactPartPath,
+  BUSINESS_RECORD_PORTABILITY_INVENTORY,
+  BUSINESS_RECORD_PORTABILITY_VERSION,
   EXPORT_MANIFEST_PATH,
   EXPORT_OBJECT_PREFIX,
+  FEDERATION_PORTABILITY_INVENTORY,
+  FEDERATION_PORTABILITY_VERSION,
+  MARKETPLACE_PUBLISHER_PORTABILITY_INVENTORY,
+  MARKETPLACE_PUBLISHER_PORTABILITY_VERSION,
+  MEETING_CONFIGURATION_PORTABILITY_INVENTORY,
+  MEETING_CONFIGURATION_PORTABILITY_VERSION,
+  MEETING_HISTORY_PORTABILITY_INVENTORY,
+  MEETING_HISTORY_PORTABILITY_VERSION,
+  SANDBOX_HISTORY_PORTABILITY_INVENTORY,
+  SANDBOX_HISTORY_PORTABILITY_VERSION,
+  SKILL_BUNDLE_PORTABILITY_INVENTORY,
+  SKILL_BUNDLE_PORTABILITY_VERSION,
+  SKILL_METADATA_PORTABILITY_INVENTORY,
+  SKILL_METADATA_PORTABILITY_VERSION,
+  RESIDENCY_PORTABILITY_INVENTORY,
+  RESIDENCY_PORTABILITY_VERSION,
+  SKILL_UPLOAD_CLEANUP_PORTABILITY_INVENTORY,
+  SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION,
   isArchivePath,
+  skillBundlePartPath,
+  type ExportSection,
 } from '@ensemus/domain/portability';
+import { SANDBOX_DEFAULT_CEILINGS } from '@ensemus/domain/sandbox';
+import { skillBundleObjectKey } from '@ensemus/domain/skill';
 import {
   exportTargetRef,
   ORGANIZATION_EXPORT_READY,
   ORGANIZATION_EXPORT_REQUESTED,
 } from '@ensemus/domain/sovereign-events';
+import { createScriptedRunner } from '@ensemus/sandbox/testing';
+import { buildTestBundle, generateTestKey } from '@ensemus/skills/testing';
 import { open } from '@ensemus/sovereign/sealed';
 import { readTarEntries } from '@ensemus/sovereign/tar';
 import { createPortabilityActivities } from '@ensemus/workflows/portability-activities';
-import { and, eq } from 'drizzle-orm';
+import { createSandboxRunActivities } from '@ensemus/workflows/sandbox-run-activities';
+import { createSkillVerificationActivities } from '@ensemus/workflows/skill-verification-activities';
+import { and, eq, sql } from 'drizzle-orm';
 import {
   seedExportRow,
   sha256Hex,
@@ -75,8 +146,25 @@ import {
   nativeSovereignContext,
 } from '../helpers/sovereign';
 import { inFixtureTenant } from '../helpers/fixture-tenant';
+import {
+  recordConsent,
+  seedMeeting,
+  seedMeetingSuggestions,
+  TEST_NOTICE,
+  TEST_TERMS,
+} from '../helpers/expansion';
+import {
+  clearDeploymentProfile,
+  enableFederation,
+  seedGrant,
+  setDeploymentProfile,
+} from '../helpers/federation';
 import { seedConnection, seedExternalAction } from '../helpers/integrations';
-import { urls } from '../helpers/stack';
+import { proveSecondFactor } from '../helpers/product';
+import { seedPackage, seedSigner } from '../helpers/skills';
+import { secret, urls } from '../helpers/stack';
+import { archiveReader, buildTar, sealManifest, sealPart } from './fixtures/archive-builder';
+import { openArchive } from '../../workers/workflow/src/tools/open-archive';
 
 /** A store in memory, which remembers what was asked of it and can be told to fail. */
 class MemoryStore implements ObjectStore {
@@ -92,10 +180,15 @@ class MemoryStore implements ObjectStore {
     this.puts.push(key);
     this.objects.set(key, body);
   }
-  async get(key: string) {
+  async putSingleAttempt(key: string, body: Buffer) {
+    await this.put(key, body);
+    return { transport: 'written' } as const;
+  }
+  async get(key: string, maxBytes?: number) {
     this.gets.push(key);
     const body = this.objects.get(key);
     if (!body) throw new Error('missing');
+    if (maxBytes !== undefined && body.length > maxBytes) throw new Error('OBJECT_TOO_LARGE');
     return body;
   }
   async delete(key: string) {
@@ -113,6 +206,9 @@ class MemoryStore implements ObjectStore {
   async isPhysicallyAbsent(key: string) {
     return !this.objects.has(key);
   }
+  async *listPages(prefix: string) {
+    yield [...this.objects.keys()].filter((key) => key.startsWith(prefix));
+  }
   exportKeys() {
     return [...this.objects.keys()].filter((key) => key.startsWith(EXPORT_OBJECT_PREFIX));
   }
@@ -125,13 +221,15 @@ const deps: ExportDeps = {
   retentionHours: 24,
 };
 
-type Opened = { manifest: ExportManifest; parts: Map<string, Buffer>; text: string };
+type Opened = { manifest: ExportManifest; parts: Map<string, Buffer>; text: string; bytes: Buffer };
 
 describe('organization export', () => {
   let app: ReturnType<typeof openAppDatabase>;
+  let serviceDatabase: ReturnType<typeof openAppDatabase>;
   let auth: pg.Client;
   let su: pg.Client;
   const db = () => app.db;
+  const workerDb = () => serviceDatabase.db;
   const recipient = testRecipient();
 
   async function makeUser(label: string) {
@@ -190,15 +288,15 @@ describe('organization export', () => {
     untilBatchesDone?: () => Promise<void>,
   ): Promise<ExportStep> {
     const service = worker(context);
-    let step = await beginExport(db(), service, { exportId }, using);
+    let step = await beginExport(workerDb(), service, { exportId }, using);
     while (step.state === 'continue') {
-      step = await exportNextBatch(db(), store, service, { exportId }, using);
+      step = await exportNextBatch(workerDb(), store, service, { exportId }, using);
     }
     if (step.state === 'failed') return step;
     await untilBatchesDone?.();
-    step = await finishExport(db(), store, service, { exportId }, using);
+    step = await finishExport(workerDb(), store, service, { exportId }, using);
     while (step.state === 'continue') {
-      step = await finishExport(db(), store, service, { exportId }, using);
+      step = await finishExport(workerDb(), store, service, { exportId }, using);
     }
     return step;
   }
@@ -245,8 +343,1203 @@ describe('organization export', () => {
       parts.set(path, plain);
     }
     const text = [...parts.values()].map((part) => part.toString('latin1')).join('\n');
-    return { manifest, parts, text: `${text}\n${tar.toString('latin1')}` };
+    return { manifest, parts, text: `${text}\n${tar.toString('latin1')}`, bytes: tar };
   }
+
+  it('exports and imports ordinary records with the federation exclusions explicitly pinned', async () => {
+    const source = await newOrg();
+    const peer = await newOrg();
+    const target = await newOrg();
+    const store = new MemoryStore();
+    await setDeploymentProfile({ crossOrgEnabled: true });
+    try {
+      await enableFederation(db(), source);
+      await enableFederation(db(), peer);
+      const grant = await seedGrant(db(), source, peer);
+      const title = 'Generated work retained after a federation archive';
+      const work = await createWorkUnit(db(), source, {
+        title,
+        objective: 'Verify that a workspace keeps its own work across deployments.',
+        classification: 'internal',
+      });
+
+      const exportId = await request(source);
+      expect(await drive(source, store, exportId)).toMatchObject({ state: 'finished' });
+      const opened = await downloadAndOpen(source, store, exportId);
+      expect(opened.manifest).toMatchObject({
+        schema_version: 2,
+        inventory_version: FEDERATION_PORTABILITY_VERSION,
+        inventory: FEDERATION_PORTABILITY_INVENTORY,
+      });
+      expect(recordsOf(opened, 'work_unit')).toContainEqual(
+        expect.objectContaining({ id: work.id, title }),
+      );
+      expect(opened.text).not.toContain(grant.id);
+      expect(opened.text).not.toContain(grant.termsHash);
+      expect(opened.text).not.toContain(peer.organizationId);
+
+      const targetStore = new MemoryStore();
+      const bound = await requestOrganizationImport(db(), target);
+      const result = await runOrganizationImport(
+        workerDb(),
+        worker(target),
+        {
+          importId: bound.id,
+          archive: archiveReader(opened.bytes),
+          recipientPrivateKeyPem: recipient.privateKeyPem,
+        },
+        { sections: SOURCE_PORTABILITY_SECTIONS, ledger: targetStore, store: targetStore },
+      );
+      expect(result.status).toMatch(/^completed(?:_with_warnings)?$/);
+      expect(result.appliedCounts.work_unit).toBe(1);
+      expect(await getWorkUnit(db(), target, work.id)).toMatchObject({ title });
+      expect(
+        (
+          await su.query('select 1 from federation.org_settings where organization_id=$1', [
+            target.organizationId,
+          ])
+        ).rowCount,
+      ).toBe(0);
+
+      // Federation writer epochs remain active after the module's own rows leave the archive.
+      await seedSigner(db(), source);
+      await expect(openExportArchive(db(), store, source, exportId)).rejects.toMatchObject({
+        code: 'EXPORT_SUPERSEDED',
+      });
+      const next = await request(source);
+      expect(await drive(source, store, next)).toMatchObject({ state: 'finished' });
+      expect((await downloadAndOpen(source, store, next)).manifest).toMatchObject({
+        inventory_version: SKILL_METADATA_PORTABILITY_VERSION,
+      });
+    } finally {
+      await clearDeploymentProfile();
+    }
+  });
+
+  it('carries catalog metadata as review records and leaves live package and key authority behind', async () => {
+    const source = await newOrg(),
+      target = await newOrg(),
+      unrelated = await newOrg();
+    const pkg = await seedPackage(db(), source);
+    const { signer, id: signerId } = await seedSigner(db(), source);
+    const privateCatalog = await seedPackage(db(), unrelated);
+    const store = new MemoryStore();
+    const exportId = await request(source);
+    expect(await drive(source, store, exportId)).toMatchObject({ state: 'finished' });
+    const opened = await downloadAndOpen(source, store, exportId);
+    expect(opened.manifest).toMatchObject({
+      inventory_version: SKILL_METADATA_PORTABILITY_VERSION,
+      inventory: SKILL_METADATA_PORTABILITY_INVENTORY,
+    });
+    expect(recordsOf(opened, 'skill_package_metadata')).toMatchObject([
+      { id: pkg.id, name: pkg.name, state: 'active' },
+    ]);
+    expect(recordsOf(opened, 'skill_signer_metadata')).toMatchObject([
+      { id: signerId, key_id: signer.keyId, public_key_hex: signer.publicKey.toString('hex') },
+    ]);
+    expect(opened.text).not.toContain(privateCatalog.name);
+    expect(opened.text).not.toContain('PRIVATE KEY');
+
+    const targetStore = new MemoryStore();
+    const bound = await requestOrganizationImport(db(), target);
+    const result = await runOrganizationImport(
+      workerDb(),
+      worker(target),
+      {
+        importId: bound.id,
+        archive: archiveReader(opened.bytes),
+        recipientPrivateKeyPem: recipient.privateKeyPem,
+      },
+      { sections: SOURCE_PORTABILITY_SECTIONS, ledger: targetStore, store: targetStore },
+    );
+    expect(result.status).toBe('completed_with_warnings');
+    expect(result.appliedCounts).toMatchObject({
+      skill_package_metadata: 1,
+      skill_signer_metadata: 1,
+    });
+    const quarantine = await su.query(
+      "select record_kind from sovereign.imported_definitions where organization_id=$1 and section='skills' order by record_kind",
+      [target.organizationId],
+    );
+    expect(quarantine.rows.map(({ record_kind }) => record_kind)).toEqual([
+      'skill_package_metadata',
+      'skill_signer_metadata',
+    ]);
+    const live = await su.query(
+      'select (select count(*)::int from skills.packages where organization_id=$1) as packages, ' +
+        '(select count(*)::int from skills.trusted_signers where organization_id=$1) as trust',
+      [target.organizationId],
+    );
+    expect(live.rows[0]).toEqual({ packages: 0, trust: 0 });
+
+    await seedPackage(db(), source, { contentClassification: 'restricted' });
+    const refused = await request(source);
+    expect(await beginExport(workerDb(), worker(source), { exportId: refused }, deps)).toEqual({
+      state: 'failed',
+      code: 'RECORD_REFUSED',
+    });
+  });
+
+  it('carries purged meeting receipts only to the importing owner', async () => {
+    const source = await newOrg();
+    if (source.actorType !== 'user') throw new Error('Expected a source owner');
+    const target = await newOrg();
+    const room = await seedMeetingSuggestions(db(), source);
+    const withdraw = (meeting: Awaited<ReturnType<typeof seedMeeting>>) =>
+      recordMeetingConsent(db(), source, {
+        meetingId: meeting.id,
+        participantId: meeting.organizerParticipantId,
+        decision: 'withdrawn',
+        noticeRef: TEST_NOTICE,
+      });
+    await withdraw(room);
+
+    const credential = 'generated-provider-credential';
+    const sealed = await storeSecret(db(), source, {
+      publicKeyPem: secret('sealing_public_key.pem'),
+      purpose: 'connector_credential',
+      plaintext: credential,
+    });
+    const connectionId = await seedConnection(db(), source, {
+      connectorType: 'meeting_notes_http',
+      credentialSecretId: sealed.secretRef,
+    });
+    const resourceId = randomUUID();
+    const externalId = `private-provider-reference/${resourceId}`;
+    await withTenantTx(db(), source, async (tx) => {
+      await tx.insert(externalResources).values({
+        organizationId: source.organizationId,
+        id: resourceId,
+        connectionId,
+        externalId,
+        stream: 'meetings.notes',
+        resourceType: 'meetings.notes',
+        classification: 'confidential',
+        aclState: 'mapped',
+      });
+      await tx.insert(externalResourceAcl).values({
+        organizationId: source.organizationId,
+        resourceId,
+        principalKind: 'user',
+        principalExternalId: 'generated-user',
+        access: 'read',
+        membershipId: source.membershipId,
+      });
+    });
+    const connectorRoom = await seedMeeting(db(), source, {
+      sourceKind: 'connector',
+      connectionId,
+      sourceResourceId: resourceId,
+    });
+    await recordConsent(db(), source, {
+      meetingId: connectorRoom.id,
+      participantId: connectorRoom.organizerParticipantId,
+    });
+    const provider = await approveMeetingProvider(db(), source, {
+      kind: 'source',
+      connectionId,
+      maxClassification: 'confidential',
+      termsRef: TEST_TERMS,
+      expiresAt: new Date(Date.now() + 3_600_000),
+    });
+    const pending = await requestMeetingNotesImport(db(), source, {
+      meetingId: connectorRoom.id,
+      providerApprovalId: provider.id,
+    });
+    await withdraw(connectorRoom);
+
+    const store = new MemoryStore();
+    const exportId = await request(source);
+    expect(await drive(source, store, exportId)).toMatchObject({ state: 'finished' });
+    const opened = await downloadAndOpen(source, store, exportId);
+    expect(opened.manifest).toMatchObject({
+      inventory_version: MEETING_HISTORY_PORTABILITY_VERSION,
+      inventory: MEETING_HISTORY_PORTABILITY_INVENTORY,
+    });
+    const receipts = recordsOf(opened, 'meeting_purge_history');
+    expect(receipts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: room.id, purged_at: expect.any(String) }),
+        expect.objectContaining({ id: connectorRoom.id, purged_at: expect.any(String) }),
+      ]),
+    );
+    expect(recordsOf(opened, 'meeting_consent_history')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ meeting_id: room.id, decision: 'granted', position: '1' }),
+        expect.objectContaining({ meeting_id: room.id, decision: 'withdrawn', position: '2' }),
+      ]),
+    );
+    expect(recordsOf(opened, 'meeting_import_history')).toMatchObject([
+      { id: pending.id, meeting_id: connectorRoom.id, status: 'refused' },
+    ]);
+    for (const value of [
+      'Generated notes only.',
+      room.summaryText,
+      'Send the plan',
+      externalId,
+      credential,
+    ]) {
+      expect(opened.text).not.toContain(value);
+    }
+    expect(() =>
+      validatePortableRecord('policy', receipts[0], MEETING_CONFIGURATION_PORTABILITY_VERSION),
+    ).toThrow('RECORD_REFUSED');
+
+    const bound = await requestOrganizationImport(db(), target);
+    const targetStore = new MemoryStore();
+    const result = await runOrganizationImport(
+      workerDb(),
+      worker(target),
+      {
+        importId: bound.id,
+        archive: archiveReader(opened.bytes),
+        recipientPrivateKeyPem: recipient.privateKeyPem,
+      },
+      { sections: SOURCE_PORTABILITY_SECTIONS, ledger: targetStore, store: targetStore },
+    );
+    expect(result.status).toBe('completed_with_warnings');
+    expect(result.appliedCounts).toMatchObject({
+      meeting_purge_history: 2,
+      meeting_participant_history: 2,
+      meeting_consent_history: 4,
+      meeting_note_purge_history: 1,
+      meeting_summary_purge_history: 1,
+      meeting_proposal_history: 3,
+      meeting_derivation_history: 2,
+      meeting_import_history: 1,
+    });
+    const expectedReceipt = expect.objectContaining({ section: 'policy', record: receipts[0] });
+    expect(await listImportedDefinitions(db(), target)).toContainEqual(expectedReceipt);
+    const reviewingAdmin = await join(target, 'review-admin', 'admin');
+    expect(await listImportedDefinitions(db(), reviewingAdmin)).not.toContainEqual(expectedReceipt);
+    expect((await listMeetings(db(), target, {})).items).toEqual([]);
+  });
+
+  it('carries readable business record references and preserves proposed-action links as review', async () => {
+    const source = await newOrg();
+    const target = await newOrg();
+    const approver = await join(source, 'business-reviewer', 'admin');
+    const connector = openAppDatabase(urls.connector());
+    const stream = 'crm.accounts';
+    const externalId = `generated-source-${randomUUID()}`;
+    const fields = { name: `private cached account ${randomUUID()}`, status: 'open' };
+    const digest = sha256Hex(Buffer.from(canonicalJson(fields)));
+    const connectionId = await seedConnection(db(), source, {
+      connectorType: 'crm_http',
+      config: { streams: [stream], scopes: ['crm_http.read', 'crm_http.write'] },
+      grantedScopes: ['crm_http.read', 'crm_http.write'],
+    });
+    const store = new MemoryStore();
+    try {
+      const service = createServiceContext(source.organizationId);
+      await applyBusinessRecordPage(connector.db, service, {
+        connectionId,
+        connectorType: 'crm_http',
+        stream,
+        records: [
+          {
+            externalId,
+            externalVersion: 'source-v1',
+            displayName: fields.name,
+            fields,
+            fieldsSha256: digest,
+            classification: 'internal',
+          },
+        ],
+        deletedExternalIds: [],
+      });
+      const resourceId = randomUUID();
+      await withTenantTx(connector.db, service, async (tx) => {
+        await tx.insert(externalResources).values({
+          organizationId: source.organizationId,
+          id: resourceId,
+          connectionId,
+          stream,
+          resourceType: stream,
+          externalId,
+          externalVersion: 'source-v1',
+          contentSha256: digest,
+          classification: 'internal',
+          aclState: 'mapped',
+        });
+        await tx.insert(externalResourceAcl).values({
+          organizationId: source.organizationId,
+          resourceId,
+          membershipId: approver.membershipId,
+          principalKind: 'user',
+          principalExternalId: 'source-reviewer',
+          access: 'read',
+        });
+      });
+      const refused = await request(source);
+      expect(await drive(source, store, refused)).toEqual({
+        state: 'failed',
+        code: 'RECORD_REFUSED',
+      });
+      expect(store.exportKeys()).toEqual([]);
+
+      await withTenantTx(connector.db, service, (tx) =>
+        tx.insert(externalResourceAcl).values({
+          organizationId: source.organizationId,
+          resourceId,
+          membershipId: source.membershipId,
+          principalKind: 'user',
+          principalExternalId: 'source-owner',
+          access: 'read',
+        }),
+      );
+      const [record] = await withTenantTx(db(), source, (tx) =>
+        tx
+          .select({ id: businessRecords.id })
+          .from(businessRecords)
+          .where(eq(businessRecords.connectionId, connectionId)),
+      );
+      expect(record).toBeDefined();
+      const work = await createWorkUnit(db(), source, {
+        title: 'Review generated business change',
+        classification: 'internal',
+      });
+      const proposal = await proposeRecordUpdate(db(), source, {
+        recordId: record!.id,
+        workUnitId: work.id,
+        expectedVersion: 'source-v1',
+        changes: { status: 'qualified' },
+        approverMembershipId: approver.membershipId,
+      });
+      const exportId = await request(source);
+      expect(await drive(source, store, exportId)).toMatchObject({ state: 'finished' });
+      const opened = await downloadAndOpen(source, store, exportId);
+      expect(opened.manifest).toMatchObject({
+        inventory_version: BUSINESS_RECORD_PORTABILITY_VERSION,
+        inventory: BUSINESS_RECORD_PORTABILITY_INVENTORY,
+      });
+      const records = recordsOf(opened, 'business_record_reference');
+      expect(records).toMatchObject([
+        { id: record!.id, connection_id: connectionId, resource_id: resourceId, stream },
+      ]);
+      expect(recordsOf(opened, 'business_record_action_reference')).toMatchObject([
+        { id: proposal.externalActionId, business_record_id: record!.id },
+      ]);
+      expect(opened.text).not.toContain(fields.name);
+      expect(opened.text).not.toContain(digest);
+      expect(() =>
+        validatePortableRecord('connections', records[0], MEETING_HISTORY_PORTABILITY_VERSION),
+      ).toThrow('RECORD_REFUSED');
+
+      const targetStore = new MemoryStore();
+      const bound = await requestOrganizationImport(db(), target);
+      const imported = await runOrganizationImport(
+        workerDb(),
+        worker(target),
+        {
+          importId: bound.id,
+          archive: archiveReader(opened.bytes),
+          recipientPrivateKeyPem: recipient.privateKeyPem,
+        },
+        { sections: SOURCE_PORTABILITY_SECTIONS, ledger: targetStore, store: targetStore },
+      );
+      expect(imported.appliedCounts).toMatchObject({
+        business_record_reference: 1,
+        business_record_action_reference: 1,
+      });
+      const receipt = expect.objectContaining({ section: 'connections', record: records[0] });
+      expect(await listImportedDefinitions(db(), target)).toContainEqual(receipt);
+      const targetAdmin = await join(target, 'business-import-reviewer', 'admin');
+      expect(await listImportedDefinitions(db(), targetAdmin)).not.toContainEqual(receipt);
+      expect(
+        (
+          await su.query('select id from integrations.business_records where organization_id=$1', [
+            target.organizationId,
+          ])
+        ).rows,
+      ).toEqual([]);
+
+      await withTenantTx(connector.db, service, (tx) =>
+        tx
+          .delete(externalResourceAcl)
+          .where(
+            and(
+              eq(externalResourceAcl.resourceId, resourceId),
+              eq(externalResourceAcl.membershipId, source.membershipId),
+            ),
+          ),
+      );
+      await expect(openExportArchive(db(), store, source, exportId)).rejects.toMatchObject({
+        code: 'EXPORT_SUPERSEDED',
+      });
+    } finally {
+      await connector.close();
+    }
+  });
+
+  it('refuses purged meeting history where the exporting owner was not a participant', async () => {
+    const source = await newOrg();
+    await updateMeetingSettings(db(), source, {
+      enabled: true,
+      noticeRef: TEST_NOTICE,
+      expectedVersion: 1,
+    });
+    const organizer = await join(source, 'organizer', 'member');
+    const room = await seedMeeting(db(), organizer);
+    await recordConsent(db(), organizer, {
+      meetingId: room.id,
+      participantId: room.organizerParticipantId,
+    });
+    await recordMeetingConsent(db(), organizer, {
+      meetingId: room.id,
+      participantId: room.organizerParticipantId,
+      decision: 'withdrawn',
+      noticeRef: TEST_NOTICE,
+    });
+    const exportId = await request(source);
+    expect(await drive(source, new MemoryStore(), exportId)).toEqual({
+      state: 'failed',
+      code: 'RECORD_REFUSED',
+    });
+  });
+
+  it('carries only the source publisher profile and imports it without publisher authority', async () => {
+    const source = await newOrg();
+    const unrelated = await newOrg();
+    const target = await newOrg();
+    const feature = { isEnabled: async () => true };
+    const displayName = `Release publisher ${randomUUID()}`;
+    const privateName = `Unrelated publisher ${randomUUID()}`;
+    const store = new MemoryStore();
+    const priorExport = await request(source);
+    expect(await drive(source, store, priorExport)).toMatchObject({ state: 'finished' });
+
+    const publisher = await createPublisher(db(), source, feature, { displayName });
+    await createPublisher(db(), unrelated, feature, { displayName: privateName });
+    await expect(openExportArchive(db(), store, source, priorExport)).rejects.toMatchObject({
+      code: 'EXPORT_SUPERSEDED',
+    });
+
+    const exportId = await request(source);
+    expect(await drive(source, store, exportId)).toMatchObject({ state: 'finished' });
+    const opened = await downloadAndOpen(source, store, exportId);
+    expect(opened.manifest).toMatchObject({
+      inventory_version: MARKETPLACE_PUBLISHER_PORTABILITY_VERSION,
+      inventory: MARKETPLACE_PUBLISHER_PORTABILITY_INVENTORY,
+    });
+    const records = recordsOf(opened, 'marketplace_publisher_history');
+    expect(records).toMatchObject([
+      { id: publisher.id, display_name: displayName, state: 'active', version: '1' },
+    ]);
+    expect(opened.text).not.toContain(privateName);
+    expect(() =>
+      validatePortableRecord('skills', records[0], SKILL_METADATA_PORTABILITY_VERSION),
+    ).toThrow('RECORD_REFUSED');
+    expect(() =>
+      validatePortableRecord(
+        'skills',
+        { ...records[0], reviewer_key_id: randomUUID() },
+        MARKETPLACE_PUBLISHER_PORTABILITY_VERSION,
+      ),
+    ).toThrow();
+
+    const targetStore = new MemoryStore();
+    const bound = await requestOrganizationImport(db(), target);
+    const result = await runOrganizationImport(
+      workerDb(),
+      worker(target),
+      {
+        importId: bound.id,
+        archive: archiveReader(opened.bytes),
+        recipientPrivateKeyPem: recipient.privateKeyPem,
+      },
+      { sections: SOURCE_PORTABILITY_SECTIONS, ledger: targetStore, store: targetStore },
+    );
+    expect(result.status).toBe('completed_with_warnings');
+    expect(result.appliedCounts.marketplace_publisher_history).toBe(1);
+    expect(await getPublisher(db(), target)).toBeNull();
+    expect(await listImportedDefinitions(db(), target)).toContainEqual({
+      section: 'skills',
+      record_kind: 'marketplace_publisher_history',
+      source_id: publisher.id,
+      record: records[0],
+    });
+  });
+
+  it('archives abandoned skill uploads only after physical deletion is proven', async () => {
+    const source = await newOrg();
+    const target = await newOrg();
+    const pkg = await seedPackage(db(), source);
+    const uploadStore = new MemoryStore();
+    const canary = Buffer.from(`abandoned-skill-${randomUUID()}`);
+    let enabled = true;
+    let reportsAbsence = true;
+    const store: ObjectStore = {
+      put: uploadStore.put.bind(uploadStore),
+      get: uploadStore.get.bind(uploadStore),
+      delete: uploadStore.delete.bind(uploadStore),
+      exists: uploadStore.exists.bind(uploadStore),
+      deleteForPurge: uploadStore.deleteForPurge.bind(uploadStore),
+      isPhysicallyAbsent: async (key) => reportsAbsence && uploadStore.isPhysicallyAbsent(key),
+      assertPurgeCapability: async () => {},
+      async putSingleAttempt(key, bytes) {
+        await uploadStore.put(key, bytes);
+        enabled = false;
+        return { transport: 'written' };
+      },
+    };
+    await expect(
+      uploadSkillBundle(
+        db(),
+        store,
+        source,
+        { isEnabled: async () => enabled },
+        {
+          packageId: pkg.id,
+          bytes: canary,
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'FEATURE_NOT_ENABLED' });
+    const [upload] = await withTenantTx(db(), source, (tx) =>
+      tx.select().from(skillBundleUploads).where(eq(skillBundleUploads.packageId, pkg.id)),
+    );
+    if (!upload) throw new Error('MISSING_SKILL_UPLOAD_FIXTURE');
+    const [objectKey] = uploadStore.puts;
+    if (!objectKey) throw new Error('MISSING_SKILL_OBJECT_FIXTURE');
+
+    // Age this generated reservation so the production cleanup worker can admit it.
+    await su.query('begin');
+    try {
+      await su.query("set local session_replication_role='replica'");
+      const aged = await su.query(
+        `update skills.bundle_uploads set put_finished_at=clock_timestamp()-interval '2 hours'
+         where organization_id=$1 and id=$2`,
+        [source.organizationId, upload.id],
+      );
+      expect(aged.rowCount).toBe(1);
+      await su.query('commit');
+    } catch (error) {
+      await su.query('rollback');
+      throw error;
+    }
+    const archiveStore = new MemoryStore();
+    const sweep = () => purgeAbandonedSkillUpload(workerDb(), store, worker(source));
+    const exportSource = async () => drive(source, archiveStore, await request(source));
+    await expect(exportSource()).resolves.toEqual({ state: 'failed', code: 'RECORD_REFUSED' });
+    reportsAbsence = false;
+    await expect(sweep()).resolves.toEqual({ state: 'unconfirmed' });
+    expect(uploadStore.objects.has(objectKey)).toBe(false);
+    await expect(exportSource()).resolves.toEqual({ state: 'failed', code: 'RECORD_REFUSED' });
+
+    reportsAbsence = true;
+    await expect(sweep()).resolves.toEqual({ state: 'purged', quiescent: true });
+    const exportId = await request(source);
+    expect(await drive(source, archiveStore, exportId)).toMatchObject({ state: 'finished' });
+    const opened = await downloadAndOpen(source, archiveStore, exportId);
+    expect(opened.manifest).toMatchObject({
+      inventory_version: SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION,
+      inventory: SKILL_UPLOAD_CLEANUP_PORTABILITY_INVENTORY,
+    });
+    const records = recordsOf(opened, 'skill_upload_cleanup_history');
+    expect(records).toEqual([
+      {
+        kind: 'skill_upload_cleanup_history',
+        id: upload.id,
+        package_id: pkg.id,
+        membership_id: source.membershipId,
+        created_at: expect.any(String),
+        absent_at: expect.any(String),
+      },
+    ]);
+    expect(opened.text).not.toContain(canary.toString());
+    expect(opened.text).not.toContain(sha256Hex(canary));
+    expect(opened.text).not.toContain(objectKey);
+    expect(() =>
+      validatePortableRecord('skills', records[0], BUSINESS_RECORD_PORTABILITY_VERSION),
+    ).toThrow('RECORD_REFUSED');
+    await expect(
+      withTenantTx(db(), source, (tx) =>
+        tx.execute(sql`select * from sovereign.portable_skill_upload_cleanup_page(null,1)`),
+      ),
+    ).rejects.toMatchObject({ cause: { code: '42501' } });
+
+    const targetStore = new MemoryStore();
+    const bound = await requestOrganizationImport(db(), target);
+    const result = await runOrganizationImport(
+      workerDb(),
+      worker(target),
+      {
+        importId: bound.id,
+        archive: archiveReader(opened.bytes),
+        recipientPrivateKeyPem: recipient.privateKeyPem,
+      },
+      { sections: SOURCE_PORTABILITY_SECTIONS, ledger: targetStore, store: targetStore },
+    );
+    expect(result.status).toBe('completed_with_warnings');
+    expect(result.appliedCounts.skill_upload_cleanup_history).toBe(1);
+    const receipt = {
+      section: 'skills',
+      record_kind: 'skill_upload_cleanup_history',
+      source_id: upload.id,
+      record: records[0],
+    };
+    expect(await listImportedDefinitions(db(), target)).toContainEqual(receipt);
+    const targetAdmin = await join(target, 'cleanup-admin', 'admin');
+    expect(await listImportedDefinitions(db(), targetAdmin)).not.toContainEqual(receipt);
+    expect(await withTenantTx(db(), target, (tx) => tx.select().from(skillBundleUploads))).toEqual(
+      [],
+    );
+  });
+
+  it('archives residency rules only when export storage matches the source requirements', async () => {
+    const source = await newOrg();
+    const target = await newOrg();
+    const identity = interactiveSessionOf(source);
+    if (!identity) throw new Error('MISSING_RESIDENCY_TEST_SESSION');
+    const region = 'test-region-a';
+    const archiveStore = new MemoryStore();
+    const scopedDeps: ExportDeps = {
+      ...deps,
+      residencyPolicy: {
+        homeRegion: region,
+        surfaces: { storage: { regions: [region], evidenceRef: 'generated storage declaration' } },
+      },
+    };
+    await setDeploymentProfile({ homeRegion: region });
+    try {
+      await proveSecondFactor(identity);
+      await setResidencyRequirement(db(), source, { scope: 'all', region, expectedVersion: 0 });
+      await setResidencyRequirement(db(), source, {
+        scope: 'confidential',
+        region,
+        expectedVersion: 0,
+      });
+      const refused = { state: 'failed', code: 'RECORD_REFUSED' };
+      await expect(drive(source, archiveStore, await request(source))).resolves.toEqual(refused);
+      await expect(
+        drive(source, archiveStore, await request(source), {
+          ...deps,
+          residencyPolicy: {
+            homeRegion: region,
+            surfaces: { storage: { regions: [region, 'test-region-b'], evidenceRef: 'generated' } },
+          },
+        }),
+      ).resolves.toEqual(refused);
+      const changedWorker = await request(source);
+      await expect(
+        beginExport(workerDb(), worker(source), { exportId: changedWorker }, scopedDeps),
+      ).resolves.toMatchObject({ state: 'continue' });
+      await expect(
+        exportNextBatch(
+          workerDb(),
+          archiveStore,
+          worker(source),
+          {
+            exportId: changedWorker,
+          },
+          deps,
+        ),
+      ).resolves.toEqual(refused);
+      expect(archiveStore.puts).toEqual([]);
+
+      const exportId = await request(source);
+      await expect(drive(source, archiveStore, exportId, scopedDeps)).resolves.toMatchObject({
+        state: 'finished',
+      });
+      const opened = await downloadAndOpen(source, archiveStore, exportId);
+      expect(opened.manifest).toMatchObject({
+        inventory_version: RESIDENCY_PORTABILITY_VERSION,
+        inventory: RESIDENCY_PORTABILITY_INVENTORY,
+      });
+      const records = recordsOf(opened, 'residency_requirement');
+      expect(records).toEqual(
+        ['all', 'confidential'].map((scope) => ({
+          kind: 'residency_requirement',
+          id: expect.any(String),
+          scope,
+          region,
+          version: '1',
+          set_by_membership_id: source.membershipId,
+          created_at: expect.any(String),
+          updated_at: expect.any(String),
+        })),
+      );
+      expect(() =>
+        validatePortableRecord('policy', records[0], SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION),
+      ).toThrow('RECORD_REFUSED');
+      await expect(
+        withTenantTx(db(), source, (tx) =>
+          tx.execute(sql`select region from sovereign.portable_residency_requirements`),
+        ),
+      ).rejects.toMatchObject({ cause: { code: '42501' } });
+
+      const targetStore = new MemoryStore();
+      const bound = await requestOrganizationImport(db(), target);
+      const result = await runOrganizationImport(
+        workerDb(),
+        worker(target),
+        {
+          importId: bound.id,
+          archive: archiveReader(opened.bytes),
+          recipientPrivateKeyPem: recipient.privateKeyPem,
+        },
+        { sections: SOURCE_PORTABILITY_SECTIONS, ledger: targetStore, store: targetStore },
+      );
+      expect(result.status).toBe('completed_with_warnings');
+      expect(result.appliedCounts.residency_requirement).toBe(2);
+      expect(await listResidencyRequirements(db(), target)).toEqual([]);
+      const targetAdmin = await join(target, 'residency-admin', 'admin');
+      const imported = await listImportedDefinitions(db(), target);
+      for (const record of records) {
+        expect(imported).toContainEqual(
+          expect.objectContaining({
+            section: 'policy',
+            record_kind: 'residency_requirement',
+            record,
+          }),
+        );
+      }
+      expect(await listImportedDefinitions(db(), targetAdmin)).not.toContainEqual(
+        expect.objectContaining({ record_kind: 'residency_requirement' }),
+      );
+
+      await setResidencyRequirement(db(), source, {
+        scope: 'all',
+        region: null,
+        expectedVersion: 1,
+      });
+      await expect(openExportArchive(db(), archiveStore, source, exportId)).rejects.toMatchObject({
+        code: 'EXPORT_SUPERSEDED',
+      });
+    } finally {
+      await clearDeploymentProfile();
+    }
+  });
+
+  it('recovers verified workspace skill bundles and keeps destination imports inert', async () => {
+    const source = await newOrg();
+    const target = await newOrg();
+    const pkg = await seedPackage(db(), source);
+    const key = generateTestKey();
+    const enabled = { isEnabled: async () => true };
+    await addTrustedSigner(db(), source, enabled, {
+      displayName: 'Archive fixture',
+      publicKey: key.publicKey,
+    });
+    const { bytes } = buildTestBundle({ name: pkg.name, key });
+    const store = new MemoryStore();
+    const upload = await uploadSkillBundle(db(), store, source, enabled, {
+      packageId: pkg.id,
+      bytes,
+    });
+    expect(await drive(source, store, await request(source))).toEqual({
+      state: 'failed',
+      code: 'RECORD_REFUSED',
+    });
+    const verifier = createSkillVerificationActivities({
+      database: workerDb(),
+      store,
+      ceilings: SANDBOX_DEFAULT_CEILINGS,
+      reviewKeys: new Map(),
+    });
+    await expect(
+      verifier.checkSkillBundle({
+        organizationId: source.organizationId,
+        skillVersionId: upload.id,
+      }),
+    ).resolves.toEqual({ step: 'finished', outcome: 'verified' });
+
+    const exportId = await request(source);
+    await expect(drive(source, store, exportId)).resolves.toMatchObject({ state: 'finished' });
+    const opened = await downloadAndOpen(source, store, exportId);
+    expect(opened.manifest).toMatchObject({
+      inventory_version: SKILL_BUNDLE_PORTABILITY_VERSION,
+      inventory: SKILL_BUNDLE_PORTABILITY_INVENTORY,
+    });
+    const path = skillBundlePartPath(upload.id);
+    expect(opened.parts.get(path)).toEqual(bytes);
+    const versions = recordsOf(opened, 'skill_bundle_version');
+    expect(versions).toMatchObject([
+      {
+        id: upload.id,
+        package_id: pkg.id,
+        state: 'verified',
+        bundle_sha256: sha256Hex(bytes),
+        size_bytes: bytes.length,
+      },
+    ]);
+    expect(recordsOf(opened, 'skill_test_history')).toMatchObject([
+      {
+        skill_version_id: upload.id,
+        mode: 'contract',
+        outcome: 'passed',
+      },
+    ]);
+
+    const scratch = await mkdtemp(joinPath(tmpdir(), 'ensemus-skill-archive-'));
+    try {
+      const archivePath = joinPath(scratch, 'sample.tar');
+      const outFolder = joinPath(scratch, 'opened');
+      await writeFile(archivePath, opened.bytes);
+      await expect(
+        openArchive({
+          archivePath,
+          outFolder,
+          recipientPrivateKeyPem: recipient.privateKeyPem,
+        }),
+      ).resolves.toMatchObject({ ok: true, exportId });
+      expect(await readFile(joinPath(outFolder, path.replace(/\.sealed$/, '')))).toEqual(bytes);
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
+
+    const originalParts = Array.from(opened.parts.entries());
+    const changedBody = Buffer.from(bytes);
+    changedBody[0] = changedBody[0]! ^ 1;
+    const resealed = originalParts.map(([name, plain]) => {
+      const declared = opened.manifest.parts.find((part) => part.path === name);
+      if (!declared) throw new Error('FIXTURE_PART_MISSING');
+      return sealPart(
+        recipient,
+        declared.section as ExportSection,
+        name,
+        name === path ? changedBody : plain,
+        declared.records,
+      );
+    });
+    const tampered = buildTar([
+      sealManifest(recipient, { ...opened.manifest, parts: resealed.map(({ part }) => part) }),
+      ...resealed.map(({ file }) => file),
+    ]);
+    await expect(
+      inspectOrganizationArchive(archiveReader(tampered), recipient.privateKeyPem),
+    ).resolves.toMatchObject({ ok: false, code: 'PART_CHANGED' });
+
+    const targetStore = new MemoryStore();
+    const bound = await requestOrganizationImport(db(), target);
+    const result = await runOrganizationImport(
+      workerDb(),
+      worker(target),
+      {
+        importId: bound.id,
+        archive: archiveReader(opened.bytes),
+        recipientPrivateKeyPem: recipient.privateKeyPem,
+      },
+      { sections: SOURCE_PORTABILITY_SECTIONS, ledger: targetStore, store: targetStore },
+    );
+    expect(result).toMatchObject({
+      status: 'completed_with_warnings',
+      failureCode: null,
+      appliedCounts: { skill_bundle_version: 1, skill_test_history: 1 },
+    });
+    expect(result.warningCounts.RELATION_DANGLING ?? 0).toBe(0);
+    expect(await withTenantTx(db(), target, (tx) => tx.select().from(skillVersions))).toEqual([]);
+    expect(
+      [...targetStore.objects.keys()].some((objectKey) => objectKey.includes('/skills/')),
+    ).toBe(false);
+    expect(await listImportedDefinitions(db(), target)).toContainEqual({
+      section: 'skills',
+      record_kind: 'skill_bundle_version',
+      source_id: upload.id,
+      record: versions[0],
+    });
+    const targetAdmin = await join(target, 'skill-review-admin', 'admin');
+    expect(await listImportedDefinitions(db(), targetAdmin)).not.toContainEqual(
+      expect.objectContaining({ record_kind: 'skill_bundle_version' }),
+    );
+
+    store.objects.set(skillBundleObjectKey(source.organizationId, upload.id), changedBody);
+    expect(await drive(source, store, await request(source))).toEqual({
+      state: 'failed',
+      code: 'BYTES_CHANGED',
+    });
+  });
+
+  it('archives settled Sandbox receipts and reports private runs only as a count', async () => {
+    const source = await newOrg();
+    const admin = await join(source, 'sandbox-trial-admin', 'admin');
+    const target = await newOrg();
+    const pkg = await seedPackage(db(), source);
+    const { signer } = await seedSigner(db(), source);
+    const { bytes } = buildTestBundle({
+      key: signer,
+      name: pkg.name,
+      source: 'process.stdout.write(JSON.stringify({sample: true}));',
+    });
+    const store = new MemoryStore();
+    const gate = { isEnabled: async () => true };
+    const ceilings = SANDBOX_DEFAULT_CEILINGS;
+    const version = await uploadSkillBundle(db(), store, source, gate, {
+      packageId: pkg.id,
+      bytes,
+    });
+    const input = { organizationId: source.organizationId, skillVersionId: version.id };
+    const verifier = createSkillVerificationActivities({
+      database: workerDb(),
+      store,
+      ceilings,
+      reviewKeys: new Map(),
+      sandboxGate: gate,
+    });
+    const verification = await verifier.checkSkillBundle(input);
+    if (verification.step !== 'run_fixtures') throw new Error('TEST_FIXTURE_NOT_QUEUED');
+    const [fixtureRunId] = verification.sandboxRunIds;
+    if (!fixtureRunId) throw new Error('TEST_FIXTURE_MISSING');
+    const runner = createScriptedRunner({
+      execute() {
+        const stdout = Buffer.from('{"sample":true}');
+        return {
+          ending: 'exited',
+          exitCode: 0,
+          wallMs: 10,
+          cpuMs: 2,
+          peakMemoryKb: 64,
+          stdout,
+          stdoutBytes: stdout.length,
+          stderrBytes: 0,
+          runtime: { name: 'scripted', version: 'test' },
+        };
+      },
+    });
+    const activity = createSandboxRunActivities({
+      control: await createSandboxWorkerControl(workerDb()),
+      gate,
+      ceilings,
+      store,
+      runner,
+      maxConcurrentPerTenant: 1,
+      probeMaxAgeMs: 30_000,
+    });
+    const activityContext = vi.spyOn(Context, 'current').mockReturnValue({
+      heartbeat() {},
+      cancellationSignal: new AbortController().signal,
+    } as Context);
+    try {
+      await expect(
+        activity.executeSandboxRun({
+          organizationId: source.organizationId,
+          sandboxRunId: fixtureRunId,
+        }),
+      ).resolves.toEqual({ step: 'settled', outcome: 'succeeded' });
+    } finally {
+      activityContext.mockRestore();
+    }
+    await expect(verifier.finishSkillVerification(input)).resolves.toBe('verified');
+
+    const canary = `private sandbox input ${randomUUID()}`;
+    const trial = {
+      purpose: 'operator_test' as const,
+      classification: 'internal' as const,
+      input: { note: canary },
+      ceilings,
+      skillVersionId: version.id,
+    };
+    const ownerRun = await requestSandboxRun(db(), source, { gate, agentGuard: null }, trial);
+    const privateRun = await requestSandboxRun(db(), admin, { gate, agentGuard: null }, trial);
+    expect(await drive(source, store, await request(source))).toEqual({
+      state: 'failed',
+      code: 'RECORD_REFUSED',
+    });
+    await cancelSandboxRun(db(), source, ownerRun.id);
+    await cancelSandboxRun(db(), admin, privateRun.id);
+    const exportId = await request(source);
+    expect(await drive(source, store, exportId)).toMatchObject({ state: 'finished' });
+    const opened = await downloadAndOpen(source, store, exportId);
+    expect(opened.manifest).toMatchObject({
+      inventory_version: SANDBOX_HISTORY_PORTABILITY_VERSION,
+      inventory: SANDBOX_HISTORY_PORTABILITY_INVENTORY,
+      sandbox_receipts_excluded: 1,
+    });
+    const receipts = recordsOf(opened, 'sandbox_run_receipt');
+    expect(receipts).toHaveLength(2);
+    expect(receipts).toEqual(
+      expect.arrayContaining([
+        {
+          kind: 'sandbox_run_receipt',
+          id: fixtureRunId,
+          skill_version_id: version.id,
+          purpose: 'skill_test',
+          status: 'succeeded',
+          attempts: 1,
+          created_at: expect.any(String),
+          finished_at: expect.any(String),
+        },
+        {
+          kind: 'sandbox_run_receipt',
+          id: ownerRun.id,
+          skill_version_id: version.id,
+          purpose: 'operator_test',
+          status: 'cancelled',
+          attempts: 0,
+          created_at: expect.any(String),
+          finished_at: expect.any(String),
+        },
+      ]),
+    );
+    expect(opened.text).not.toContain(canary);
+    expect(opened.text).not.toContain(privateRun.id);
+    expect(opened.parts.get(skillBundlePartPath(version.id))).toEqual(bytes);
+    expect(() =>
+      validatePortableRecord('skills', receipts[0], SKILL_BUNDLE_PORTABILITY_VERSION),
+    ).toThrow('RECORD_REFUSED');
+
+    const targetStore = new MemoryStore();
+    const bound = await requestOrganizationImport(db(), target);
+    const result = await runOrganizationImport(
+      workerDb(),
+      worker(target),
+      {
+        importId: bound.id,
+        archive: archiveReader(opened.bytes),
+        recipientPrivateKeyPem: recipient.privateKeyPem,
+      },
+      { sections: SOURCE_PORTABILITY_SECTIONS, ledger: targetStore, store: targetStore },
+    );
+    expect(result).toMatchObject({
+      status: 'completed_with_warnings',
+      failureCode: null,
+      appliedCounts: { sandbox_run_receipt: 2, skill_bundle_version: 1 },
+      warningCounts: { SANDBOX_RECEIPTS_EXCLUDED_AT_SOURCE: 1 },
+    });
+    const targetAdmin = await join(target, 'sandbox-review-admin', 'admin');
+    expect(await listImportedDefinitions(db(), target)).toEqual(
+      expect.arrayContaining(
+        receipts.map((record) =>
+          expect.objectContaining({
+            section: 'skills',
+            record_kind: 'sandbox_run_receipt',
+            record,
+          }),
+        ),
+      ),
+    );
+    expect(await listImportedDefinitions(db(), targetAdmin)).not.toContainEqual(
+      expect.objectContaining({ record_kind: 'sandbox_run_receipt' }),
+    );
+    expect(
+      await withTenantTx(workerDb(), worker(target), (tx) => tx.select().from(sandboxRuns)),
+    ).toEqual([]);
+  });
+
+  it('carries meeting settings and provider decisions as review records without activating them', async () => {
+    const source = await newOrg();
+    const unrelated = await newOrg();
+    const target = await newOrg();
+    const publisher = await createPublisher(
+      db(),
+      source,
+      { isEnabled: async () => true },
+      { displayName: `Meeting profile test publisher ${randomUUID()}` },
+    );
+    const noticeRef = `meeting-notice-${randomUUID()}`;
+    const otherNotice = `unrelated-notice-${randomUUID()}`;
+    await updateMeetingSettings(db(), source, { enabled: true, noticeRef, expectedVersion: 1 });
+    await updateMeetingSettings(db(), unrelated, {
+      enabled: true,
+      noticeRef: otherNotice,
+      expectedVersion: 1,
+    });
+    const connectionId = await seedConnection(db(), source, {
+      connectorType: 'meeting_notes_http',
+    });
+    const termsRef = `source-terms-${randomUUID()}`;
+    const approval = await approveMeetingProvider(db(), source, {
+      kind: 'source',
+      connectionId,
+      maxClassification: 'internal',
+      termsRef,
+      expiresAt: new Date(Date.now() + 3_600_000),
+    });
+    const store = new MemoryStore();
+    const priorExport = await request(source);
+    expect(await drive(source, store, priorExport)).toMatchObject({ state: 'finished' });
+    expect(
+      recordsOf(
+        await downloadAndOpen(source, store, priorExport),
+        'meeting_provider_approval_history',
+      ),
+    ).toMatchObject([{ id: approval.id, revoked_at: null, revoked_by_membership_id: null }]);
+    const sourceOwner = source.actorType === 'user' ? source.membershipId : null;
+    await revokeMeetingProvider(db(), source, { providerApprovalId: approval.id });
+    await expect(openExportArchive(db(), store, source, priorExport)).rejects.toMatchObject({
+      code: 'EXPORT_SUPERSEDED',
+    });
+
+    const exportId = await request(source);
+    expect(await drive(source, store, exportId)).toMatchObject({ state: 'finished' });
+    const opened = await downloadAndOpen(source, store, exportId);
+    expect(opened.manifest).toMatchObject({
+      inventory_version: MEETING_CONFIGURATION_PORTABILITY_VERSION,
+      inventory: MEETING_CONFIGURATION_PORTABILITY_INVENTORY,
+    });
+    const settings = recordsOf(opened, 'meeting_settings_history');
+    const approvals = recordsOf(opened, 'meeting_provider_approval_history');
+    expect(recordsOf(opened, 'marketplace_publisher_history')).toMatchObject([
+      { id: publisher.id },
+    ]);
+    expect(settings).toMatchObject([
+      { enabled: true, notice_ref: noticeRef, version: '2', updated_by_membership_id: sourceOwner },
+    ]);
+    expect(approvals).toMatchObject([
+      {
+        id: approval.id,
+        provider_kind: 'source',
+        target_ref: `connection:${connectionId}`,
+        purposes: ['import_notes'],
+        terms_ref: termsRef,
+        revoked_at: expect.any(String),
+        revoked_by_membership_id: sourceOwner,
+      },
+    ]);
+    expect(opened.text).not.toContain(otherNotice);
+    expect(() =>
+      validatePortableRecord('policy', settings[0], MARKETPLACE_PUBLISHER_PORTABILITY_VERSION),
+    ).toThrow('RECORD_REFUSED');
+    expect(() =>
+      validatePortableRecord(
+        'policy',
+        { ...approvals[0], revoked_by_membership_id: null },
+        MEETING_CONFIGURATION_PORTABILITY_VERSION,
+      ),
+    ).toThrow();
+
+    const targetStore = new MemoryStore();
+    const bound = await requestOrganizationImport(db(), target);
+    const result = await runOrganizationImport(
+      workerDb(),
+      worker(target),
+      {
+        importId: bound.id,
+        archive: archiveReader(opened.bytes),
+        recipientPrivateKeyPem: recipient.privateKeyPem,
+      },
+      { sections: SOURCE_PORTABILITY_SECTIONS, ledger: targetStore, store: targetStore },
+    );
+    expect(result.status).toBe('completed_with_warnings');
+    expect(result.appliedCounts).toMatchObject({
+      marketplace_publisher_history: 1,
+      meeting_settings_history: 1,
+      meeting_provider_approval_history: 1,
+    });
+    const imported = await listImportedDefinitions(db(), target);
+    expect(imported).toContainEqual(
+      expect.objectContaining({ section: 'policy', record: settings[0] }),
+    );
+    expect(imported).toContainEqual(
+      expect.objectContaining({ section: 'policy', record: approvals[0] }),
+    );
+    expect(await getMeetingSettings(db(), target)).toMatchObject({
+      enabled: false,
+      noticeRef: null,
+    });
+    expect(await listMeetingProviderApprovals(db(), target)).toEqual([]);
+    expect(await getPublisher(db(), target)).toBeNull();
+
+    await createMeeting(db(), source, {
+      title: `private meeting ${randomUUID()}`,
+      occurredAt: new Date(),
+    });
+    const refused = await request(source);
+    expect(await beginExport(workerDb(), worker(source), { exportId: refused }, deps)).toEqual({
+      state: 'failed',
+      code: 'RECORD_REFUSED',
+    });
+  });
 
   /** Every record of one kind in an opened archive. */
   function recordsOf(opened: Opened, kind: string) {
@@ -290,6 +1583,7 @@ describe('organization export', () => {
 
   beforeAll(async () => {
     app = openAppDatabase(urls.app());
+    serviceDatabase = openAppDatabase(urls.worker());
     auth = new pg.Client({ connectionString: urls.auth() });
     su = new pg.Client({ connectionString: urls.superuser() });
     await auth.connect();
@@ -298,6 +1592,7 @@ describe('organization export', () => {
 
   afterAll(async () => {
     await app.close();
+    await serviceDatabase.close();
     await auth.end();
     await su.end();
   });
@@ -368,14 +1663,16 @@ describe('organization export', () => {
       expect(await listOrganizationExports(db(), stranger)).toEqual([]);
       // Nor can the worker be pointed at it from the other tenant.
       const elsewhere = worker(stranger);
-      await expect(beginExport(db(), elsewhere, { exportId: id }, deps)).rejects.toMatchObject({
+      await expect(
+        beginExport(workerDb(), elsewhere, { exportId: id }, deps),
+      ).rejects.toMatchObject({
         code: 'NOT_FOUND',
       });
       await expect(
-        exportNextBatch(db(), store, elsewhere, { exportId: id }, deps),
+        exportNextBatch(workerDb(), store, elsewhere, { exportId: id }, deps),
       ).rejects.toMatchObject({ code: 'NOT_FOUND' });
       await expect(
-        failExport(db(), elsewhere, { exportId: id, code: 'SECTION_FAILED' }),
+        failExport(workerDb(), elsewhere, { exportId: id, code: 'SECTION_FAILED' }),
       ).rejects.toMatchObject({ code: 'NOT_FOUND' });
       expect((await getOrganizationExport(db(), owner, id)).status).toBe('requested');
     });
@@ -406,35 +1703,52 @@ describe('organization export', () => {
       await expect(request(owner)).rejects.toMatchObject({ code: 'EXPORT_ALREADY_RUNNING' });
       // Another tenant has its own place.
       await expect(request(stranger)).resolves.toBeDefined();
-      await failExport(db(), worker(owner), { exportId: first, code: 'SECTION_FAILED' });
+      await failExport(workerDb(), worker(owner), { exportId: first, code: 'SECTION_FAILED' });
       await expect(request(owner)).resolves.toBeDefined();
     });
 
     it('lets only the worker run the steps', async () => {
       const exportId = await request(owner);
       for (const context of [owner, admin, member]) {
-        await expect(beginExport(db(), context, { exportId }, deps)).rejects.toMatchObject({
+        await expect(beginExport(workerDb(), context, { exportId }, deps)).rejects.toMatchObject({
           code: 'FORBIDDEN',
         });
         await expect(
-          exportNextBatch(db(), store, context, { exportId }, deps),
+          exportNextBatch(workerDb(), store, context, { exportId }, deps),
         ).rejects.toMatchObject({ code: 'FORBIDDEN' });
-        await expect(finishExport(db(), store, context, { exportId }, deps)).rejects.toMatchObject({
+        await expect(
+          finishExport(workerDb(), store, context, { exportId }, deps),
+        ).rejects.toMatchObject({
           code: 'FORBIDDEN',
         });
         await expect(
-          failExport(db(), context, { exportId, code: 'SECTION_FAILED' }),
+          failExport(workerDb(), context, { exportId, code: 'SECTION_FAILED' }),
         ).rejects.toMatchObject({ code: 'FORBIDDEN' });
-        await expect(purgeExpiredExports(db(), store, context, NOW())).rejects.toMatchObject({
+        await expect(purgeExpiredExports(workerDb(), store, context, NOW())).rejects.toMatchObject({
           code: 'FORBIDDEN',
         });
       }
     });
 
+    it('refuses a web login carrying a service context before it can create an archive', async () => {
+      const exportId = await request(owner);
+      const service = worker(owner);
+      await expect(beginExport(db(), service, { exportId }, deps)).rejects.toMatchObject({
+        code: 'WORKER_LOGIN_ROLE_MISMATCH',
+      });
+      await expect(exportNextBatch(db(), store, service, { exportId }, deps)).rejects.toMatchObject(
+        { code: 'WORKER_LOGIN_ROLE_MISMATCH' },
+      );
+      expect(await listOrganizationExports(db(), owner)).toContainEqual(
+        expect.objectContaining({ id: exportId, status: 'requested', partCount: 0 }),
+      );
+      expect(store.puts).toHaveLength(0);
+    });
+
     it('will not read a row nothing has claimed', async () => {
       const exportId = await request(owner);
       await expect(
-        exportNextBatch(db(), store, worker(owner), { exportId }, deps),
+        exportNextBatch(workerDb(), store, worker(owner), { exportId }, deps),
       ).rejects.toMatchObject({ code: 'INVALID_STATE' });
     });
 
@@ -443,7 +1757,7 @@ describe('organization export', () => {
       await expect(openExportArchive(db(), store, owner, exportId)).rejects.toMatchObject({
         code: 'EXPORT_NOT_READY',
       });
-      await beginExport(db(), worker(owner), { exportId }, deps);
+      await beginExport(workerDb(), worker(owner), { exportId }, deps);
       await expect(openExportArchive(db(), store, owner, exportId)).rejects.toMatchObject({
         code: 'EXPORT_NOT_READY',
       });
@@ -902,9 +2216,9 @@ describe('organization export', () => {
       const service = worker(owner);
       const before = store.puts.length;
       for (const step of [
-        await beginExport(db(), service, { exportId }, deps),
-        await exportNextBatch(db(), store, service, { exportId }, deps),
-        await finishExport(db(), store, service, { exportId }, deps),
+        await beginExport(workerDb(), service, { exportId }, deps),
+        await exportNextBatch(workerDb(), store, service, { exportId }, deps),
+        await finishExport(workerDb(), store, service, { exportId }, deps),
       ]) {
         expect(step.state).toBe('finished');
       }
@@ -922,7 +2236,7 @@ describe('organization export', () => {
       store = new MemoryStore();
       await createClient(db(), owner, { displayName: 'Same client name' });
       exportId = await request(owner);
-      await beginExport(db(), worker(owner), { exportId }, deps);
+      await beginExport(workerDb(), worker(owner), { exportId }, deps);
     });
 
     const partRows = () =>
@@ -935,14 +2249,18 @@ describe('organization export', () => {
 
     it('says only that the store failed, and repeats nothing when tried again', async () => {
       store.failNextPut = true;
-      const error = await exportNextBatch(db(), store, worker(owner), { exportId }, deps).catch(
-        (caught: unknown) => caught,
-      );
+      const error = await exportNextBatch(
+        workerDb(),
+        store,
+        worker(owner),
+        { exportId },
+        deps,
+      ).catch((caught: unknown) => caught);
       expect(error).toBeInstanceOf(ExportStoreUnavailable);
       expect(String((error as Error).message)).not.toContain('must not travel');
       expect(await partRows()).toEqual([]);
 
-      const step = await exportNextBatch(db(), store, worker(owner), { exportId }, deps);
+      const step = await exportNextBatch(workerDb(), store, worker(owner), { exportId }, deps);
       expect(step).toEqual({ state: 'continue', parts: 1, records: 1 });
       const rows = await partRows();
       expect(rows).toHaveLength(1);
@@ -961,12 +2279,12 @@ describe('organization export', () => {
         exists: (key) => store.exists(key),
       };
       await expect(
-        exportNextBatch(db(), dying, worker(owner), { exportId }, deps),
+        exportNextBatch(workerDb(), dying, worker(owner), { exportId }, deps),
       ).rejects.toBeInstanceOf(ExportStoreUnavailable);
       expect(store.exportKeys()).toHaveLength(1);
       expect(await partRows()).toEqual([]);
 
-      const step = await exportNextBatch(db(), store, worker(owner), { exportId }, deps);
+      const step = await exportNextBatch(workerDb(), store, worker(owner), { exportId }, deps);
       expect(step).toEqual({ state: 'continue', parts: 1, records: 1 });
       // The same place, so the same key, and what is stored is what was recorded.
       const rows = await partRows();
@@ -977,16 +2295,16 @@ describe('organization export', () => {
 
     it('moves on once per call, writing no path twice', async () => {
       const service = worker(owner);
-      await exportNextBatch(db(), store, service, { exportId }, deps);
-      await exportNextBatch(db(), store, service, { exportId }, deps);
+      await exportNextBatch(workerDb(), store, service, { exportId }, deps);
+      await exportNextBatch(workerDb(), store, service, { exportId }, deps);
       expect(new Set(store.puts).size).toBe(store.puts.length);
     });
 
     it('lets one of two attempts at the same step win', async () => {
       const service = worker(owner);
       const answers = await Promise.all([
-        exportNextBatch(db(), store, service, { exportId }, deps),
-        exportNextBatch(db(), store, service, { exportId }, deps),
+        exportNextBatch(workerDb(), store, service, { exportId }, deps),
+        exportNextBatch(workerDb(), store, service, { exportId }, deps),
       ]);
       expect(answers.every((answer) => answer.state === 'continue')).toBe(true);
       const rows = await partRows();
@@ -1006,14 +2324,14 @@ describe('organization export', () => {
 
     it('finishes correctly after every step has been repeated', async () => {
       const service = worker(owner);
-      let step = await exportNextBatch(db(), store, service, { exportId }, deps);
+      let step = await exportNextBatch(workerDb(), store, service, { exportId }, deps);
       while (step.state === 'continue') {
-        await exportNextBatch(db(), store, service, { exportId }, deps);
-        step = await exportNextBatch(db(), store, service, { exportId }, deps);
+        await exportNextBatch(workerDb(), store, service, { exportId }, deps);
+        step = await exportNextBatch(workerDb(), store, service, { exportId }, deps);
       }
-      step = await finishExport(db(), store, service, { exportId }, deps);
+      step = await finishExport(workerDb(), store, service, { exportId }, deps);
       while (step.state === 'continue') {
-        step = await finishExport(db(), store, service, { exportId }, deps);
+        step = await finishExport(workerDb(), store, service, { exportId }, deps);
       }
       expect(step.state).toBe('finished');
       const { manifest } = await downloadAndOpen(owner, store, exportId);
@@ -1069,13 +2387,13 @@ describe('organization export', () => {
         },
       };
       const service = worker(owner);
-      await beginExport(db(), service, { exportId }, deps);
+      await beginExport(workerDb(), service, { exportId }, deps);
       let failure: unknown;
       // Every section page before the files is its own batch, and each joined reader (M7 kinds
       // included) takes at least one, so the bound is generous. It stops at the first failure, and
       // a run that got past the files without one is caught by the assertion below.
       for (let i = 0; i < 500 && !failure; i += 1) {
-        const step = await exportNextBatch(db(), down, service, { exportId }, deps).catch(
+        const step = await exportNextBatch(workerDb(), down, service, { exportId }, deps).catch(
           (caught: unknown) => {
             failure = caught;
             return null;
@@ -1158,14 +2476,14 @@ describe('organization export', () => {
     it('does not let a late failure undo a ready archive', async () => {
       const exportId = await request(owner);
       expect((await drive(owner, store, exportId)).state).toBe('finished');
-      await failExport(db(), worker(owner), { exportId, code: 'SECTION_FAILED' });
+      await failExport(workerDb(), worker(owner), { exportId, code: 'SECTION_FAILED' });
       expect((await getOrganizationExport(db(), owner, exportId)).status).toBe('ready');
     });
 
     it('refuses a failure code that is not on the list', async () => {
       const exportId = await request(owner);
       await expect(
-        failExport(db(), worker(owner), { exportId, code: 'because of TEXT' as never }),
+        failExport(workerDb(), worker(owner), { exportId, code: 'because of TEXT' as never }),
       ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
     });
   });
@@ -1201,7 +2519,7 @@ describe('organization export', () => {
       });
       expect((await getOrganizationExport(db(), owner, exportId)).downloadable).toBe(false);
 
-      expect(await purgeExpiredExports(db(), store, worker(owner), new Date())).toBe(1);
+      expect(await purgeExpiredExports(workerDb(), store, worker(owner), new Date())).toBe(1);
       expect(store.exportKeys()).toEqual([]);
       expect((await getOrganizationExport(db(), owner, exportId)).status).toBe('expired');
     });
@@ -1259,7 +2577,7 @@ describe('organization export', () => {
       const again = await request(owner);
       // What the workflow then does with a step that answered EXPORT_SUPERSEDED
       // (portability-workflow.ts) changes nothing.
-      await failExport(db(), worker(owner), { exportId, code: 'SECTION_FAILED' });
+      await failExport(workerDb(), worker(owner), { exportId, code: 'SECTION_FAILED' });
       expect(await getOrganizationExport(db(), owner, exportId)).toMatchObject({
         status: 'failed',
         failureCode: 'SECTION_FAILED',
@@ -1267,7 +2585,7 @@ describe('organization export', () => {
       expect((await drive(owner, store, again)).state).toBe('finished');
       // Upkeep takes the superseded copy's bytes, the deleted file's sealed copy among them. Failed
       // is not expired, so it is not in the count.
-      expect(await purgeExpiredExports(db(), store, worker(owner), new Date())).toBe(0);
+      expect(await purgeExpiredExports(workerDb(), store, worker(owner), new Date())).toBe(0);
       const { rows } = await su.query(
         'select purged_at from sovereign.organization_exports where id = $1',
         [exportId],
@@ -1322,10 +2640,10 @@ describe('organization export', () => {
         ).map((part) => part.path);
       await supersededThenAgain(
         (async () => {
-          let step = await beginExport(db(), service, { exportId }, deps);
+          let step = await beginExport(workerDb(), service, { exportId }, deps);
           try {
             while (step.state === 'continue') {
-              step = await exportNextBatch(db(), racing, service, { exportId }, deps);
+              step = await exportNextBatch(workerDb(), racing, service, { exportId }, deps);
             }
           } finally {
             // The orphan this case is about: the bytes are there, and no part row names them.
@@ -1340,20 +2658,20 @@ describe('organization export', () => {
 
     it('between the bytes and the records supersedes it, and a new one leaves no trace but the tombstone', async () => {
       const service = worker(owner);
-      let step = await beginExport(db(), service, { exportId }, deps);
+      let step = await beginExport(workerDb(), service, { exportId }, deps);
       // Stop as soon as this file's bytes have been written.
       while (step.state === 'continue' && !store.puts.some((key) => key.includes(fileId))) {
-        step = await exportNextBatch(db(), store, service, { exportId }, deps);
+        step = await exportNextBatch(workerDb(), store, service, { exportId }, deps);
       }
       expect(store.puts.some((key) => key.includes(fileId))).toBe(true);
       await remove();
       await supersededThenAgain(
         (async () => {
           while (step.state === 'continue') {
-            step = await exportNextBatch(db(), store, service, { exportId }, deps);
+            step = await exportNextBatch(workerDb(), store, service, { exportId }, deps);
           }
           do {
-            step = await finishExport(db(), store, service, { exportId }, deps);
+            step = await finishExport(workerDb(), store, service, { exportId }, deps);
           } while (step.state === 'continue');
           return step;
         })(),
@@ -1376,9 +2694,9 @@ describe('organization export', () => {
       };
       await supersededThenAgain(
         (async () => {
-          let step = await beginExport(db(), service, { exportId }, deps);
+          let step = await beginExport(workerDb(), service, { exportId }, deps);
           while (step.state === 'continue') {
-            step = await exportNextBatch(db(), racing, service, { exportId }, deps);
+            step = await exportNextBatch(workerDb(), racing, service, { exportId }, deps);
           }
           return step;
         })(),
@@ -1418,7 +2736,7 @@ describe('organization export', () => {
       );
       expect(keptFiles.length).toBeGreaterThan(0);
       expect(store.exportKeys().length).toBeGreaterThan(0);
-      expect(await purgeExpiredExports(db(), store, worker(owner), new Date())).toBe(1);
+      expect(await purgeExpiredExports(workerDb(), store, worker(owner), new Date())).toBe(1);
       expect(store.exportKeys()).toEqual([]);
       // Only the archive. The tenant's own files are not touched.
       for (const key of keptFiles) expect(store.objects.has(key)).toBe(true);
@@ -1439,8 +2757,8 @@ describe('organization export', () => {
     it('is purged once, and leaves one still in date alone', async () => {
       const fresh = await request(owner);
       expect((await drive(owner, store, fresh)).state).toBe('finished');
-      expect(await purgeExpiredExports(db(), store, worker(owner), new Date())).toBe(1);
-      expect(await purgeExpiredExports(db(), store, worker(owner), new Date())).toBe(0);
+      expect(await purgeExpiredExports(workerDb(), store, worker(owner), new Date())).toBe(1);
+      expect(await purgeExpiredExports(workerDb(), store, worker(owner), new Date())).toBe(0);
       expect((await getOrganizationExport(db(), owner, fresh)).downloadable).toBe(true);
       await expect(downloadAndOpen(owner, store, fresh)).resolves.toBeDefined();
     });
@@ -1450,7 +2768,7 @@ describe('organization export', () => {
       const otherStore = store;
       const otherId = await request(other);
       expect((await drive(other, otherStore, otherId)).state).toBe('finished');
-      expect(await purgeExpiredExports(db(), store, worker(owner), new Date())).toBe(1);
+      expect(await purgeExpiredExports(workerDb(), store, worker(owner), new Date())).toBe(1);
       expect((await getOrganizationExport(db(), other, otherId)).downloadable).toBe(true);
       await expect(downloadAndOpen(other, otherStore, otherId)).resolves.toBeDefined();
     });
@@ -1464,12 +2782,12 @@ describe('organization export', () => {
           throw new Error('down');
         },
       };
-      expect(await purgeExpiredExports(db(), down, worker(owner), new Date())).toBe(0);
+      expect(await purgeExpiredExports(workerDb(), down, worker(owner), new Date())).toBe(0);
       expect((await getOrganizationExport(db(), owner, exportId)).status).toBe('ready');
       await expect(openExportArchive(db(), store, owner, exportId)).rejects.toMatchObject({
         code: 'EXPORT_NOT_READY',
       });
-      expect(await purgeExpiredExports(db(), store, worker(owner), new Date())).toBe(1);
+      expect(await purgeExpiredExports(workerDb(), store, worker(owner), new Date())).toBe(1);
     });
   });
 
@@ -1479,15 +2797,15 @@ describe('organization export', () => {
     await createClient(db(), owner, { displayName: 'Same client name' });
     const exportId = await request(owner);
     const service = worker(owner);
-    await beginExport(db(), service, { exportId }, deps);
-    let step = await exportNextBatch(db(), store, service, { exportId }, deps);
+    await beginExport(workerDb(), service, { exportId }, deps);
+    let step = await exportNextBatch(workerDb(), store, service, { exportId }, deps);
     while (step.state === 'continue' && store.exportKeys().length === 0) {
-      step = await exportNextBatch(db(), store, service, { exportId }, deps);
+      step = await exportNextBatch(workerDb(), store, service, { exportId }, deps);
     }
-    await failExport(db(), service, { exportId, code: 'STORE_UNAVAILABLE' });
+    await failExport(workerDb(), service, { exportId, code: 'STORE_UNAVAILABLE' });
     expect(store.exportKeys().length).toBeGreaterThan(0);
     // Failed is not expired, so it is not in the count, and its bytes go all the same.
-    expect(await purgeExpiredExports(db(), store, service, new Date())).toBe(0);
+    expect(await purgeExpiredExports(workerDb(), store, service, new Date())).toBe(0);
     expect(store.exportKeys()).toEqual([]);
     expect((await getOrganizationExport(db(), owner, exportId)).status).toBe('failed');
   });
@@ -1497,7 +2815,7 @@ describe('organization export', () => {
     const store = new MemoryStore();
     await createClient(db(), owner, { displayName: 'Same client name' });
     const exportId = await request(owner);
-    await beginExport(db(), worker(owner), { exportId }, deps);
+    await beginExport(workerDb(), worker(owner), { exportId }, deps);
     // What a step leaves when it wrote a part's bytes and then never committed that part: the path
     // noted in the row before the write, the bytes in the store, and no part row.
     const stray = artifactPartPath(randomUUID());
@@ -1521,7 +2839,11 @@ describe('organization export', () => {
     const store = new MemoryStore();
     await createClient(db(), owner, { displayName: 'Same client name' });
     const exportId = await request(owner);
-    const activities = createPortabilityActivities({ database: db(), store, exportDeps: deps });
+    const activities = createPortabilityActivities({
+      database: workerDb(),
+      store,
+      exportDeps: deps,
+    });
     const input = { organizationId: owner.organizationId, exportId };
 
     await expect(

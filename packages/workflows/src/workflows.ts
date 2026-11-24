@@ -17,6 +17,7 @@ import {
 import type { Activities, PlatformActivities } from './activities';
 import { reviewWaitStep, reviewWaitOutcome } from './review-wait';
 import type {
+  FederationGrantAcceptedInput,
   ProbeInput,
   ProbeResult,
   ReviewState,
@@ -152,7 +153,16 @@ export async function tenantRemindersWorkflow(input: TenantInput): Promise<void>
 
 // M3 (ADR-027). Each in its own file, so a change there cannot disturb the histories above.
 export { connectorSyncWorkflow } from './connector-sync-workflow';
+export { oauthExchangeWorkflow } from './oauth-exchange-workflow';
+export { suiteUpkeepWorkflow } from './suite-upkeep-workflow';
 export { externalActionWorkflow } from './external-action-workflow';
+// M11C (ADR-035 D3).
+export async function federationGrantAcceptedWorkflow(
+  input: FederationGrantAcceptedInput,
+): Promise<void> {
+  await activities.notifyFederationGrantAccepted(input);
+}
+export { federationDeliveryWorkflow, federationPurgeWorkflow } from './federation-workflow';
 export { webhookDeliveryWorkflow } from './webhook-workflow';
 
 // M4 (ADR-028). The same rule: their own files, their own histories.
@@ -174,5 +184,14 @@ export { organizationExportWorkflow } from './portability-workflow';
 // M8 (ADR-032). The same reason.
 export { billingCycleWorkflow } from './billing-cycle-workflow';
 export { paymentEventWorkflow, paymentWorkflow } from './payment-workflow';
+// ADR-032 D4a. Its own file and its own history.
+export { checkoutWorkflow } from './checkout-workflow';
 export { retentionSweepWorkflow } from './retention-workflow';
 export { tenantOffboardingWorkflow } from './offboarding-workflow';
+// M11A (ADR-033). Each in its own file, for the same reason.
+export { meetingDerivationWorkflow } from './meeting-derivation-workflow';
+export { meetingImportWorkflow } from './meeting-import-workflow';
+// M11B (ADR-034). The same, for the same reason.
+export { marketplaceInstallWorkflow } from './marketplace-install-workflow';
+export { sandboxRunWorkflow } from './sandbox-run-workflow';
+export { skillVerificationWorkflow } from './skill-verification-workflow';

@@ -107,7 +107,9 @@ export class AppDatabase {
         'app.process_start_spec_id': '',
         'app.process_step_run_id': '',
         'app.process_step_key': '',
+        'app.client_onboarding_id': '',
         'app.payment_customer_hash': '',
+        'app.mail_unsubscribe_token': '',
         'lifecycle.erasure_count_org': '',
         'lifecycle.standing_org': '',
         'billing.entitlement_org': '',
@@ -134,6 +136,9 @@ export class AppDatabase {
         'knowledge.fact_authority_package': '',
         'work.review_control_org': '',
         'work.review_control_work': '',
+        'work.owner_recovery_target': '',
+        'work.owner_recovery_event': '',
+        'work.owner_recovery_recipient': '',
         'ai.material_restore_org': '',
         'lifecycle.record_purge_org': '',
         'lifecycle.record_purge_kind': '',
@@ -285,6 +290,23 @@ export function withInvitationTx<T>(
   return database.transaction({ 'app.invitation_token_hash': tokenHash }, fn);
 }
 
+/**
+ * Binds one tenant and the hash of a cross-organization invitation, which reveals that one proposal to this
+ * tenant while it decides whether to accept (ADR-035 D1). Holding a token grants nothing else, and a person
+ * from another tenant holding the same token sees it only under their own.
+ */
+export async function withGrantInvitationTx<T>(
+  database: AppDatabase,
+  context: TenantContext,
+  tokenHash: string,
+  fn: (tx: Tx) => Promise<T>,
+): Promise<T> {
+  return withTenantTx(database, context, async (tx) => {
+    await tx.execute(sql`select set_config('app.federation_token_hash', ${tokenHash}, true)`);
+    return fn(tx);
+  });
+}
+
 export type WebhookEndpointRow = typeof webhookEndpoints.$inferSelect;
 
 /**
@@ -333,24 +355,30 @@ export async function resolveTenantContext(
   organizationId: string,
 ): Promise<TenantContext> {
   assertUuid(organizationId);
-  const [membership] = await withUserTx(database, userId, (tx) =>
-    tx
-      .select({
-        id: memberships.id,
-        role: memberships.role,
-        organizationId: memberships.organizationId,
-        lifecycle: organizations.lifecycle,
-      })
-      .from(memberships)
-      .innerJoin(organizations, eq(organizations.id, memberships.organizationId))
-      .where(
-        and(
-          eq(memberships.organizationId, organizationId),
-          eq(memberships.userId, userId),
-          eq(memberships.status, 'active'),
-        ),
+  return withUserTx(database, userId, (tx) => readMembershipInTx(tx, userId, organizationId));
+}
+
+async function readMembershipInTx(
+  tx: Tx,
+  userId: string,
+  organizationId: string,
+): Promise<TenantContext> {
+  const [membership] = await tx
+    .select({
+      id: memberships.id,
+      role: memberships.role,
+      organizationId: memberships.organizationId,
+      lifecycle: organizations.lifecycle,
+    })
+    .from(memberships)
+    .innerJoin(organizations, eq(organizations.id, memberships.organizationId))
+    .where(
+      and(
+        eq(memberships.organizationId, organizationId),
+        eq(memberships.userId, userId),
+        eq(memberships.status, 'active'),
       ),
-  );
+    );
   // A tenant that has gone is the same as one that never existed.
   if (!membership || membership.lifecycle === 'deleted') throw new TenantAccessDenied();
   return {
@@ -362,6 +390,24 @@ export async function resolveTenantContext(
     serving: membership.lifecycle === 'active' ? 'full' : (membership.lifecycle as TenantServing),
     [brand]: true,
   };
+}
+
+/** Resolves membership and performs one bounded operation in the same guarded transaction. */
+export function withMemberTenantTx<T>(
+  database: AppDatabase,
+  userId: string,
+  organizationId: string,
+  fn: (tx: Tx, context: TenantContext) => Promise<T>,
+): Promise<T> {
+  assertUuid(organizationId);
+  return withUserTx(database, userId, async (tx) => {
+    const context = await readMembershipInTx(tx, userId, organizationId);
+    for (const [name, value] of Object.entries(tenantBindings(context))) {
+      await tx.execute(sql`select set_config(${name}, ${value}, true)`);
+    }
+    if (context.serving !== 'full') await tx.execute(sql`set transaction read only`);
+    return fn(tx, context);
+  });
 }
 
 /** A readable ID is not a native verified session. Only auth's in-process handoff can bind one. */
@@ -451,6 +497,27 @@ export function withRunLookupTx<T>(
 ): Promise<T> {
   assertUuid(organizationId);
   return database.transaction({ 'app.organization_id': organizationId.toLowerCase() }, fn);
+}
+
+/** The login role a worker must hold (ADR-039 D1). Each worker has its own; the web tier keeps ensemus_app. */
+export type WorkerLoginRole = 'ensemus_worker' | 'ensemus_connector' | 'ensemus_knowledge';
+
+/**
+ * Refuses to go on unless this process logged in as `expected`. A worker started with the web tier's
+ * credentials would pass every shared rule and then fail, one at a time, each rule only its own login
+ * passes (0701), so it stops at the start instead, saying which. Reads no tenant data.
+ */
+export async function assertLoginRole(
+  database: AppDatabase,
+  expected: WorkerLoginRole,
+): Promise<void> {
+  const result = await database.run((tx) =>
+    tx.execute<{ role: string }>(sql`select session_user::text as role`),
+  );
+  if (result.rows[0]?.role !== expected)
+    throw Object.assign(new Error('WORKER_LOGIN_ROLE_MISMATCH'), {
+      code: 'WORKER_LOGIN_ROLE_MISMATCH',
+    });
 }
 
 /** Confirms the database answers. Reads no tenant data. */

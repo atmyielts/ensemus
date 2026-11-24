@@ -17,6 +17,7 @@ import {
   costWords,
   cursorFrom,
   presentRun,
+  stepTone,
   stepWords,
   stopNotice,
   stopOutcomeFrom,
@@ -238,6 +239,10 @@ describe('what a run shows', () => {
     expect(typeof words.what).toBe('string');
     expect(typeof words.how).toBe('string');
     expect(`${words.what} ${words.how}`).not.toContain(value);
+  });
+
+  it.each([CANARY, ...INHERITED])('marks a step it does not know plainly: %s', (value) => {
+    expect(stepTone(value)).toBe('');
   });
 
   it('keeps a canary out, wherever a fake puts one', () => {

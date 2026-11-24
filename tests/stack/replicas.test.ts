@@ -332,7 +332,7 @@ describe('two web replicas', () => {
       const person = await join(owner, org, `Sam ${randomUUID()}`);
       const cookie = person.jar.cookie;
       expect((await there(() => read(`/o/${org}`, person.jar))).status).toBe(200);
-      const out = await here(() => submit(`/o/${org}`, person.jar, />Sign out</));
+      const out = await here(() => submit(`/o/${org}`, person.jar, /aria-label="Sign out"/));
       expect(out.status).toBe(303);
       const stale = await there(() => read(`/o/${org}`, { cookie }));
       expect(stale.status).not.toBe(200);

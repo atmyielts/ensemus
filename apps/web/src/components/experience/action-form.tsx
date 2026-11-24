@@ -7,11 +7,14 @@ export function ExperienceActionForm({
   action,
   hidden,
   label,
+  buttonClass,
   children,
 }: {
   action: (state: ExperienceFormState, form: FormData) => Promise<ExperienceFormState>;
   hidden: Record<string, string | number>;
   label: string;
+  /** Every action but the one this place is for is outlined, so only one button is lit. */
+  buttonClass?: 'secondary' | 'danger';
   children?: ReactNode;
 }) {
   const [state, perform] = useActionState(action, {}),
@@ -29,7 +32,7 @@ export function ExperienceActionForm({
       ))}
       {children}
       <div>
-        <SubmitButton>{label}</SubmitButton>
+        <SubmitButton className={buttonClass}>{label}</SubmitButton>
       </div>
     </form>
   );

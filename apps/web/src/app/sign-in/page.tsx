@@ -1,3 +1,5 @@
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import Link from 'next/link';
 import { KeptInput } from '@/components/kept-field';
 import { SubmitButton } from '@/components/submit-button';
@@ -21,6 +23,9 @@ export default async function SignInPage({
       <Wordmark />
       <div className="sheet">
         <h1>Sign in to Ensemus</h1>
+        <p className="lede">
+          Welcome back. Sign in to pick up your work, approvals and messages where you left them.
+        </p>
         {error && (
           <p className="notice error" role="alert">
             {error === 'rate'
@@ -30,32 +35,37 @@ export default async function SignInPage({
         )}
         <form className="fields" action={signInAction}>
           {next && <input type="hidden" name="next" value={next} />}
-          <label>
+          <Label>
             Email
             <KeptInput keep="email" name="email" type="email" autoComplete="username" required />
-          </label>
-          <label>
+          </Label>
+          <Label>
             Password
-            <input name="password" type="password" autoComplete="current-password" required />
-          </label>
+            <Input name="password" type="password" autoComplete="current-password" required />
+          </Label>
           <div>
             <SubmitButton working="Signing in">Sign in</SubmitButton>
           </div>
         </form>
       </div>
-      {allowSignup ? (
-        <p className="below-sheet">
-          New here? <Link href={withReturnPath('/sign-up', next)}>Create an account</Link>
-        </p>
-      ) : (
-        <p className="below-sheet">
-          Given a setup code? <Link href={withReturnPath('/setup', next)}>Use it here</Link>
-        </p>
-      )}
-      <p className="below-sheet">
-        Does your company sign in through its own provider?{' '}
-        <Link href="/sign-in/sso">Sign in that way</Link>
-      </p>
+      <ul className="sheet-links" aria-label="Other ways in">
+        {allowSignup ? (
+          <li>
+            New here? <Link href={withReturnPath('/sign-up', next)}>Create an account</Link>
+          </li>
+        ) : (
+          <li>
+            Given a setup code? <Link href={withReturnPath('/setup', next)}>Use it here</Link>
+          </li>
+        )}
+        <li>
+          Does your company have its own sign-in?{' '}
+          <Link href="/sign-in/sso">Sign in through your company</Link>
+        </li>
+        <li>
+          <Link href="/help">Help</Link>
+        </li>
+      </ul>
     </main>
   );
 }

@@ -16,6 +16,11 @@ ENSEMUS_LICENSE_FILE=/run/secrets/ensemus-license
 DATABASE_URL_FILE=/run/secrets/database-url
 TEMPORAL_ADDRESS=temporal.internal.invalid:7233
 TEMPORAL_NAMESPACE=ensemus
+# The Compose all-in-one Temporal server: Go soft memory target and container hard limit.
+# Keep the Go target below the container limit, leaving room for native/stack allocations.
+# Its checked-in history/event caches are byte-bounded; a server restart applies those settings.
+ENSEMUS_TEMPORAL_GO_MEMORY_LIMIT=512MiB
+ENSEMUS_TEMPORAL_MEMORY_LIMIT=1024M
 OBJECT_STORAGE_ENDPOINT=https://objects.internal.invalid
 OBJECT_STORAGE_BUCKET=ensemus
 OBJECT_STORAGE_CREDENTIAL_REF=/run/secrets/object-store-credentials

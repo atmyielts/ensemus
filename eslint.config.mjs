@@ -78,8 +78,17 @@ const authDatabase = {
   group: ['@ensemus/database/auth'],
   message: 'Only @ensemus/auth may use the auth database role.',
 };
+const bridge = {
+  group: ['@ensemus/database/federation'],
+  message:
+    'The one role that crosses tenants belongs to the federation worker alone (ADR-035 D2). Everything else stays in its tenant.',
+};
+const deployJobs = {
+  group: ['@ensemus/database/deployment'],
+  message: 'Only deploy jobs may change what a deployment is (ADR-035 D5).',
+};
 const connectorCode = {
-  regex: '^@ensemus/connectors(/(?!(manifest|knowledge-manifests)$).*)?$',
+  regex: '^@ensemus/connectors(/(?!(manifest|knowledge-manifests|manifest-business)$).*)?$',
   message:
     'Connectors run in the connector worker. The web tier may read manifests only (ADR-027).',
 };
@@ -133,6 +142,10 @@ const sovereignReach = {
 const testDoubles = {
   group: [
     '@ensemus/connectors/testing',
+    '@ensemus/skills/testing',
+    '@ensemus/skills/sign',
+    '@ensemus/sandbox/testing',
+    '@ensemus/department-packs/testing',
     '@ensemus/intelligence/testing',
     '@ensemus/knowledge/testing',
     '@ensemus/sovereign/testing',
@@ -193,6 +206,63 @@ const knowledgeNetwork = {
     'node:child_process',
   ],
   message: 'Nothing in @ensemus/knowledge can reach a network or a process (ADR-029).',
+};
+const operatorDatabase = {
+  group: ['@ensemus/database/marketplace-operator'],
+  message: 'Only the marketplace operator command may use its role (ADR-034 D6).',
+};
+const webSkillCode = {
+  group: ['@ensemus/sandbox', '@ensemus/sandbox/*', '@ensemus/skills', '@ensemus/skills/*'],
+  message: 'The web tier stores bytes and parses nothing. A worker checks a bundle (ADR-034 D2).',
+};
+const sandboxReach = {
+  group: [
+    '@ensemus/application',
+    '@ensemus/application/*',
+    '@ensemus/auth',
+    '@ensemus/auth/*',
+    '@ensemus/config',
+    '@ensemus/connectors',
+    '@ensemus/connectors/*',
+    '@ensemus/database',
+    '@ensemus/database/*',
+    '@ensemus/secrets',
+    '@ensemus/secrets/*',
+    '@ensemus/storage',
+    '@ensemus/workflows',
+    '@ensemus/workflows/*',
+    '@temporalio/*',
+    'drizzle-orm',
+    'drizzle-orm/*',
+    'pg',
+    'pg/*',
+  ],
+  message: 'The sandbox package holds no credential and reaches no store (ADR-034 D3).',
+};
+const skillReach = {
+  group: [...sandboxReach.group, '@ensemus/sandbox', '@ensemus/sandbox/*'],
+  message: 'Reading a bundle needs no store and no credential (ADR-034 D2).',
+};
+const sandboxWorkerReach = {
+  group: [
+    '@ensemus/connectors',
+    '@ensemus/connectors/*',
+    '@ensemus/secrets',
+    '@ensemus/secrets/*',
+    '@ensemus/database/secrets',
+    '@ensemus/database/service',
+    '@ensemus/database/dispatcher',
+    '@ensemus/database/setup-token',
+  ],
+  message: 'The sandbox worker holds no broker and no connector, so it has nothing to give away.',
+};
+const runnerReach = {
+  group: [
+    ...sandboxReach.group.filter((pattern) => pattern !== '@ensemus/config'),
+    '@ensemus/skills',
+    '@ensemus/skills/*',
+  ],
+  message: 'The runner holds no database and no credential. It only starts jobs (ADR-034 D3).',
 };
 const connectorReach = {
   group: [
@@ -304,11 +374,24 @@ const rawNetworkForModels = {
   message: 'A model call goes out only through the guarded fetch in src/net (ADR-028 FD-10).',
 };
 
+// Platform email. The mailer role reads every tenant's member names and addresses (0571), so only the
+// mail worker's own files may open it.
+const mailerDatabase = {
+  group: ['@ensemus/database/mailer'],
+  message: 'Mail-worker only: this role reads every tenant member address (0571).',
+};
+const mailWorkerFiles = [
+  'workers/workflow/src/mail-worker.ts',
+  'workers/workflow/src/mail/**/*.ts',
+];
+
 // Files that are agent-worker's own, so they alone may name the agent database entry.
 const agentWorkerFiles = [
   'workers/workflow/src/agent-main.ts',
   'workers/workflow/src/kill-switch.ts',
   'workers/workflow/src/halt-global.ts',
+  // Restore reconciliation fences and purges private transcripts through the agent role (ADR-026).
+  'workers/workflow/src/restore-reconcile.ts',
   'packages/workflows/src/agent-activities.ts',
   'packages/workflows/src/model-probe-activities.ts',
   'packages/application/src/ai/runs.ts',
@@ -328,6 +411,17 @@ const saasBoundarySelectors = [
     selector: `ImportDeclaration[source.value='${name}']`,
     message: operatorRoles.message,
   })),
+];
+
+const BRIDGE_FILES = [
+  'workers/workflow/src/federation-worker.ts',
+  'packages/workflows/src/federation-activities.ts',
+  'packages/workflows/src/federation-deps.ts',
+];
+const DEPLOY_JOB_FILES = [
+  'workers/workflow/src/apply-deployment-profile.ts',
+  'workers/workflow/src/migrate.ts',
+  'workers/workflow/src/isolation-report.ts',
 ];
 
 export default tseslint.config(
@@ -395,45 +489,111 @@ export default tseslint.config(
   },
   restrict(
     ['**/*.{ts,tsx}'],
-    [rawDatabase, authDatabase, vendorIssuer, agentDatabase],
+    [
+      rawDatabase,
+      authDatabase,
+      bridge,
+      deployJobs,
+      vendorIssuer,
+      agentDatabase,
+      mailerDatabase,
+      operatorDatabase,
+    ],
     ['packages/database/**', 'packages/auth/**', 'tests/**', 'apps/web/**'],
   ),
   restrict(['packages/auth/**/*.ts'], [rawDatabase, temporal, broker, ssoOperator, vendorIssuer]),
-  restrict(['packages/packs/**/*.ts'], [packReach], ['**/*.test.ts']),
+  restrict(
+    ['packages/packs/**/*.ts'],
+    [packReach],
+    ['**/*.test.ts', 'packages/packs/src/index.ts'],
+  ),
+  // The catalog may aggregate the other data-only pack package. Its suppliers keep packReach.
+  restrict(
+    ['packages/packs/src/index.ts'],
+    [
+      {
+        ...packReach,
+        regex:
+          '^(?!@ensemus/domain/|@ensemus/department-packs$)(@ensemus/|pg|drizzle-orm|@temporalio/|better-auth|node:)',
+      },
+    ],
+  ),
   restrict(
     ['apps/web/**/*.{ts,tsx}'],
     [
       rawDatabase,
       authDatabase,
+      bridge,
+      deployJobs,
       temporal,
       broker,
       vendorIssuer,
       webOffSovereignTools,
       connectorCode,
+      operatorDatabase,
+      webSkillCode,
       agentDatabase,
       agentCodeFromWeb,
       testDoubles,
       knowledgeWorkerCode,
       ssoOperator,
+      mailerDatabase,
     ],
   ),
   restrict(
     ['workers/**/*.ts', 'packages/workflows/**/*.ts'],
-    [rawDatabase, authDatabase, vendorIssuer, testDoubles, agentDatabase],
-    agentWorkerFiles,
+    [
+      rawDatabase,
+      authDatabase,
+      bridge,
+      deployJobs,
+      vendorIssuer,
+      testDoubles,
+      agentDatabase,
+      mailerDatabase,
+      operatorDatabase,
+    ],
+    [...agentWorkerFiles, ...mailWorkerFiles],
   ),
+  restrict(mailWorkerFiles, [
+    rawDatabase,
+    authDatabase,
+    bridge,
+    deployJobs,
+    vendorIssuer,
+    testDoubles,
+    agentDatabase,
+  ]),
   // Agent code. A rule set on the same files replaces the one before it, so each names everything.
   restrict(
     ['packages/policy/**/*.ts'],
-    [rawDatabase, authDatabase, vendorIssuer, policyReach, aiCore, rawNetworkForModels],
+    [
+      rawDatabase,
+      authDatabase,
+      bridge,
+      deployJobs,
+      vendorIssuer,
+      policyReach,
+      aiCore,
+      rawNetworkForModels,
+    ],
   ),
   restrict(
     ['packages/commercial/**/*.ts'],
-    [rawDatabase, authDatabase, vendorIssuer, agentDatabase, serviceContext],
+    [rawDatabase, authDatabase, bridge, deployJobs, vendorIssuer, agentDatabase, serviceContext],
   ),
   restrict(
     ['packages/application/src/ai/**/*.ts'],
-    [rawDatabase, authDatabase, vendorIssuer, agentDatabase, serviceContext, temporal],
+    [
+      rawDatabase,
+      authDatabase,
+      bridge,
+      deployJobs,
+      vendorIssuer,
+      agentDatabase,
+      serviceContext,
+      temporal,
+    ],
     agentWorkerFiles,
   ),
   restrict(agentWorkerFiles, [
@@ -443,16 +603,46 @@ export default tseslint.config(
     serviceContext,
     testDoubles,
   ]),
+  // The offline restore command can assert its platform login while agent bindings stay isolated.
+  restrict(
+    ['workers/workflow/src/restore-reconcile.ts'],
+    [
+      rawDatabase,
+      authDatabase,
+      vendorIssuer,
+      { ...serviceContext, allowImportNames: ['assertLoginRole'] },
+      testDoubles,
+    ],
+  ),
   // Fixed terminal metadata/effect adapter only: it constructs no AgentContext and exposes no
   // service context/callback. Its SQL RPC independently requires the actual agent login and an
   // exact terminal run/Work/fence/Temporal/version. Ordinary agent logic stays service-forbidden.
   restrict(
     ['packages/application/src/ai/terminal-work-control.ts'],
-    [rawDatabase, authDatabase, vendorIssuer, agentDatabase, temporal, testDoubles],
+    [
+      rawDatabase,
+      authDatabase,
+      bridge,
+      deployJobs,
+      vendorIssuer,
+      agentDatabase,
+      temporal,
+      testDoubles,
+    ],
   ),
   restrict(
     ['packages/agent-runtime/**/*.ts'],
-    [rawDatabase, authDatabase, vendorIssuer, anyDatabase, serviceContext, temporal, aiCore],
+    [
+      rawDatabase,
+      authDatabase,
+      bridge,
+      deployJobs,
+      vendorIssuer,
+      anyDatabase,
+      serviceContext,
+      temporal,
+      aiCore,
+    ],
     ['packages/agent-runtime/src/reducer.ts'],
   ),
   restrict(['packages/agent-runtime/src/reducer.ts'], [anything]),
@@ -461,6 +651,8 @@ export default tseslint.config(
     [
       rawDatabase,
       authDatabase,
+      bridge,
+      deployJobs,
       vendorIssuer,
       anyDatabase,
       serviceContext,
@@ -472,12 +664,31 @@ export default tseslint.config(
   ),
   restrict(
     ['packages/intelligence/src/net/**', 'packages/intelligence/src/testing/**'],
-    [rawDatabase, authDatabase, vendorIssuer, anyDatabase, serviceContext, temporal, aiCore],
+    [
+      rawDatabase,
+      authDatabase,
+      bridge,
+      deployJobs,
+      vendorIssuer,
+      anyDatabase,
+      serviceContext,
+      temporal,
+      aiCore,
+    ],
   ),
   // The agent's workflow files are workflow code: nothing but the SDK, types and the reducer.
   restrict(
     ['packages/workflows/src/agent-run.ts', 'packages/workflows/src/model-probe.ts'],
-    [rawDatabase, authDatabase, vendorIssuer, agentDatabase, serviceContext, testDoubles],
+    [
+      rawDatabase,
+      authDatabase,
+      bridge,
+      deployJobs,
+      vendorIssuer,
+      agentDatabase,
+      serviceContext,
+      testDoubles,
+    ],
   ),
   // packages/connectors, in two parts. A rule set on the same files replaces the one before it, so
   // the first has to name everything: its testing folder may use a socket, and network.ts must.
@@ -490,6 +701,16 @@ export default tseslint.config(
     ['packages/connectors/src/runtime/network.ts', 'packages/connectors/src/testing/**'],
     [connectorReach, vendorIssuer],
   ),
+  restrict(['packages/department-packs/**/*.ts'], [packReach]),
+  {
+    files: ['packages/department-packs/**/*.ts'],
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        { name: 'fetch', message: 'A department pack is plain data, and reaches nothing.' },
+      ],
+    },
+  },
   {
     files: ['packages/connectors/**/*.ts'],
     rules: {
@@ -562,4 +783,69 @@ export default tseslint.config(
     ignores: ['packages/application/src/saas/**', 'workers/workflow/src/ops*.ts'],
     rules: { 'no-restricted-syntax': ['error', ...saasBoundarySelectors] },
   },
+  // M11B. Later rule sets replace earlier ones on the same files, so each names everything it means.
+  restrict(
+    ['workers/workflow/src/marketplace-operator.ts', 'workers/workflow/src/marketplace-command.ts'],
+    [
+      rawDatabase,
+      authDatabase,
+      bridge,
+      deployJobs,
+      vendorIssuer,
+      testDoubles,
+      agentDatabase,
+      mailerDatabase,
+    ],
+  ),
+  restrict(
+    ['workers/workflow/src/sandbox-worker.ts', 'packages/workflows/src/sandbox-run-activities.ts'],
+    [
+      rawDatabase,
+      authDatabase,
+      bridge,
+      deployJobs,
+      vendorIssuer,
+      testDoubles,
+      agentDatabase,
+      mailerDatabase,
+      operatorDatabase,
+      sandboxWorkerReach,
+    ],
+  ),
+  restrict(['workers/workflow/src/sandbox-runner.ts'], [rawDatabase, runnerReach, testDoubles]),
+  restrict(
+    ['packages/sandbox/**/*.ts'],
+    [
+      sandboxReach,
+      { group: ['@ensemus/skills', '@ensemus/skills/*'], message: 'A job is only bytes.' },
+    ],
+  ),
+  restrict(
+    ['packages/skills/**/*.ts'],
+    [
+      skillReach,
+      rawNetwork,
+      { group: ['node:child_process', 'child_process'], message: 'Reading a bundle runs nothing.' },
+    ],
+  ),
+  restrict(BRIDGE_FILES, [
+    rawDatabase,
+    authDatabase,
+    vendorIssuer,
+    testDoubles,
+    agentDatabase,
+    mailerDatabase,
+    operatorDatabase,
+    deployJobs,
+  ]),
+  restrict(DEPLOY_JOB_FILES, [
+    rawDatabase,
+    authDatabase,
+    vendorIssuer,
+    testDoubles,
+    agentDatabase,
+    mailerDatabase,
+    operatorDatabase,
+    bridge,
+  ]),
 );

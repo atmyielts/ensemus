@@ -14,6 +14,7 @@ import {
 } from '@ensemus/database';
 import {
   dispatchDueEvents,
+  listIsolationOrganizationIds,
   listOrganizationIds,
   nextAttemptDelayMs,
   openDispatcherDatabase,
@@ -435,6 +436,43 @@ describe('outbox dispatch', () => {
       expect((await stateOf(work.id)).state).toBe('published');
     });
 
+    it('keeps a reclaimed event queued when the older delivery returns late', async () => {
+      await drain();
+      const work = await createWorkUnit(app.db, context, { title: 'Reclaimed delivery' });
+      const second = openDispatcherDatabase(urls.dispatcher());
+      const makeDue = () =>
+        su.query(
+          `update platform.outbox_events o set next_attempt_at = now() - interval '1 second'
+           from platform.domain_events e
+           where e.id = o.event_id and e.organization_id = o.organization_id and e.aggregate_id = $1`,
+          [work.id],
+        );
+      try {
+        const older = await dispatchDueEvents(dispatcher.db, async (event) => {
+          expect(event.aggregateId).toBe(work.id);
+          // Expire this lease while the first handler is still in flight.
+          await makeDue();
+          const newer = await dispatchDueEvents(second.db, async (reclaimed) => {
+            expect(reclaimed.eventId).toBe(event.eventId);
+            throw new Error('Generated retryable failure');
+          });
+          expect(newer).toMatchObject({ handled: 0, failed: 1 });
+        });
+        expect(older.handled).toBe(0);
+        expect(await stateOf(work.id)).toEqual({ state: 'queued', attempts: 1 });
+
+        await makeDue();
+        const retried = await dispatchDueEvents(second.db, async (event) => {
+          expect(event.aggregateId).toBe(work.id);
+          expect(event.attempts).toBe(1);
+        });
+        expect(retried.handled).toBe(1);
+        expect(await stateOf(work.id)).toEqual({ state: 'published', attempts: 2 });
+      } finally {
+        await second.close();
+      }
+    });
+
     it('stops between events when asked to, and hands the rest back at once', async () => {
       await drain();
       for (let i = 0; i < 4; i++) await createWorkUnit(app.db, context, { title: `Stop ${i}` });
@@ -476,6 +514,18 @@ describe('outbox dispatch', () => {
 
     it('can list every tenant from event metadata, to check their schedules', async () => {
       expect(await listOrganizationIds(dispatcher.db)).toContain(context.organizationId);
+    });
+
+    it('requires the dispatcher login for an isolation inventory', async () => {
+      expect(await listIsolationOrganizationIds(dispatcher.db)).toContain(context.organizationId);
+      const scoped = openDispatcherDatabase(urls.app());
+      try {
+        await expect(listIsolationOrganizationIds(scoped.db)).rejects.toThrow(
+          'DISPATCHER_LOGIN_REQUIRED',
+        );
+      } finally {
+        await scoped.close();
+      }
     });
   });
 

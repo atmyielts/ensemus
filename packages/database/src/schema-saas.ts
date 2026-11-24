@@ -1650,6 +1650,7 @@ export const objectDeletionClaims = lifecycleSchema.table(
     rawDocumentId: uuid(),
     materialRestoreGeneration: uuid(),
     authRestoreGeneration: uuid(),
+    skillOffboardingId: uuid(),
     writerToken: uuid().notNull(),
     generation: bigint({ mode: 'number' }).notNull(),
     objectKey: text().notNull(),
@@ -1668,19 +1669,31 @@ export const objectDeletionClaims = lifecycleSchema.table(
       foreignColumns: [organizations.id],
     }),
     primaryKey({ name: 'object_deletion_claims_pkey', columns: [t.organizationId, t.id] }),
+    foreignKey({
+      name: 'skill_delete_offboarding_admission_fk',
+      columns: [t.organizationId, t.skillOffboardingId],
+      foreignColumns: [offboardingAdmissions.organizationId, offboardingAdmissions.offboardingId],
+    }),
+    check(
+      'skill_delete_offboarding_kind',
+      sql`${t.skillOffboardingId} is null or ${t.kind}='skill_upload'`,
+    ),
     uniqueIndex('object_deletion_unresolved_key')
       .on(t.organizationId, t.objectKey)
       .where(sql`${t.state}<>'proven'`),
     index('raw_delete_receipt_by_document')
       .on(t.organizationId, t.rawDocumentId, t.materialRestoreGeneration)
       .where(sql`${t.kind}='raw_source'`),
+    uniqueIndex('skill_upload_one_delete')
+      .on(t.organizationId, t.artifactId)
+      .where(sql`${t.kind}='skill_upload'`),
     check(
       'raw_claim_version_nonnull',
       sql`${t.kind}<>'raw_source' or ${t.rawSourceVersion} is not null`,
     ),
     check(
       'object_deletion_claims_kind_check',
-      sql`${t.kind} in ('derived','ordinary','archive','raw_source')`,
+      sql`${t.kind} in ('derived','ordinary','archive','raw_source','skill_upload')`,
     ),
     check(
       'object_deletion_claims_generation_check',
@@ -1693,7 +1706,7 @@ export const objectDeletionClaims = lifecycleSchema.table(
     ),
     check(
       'object_deletion_key',
-      sql`(${t.kind}='raw_source' and ${t.artifactId} is null and ${t.importId} is null and ${t.rawSourceId} is not null and ${t.rawSourceVersion}>0 and ${t.rawPurgeJobId} is not null and ${t.rawDocumentId} is not null and ${t.materialRestoreGeneration} is not null and ${t.authRestoreGeneration} is not null and ${t.objectKey}=${t.organizationId}::text||'/knowledge/'||${t.rawDocumentId}::text) or (${t.kind}<>'raw_source' and ${t.artifactId} is not null and ${t.rawSourceId} is null and ${t.rawSourceVersion} is null and ${t.rawPurgeJobId} is null and ${t.rawDocumentId} is null and ${t.materialRestoreGeneration} is null and ${t.authRestoreGeneration} is null and ((${t.kind}='archive' and ${t.importId} is not null and ${t.objectKey}=${t.organizationId}::text||'/archive-quarantine/'||${t.importId}::text||'/'||${t.artifactId}::text||'/'||${t.writerToken}::text) or (${t.kind} in ('derived','ordinary') and ${t.importId} is null and ${t.objectKey}=${t.organizationId}::text||'/artifacts/'||${t.artifactId}::text)))`,
+      sql`(${t.kind}='raw_source' and ${t.artifactId} is null and ${t.importId} is null and ${t.rawSourceId} is not null and ${t.rawSourceVersion}>0 and ${t.rawPurgeJobId} is not null and ${t.rawDocumentId} is not null and ${t.materialRestoreGeneration} is not null and ${t.authRestoreGeneration} is not null and ${t.objectKey}=${t.organizationId}::text||'/knowledge/'||${t.rawDocumentId}::text) or (${t.kind}<>'raw_source' and ${t.artifactId} is not null and ${t.rawSourceId} is null and ${t.rawSourceVersion} is null and ${t.rawPurgeJobId} is null and ${t.rawDocumentId} is null and ${t.materialRestoreGeneration} is null and ${t.authRestoreGeneration} is null and ((${t.kind}='archive' and ${t.importId} is not null and ${t.objectKey}=${t.organizationId}::text||'/archive-quarantine/'||${t.importId}::text||'/'||${t.artifactId}::text||'/'||${t.writerToken}::text) or (${t.kind} in ('derived','ordinary') and ${t.importId} is null and ${t.objectKey}=${t.organizationId}::text||'/artifacts/'||${t.artifactId}::text) or (${t.kind}='skill_upload' and ${t.importId} is null and ${t.writerToken}=${t.artifactId} and ${t.generation}=1 and ${t.objectKey}=${t.organizationId}::text||'/skills/'||${t.artifactId}::text)))`,
     ),
     check(
       'object_deletion_receipt',
@@ -1785,4 +1798,75 @@ export const objectRestoreDebts = lifecycleSchema.table(
     }),
     check('object_restore_debts_kind_check', sql`${t.kind} in ('derived','archive')`),
   ],
+);
+
+// Hosted checkout (ADR-032 D4a). Guards, routing and the attestation table are in reviewed SQL, migration
+// 0580; the attestations are reached only through its fixed functions, so they have no table here.
+export const checkoutSessions = billingSchema.table(
+  'checkout_sessions',
+  {
+    organizationId: uuid().notNull(),
+    id: uuid().notNull().defaultRandom(),
+    paymentId: uuid().notNull(),
+    invoiceId: uuid().notNull(),
+    processor: text().notNull(),
+    environment: text().notNull(),
+    amountMicros: micros().notNull(),
+    currency: text().notNull(),
+    minorUnitExponent: integer().notNull(),
+    amountMinor: bigint({ mode: 'bigint' }).notNull(),
+    state: text().notNull(),
+    orderRouteSha256: text().notNull(),
+    txnRouteSha256: text(),
+    providerTxnRef: text(),
+    providerAuxRef: text(),
+    clickPrepareId: bigint({ mode: 'bigint' }),
+    checkoutUrl: text(),
+    providerTimeMs: bigint({ mode: 'bigint' }),
+    createdMs: bigint({ mode: 'bigint' }),
+    performedMs: bigint({ mode: 'bigint' }),
+    cancelledMs: bigint({ mode: 'bigint' }),
+    cancelReason: integer(),
+    taxMinor: bigint({ mode: 'bigint' }),
+    requestedByMembershipId: uuid().notNull(),
+    version: version(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    primaryKey({ name: 'checkout_sessions_pk', columns: [t.organizationId, t.id] }),
+    unique('checkout_sessions_one_per_payment').on(t.organizationId, t.paymentId),
+    unique('checkout_sessions_order_route').on(t.orderRouteSha256),
+    uniqueIndex('checkout_sessions_txn_route')
+      .on(t.txnRouteSha256)
+      .where(sql`${t.txnRouteSha256} IS NOT NULL`),
+    uniqueIndex('checkout_sessions_provider_ref')
+      .on(t.processor, t.providerTxnRef)
+      .where(sql`${t.providerTxnRef} IS NOT NULL`),
+    index('checkout_sessions_statement')
+      .on(t.processor, t.providerTimeMs)
+      .where(sql`${t.providerTimeMs} IS NOT NULL`),
+    foreignKey({
+      name: 'checkout_sessions_payment',
+      columns: [t.organizationId, t.paymentId],
+      foreignColumns: [payments.organizationId, payments.id],
+    }),
+    foreignKey({
+      name: 'checkout_sessions_invoice',
+      columns: [t.organizationId, t.invoiceId],
+      foreignColumns: [invoices.organizationId, invoices.id],
+    }),
+  ],
+);
+
+export const checkoutReplies = billingSchema.table(
+  'checkout_replies',
+  {
+    organizationId: uuid().notNull(),
+    deliveryId: uuid().notNull(),
+    processor: text().notNull(),
+    body: text().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ name: 'checkout_replies_pk', columns: [t.organizationId, t.deliveryId] })],
 );

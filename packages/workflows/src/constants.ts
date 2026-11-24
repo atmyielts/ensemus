@@ -7,6 +7,14 @@ export const PLATFORM_TASK_QUEUE = 'ensemus-platform';
 export const CONNECTOR_TASK_QUEUE = 'ensemus-connectors';
 
 /**
+ * The code exchange holds a client secret and reaches the provider's token route, so it runs where every
+ * other credential does (ADR-038 D1). It is tried once: a code is single use, and a retry could only
+ * fail at the provider or, worse, look like a replay.
+ */
+export const OAUTH_EXCHANGE_TASK_QUEUE = CONNECTOR_TASK_QUEUE;
+export const OAUTH_EXCHANGE_MAX_ATTEMPTS = 1;
+
+/**
  * Model calls and tool steps (ADR-028 FD-2). Only agent-worker polls this, and only it holds the sealing
  * key, the agent database role and any route to a model. Workflow code stays on the platform queue.
  */
@@ -14,6 +22,19 @@ export const AGENT_TASK_QUEUE = 'ensemus-agent';
 
 /** A wake-up to look at `ai.run_controls`. It carries nothing: PostgreSQL has the answer. */
 export const AGENT_RUN_CONTROL_SIGNAL = 'agentRunControl';
+
+/**
+ * The agent run's suite read (ADR-038 D6): after the gate passes one, the workflow runs it on the connector
+ * queue and then collects it. A history written before this has no suite read, so it never reaches the
+ * branch, and the marker keeps any later change to that branch replay-safe.
+ */
+export const SUITE_READ_PATCH = 'agent-suite-read-v1';
+/**
+ * Durable retries of a model turn after a passing outage (a rate limit, a 5xx, a timeout): the workflow
+ * asks the gateway to hold its fallback list, waits on a timer, and tries again as a new step. A history
+ * written before this never asked, so its turns end the way they always did, and it replays unchanged.
+ */
+export const MODEL_RETRY_PATCH = 'agent-model-retry-v1';
 /** How often a workflow re-checks a send M3 is carrying out, on a durable timer. */
 export const TOOL_WAIT_POLL = '30 seconds';
 /** How long an Activity waits for agent-worker to pick it up before the run says so (FD-2). */
@@ -30,6 +51,20 @@ export const KNOWLEDGE_TASK_QUEUE = 'ensemus-knowledge';
  * can reach a model. If it is not running, ingest finishes lexical-only and answers say why.
  */
 export const KNOWLEDGE_MODEL_TASK_QUEUE = 'ensemus-agent';
+
+/**
+ * The Activities that hand code and data to a sandbox runner. Only the sandbox worker polls this. It holds
+ * no secrets broker and no connector, and it runs only under the `sandbox` profile. If it is not running,
+ * these wait a bounded time and the run ends `runner_unavailable` (ADR-034 D3).
+ */
+export const SANDBOX_TASK_QUEUE = 'ensemus-sandbox';
+
+/**
+ * Activities that use the one role that crosses tenants. Only the federation worker polls this, and it
+ * runs only where an operator turned cross-organization work on (ADR-035 D2). If it is not running, they
+ * wait, and nothing crosses.
+ */
+export const FEDERATION_TASK_QUEUE = 'ensemus-federation';
 
 /**
  * For every gRPC client connection to Temporal. By default the client looks up a DNS TXT record for

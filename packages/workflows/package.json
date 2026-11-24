@@ -16,6 +16,9 @@
     "./external-action-activities": "./src/external-action-activities.ts",
     "./webhook-activities": "./src/webhook-activities.ts",
     "./connector-sync-activities": "./src/connector-sync-activities.ts",
+    "./oauth-exchange-activities": "./src/oauth-exchange-activities.ts",
+    "./suite-upkeep-activities": "./src/suite-upkeep-activities.ts",
+    "./suite-read-activities": "./src/suite-read-activities.ts",
     "./agent-schemas": "./src/agent-schemas.ts",
     "./agent-activities": "./src/agent-activities.ts",
     "./model-probe-activities": "./src/model-probe-activities.ts",
@@ -42,8 +45,17 @@
     "./credit-activities": "./src/credit-activities.ts",
     "./tax-activities": "./src/tax-activities.ts",
     "./payment-activities": "./src/payment-activities.ts",
+    "./checkout-activities": "./src/checkout-activities.ts",
     "./retention-activities": "./src/retention-activities.ts",
-    "./offboarding-activities": "./src/offboarding-activities.ts"
+    "./offboarding-activities": "./src/offboarding-activities.ts",
+    "./meeting-derivation-activities": "./src/meeting-derivation-activities.ts",
+    "./meeting-import-activities": "./src/meeting-import-activities.ts",
+    "./skill-deps": "./src/skill-deps.ts",
+    "./skill-verification-activities": "./src/skill-verification-activities.ts",
+    "./sandbox-run-activities": "./src/sandbox-run-activities.ts",
+    "./marketplace-install-activities": "./src/marketplace-install-activities.ts",
+    "./federation-deps": "./src/federation-deps.ts",
+    "./federation-activities": "./src/federation-activities.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
@@ -66,6 +78,8 @@
     "drizzle-orm": "0.45.4",
     "zod": "4.6.7",
     "@ensemus/knowledge": "workspace:*",
-    "@ensemus/saas": "workspace:*"
+    "@ensemus/saas": "workspace:*",
+    "@ensemus/sandbox": "workspace:*",
+    "@ensemus/skills": "workspace:*"
   }
 }

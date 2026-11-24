@@ -61,18 +61,21 @@ const denied = expect.objectContaining({
 const HASH = 'a'.repeat(64);
 
 describe('product rules in the database', () => {
+  let worker: ReturnType<typeof openAppDatabase>;
   let database: ReturnType<typeof openAppDatabase>;
   let tenants: Awaited<ReturnType<typeof makeTwoTenants>>;
   let su: pg.Client;
 
   beforeAll(async () => {
     database = openAppDatabase(urls.app(), { max: 2 });
+    worker = openAppDatabase(urls.worker());
     tenants = await makeTwoTenants(database.db);
     su = await client(urls.superuser());
   });
 
   afterAll(async () => {
     await database?.close();
+    await worker?.close();
     await su?.end();
   });
 
@@ -94,7 +97,7 @@ describe('product rules in the database', () => {
       scenarioKey: status === 'passed' ? 'standard.draft_only' : 'standard.external_write',
     });
     const outcome = await runSimulationStep(
-      database.db,
+      worker.db,
       createServiceContext(owner.context.organizationId),
       { simulationId: simulation.id },
     );
@@ -330,17 +333,13 @@ describe('product rules in the database', () => {
       ).rejects.toEqual(sqlRule('EN412', 'SIMULATION_INTENT_REQUIRED'));
       // ... and even the actual worker scope runSimulationStep uses cannot change a finished run.
       await expect(
-        withTenantTx(
-          database.db,
-          createServiceContext(owner.context.organizationId),
-          async (tx) => {
-            await tx.execute(sql`select set_config('app.studio_simulation_id',${id},true)`);
-            await tx
-              .update(simulationRuns)
-              .set({ status: 'failed' })
-              .where(eq(simulationRuns.id, id));
-          },
-        ),
+        withTenantTx(worker.db, createServiceContext(owner.context.organizationId), async (tx) => {
+          await tx.execute(sql`select set_config('app.studio_simulation_id',${id},true)`);
+          await tx
+            .update(simulationRuns)
+            .set({ status: 'failed' })
+            .where(eq(simulationRuns.id, id));
+        }),
       ).rejects.toEqual(sqlState('EN401'));
     });
 

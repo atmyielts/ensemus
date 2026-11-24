@@ -161,7 +161,21 @@ export async function decideStudioReviewAction(form: FormData) {
 }
 export async function publishStudioReviewAction(form: FormData) {
   return native(form, async ({ database, context, actor }, org) => {
-    const input = { reviewId: idOf(form, 'reviewId'), expectedVersion: version(form) };
+    const raw = studioText(form, 'evaluationReport');
+    let evaluationReport: unknown;
+    if (raw.trim()) {
+      if (Buffer.byteLength(raw, 'utf8') > 256 * 1024) throw new AppError('INVALID_INPUT');
+      try {
+        evaluationReport = JSON.parse(raw);
+      } catch {
+        throw new AppError('AGENT_EVALUATION_UNVERIFIED');
+      }
+    }
+    const input = {
+      reviewId: idOf(form, 'reviewId'),
+      expectedVersion: version(form),
+      ...(evaluationReport === undefined ? {} : { evaluationReport }),
+    };
     await studioOnce(
       database,
       context,

@@ -1,0 +1,23 @@
+{
+  "MIT": [
+    {
+      "name": "shared-lib",
+      "versions": ["2.0.0"],
+      "paths": [
+        "/home/fixture.person/repo/node_modules/.pnpm/shared-lib@2.0.0/node_modules/shared-lib"
+      ],
+      "license": "MIT",
+      "homepage": "https://example.invalid/shared-lib"
+    }
+  ],
+  "(MIT AND LGPL-3.0)": [
+    {
+      "name": "mixed-lib",
+      "versions": ["3.0.0"],
+      "paths": [
+        "/home/fixture.person/repo/node_modules/.pnpm/mixed-lib@3.0.0/node_modules/mixed-lib"
+      ],
+      "license": "(MIT AND LGPL-3.0)"
+    }
+  ]
+}

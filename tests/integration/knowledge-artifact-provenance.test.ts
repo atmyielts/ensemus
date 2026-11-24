@@ -90,16 +90,18 @@ import { urls } from '../helpers/stack';
 
 describe('generated artifact all-input privacy and erasure protocol (0208)', () => {
   let database: ReturnType<typeof openAppDatabase>,
+    worker: ReturnType<typeof openAppDatabase>,
     agent: ReturnType<typeof openAgentTestDatabase>,
     auth: pg.Client;
   beforeAll(async () => {
     database = openAppDatabase(urls.app(), { max: 6 });
+    worker = openAppDatabase(urls.worker());
     agent = openAgentTestDatabase(6);
     auth = new pg.Client({ connectionString: urls.auth() });
     await auth.connect();
   });
   afterAll(async () => {
-    await Promise.all([auth?.end(), database?.close(), agent?.close()]);
+    await Promise.all([auth?.end(), database?.close(), worker?.close(), agent?.close()]);
   });
   const refuseObjectIo = async (): Promise<never> => {
     throw new Error('TEST_UNEXPECTED_OBJECT_IO');
@@ -117,7 +119,7 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
     });
     await requestExecution(database.db, owner, work.id);
     const activities = createActivities({
-      database: database.db,
+      database: worker.db,
       store: {
         put: refuseObjectIo,
         get: refuseObjectIo,
@@ -360,7 +362,7 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
       const actual = { ...input, ...changes };
       const agentContext = await ensureRun(actual.execution);
       return addGeneratedArtifact(
-        agentContext ? agent.db : database.db,
+        agentContext ? agent.db : worker.db,
         store,
         agentContext ?? service,
         actual,
@@ -948,7 +950,7 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
       ],
     });
     expect(
-      await checkArtifactGrounding(database.db, value.store, value.service, input),
+      await checkArtifactGrounding(worker.db, value.store, value.service, input),
     ).toMatchObject({ verdict: 'passed' });
     const review = await getArtifactVerification(database.db, value.owner, input);
     const accept = {
@@ -961,7 +963,7 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
     const accepted = await decideArtifact(database.db, value.owner, accept, { store: value.store });
     const current = () =>
       withTenantTx(
-        database.db,
+        worker.db,
         value.service,
         async (tx) =>
           (

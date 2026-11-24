@@ -85,6 +85,12 @@ describe('Google Drive v3 adapter', () => {
                     role: 'reader',
                   },
                   { id: 'group-id', type: 'group', role: 'reader' },
+                  {
+                    id: 'finance-permission-id',
+                    type: 'group',
+                    emailAddress: 'Finance@Example.invalid',
+                    role: 'writer',
+                  },
                   { id: 'domain-id', type: 'domain', domain: 'example.invalid', role: 'reader' },
                 ],
           });
@@ -110,6 +116,8 @@ describe('Google Drive v3 adapter', () => {
     expect(first.resources[0]?.acl).toMatchObject([
       { principalKind: 'user', principalExternalId: 'person@example.invalid' },
       { principalKind: 'group', principalExternalId: 'group-id' },
+      // Keyed by the group's email, as the directory keys the group's team.
+      { principalKind: 'group', principalExternalId: 'finance@example.invalid', access: 'write' },
       { principalKind: 'domain' },
     ]);
     const second = await connector.sync!.readPage(ctx, {

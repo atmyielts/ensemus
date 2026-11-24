@@ -14,19 +14,21 @@ export default async function KnowledgeSearchPage({
     <>
       <PageHead
         title="Find a source passage"
-        description="Search the current documents you can read. This search sends nothing to a model."
+        description="Look up words in the documents you can read and see the exact passages that use them. Nothing you type here is sent to an AI model."
       />
       <KnowledgeForm
         action={searchKnowledgeAction}
         hidden={{ organizationId }}
         submit="Find passages"
+        className="card inline-form knowledge-search-form"
         fields={[
           {
             name: 'query',
-            kind: 'textarea',
+            kind: 'text',
             label: 'Words to look for',
             required: true,
             maxLength: 4000,
+            placeholder: 'For example: notice period',
           },
         ]}
       />
