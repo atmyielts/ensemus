@@ -45,11 +45,10 @@ process.env.ENSEMUS_PUBLIC_URL = ORIGIN;
 process.env.ENSEMUS_TEST_BASE = ORIGIN; // tests/helpers/forms.ts reads this when it loads.
 
 const connectorsRound = process.argv.includes('--connectors');
-if (connectorsRound) {
-  // Every compose call below inherits these. The other rounds run with no profile, as they always did.
-  process.env.COMPOSE_PROFILES = 'connectors';
-  process.env.ENSEMUS_CONNECTORS_ENABLED = 'true';
-}
+// This disposable stack uses the selected test profile, independent of the operator's local settings.
+process.env.COMPOSE_PROFILES = connectorsRound ? 'connectors' : '';
+process.env.ENSEMUS_CROSS_ORG_ENABLED = '';
+if (connectorsRound) process.env.ENSEMUS_CONNECTORS_ENABLED = 'true';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CHAIN = 'DOCKER-USER';
@@ -155,8 +154,8 @@ function down() {
 }
 
 /** A result that says zero attempts means nothing for a container the rule cannot see. */
-function refuseUnlessOnTheWatchedSubnet() {
-  const containers = compose('ps', '-q')
+function refuseUnlessOnTheWatchedSubnet(env = {}) {
+  const containers = composeWith(env, 'ps', '-q')
     .trim()
     .split(/\s+/)
     .filter(Boolean)
@@ -339,6 +338,8 @@ const BUSINESS_PROPOSAL_SUITES = [
   'tests/stack/business-actions-api.test.ts',
   'tests/stack/business-connection-setup.test.ts',
 ];
+const FEDERATION_ENV = { COMPOSE_PROFILES: 'federation', ENSEMUS_CROSS_ORG_ENABLED: 'true' };
+const FEDERATION_SUITE = 'tests/stack/federation-api.test.ts';
 const MODE_SERVICES = ['web', 'web-2', 'worker', 'agent-worker'];
 const recreate = (env) =>
   composeWith(env, 'up', '-d', '--no-deps', '--force-recreate', '--wait', ...MODE_SERVICES);
@@ -467,6 +468,8 @@ try {
         RESTORE_SUITE,
         '--exclude',
         PROCESS_SUITE,
+        '--exclude',
+        FEDERATION_SUITE,
       ];
       if (!stackTests('the stack test suite', everyOther)) {
         failed = true;
@@ -494,6 +497,41 @@ try {
       ) {
         failed = true;
         showServerProblems('business connector proposal and setup tests');
+      }
+
+      // Provision the restricted bridge role and apply its grants through the same jobs as an opt-in install.
+      try {
+        composeWith(FEDERATION_ENV, 'run', '--rm', '--no-deps', 'provision-federation');
+        composeWith(FEDERATION_ENV, 'run', '--rm', '--no-deps', 'migrate');
+        composeWith(
+          FEDERATION_ENV,
+          'up',
+          '-d',
+          '--no-deps',
+          '--force-recreate',
+          '--wait',
+          '--wait-timeout',
+          '180',
+          'federation-worker',
+          'web',
+          'web-2',
+        );
+        refuseUnlessOnTheWatchedSubnet(FEDERATION_ENV);
+        if (!stackTests('the federation workflow', [FEDERATION_SUITE], FEDERATION_ENV)) {
+          failed = true;
+          console.error(composeWith(FEDERATION_ENV, 'logs', '--tail', '70', 'federation-worker'));
+        }
+      } finally {
+        composeWith(FEDERATION_ENV, 'rm', '-s', '-f', 'federation-worker');
+        composeWith(
+          { ENSEMUS_CROSS_ORG_ENABLED: 'false' },
+          'run',
+          '--rm',
+          '--no-deps',
+          'migrate',
+          'node',
+          'dist/apply-deployment-profile.js',
+        );
       }
 
       console.log(

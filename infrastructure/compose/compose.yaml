@@ -216,6 +216,17 @@ services:
       provision-federation: { condition: service_completed_successfully }
       migrate: { condition: service_completed_successfully }
       temporal-namespace: { condition: service_completed_successfully }
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "process.exit(Date.now()-Number(require('node:fs').readFileSync('/tmp/worker-alive','utf8'))<15000?0:1)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     deploy:
       resources: { limits: { memory: 512M } }
 

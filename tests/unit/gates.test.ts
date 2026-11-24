@@ -179,6 +179,7 @@ describe('on one machine', () => {
     expect(clean).toContain('compose.airgap.yaml');
     expect(clean).toContain('--profile test-oidc');
     expect(clean).toContain('--profile connectors');
+    expect(clean).toContain('--profile federation');
     expect(clean).toContain('down -v --remove-orphans');
   });
 

@@ -125,7 +125,7 @@ jobs:
         run: >-
           sudo --non-interactive --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_WORKSPACE --
           "$(command -v node)" infrastructure/scripts/ci-disk-preflight.mjs
-      - run: pnpm stack:secrets
+      - run: pnpm stack:secrets --federation
       - name: Generate a Marketplace reviewer for the test stack
         run: |
           node --input-type module <<'NODE'

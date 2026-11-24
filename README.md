@@ -47,6 +47,8 @@ pnpm stack:down
 
 ## Check it
 
+Run `pnpm stack:secrets --federation` before running the full air-gap gate directly.
+
 | Command                                         | What it proves                                                                 |
 | ----------------------------------------------- | ------------------------------------------------------------------------------ |
 | `pnpm lint`                                     | Code quality and architecture boundaries, such as no Temporal in the web tier  |

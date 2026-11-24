@@ -29,7 +29,7 @@ gate() {
 compose_files=(-f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml)
 
 clean_stack() {
-  docker compose "${compose_files[@]}" -f infrastructure/compose/compose.airgap.yaml --profile test-oidc --profile connectors \
+  docker compose "${compose_files[@]}" -f infrastructure/compose/compose.airgap.yaml --profile test-oidc --profile connectors --profile federation \
     down -v --remove-orphans >/dev/null 2>&1
 }
 
@@ -67,7 +67,7 @@ manifest_is_current() {
 }
 
 clean_stack
-pnpm stack:secrets >/dev/null 2>&1
+pnpm stack:secrets --federation >/dev/null 2>&1
 
 gate "format" pnpm format:check
 gate "lint and import boundaries" pnpm lint
