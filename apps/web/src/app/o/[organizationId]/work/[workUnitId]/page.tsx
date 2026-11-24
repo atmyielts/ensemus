@@ -288,43 +288,29 @@ export default async function WorkDetailPage({
           <h2 id="state-heading" className="visually-hidden">
             Summary
           </h2>
-          <dl>
-            <dt>Status</dt>
-            <dd>
-              <StatusBadge status={status} />
-            </dd>
-            <dt>Owner</dt>
-            <dd>{ownerName ?? 'Unknown'}</dd>
-            <dt>Due</dt>
-            <dd>
-              {work.dueAt ? formatDate(work.dueAt) : 'No due date'}
-              {isOverdue(work.dueAt, today) && !finished && (
-                <>
-                  {' '}
-                  <span className="badge attention">Overdue</span>
-                </>
-              )}
-            </dd>
-            <dt>Who can see this</dt>
-            <dd>
-              <ClassificationBadge value={work.classification} />
-              <small className="work-summary-note">{WHO_CAN_SEE[work.classification]}</small>
-            </dd>
-            {project && (
-              <>
-                <dt>Project</dt>
-                <dd>
-                  {project.clientName ? `${project.name} (${project.clientName})` : project.name}
-                </dd>
-              </>
-            )}
-            <dt>Done when</dt>
-            <dd>
-              {doneWhen}
-              {criteria.length > 0 && status !== 'completed' && (
-                <small className="work-summary-note">{doneWhenState.text}</small>
-              )}
-            </dd>
+          <dl className="work-key-facts">
+            <div>
+              <dt>Status</dt>
+              <dd>
+                <StatusBadge status={status} />
+              </dd>
+            </div>
+            <div>
+              <dt>Owner</dt>
+              <dd>{ownerName ?? 'Unknown'}</dd>
+            </div>
+            <div>
+              <dt>Due</dt>
+              <dd>
+                {work.dueAt ? formatDate(work.dueAt) : 'No due date'}
+                {isOverdue(work.dueAt, today) && !finished && (
+                  <>
+                    {' '}
+                    <span className="badge attention">Overdue</span>
+                  </>
+                )}
+              </dd>
+            </div>
           </dl>
 
           {/* The person asked to review sees the way to their decision first. */}
@@ -451,39 +437,6 @@ export default async function WorkDetailPage({
             </section>
           )}
 
-          {canManage && newOwners.length > 0 && (
-            <details className="divided">
-              <summary>Hand over to someone else</summary>
-              <form className="fields gap-above" action={setOwnerAction}>
-                {versioned}
-                <Label>
-                  Hand over to
-                  <small>They become its owner and answer for it from then on.</small>
-                  <NativeSelect name="membershipId" required defaultValue="">
-                    <option value="" disabled>
-                      Choose a person
-                    </option>
-                    {newOwners.map((member) => (
-                      <option key={member.membershipId} value={member.membershipId}>
-                        {personLabel(member)}
-                      </option>
-                    ))}
-                  </NativeSelect>
-                </Label>
-                <div>
-                  <SubmitButton className="secondary">Change owner</SubmitButton>
-                </div>
-              </form>
-            </details>
-          )}
-
-          <p className="divided link-line">
-            <Link href={`${base}/work/${work.id}/run`}>Assistant activity</Link>
-            <small className="work-summary-note">
-              What an assistant has done on this work{canChange ? ', or start one' : ''}.
-            </small>
-          </p>
-
           {canStop && (
             <div className="divided work-stop">
               <ConfirmForm
@@ -509,9 +462,35 @@ export default async function WorkDetailPage({
   const story = (
     <div className="stack work-story">
       <Card asChild>
-        <section className="card" aria-labelledby="purpose-heading">
+        <section className="card work-purpose" aria-labelledby="purpose-heading">
           <h2 id="purpose-heading">Purpose</h2>
           <p className="pre-wrap">{work.objective || 'No details were written.'}</p>
+          <dl className="work-purpose-facts">
+            <div className="work-done-when">
+              <dt>Done when</dt>
+              <dd>
+                {doneWhen}
+                {criteria.length > 0 && status !== 'completed' && (
+                  <small className="work-summary-note">{doneWhenState.text}</small>
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt>Who can see this</dt>
+              <dd>
+                <ClassificationBadge value={work.classification} />
+                <small className="work-summary-note">{WHO_CAN_SEE[work.classification]}</small>
+              </dd>
+            </div>
+            {project && (
+              <div>
+                <dt>Project</dt>
+                <dd>
+                  {project.clientName ? `${project.name} (${project.clientName})` : project.name}
+                </dd>
+              </div>
+            )}
+          </dl>
           {canChange && canChangeContent(status) && (
             <details>
               <summary>Edit the details</summary>
@@ -540,7 +519,10 @@ export default async function WorkDetailPage({
       <Card asChild>
         <div className="card">
           <section aria-labelledby="progress-heading">
-            <h2 id="progress-heading">Progress</h2>
+            <header className="work-progress-heading">
+              <h2 id="progress-heading">Progress</h2>
+              <Link href={`${base}/work/${work.id}/run`}>Assistant activity</Link>
+            </header>
             <p>{STATE_NOTE[status]}</p>
             {status === 'awaiting_approval' &&
               (openReview ? (
@@ -838,6 +820,31 @@ export default async function WorkDetailPage({
               <dt>Accountable owner</dt>
               <dd>{ownerName ?? 'Unknown'}</dd>
             </dl>
+            {canManage && newOwners.length > 0 && (
+              <details className="divided">
+                <summary>Hand over to someone else</summary>
+                <form className="fields gap-above" action={setOwnerAction}>
+                  {versioned}
+                  <Label>
+                    Hand over to
+                    <small>They become its owner and answer for it from then on.</small>
+                    <NativeSelect name="membershipId" required defaultValue="">
+                      <option value="" disabled>
+                        Choose a person
+                      </option>
+                      {newOwners.map((member) => (
+                        <option key={member.membershipId} value={member.membershipId}>
+                          {personLabel(member)}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  </Label>
+                  <div>
+                    <SubmitButton className="secondary">Change owner</SubmitButton>
+                  </div>
+                </form>
+              </details>
+            )}
             <h3 className="gap-above-large">Also on this work</h3>
             {people.length === 0 ? (
               <p className="muted">Nobody else yet.</p>
@@ -1045,7 +1052,7 @@ export default async function WorkDetailPage({
         evidence={detail.evidenceStamp}
       />
       {/* The summary comes first, so on a phone the status and next step sit under the title. */}
-      <div className="detail-layout work-detail">
+      <div className="work-detail">
         {summary}
         {story}
       </div>

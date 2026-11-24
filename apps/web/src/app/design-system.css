@@ -441,8 +441,118 @@
     background: transparent;
     box-shadow: none;
   }
-  .content .work-overview-table {
-    padding-block-start: 0;
+  .work-title-link {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    color: var(--foreground);
+    font-weight: 550;
+    text-decoration: none;
+  }
+  .work-title-link:hover {
+    text-decoration: underline;
+  }
+  .work-row-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
+  }
+  @container workspace (width < 43rem) {
+    .work-title-link {
+      min-height: 44px;
+    }
+  }
+  @media (pointer: coarse) {
+    .work-title-link {
+      min-height: 44px;
+    }
+  }
+  .work-detail {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    border-top: 1px solid var(--border);
+  }
+  .work-detail > aside {
+    min-width: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .content .work-summary {
+    gap: 0;
+  }
+  .work-summary > .divided {
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+  }
+  .work-story {
+    gap: 0;
+  }
+  .work-key-facts,
+  .work-purpose-facts {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 7.5rem), 1fr));
+    gap: var(--space-3);
+    font-size: var(--text-small);
+  }
+  .work-key-facts > div,
+  .work-purpose-facts > div {
+    min-width: 0;
+  }
+  .work-key-facts dt,
+  .work-purpose-facts dt {
+    margin-bottom: var(--space-1);
+    font-size: var(--text-tiny);
+  }
+  .work-purpose {
+    gap: var(--space-3);
+  }
+  .work-purpose > :is(h2, p) {
+    margin: 0;
+  }
+  .work-purpose-facts {
+    grid-template-columns: repeat(2, minmax(0, 16rem));
+    padding-block-start: var(--space-3);
+    border-top: 1px solid var(--border);
+  }
+  .work-done-when {
+    grid-column: 1 / -1;
+  }
+  .work-progress-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+  @container workspace (width >= 49rem) {
+    .work-detail {
+      grid-template-columns: minmax(0, 1fr) 17rem;
+    }
+    .work-detail > aside {
+      grid-column: 2;
+      grid-row: 1;
+      align-self: stretch;
+      padding-inline-start: var(--space-5);
+      border-inline-start: 1px solid var(--border);
+      border-bottom: 0;
+    }
+    .work-detail > .work-story {
+      grid-column: 1;
+      grid-row: 1;
+      padding-inline-end: var(--space-5);
+    }
+    .work-key-facts {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .work-key-facts > div {
+      display: grid;
+      grid-template-columns: 4.25rem minmax(0, 1fr);
+      align-items: baseline;
+      gap: var(--space-2);
+    }
+    .work-key-facts dt {
+      margin: 0;
+    }
   }
   .content .card + .card {
     border-top: 1px solid var(--border);

@@ -13,7 +13,7 @@
 :where(input, select, textarea):focus-visible {
   outline-offset: 0;
 }
-:where(#main, .destination-row):focus-visible {
+:where(#main, .destination-row, .work-title-link):focus-visible {
   outline-offset: -2px;
 }
 
@@ -1652,48 +1652,11 @@
   .work-table td:first-child {
     min-width: min(14rem, 100%);
   }
-  /* A work list's quiet line under each title: who owns it, and who can see it when that is narrower. */
-  .work-table .work-meta {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-1) var(--space-2);
-    margin-top: 0.125rem;
-  }
-  /* A piece of work: the summary comes first in the page, so a phone shows it under the title, and wide
-   screens put it beside the story. */
-  @media (min-width: 1100px) {
-    .work-detail > aside {
-      grid-column: 2;
-      grid-row: 1;
-    }
-    .work-detail > .work-story {
-      grid-column: 1;
-      grid-row: 1;
-    }
-    /* It holds the next step and the forms that go with it, which can be taller than the window, so it
-     scrolls with the page rather than hiding its lower half while it sticks. */
-    .work-detail > aside {
-      position: static;
-    }
-  }
-  .work-summary dl {
-    gap: var(--space-3) var(--space-4);
-    font-size: 0.9375rem;
-  }
-  .work-summary dt {
-    font-size: var(--text-small);
-    padding-top: 0.0625rem;
-  }
   .work-summary-note {
     display: block;
     margin-top: var(--space-1);
     font-size: var(--text-tiny);
     line-height: 1.45;
-  }
-  .work-summary .link-line {
-    display: grid;
-    justify-items: start;
   }
   /* Stopping is final, so it sits last and quieter than the next step. */
   .work-stop details.confirm > summary {

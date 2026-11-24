@@ -54,12 +54,7 @@ export default async function OrganizationLayout({
   const workspaceSwitcher = hasOtherWorkspace && <OrganizationSwitcher current={organizationId} />;
   const account = (
     <div className="sidebar-end">
-      <Link
-        className="account-profile"
-        href={`${base}/security`}
-        aria-label={actor.name}
-        title="Your account security"
-      >
+      <Link className="account-profile" href={`${base}/security`} title="Your account security">
         <Avatar className="account-avatar rounded-md" aria-hidden="true">
           <AvatarFallback className="rounded-md font-mono text-xs">
             {Array.from(actor.name)[0]?.toUpperCase() ?? 'E'}

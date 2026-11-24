@@ -46,6 +46,19 @@ for (const theme of ['light', 'dark'] as const)
             'Work table, including the long work title',
           ).toBeLessThanOrEqual(1);
         }
+        if (label === 'work-list' && width < 768) {
+          const longTitle = page.getByRole('link', { name: /^A title long enough to wrap/ });
+          expect((await longTitle.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+        }
+        if (label === 'long-work-detail') {
+          const summary = page.getByRole('complementary', { name: 'Summary', exact: true });
+          const purpose = page.getByRole('region', { name: 'Purpose', exact: true });
+          await expect(summary).toContainText('Status');
+          await expect(purpose).toContainText('Done when');
+          await expect(
+            page.getByRole('link', { name: 'Assistant activity', exact: true }),
+          ).toBeVisible();
+        }
         expect(await axeFindings(page), label).toEqual([]);
         await saveLook(page, `interface-${theme}-${width}`, label);
       }

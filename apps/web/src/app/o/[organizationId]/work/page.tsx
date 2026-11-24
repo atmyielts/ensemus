@@ -1,5 +1,4 @@
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { NativeSelect } from '@/components/ui/native-select';
 import {
@@ -91,7 +90,7 @@ export default async function WorkPage({
       {/* With nothing here at all, a filter only gets in the way of the first step. */}
       {(items.length > 0 || filter || projectId) && (
         <form
-          className="mb-2 flex min-w-0 items-center gap-2 border-y py-2"
+          className="flex min-w-0 items-center gap-2 border-b py-2"
           method="get"
           aria-label="Filter work"
         >
@@ -103,7 +102,7 @@ export default async function WorkPage({
             id="work-status"
             name="status"
             controlSize="sm"
-            className="w-40 min-w-0 max-md:[&_select]:min-h-11"
+            className="w-40 min-w-0 max-md:[&_select]:min-h-11 pointer-coarse:[&_select]:min-h-11"
             defaultValue={filter ?? ''}
           >
             <option value="">All statuses</option>
@@ -113,7 +112,12 @@ export default async function WorkPage({
               </option>
             ))}
           </NativeSelect>
-          <Button className="shrink-0 max-md:min-h-11" variant="outline" size="sm" type="submit">
+          <Button
+            className="shrink-0 max-md:min-h-11 pointer-coarse:min-h-11"
+            variant="outline"
+            size="sm"
+            type="submit"
+          >
             Filter
           </Button>
         </form>
@@ -143,79 +147,76 @@ export default async function WorkPage({
           </Empty>
         )
       ) : (
-        <Card asChild>
-          <div className="card table-wrap work-overview-table">
-            {/* The roles keep this a table for a screen reader when a small screen stacks its rows. */}
-            <Table className="work-table [&_td]:p-[var(--work-cell-padding)]" role="table">
-              <TableHeader role="rowgroup">
-                <TableRow role="row">
-                  <TableHead role="columnheader" scope="col">
-                    Work
-                  </TableHead>
-                  <TableHead role="columnheader" scope="col">
-                    Status
-                  </TableHead>
-                  <TableHead role="columnheader" scope="col">
-                    Done when
-                  </TableHead>
-                  <TableHead role="columnheader" scope="col">
-                    Due
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody role="rowgroup">
-                {items.map((work) => {
-                  const evidence = evidenceSummary(
-                    work.status as WorkState,
-                    work.completionCriteria as CompletionCriterion[],
-                    work.evidence,
-                  );
-                  return (
-                    <TableRow key={work.id} role="row">
-                      <TableCell role="cell" className="whitespace-normal wrap-anywhere">
-                        <Link href={`${base}/work/${work.id}`}>{work.title}</Link>
-                        <small className="work-meta">
-                          <span>
-                            <span className="due-word">Owner: </span>
-                            {work.ownerName ?? 'Owner unknown'}
-                          </span>
-                          {/* Most work is for everyone inside, so only a narrower audience is named. */}
-                          {work.classification !== 'internal' && (
-                            <span>
-                              <span className="visually-hidden">Who can see this: </span>
-                              <ClassificationBadge value={work.classification} />
-                            </span>
-                          )}
-                        </small>
-                      </TableCell>
-                      <TableCell role="cell">
-                        <StatusBadge status={work.status} />
-                      </TableCell>
-                      <TableCell role="cell">
-                        <span className="due-word">Done when: </span>
-                        {evidence.tone ? (
-                          <span className={`badge ${evidence.tone}`}>{evidence.text}</span>
-                        ) : (
-                          <small>{evidence.text}</small>
-                        )}
-                      </TableCell>
-                      {work.dueAt ? (
-                        <TableCell role="cell" className="nowrap">
-                          <span className="due-word">Due </span>
-                          {formatDate(work.dueAt)}
-                        </TableCell>
-                      ) : (
-                        <TableCell role="cell" className="no-date">
-                          <small>None</small>
-                        </TableCell>
+        // The explicit roles preserve table semantics when small screens stack the rows.
+        <Table className="work-table [&_td]:p-[var(--work-cell-padding)]" role="table">
+          <TableHeader role="rowgroup">
+            <TableRow role="row">
+              <TableHead role="columnheader" scope="col">
+                Work
+              </TableHead>
+              <TableHead role="columnheader" scope="col">
+                Status
+              </TableHead>
+              <TableHead role="columnheader" scope="col">
+                Done when
+              </TableHead>
+              <TableHead role="columnheader" scope="col">
+                Due
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody role="rowgroup">
+            {items.map((work) => {
+              const evidence = evidenceSummary(
+                work.status as WorkState,
+                work.completionCriteria as CompletionCriterion[],
+                work.evidence,
+              );
+              return (
+                <TableRow key={work.id} role="row">
+                  <TableCell role="cell" className="whitespace-normal wrap-anywhere">
+                    <Link className="work-title-link" href={`${base}/work/${work.id}`}>
+                      {work.title}
+                    </Link>
+                    <div className="work-row-meta">
+                      <small>
+                        <span className="visually-hidden">Owner: </span>
+                        {work.ownerName ?? 'Owner unknown'}
+                      </small>
+                      {work.classification !== 'internal' && (
+                        <span>
+                          <span className="visually-hidden">Who can see this: </span>
+                          <ClassificationBadge value={work.classification} />
+                        </span>
                       )}
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-        </Card>
+                    </div>
+                  </TableCell>
+                  <TableCell role="cell">
+                    <StatusBadge status={work.status} />
+                  </TableCell>
+                  <TableCell role="cell" className="whitespace-normal">
+                    <span className="due-word">Done when: </span>
+                    {evidence.tone ? (
+                      <span className={`badge ${evidence.tone}`}>{evidence.text}</span>
+                    ) : (
+                      <small>{evidence.text}</small>
+                    )}
+                  </TableCell>
+                  {work.dueAt ? (
+                    <TableCell role="cell" className="whitespace-normal">
+                      <span className="due-word">Due </span>
+                      {formatDate(work.dueAt)}
+                    </TableCell>
+                  ) : (
+                    <TableCell role="cell" className="no-date">
+                      <small>None</small>
+                    </TableCell>
+                  )}
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
       )}
       {nextCursor && (
         <p className="gap-above-large">
