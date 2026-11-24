@@ -10,7 +10,7 @@ for (const javaScriptEnabled of [true, false])
     open,
     world,
   }) => {
-    const page = await open(world.alice, { width: 375, javaScriptEnabled });
+    const page = await open(world.alice, { width: 320, javaScriptEnabled });
     const base = `/o/${world.organization}`;
     await page.goto(base);
     const menu = page.locator('details.mobile-navigation');
@@ -20,6 +20,19 @@ for (const javaScriptEnabled of [true, false])
       page.getByRole('heading', { name: 'Company knowledge', exact: true }),
     ).toBeVisible();
     const sections = page.getByRole('navigation', { name: 'Knowledge', exact: true });
+    expect(
+      await sections.evaluate((nav) => {
+        const bounds = nav.getBoundingClientRect();
+        return Array.from(nav.querySelectorAll('a')).every((link) => {
+          const target = link.getBoundingClientRect();
+          return (
+            target.left >= bounds.left &&
+            target.right <= bounds.right &&
+            Math.round(target.height) >= 44
+          );
+        });
+      }),
+    ).toBe(true);
     await expect(sections.getByRole('link', { name: 'Sources', exact: true })).toHaveAttribute(
       'aria-current',
       'page',

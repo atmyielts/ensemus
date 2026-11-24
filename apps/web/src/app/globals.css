@@ -13,7 +13,7 @@
 :where(input, select, textarea):focus-visible {
   outline-offset: 0;
 }
-:where(#main, .destination-row, .work-title-link):focus-visible {
+:where(#main, .destination-row, .work-title-link, .section-navigation a):focus-visible {
   outline-offset: -2px;
 }
 
@@ -479,39 +479,6 @@
   .workspace-search > a:hover,
   a.workspace-search:hover {
     color: var(--fg);
-  }
-  /* Tabs inside a section: quiet words with the light under the current one. */
-  .section-navigation {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-1) var(--space-2);
-    margin-bottom: var(--space-8);
-    border-bottom: 1px solid var(--line);
-  }
-  .section-navigation a {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    min-height: 2.75rem;
-    padding: var(--space-2) var(--space-2);
-    color: var(--muted-foreground);
-    text-decoration: none;
-    font-size: var(--text-small);
-    font-weight: 500;
-  }
-  .section-navigation a:hover,
-  .section-navigation a[aria-current] {
-    color: var(--fg);
-  }
-  .section-navigation a[aria-current]::after {
-    content: '';
-    position: absolute;
-    left: var(--space-2);
-    right: var(--space-2);
-    bottom: -1px;
-    height: 2px;
-    border-radius: 2px;
-    background: var(--focus-color);
   }
   .page-head {
     display: flex;
@@ -1420,18 +1387,6 @@
     }
     .page-head {
       margin-bottom: var(--space-6);
-    }
-    /* Tabs scroll sideways inside themselves instead of wrapping into a second row. */
-    .section-navigation {
-      flex-wrap: nowrap;
-      overflow-x: auto;
-      scrollbar-width: none;
-      padding-inline: var(--space-1);
-      scroll-padding-inline: var(--space-1);
-    }
-    .section-navigation a {
-      flex: none;
-      min-height: 44px;
     }
     /* Every row reads the same way: its title, then its details underneath. */
     .list > li {
