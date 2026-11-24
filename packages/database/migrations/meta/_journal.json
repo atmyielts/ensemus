@@ -1219,6 +1219,13 @@
       "when": 1794201807646,
       "tag": "0764_federation_source_upload",
       "breakpoints": true
+    },
+    {
+      "idx": 174,
+      "version": "7",
+      "when": 1794201807647,
+      "tag": "0765_skill_catalog_metadata_erasure",
+      "breakpoints": true
     }
   ]
 }

@@ -28,15 +28,21 @@ import {
 } from '@ensemus/application/saas/offboarding';
 import { placeLegalHold, releaseLegalHold } from '@ensemus/application/saas/legal-holds';
 import {
+  addTrustedSigner,
   createMeeting,
+  createSkillPackage,
   createWorkUnit,
   getMeeting,
+  getSkillPackage,
   importMeetingNotes,
+  listTrustedSigners,
   purgeDueBlobs,
   recordMeetingConsent,
+  revokeTrustedSigner,
   updateMeetingSettings,
   updateWorkUnit,
 } from '@ensemus/application';
+import { generateTestSigner } from '../helpers/skills';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { asRole, seedTaxTreatment } from '../helpers/saas';
@@ -76,7 +82,7 @@ describe('restricted erasure independently verifies every tenant-content table',
     await auth.end();
     await database.close();
   });
-  it('registers meetings and business records for restricted erasure without granting body reads', async () => {
+  it('registers tenant-local expansion records for restricted erasure without granting body reads', async () => {
     const tables = [
       'integrations.business_record_actions',
       'integrations.business_records',
@@ -90,6 +96,8 @@ describe('restricted erasure independently verifies every tenant-content table',
       'meetings.provider_approvals',
       'meetings.settings',
       'meetings.summaries',
+      'skills.packages',
+      'skills.trusted_signers',
       'tenancy.residency_requirements',
     ];
     await asRole('ensemus_eraser', async (client) => {
@@ -133,6 +141,91 @@ describe('restricted erasure independently verifies every tenant-content table',
     await expect(
       asRole('ensemus_eraser', (client) => client.query('select body from meetings.notes')),
     ).rejects.toMatchObject({ code: '42501' });
+    await expect(
+      asRole('ensemus_eraser', (client) =>
+        client.query('select public_key from skills.trusted_signers'),
+      ),
+    ).rejects.toMatchObject({ code: '42501' });
+    await asRole('ensemus_eraser', async (client) => {
+      const { rows } = await client.query(
+        `select has_table_privilege(current_user, 'skills.package_versions', 'DELETE') as bundles,
+                has_table_privilege(current_user, 'skills.test_runs', 'DELETE') as tests`,
+      );
+      expect(rows[0]).toEqual({ bundles: false, tests: false });
+    });
+  });
+
+  it('erases catalog metadata through the restricted role and leaves the other tenant untouched', async () => {
+    const owner = await lifecycleTenant(database.db, auth);
+    const other = await lifecycleTenant(database.db, auth);
+    const gate = { isEnabled: async () => true };
+    const signer = generateTestSigner();
+    const seed = async (tenant: typeof owner) => {
+      await addTrustedSigner(database.db, tenant, gate, {
+        displayName: 'Generated test publisher',
+        publicKey: signer.publicKey,
+      });
+      return createSkillPackage(database.db, tenant, gate, {
+        name: 'generated-catalog-erasure',
+        displayName: 'Generated test package',
+      });
+    };
+    await seed(owner);
+    const revoked = await addTrustedSigner(database.db, owner, gate, {
+      displayName: 'Generated revoked publisher',
+      publicKey: generateTestSigner().publicKey,
+    });
+    await revokeTrustedSigner(database.db, owner, {
+      signerId: revoked.id,
+      expectedVersion: revoked.version,
+    });
+    const otherPackage = await seed(other);
+    const ready = await readyToErase(database.db, owner);
+    const counts = () =>
+      withAccountTx(database.db, ready.service, async (tx) => {
+        const result = await tx.execute<{ packages: string; signers: string }>(sql`
+          select lifecycle.erasure_table_rows('skills.packages', ${ready.offboardingId}::uuid)::text packages,
+                 lifecycle.erasure_table_rows('skills.trusted_signers', ${ready.offboardingId}::uuid)::text signers
+        `);
+        return result.rows[0];
+      });
+
+    expect(await counts()).toEqual({ packages: '1', signers: '2' });
+    // Other protocols still prevent the operator from entering erasure. Exercise this module
+    // through the native lifecycle gate that the full command uses after its inventory check.
+    await withAccountTx(database.db, ready.service, (tx) =>
+      tx
+        .update(offboardings)
+        .set({
+          state: 'erasing',
+          erasureStartedAt: new Date(),
+          erasureStartedByRef: 'test-operator@example.invalid',
+          version: sql`${offboardings.version}+1`,
+          updatedAt: new Date(),
+        })
+        .where(eq(offboardings.id, ready.offboardingId)),
+    );
+    await eraserClient.query('begin');
+    try {
+      await eraserClient.query("select set_config('app.organization_id', $1, true)", [
+        owner.organizationId,
+      ]);
+      await eraserClient.query("select set_config('app.actor_type', 'service', true)");
+      for (const table of ['skills.packages', 'skills.trusted_signers']) {
+        const result = await eraserClient.query(
+          `delete from ${table} where organization_id in ($1,$2)`,
+          [owner.organizationId, other.organizationId],
+        );
+        expect(result.rowCount).toBe(table === 'skills.packages' ? 1 : 2);
+      }
+      await eraserClient.query('commit');
+    } catch (error) {
+      await eraserClient.query('rollback');
+      throw error;
+    }
+    expect(await counts()).toEqual({ packages: '0', signers: '0' });
+    expect(await getSkillPackage(database.db, other, otherPackage.id)).toEqual(otherPackage);
+    expect(await listTrustedSigners(database.db, other)).toHaveLength(1);
   });
 
   it('classifies every tenant table as explicitly retained or actually reachable by the eraser role', async () => {

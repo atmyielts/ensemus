@@ -1288,3 +1288,18 @@ operations, idempotent retries, and conflict responses. A signed-in Chromium jou
 edited a package on a 320px screen and checked the detail layout up to 1440px. The OpenAPI contract
 now has 20 planned operations. Signed bundle upload, verification, publication, and marketplace
 release gates remain open.
+
+### Skill catalog erasure (LIFE-04, EXP-04)
+
+The restricted eraser can remove tenant-local package metadata and public signer records after
+the existing physical deletion and offboarding gates admit the tenant. It can count those rows
+without reading their contents. Restore admission and the erasure birth fence apply to both
+tables. Active and revoked signer state is preserved until an admitted erasure.
+
+The complete erasure command still refuses the nine tables that need bundle, sandbox, marketplace
+or federation cleanup. This change leaves cross-organization retention undecided and keeps the
+inventory check in place.
+
+The migration applied on a fresh PostgreSQL database and on an upgrade from 0764. Thirteen focused
+catalog, signer, and restricted eraser cases passed. The broader restore file passed 11 cases and
+still failed the two full-erasure witness cases at the incomplete coverage gate.
