@@ -8,12 +8,13 @@ import {
   type ExtensionRecord,
 } from '@ensemus/contracts/portability-records';
 import {
-  BUSINESS_RECORD_PORTABILITY_INVENTORY,
   BUSINESS_RECORD_PORTABILITY_VERSION,
   MEETING_CONFIGURATION_PORTABILITY_VERSION,
   MEETING_HISTORY_PORTABILITY_VERSION,
   MARKETPLACE_PUBLISHER_PORTABILITY_VERSION,
   SKILL_METADATA_PORTABILITY_VERSION,
+  SKILL_UPLOAD_CLEANUP_PORTABILITY_INVENTORY,
+  SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION,
   PORTABILITY_INVENTORY_PROFILES,
   PORTABILITY_INVENTORY_VERSION,
   type JoinedPortabilityVersion,
@@ -103,6 +104,7 @@ const skillReadersByProfile: Partial<Record<JoinedPortabilityVersion, readonly P
     [MEETING_CONFIGURATION_PORTABILITY_VERSION]: publisherReaders,
     [MEETING_HISTORY_PORTABILITY_VERSION]: publisherReaders,
     [BUSINESS_RECORD_PORTABILITY_VERSION]: publisherReaders,
+    [SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION]: publisherReaders,
   };
 const meetingConfigurationReaders: readonly PortableReader[] = [
   {
@@ -510,7 +512,7 @@ export async function assertJoinedPortabilitySchema(
       AND schemaname NOT IN ('information_schema','drizzle')`,
   );
   const known = new Set<string>([
-    ...BUSINESS_RECORD_PORTABILITY_INVENTORY.map((entry) => entry.table),
+    ...SKILL_UPLOAD_CLEANUP_PORTABILITY_INVENTORY.map((entry) => entry.table),
     ...PENDING_PORTABILITY_TABLES,
   ]);
   if (present.some((row) => !known.has(row.table_name))) throw new RecordRefused();
@@ -564,9 +566,11 @@ function exporter(section: ExportSection): PortabilitySection['exportPage'] {
   return async (tx, context, { cursor, limit, inventoryVersion }): Promise<ExportPage> => {
     await assertJoinedPortabilitySchema(tx, inventoryVersion);
     const exportViewer = await assertExportViewer(tx);
+    const includesBusinessReferences =
+      inventoryVersion === BUSINESS_RECORD_PORTABILITY_VERSION ||
+      inventoryVersion === SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION;
     const includesMeetingHistory =
-      inventoryVersion === MEETING_HISTORY_PORTABILITY_VERSION ||
-      inventoryVersion === BUSINESS_RECORD_PORTABILITY_VERSION;
+      inventoryVersion === MEETING_HISTORY_PORTABILITY_VERSION || includesBusinessReferences;
     if (section === 'policy' && includesMeetingHistory)
       await assertMeetingHistoryViewer(tx, context.organizationId, exportViewer);
     const list =
@@ -588,29 +592,33 @@ function exporter(section: ExportSection): PortabilitySection['exportPage'] {
       cursor === null
         ? { index: 0, key: null as string | null }
         : (JSON.parse(cursor) as { index: number; key: string | null });
-    const businessReaders =
-      section === 'connections' && inventoryVersion === BUSINESS_RECORD_PORTABILITY_VERSION
+    const nativeReaders =
+      section === 'connections' && includesBusinessReferences
         ? ([
             { mode: 'record', kind: 'business_record_reference' },
             { mode: 'action', kind: 'business_record_action_reference' },
           ] as const)
-        : [];
-    const totalReaders = list.length + businessReaders.length;
+        : section === 'skills' && inventoryVersion === SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION
+          ? ([{ mode: 'cleanup', kind: 'skill_upload_cleanup_history' }] as const)
+          : [];
+    const totalReaders = list.length + nativeReaders.length;
     const next = (after: string | null) =>
       after !== null
         ? JSON.stringify({ index: state.index, key: after })
         : state.index + 1 < totalReaders
           ? JSON.stringify({ index: state.index + 1, key: null })
           : null;
-    const businessReader = businessReaders[state.index - list.length];
-    if (businessReader) {
+    const nativeReader = nativeReaders[state.index - list.length];
+    if (nativeReader) {
       const pageSize = Math.min(limit, 200);
       const rows = await queryRows<{ key: string; record: unknown }>(
         tx,
-        sql`select key,record from sovereign.portable_business_page(${businessReader.mode},${state.key}::uuid,${pageSize})`,
+        nativeReader.mode === 'cleanup'
+          ? sql`select key,record from sovereign.portable_skill_upload_cleanup_page(${state.key}::uuid,${pageSize})`
+          : sql`select key,record from sovereign.portable_business_page(${nativeReader.mode},${state.key}::uuid,${pageSize})`,
       );
       return {
-        recordKind: businessReader.kind,
+        recordKind: nativeReader.kind,
         records: rows.map(({ record }) => extensionRecordSchema.parse(record)),
         nextCursor: next(rows.length === pageSize ? (rows.at(-1)?.key ?? null) : null),
       };

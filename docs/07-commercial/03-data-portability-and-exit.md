@@ -12,6 +12,8 @@ Data formats: JSON/JSONL for typed records and events, CSV optionally for famili
 
 The Marketplace publisher archive profile includes the source workspace's publisher name, status, version, and timestamps as a review record. The receiving workspace registers its publisher through its own Marketplace enrollment. Source listings, submissions, and reviews require separate archive coverage before an export can proceed.
 
+The skill upload cleanup profile carries a receipt for a tenant-authored, abandoned bundle only after the source verifies physical deletion in its current restore generations. The importing owner can review the source upload, package and uploader IDs and the receipt timestamps. The archive excludes the bundle, its fingerprint, and its storage address. Pending uploads, live package versions and Sandbox runs require separate archive coverage.
+
 The meeting configuration profile carries notice references, settings history, and provider approval and revocation records for review. The receiving workspace sets its own meeting policy and provider approvals.
 
 A later profile can also archive purged meeting receipts when the requesting owner organized or participated in every room and the source has verified each purge. It carries consent decisions and operational receipts without meeting titles, participant display names, content, or content fingerprints. Only the owner who authorized the import can review the receipts in the receiving workspace. The import does not create meetings or grant consent. Open or restricted rooms still prevent the export.

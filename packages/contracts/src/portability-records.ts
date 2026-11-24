@@ -34,9 +34,12 @@ const MARKETPLACE_PUBLISHER_PORTABILITY_VERSION = 'ensemus.marketplace-publisher
 const MEETING_CONFIGURATION_PORTABILITY_VERSION = 'ensemus.meeting-config/7';
 const MEETING_HISTORY_PORTABILITY_VERSION = 'ensemus.meeting-history/8';
 const BUSINESS_RECORD_PORTABILITY_VERSION = 'ensemus.business-records/9';
+const SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION = 'ensemus.skill-upload-cleanup/10';
+const carriesBusinessReferences = (version: unknown) =>
+  version === BUSINESS_RECORD_PORTABILITY_VERSION ||
+  version === SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION;
 const carriesMeetingHistory = (version: unknown) =>
-  version === MEETING_HISTORY_PORTABILITY_VERSION ||
-  version === BUSINESS_RECORD_PORTABILITY_VERSION;
+  version === MEETING_HISTORY_PORTABILITY_VERSION || carriesBusinessReferences(version);
 const carriesMeetingConfiguration = (version: unknown) =>
   version === MEETING_CONFIGURATION_PORTABILITY_VERSION || carriesMeetingHistory(version);
 const carriesPublisherHistory = (version: unknown) =>
@@ -440,6 +443,14 @@ const BUSINESS_RECORD_KINDS = [
 ] as const;
 
 export const extensionRecordSchema = z.discriminatedUnion('kind', [
+  z.strictObject({
+    kind: z.literal('skill_upload_cleanup_history'),
+    id,
+    package_id: id,
+    membership_id: id,
+    created_at: moment,
+    absent_at: moment,
+  }),
   z.strictObject({
     kind: z.literal('business_record_reference'),
     id,
@@ -933,7 +944,11 @@ export const EXTENSION_SECTION_KINDS = {
     ...MEETING_CONFIGURATION_RECORD_KINDS,
     ...MEETING_HISTORY_RECORD_KINDS,
   ],
-  skills: [...SKILL_METADATA_RECORD_KINDS, 'marketplace_publisher_history'],
+  skills: [
+    ...SKILL_METADATA_RECORD_KINDS,
+    'marketplace_publisher_history',
+    'skill_upload_cleanup_history',
+  ],
   'custom-objects': [
     'custom_object_type',
     'custom_object_version',
@@ -983,7 +998,12 @@ export function assertPortableExtensionProfile(
     throw new Error('RECORD_REFUSED');
   if (
     (BUSINESS_RECORD_KINDS as readonly string[]).includes(kind) &&
-    inventoryVersion !== BUSINESS_RECORD_PORTABILITY_VERSION
+    !carriesBusinessReferences(inventoryVersion)
+  )
+    throw new Error('RECORD_REFUSED');
+  if (
+    kind === 'skill_upload_cleanup_history' &&
+    inventoryVersion !== SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION
   )
     throw new Error('RECORD_REFUSED');
 }
@@ -1053,6 +1073,7 @@ const manifestV2Schema = manifestV1Schema.extend({
     MEETING_CONFIGURATION_PORTABILITY_VERSION,
     MEETING_HISTORY_PORTABILITY_VERSION,
     BUSINESS_RECORD_PORTABILITY_VERSION,
+    SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION,
   ]),
   record_max_bytes: z.literal(4 * 1024 * 1024).optional(),
   generated_bodies_excluded: z.int().min(0),

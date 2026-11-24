@@ -37,6 +37,7 @@ import {
   listMeetingProviderApprovals,
   openExportArchive,
   proposeRecordUpdate,
+  purgeAbandonedSkillUpload,
   purgeExpiredExports,
   recordMeetingConsent,
   requestMeetingNotesImport,
@@ -47,6 +48,7 @@ import {
   revokeMeetingProvider,
   transitionWorkUnit,
   updateMeetingSettings,
+  uploadSkillBundle,
   type ExportDeps,
   type ExportStep,
   type ObjectStore,
@@ -69,6 +71,7 @@ import {
   organizationExportParts,
   organizationExports,
   sealedSecrets,
+  skillBundleUploads,
   webhookEndpoints,
   withTenantTx,
   workArtifacts,
@@ -95,6 +98,8 @@ import {
   MEETING_HISTORY_PORTABILITY_VERSION,
   SKILL_METADATA_PORTABILITY_INVENTORY,
   SKILL_METADATA_PORTABILITY_VERSION,
+  SKILL_UPLOAD_CLEANUP_PORTABILITY_INVENTORY,
+  SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION,
   isArchivePath,
 } from '@ensemus/domain/portability';
 import {
@@ -105,7 +110,7 @@ import {
 import { open } from '@ensemus/sovereign/sealed';
 import { readTarEntries } from '@ensemus/sovereign/tar';
 import { createPortabilityActivities } from '@ensemus/workflows/portability-activities';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import {
   seedExportRow,
   sha256Hex,
@@ -820,6 +825,131 @@ describe('organization export', () => {
       source_id: publisher.id,
       record: records[0],
     });
+  });
+
+  it('archives abandoned skill uploads only after physical deletion is proven', async () => {
+    const source = await newOrg();
+    const target = await newOrg();
+    const pkg = await seedPackage(db(), source);
+    const uploadStore = new MemoryStore();
+    const canary = Buffer.from(`abandoned-skill-${randomUUID()}`);
+    let enabled = true;
+    let reportsAbsence = true;
+    const store: ObjectStore = {
+      put: uploadStore.put.bind(uploadStore),
+      get: uploadStore.get.bind(uploadStore),
+      delete: uploadStore.delete.bind(uploadStore),
+      exists: uploadStore.exists.bind(uploadStore),
+      deleteForPurge: uploadStore.deleteForPurge.bind(uploadStore),
+      isPhysicallyAbsent: async (key) => reportsAbsence && uploadStore.isPhysicallyAbsent(key),
+      assertPurgeCapability: async () => {},
+      async putSingleAttempt(key, bytes) {
+        await uploadStore.put(key, bytes);
+        enabled = false;
+        return { transport: 'written' };
+      },
+    };
+    await expect(
+      uploadSkillBundle(
+        db(),
+        store,
+        source,
+        { isEnabled: async () => enabled },
+        {
+          packageId: pkg.id,
+          bytes: canary,
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'FEATURE_NOT_ENABLED' });
+    const [upload] = await withTenantTx(db(), source, (tx) =>
+      tx.select().from(skillBundleUploads).where(eq(skillBundleUploads.packageId, pkg.id)),
+    );
+    if (!upload) throw new Error('MISSING_SKILL_UPLOAD_FIXTURE');
+    const [objectKey] = uploadStore.puts;
+    if (!objectKey) throw new Error('MISSING_SKILL_OBJECT_FIXTURE');
+
+    // Age this generated reservation so the production cleanup worker can admit it.
+    await su.query('begin');
+    try {
+      await su.query("set local session_replication_role='replica'");
+      const aged = await su.query(
+        `update skills.bundle_uploads set put_finished_at=clock_timestamp()-interval '2 hours'
+         where organization_id=$1 and id=$2`,
+        [source.organizationId, upload.id],
+      );
+      expect(aged.rowCount).toBe(1);
+      await su.query('commit');
+    } catch (error) {
+      await su.query('rollback');
+      throw error;
+    }
+    const archiveStore = new MemoryStore();
+    const sweep = () => purgeAbandonedSkillUpload(workerDb(), store, worker(source));
+    const exportSource = async () => drive(source, archiveStore, await request(source));
+    await expect(exportSource()).resolves.toEqual({ state: 'failed', code: 'RECORD_REFUSED' });
+    reportsAbsence = false;
+    await expect(sweep()).resolves.toEqual({ state: 'unconfirmed' });
+    expect(uploadStore.objects.has(objectKey)).toBe(false);
+    await expect(exportSource()).resolves.toEqual({ state: 'failed', code: 'RECORD_REFUSED' });
+
+    reportsAbsence = true;
+    await expect(sweep()).resolves.toEqual({ state: 'purged', quiescent: true });
+    const exportId = await request(source);
+    expect(await drive(source, archiveStore, exportId)).toMatchObject({ state: 'finished' });
+    const opened = await downloadAndOpen(source, archiveStore, exportId);
+    expect(opened.manifest).toMatchObject({
+      inventory_version: SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION,
+      inventory: SKILL_UPLOAD_CLEANUP_PORTABILITY_INVENTORY,
+    });
+    const records = recordsOf(opened, 'skill_upload_cleanup_history');
+    expect(records).toEqual([
+      {
+        kind: 'skill_upload_cleanup_history',
+        id: upload.id,
+        package_id: pkg.id,
+        membership_id: source.membershipId,
+        created_at: expect.any(String),
+        absent_at: expect.any(String),
+      },
+    ]);
+    expect(opened.text).not.toContain(canary.toString());
+    expect(opened.text).not.toContain(sha256Hex(canary));
+    expect(opened.text).not.toContain(objectKey);
+    expect(() =>
+      validatePortableRecord('skills', records[0], BUSINESS_RECORD_PORTABILITY_VERSION),
+    ).toThrow('RECORD_REFUSED');
+    await expect(
+      withTenantTx(db(), source, (tx) =>
+        tx.execute(sql`select * from sovereign.portable_skill_upload_cleanup_page(null,1)`),
+      ),
+    ).rejects.toMatchObject({ cause: { code: '42501' } });
+
+    const targetStore = new MemoryStore();
+    const bound = await requestOrganizationImport(db(), target);
+    const result = await runOrganizationImport(
+      workerDb(),
+      worker(target),
+      {
+        importId: bound.id,
+        archive: archiveReader(opened.bytes),
+        recipientPrivateKeyPem: recipient.privateKeyPem,
+      },
+      { sections: SOURCE_PORTABILITY_SECTIONS, ledger: targetStore, store: targetStore },
+    );
+    expect(result.status).toBe('completed_with_warnings');
+    expect(result.appliedCounts.skill_upload_cleanup_history).toBe(1);
+    const receipt = {
+      section: 'skills',
+      record_kind: 'skill_upload_cleanup_history',
+      source_id: upload.id,
+      record: records[0],
+    };
+    expect(await listImportedDefinitions(db(), target)).toContainEqual(receipt);
+    const targetAdmin = await join(target, 'cleanup-admin', 'admin');
+    expect(await listImportedDefinitions(db(), targetAdmin)).not.toContainEqual(receipt);
+    expect(await withTenantTx(db(), target, (tx) => tx.select().from(skillBundleUploads))).toEqual(
+      [],
+    );
   });
 
   it('carries meeting settings and provider decisions as review records without activating them', async () => {
