@@ -263,11 +263,12 @@ describe('frozen archives beside unfinished modules', () => {
       (await app.db.run((tx) => tx.execute(sql`select sovereign.pending_modules_empty() as empty`)))
         .rows[0]?.empty,
     ).toBe(false);
+    // The frozen probe registry still covers earlier profiles after a successor adds a table.
+    // Check erasure grants against that native registry, which is independent of export coverage.
     const eraser = await su.query(
-      "select name from unnest($1::text[]) name where has_table_privilege('ensemus_eraser',name,'DELETE')",
-      [PENDING_PORTABILITY_TABLES],
+      `select p.polrelid::regclass::text as name from pg_policy p
+       where p.polname='portable_pending_probe' and has_table_privilege('ensemus_eraser',p.polrelid,'DELETE')`,
     );
-    // Erasure coverage and the frozen export format have independent admission rules.
     expect(eraser.rows.map((row) => row.name).sort()).toEqual([
       'federation.org_settings',
       'integrations.business_record_actions',

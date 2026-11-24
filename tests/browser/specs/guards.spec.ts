@@ -22,14 +22,18 @@ test('the origin guard records and stops a request that leaves the proxy', async
 
 test('axe reports a real violation when one is planted', async ({ open }) => {
   const page = await open(null);
-  await page.goto('/sign-in');
-  await page.evaluate(() => {
-    const input = document.createElement('input');
-    input.id = 'planted';
-    document.querySelector('main')?.append(input);
-  });
+  const path = '/__test/axe-missing-label';
+  // This control audits a deliberate violation. An app route may replace inserted elements during hydration.
+  await page.route(`**${path}`, (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: '<!doctype html><html lang="en"><title>Accessibility control</title><main><input id="planted"></main></html>',
+    }),
+  );
+  await page.goto(path);
+  await expect(page.locator('#planted')).toBeVisible();
   const findings = await axeFindings(page);
-  expect(findings.map((finding) => finding.rule)).toContain('label');
+  expect(findings.find((finding) => finding.rule === 'label')?.where).toContain('#planted');
 });
 
 test('the script-error guard also watches a new tab', async ({ open, scriptErrors }) => {
