@@ -22,16 +22,20 @@ export function SandboxTrialForm({
   requestToken: string;
   classifications: readonly (keyof typeof labels)[];
 }) {
-  const [input, setInput] = useState('{}');
-  const [classification, setClassification] = useState<string>(
-    classifications.includes('internal') ? 'internal' : 'public',
-  );
-  const field = useId();
   const [state, action] = useActionState(
     startSandboxTrial.bind(null, organizationId, skillVersionId, requestToken),
     initial,
     `/o/${organizationId}/skills/versions/${skillVersionId}`,
   );
+  const [input, setInput] = useState(state.input ?? '{}');
+  const [classification, setClassification] = useState<string>(
+    state.classification && classifications.includes(state.classification)
+      ? state.classification
+      : classifications.includes('internal')
+        ? 'internal'
+        : 'public',
+  );
+  const field = useId();
   return (
     <form action={action} className="grid max-w-2xl gap-4">
       <ErrorNotice code={state.code} />

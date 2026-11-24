@@ -21,7 +21,12 @@ import { getRuntime } from '@/server/runtime';
 import { getSandboxCeilings, getSkillFeatureGate } from '@/server/skill-runtime';
 import { requireTenant } from '@/server/tenant';
 
-export type SandboxTrialFormState = { code?: string; invalidJson?: true };
+export type SandboxTrialFormState = {
+  code?: string;
+  invalidJson?: true;
+  input?: string;
+  classification?: 'public' | 'internal' | 'confidential';
+};
 export type SandboxCancelFormState = { code?: string; requested?: true };
 
 function routeId(value: string) {
@@ -58,17 +63,25 @@ export async function startSandboxTrial(
   if (typeof raw !== 'string') return { invalidJson: true };
   if (Buffer.byteLength(raw, 'utf8') > SANDBOX_INPUT_MAX_BYTES)
     return { code: 'SANDBOX_INPUT_TOO_LARGE' };
+  const classification = form.get('classification');
+  const values: Pick<SandboxTrialFormState, 'input' | 'classification'> = { input: raw };
+  if (
+    classification === 'public' ||
+    classification === 'internal' ||
+    classification === 'confidential'
+  )
+    values.classification = classification;
   let json: unknown;
   try {
     json = JSON.parse(raw);
   } catch {
-    return { invalidJson: true };
+    return { ...values, invalidJson: true };
   }
   const body = requestSandboxTestRunSchema.safeParse({
-    classification: form.get('classification'),
+    classification,
     input: json,
   });
-  if (!body.success) return { code: 'INVALID_INPUT' };
+  if (!body.success) return { ...values, code: 'INVALID_INPUT' };
 
   let runId: string;
   try {
@@ -99,12 +112,12 @@ export async function startSandboxTrial(
         ),
       (run) => ({ status: 202, body: { id: run.id } }),
     );
-    if (result.kind === 'conflict') return { code: 'IDEMPOTENCY_KEY_REUSED' };
+    if (result.kind === 'conflict') return { ...values, code: 'IDEMPOTENCY_KEY_REUSED' };
     const queued = idSchema.safeParse((result.body as { id?: unknown } | null)?.id);
     if (!queued.success) throw new AppError('INVALID_STATE');
     runId = queued.data;
   } catch (error) {
-    return actionError(error);
+    return { ...values, ...actionError(error) };
   }
   redirect(`/o/${organizationId}/sandbox/runs/${runId}`);
 }

@@ -97,6 +97,8 @@ describe('migrations 0700 and 0701', () => {
           "session_user<>'ensemus_app' OR current_user<>session_user",
         '0769_skill_bundle_upload_cleanup.sql':
           "session_user<>'ensemus_app' OR current_user<>session_user",
+        '0778_marketplace_tenant_installation_receipts.sql':
+          "session_user<>'ensemus_app' OR app.current_actor_type() IS DISTINCT FROM 'user'",
       };
       const boundary = nativeBoundary[file];
       // These calls require the native web login, including when a worker can SET ROLE.
