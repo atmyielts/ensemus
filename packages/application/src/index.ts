@@ -11,6 +11,11 @@ export * from './external-actions';
 export * from './federation';
 export { notifyFederationGrantAccepted } from './federation-notices';
 export * from './federation-items';
+export {
+  claimFederationCopy,
+  loadFederationCopyState,
+  observeFederationCopy,
+} from './federation-file-lifecycle';
 export * from './federation-ports';
 export * from './idempotency';
 export * from './ids';

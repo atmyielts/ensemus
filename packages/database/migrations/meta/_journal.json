@@ -1205,6 +1205,13 @@
       "when": 1794201807644,
       "tag": "0762_native_residency_authority",
       "breakpoints": true
+    },
+    {
+      "idx": 172,
+      "version": "7",
+      "when": 1794201807645,
+      "tag": "0763_federation_file_lifecycle",
+      "breakpoints": true
     }
   ]
 }

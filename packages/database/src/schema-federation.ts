@@ -176,6 +176,10 @@ export const federationOutboundItems = federationSchema.table(
     createdAt: createdAt(),
     deliveredAt: when(),
     withdrawnAt: when(),
+    copyReceiverOrganizationId: uuid(),
+    copyVerified: boolean().notNull().default(false),
+    inboundDeleteState: text().notNull().default('pending'),
+    outboundDeleteState: text().notNull().default('pending'),
     version: bigint({ mode: 'number' }).notNull().default(1),
   },
   (t) => [
@@ -185,6 +189,7 @@ export const federationOutboundItems = federationSchema.table(
       columns: [t.organizationId, t.createdByMembershipId],
       foreignColumns: [memberships.organizationId, memberships.id],
     }),
+    unique('outbound_items_receiver_copy_key').on(t.copyReceiverOrganizationId, t.id),
     index('outbound_items_grant_idx').on(t.grantId, t.createdAt),
     index('outbound_items_source_idx').on(t.organizationId, t.sourceType, t.sourceId),
     check(

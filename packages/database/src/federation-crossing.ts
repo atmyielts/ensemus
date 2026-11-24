@@ -128,7 +128,9 @@ export async function crossItem(
       }
       if (
         item.fileObjectKey &&
-        (!input.verifiedFile ||
+        (!item.copyVerified ||
+          item.copyReceiverOrganizationId !== receiverOrganizationId ||
+          !input.verifiedFile ||
           input.verifiedFile.sha256 !== item.fileSha256 ||
           input.verifiedFile.sizeBytes !== item.fileSizeBytes)
       )
@@ -322,5 +324,29 @@ export async function purgeInboundCopies(
       receiverOrganizationId,
       fileObjectKey,
     }));
+  });
+}
+
+/** The sender must retain its file keys while any inbound row for this direction still exists. */
+export async function isInboundCopyRemoved(
+  database: BridgeDatabase,
+  input: ItemReference,
+): Promise<boolean> {
+  return database.withGrant(input.grantId, async (tx) => {
+    const grant = await readBoundGrant(tx, input.grantId);
+    if (!grant) return false;
+    const receiver = counterparty(grant, input.senderOrganizationId.toLowerCase());
+    if (!receiver) return false;
+    const [remaining] = await tx
+      .select({ id: federationInboundItems.id })
+      .from(federationInboundItems)
+      .where(
+        and(
+          eq(federationInboundItems.grantId, input.grantId),
+          eq(federationInboundItems.organizationId, receiver),
+          eq(federationInboundItems.id, input.itemId),
+        ),
+      );
+    return !remaining;
   });
 }

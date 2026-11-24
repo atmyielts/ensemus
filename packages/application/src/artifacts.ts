@@ -44,7 +44,7 @@ export interface ObjectStore {
     body: Buffer,
     mimeType: string,
   ): Promise<{ transport: 'written' | 'unknown' }>;
-  get(key: string): Promise<Buffer>;
+  get(key: string, maxBytes?: number): Promise<Buffer>;
   delete(key: string): Promise<void>;
   exists(key: string): Promise<boolean>;
   /** Positive physical absence, including actual backend versioning capability. Missing support

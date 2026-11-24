@@ -6,7 +6,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadTenancyConfig, readSecret } from '@ensemus/config';
 import {
+  claimFederationCopy,
+  loadFederationCopyState,
   loadGrantPartiesForWorker,
+  observeFederationCopy,
   loadItemGrantForWorker,
   recordItemReceived,
   removeWithdrawnItem,
@@ -55,12 +58,16 @@ async function main() {
       bridge: bridge.db,
       store,
       followUp: {
+        loadFileCopy: (context, target) => loadFederationCopyState(app.db, context, target),
+        claimFileCopy: (context, target) => claimFederationCopy(app.db, context, target),
+        observeFileCopy: (context, target, proof) =>
+          observeFederationCopy(app.db, context, target, proof),
         loadItemGrant: (context, itemId) => loadItemGrantForWorker(app.db, context, itemId),
         recordItemReceived: (context, itemId) => recordItemReceived(app.db, context, { itemId }),
         loadGrantParties: (context, grantId) => loadGrantPartiesForWorker(app.db, context, grantId),
         settleGrantEnd: (context, input) => settleGrantEndForTenant(app.db, store, context, input),
         removeWithdrawnItem: (context, itemId) =>
-          removeWithdrawnItem(app.db, store, context, { itemId }),
+          removeWithdrawnItem(app.db, store, context, itemId),
       },
     }),
     dataConverter: {

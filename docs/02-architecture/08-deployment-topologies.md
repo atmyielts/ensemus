@@ -109,11 +109,16 @@ grant ID.
 
 The bridge database operations bind one grant at a time. A delivery writes the inbound copy,
 outbound state and crossing record in one transaction. Revocation and delivery share the grant
-lock, and an ended grant is unreadable even before rows are removed. Copy removal deletes only a
-bounded set of rows from an ended grant or a specific withdrawn item. The outbound references
-remain available to derive storage keys on retry. The receiving tenant also has an idempotent
-service for recording arrivals, with reference-only events and Inbox items.
+lock, and an ended grant is unreadable even before rows are removed. The receiving tenant records
+arrivals with idempotent, reference-only events and Inbox items.
 
-Keep federation off on customer deployments until the separate item delivery, copy purge,
-operator setup and outside security review are complete. This grant flow issues consent records
-and uses generated workspaces during qualification.
+The worker records admission before writing an inbound file. It verifies the destination's size
+and digest before delivering an item, including when a completed upload lost its response.
+After withdrawal or grant closure, it removes inbound rows in bounded batches, then retains the
+sender row until it can prove physical absence for every owned object. An admitted upload with
+an unknown outcome keeps the reference available for recovery. If a delete loses its response,
+the worker checks physical absence without repeating that request.
+
+Keep federation off on customer deployments until item publishing and reading, the operator's
+worker setup, qualification with live Temporal and object storage, and outside security review
+are complete. Current qualification uses generated workspaces.

@@ -1,3 +1,4 @@
+import { createFederationActivities } from '@ensemus/workflows/federation-activities';
 import { inboundObjectKey, itemContentHash, outboundObjectKey } from '@ensemus/domain/federation';
 import {
   federationGrants,
@@ -7,7 +8,13 @@ import {
   withTenantTx,
 } from '@ensemus/database';
 import {
+  claimFederationCopy,
   endGrant,
+  loadFederationCopyState,
+  observeFederationCopy,
+  removeWithdrawnItem,
+  settleGrantEndForTenant,
+  type ObjectStore,
   loadGrantPartiesForWorker,
   loadItemGrantForWorker,
   recordItemReceived,
@@ -15,7 +22,7 @@ import {
 import { createServiceContext } from '@ensemus/database/service';
 import { federationItemTargetRef } from '@ensemus/domain/federation-events';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import {
   crossItem,
@@ -201,6 +208,22 @@ describe('collaboration bridge transactions', () => {
     ).rejects.toThrow('FEDERATION_FILE_PROOF_REQUIRED');
     await expect(
       crossItem(bridge.db, { ...request, verifiedFile: { sha256, sizeBytes: fileSizeBytes } }),
+    ).rejects.toThrow('FEDERATION_FILE_PROOF_REQUIRED');
+    const senderContext = createServiceContext(sharing().organizationId);
+    const target = {
+      itemId,
+      grantId: grant.id,
+      receiverOrganizationId: receiving().organizationId,
+    };
+    await expect(claimFederationCopy(app.db, senderContext, target)).rejects.toThrow();
+    await expect(claimFederationCopy(worker.db, senderContext, target)).resolves.toBe('admitted');
+    await expect(claimFederationCopy(worker.db, senderContext, target)).resolves.toBe('claimed');
+    await observeFederationCopy(worker.db, senderContext, target, {
+      sha256,
+      sizeBytes: fileSizeBytes,
+    });
+    await expect(
+      crossItem(bridge.db, { ...request, verifiedFile: { sha256, sizeBytes: fileSizeBytes } }),
     ).resolves.toBe('delivered');
     await endGrant(app.db, sharing(), {
       grantId: grant.id,
@@ -352,5 +375,224 @@ describe('collaboration bridge transactions', () => {
     expect(await purgeInboundCopies(bridge.db, { grantId: grant.id, limit: 1 })).toHaveLength(
       rows.length,
     );
+  });
+
+  function transferStore() {
+    const objects = new Map<string, Buffer>();
+    const store = {
+      get: vi.fn(async (key: string, limit?: number) => {
+        const bytes = objects.get(key);
+        if (!bytes) {
+          const error = new Error('Generated missing object');
+          error.name = 'NoSuchKey';
+          throw error;
+        }
+        if (limit !== undefined && bytes.length > limit) throw new Error('OBJECT_TOO_LARGE');
+        return Buffer.from(bytes);
+      }),
+      put: vi.fn(async (key: string, bytes: Buffer) => {
+        objects.set(key, Buffer.from(bytes));
+      }),
+      putSingleAttempt: vi.fn(async (key: string, bytes: Buffer) => {
+        objects.set(key, Buffer.from(bytes));
+        return { transport: 'written' as const };
+      }),
+      delete: vi.fn(async (key: string) => {
+        objects.delete(key);
+      }),
+      exists: vi.fn(async (key: string) => objects.has(key)),
+      assertPurgeCapability: vi.fn(async () => {}),
+      isPhysicallyAbsent: vi.fn(async (key: string) => !objects.has(key)),
+      deleteForPurge: vi.fn(async (key: string) => {
+        objects.delete(key);
+        return { transport: 'deleted' as const, capabilityVerified: true };
+      }),
+    } satisfies ObjectStore;
+    return { store, objects };
+  }
+
+  async function queuedFile() {
+    const grant = await seedGrant(app.db, sharing(), receiving());
+    const itemId = randomUUID();
+    const bytes = Buffer.from('Generated collaboration file');
+    const fileSha256 = createHash('sha256').update(bytes).digest('hex');
+    const classification = 'internal';
+    const title = 'Generated collaboration file';
+    const source = outboundObjectKey(sharing().organizationId, itemId);
+    const destination = inboundObjectKey(receiving().organizationId, itemId);
+    await withTenantTx(app.db, sharing(), (tx) =>
+      tx.insert(federationOutboundItems).values({
+        id: itemId,
+        organizationId: sharing().organizationId,
+        grantId: grant.id,
+        kind: 'artifact',
+        classification,
+        title,
+        body: {},
+        contentSha256: itemContentHash({
+          kind: 'artifact',
+          title,
+          body: {},
+          classification,
+          fileSha256,
+        }),
+        fileObjectKey: source,
+        fileSha256,
+        fileSizeBytes: bytes.length,
+        fileMimeType: 'text/plain',
+        createdByMembershipId: sharing().membershipId,
+      }),
+    );
+    return { grant, itemId, bytes, source, destination };
+  }
+
+  function transport(store: ObjectStore) {
+    return createFederationActivities({
+      bridge: bridge.db,
+      store,
+      followUp: {
+        loadFileCopy: (context, target) => loadFederationCopyState(worker.db, context, target),
+        claimFileCopy: (context, target) => claimFederationCopy(worker.db, context, target),
+        observeFileCopy: (context, target, proof) =>
+          observeFederationCopy(worker.db, context, target, proof),
+        loadItemGrant: (context, id) => loadItemGrantForWorker(worker.db, context, id),
+        loadGrantParties: (context, id) => loadGrantPartiesForWorker(worker.db, context, id),
+        recordItemReceived: (context, itemId) => recordItemReceived(worker.db, context, { itemId }),
+        settleGrantEnd: (context, claim) =>
+          settleGrantEndForTenant(worker.db, store, context, claim),
+        removeWithdrawnItem: (context, itemId) =>
+          removeWithdrawnItem(worker.db, store, context, itemId),
+      },
+    });
+  }
+
+  it('recovers after a completed PUT and DELETE with lost responses, without repeating either mutation', async () => {
+    const { grant, itemId, bytes, source, destination } = await queuedFile();
+    const { store, objects } = transferStore();
+    objects.set(source, bytes);
+    const flow = transport(store);
+    const job = { organizationId: sharing().organizationId, itemId };
+    const ending = { organizationId: job.organizationId, grantId: grant.id };
+    const read = store.get.getMockImplementation()!;
+    store.get.mockImplementationOnce(read).mockRejectedValueOnce(new Error('Generated restart'));
+    store.putSingleAttempt.mockImplementationOnce(async (key, buffer) => {
+      objects.set(key, Buffer.from(buffer));
+      throw new Error('Generated dropped PUT response');
+    });
+    await expect(flow.deliverFederationItem(job)).rejects.toThrow('FEDERATION_COPY_UNCONFIRMED');
+    await expect(flow.deliverFederationItem(job)).resolves.toBe('delivered');
+    expect(store.putSingleAttempt).toHaveBeenCalledExactlyOnceWith(
+      destination,
+      bytes,
+      'text/plain',
+    );
+    await flow.recordFederationItemReceived(job);
+    expect(objects.get(destination)).toEqual(bytes);
+
+    await endGrant(app.db, sharing(), {
+      grantId: grant.id,
+      reason: 'revoked',
+      expectedVersion: grant.version,
+    });
+    await expect(flow.purgeFederationGrantPass(ending)).resolves.toEqual({
+      purged: 1,
+      more: false,
+    });
+    store.deleteForPurge.mockImplementationOnce(async (key) => {
+      objects.delete(key);
+      throw new Error('Generated dropped DELETE response');
+    });
+    await expect(flow.settleFederationGrantEnd(ending)).rejects.toThrow(
+      'FEDERATION_DELETE_UNCONFIRMED',
+    );
+    await expect(
+      loadItemGrantForWorker(worker.db, createServiceContext(job.organizationId), itemId),
+    ).resolves.toMatchObject({ state: 'withdrawn' });
+    await expect(flow.settleFederationGrantEnd(ending)).resolves.toBe(false);
+    await expect(flow.settleFederationGrantEnd(ending)).resolves.toBe(false);
+    expect(store.deleteForPurge.mock.calls).toEqual([[destination], [source]]);
+    expect(objects.size).toBe(0);
+    await expect(
+      loadItemGrantForWorker(worker.db, createServiceContext(job.organizationId), itemId),
+    ).resolves.toBeNull();
+  });
+
+  it('holds cleanup until an admitted PUT that outlasts revocation is positively observed', async () => {
+    const { grant, itemId, bytes, source, destination } = await queuedFile();
+    const { store, objects } = transferStore();
+    objects.set(source, bytes);
+    const flow = transport(store);
+    const job = { organizationId: sharing().organizationId, itemId };
+    const ending = { organizationId: job.organizationId, grantId: grant.id };
+    let started!: () => void;
+    const startedPut = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let finish!: () => void;
+    const finishPut = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    store.putSingleAttempt.mockImplementationOnce(async (key, buffer) => {
+      started();
+      await finishPut;
+      objects.set(key, Buffer.from(buffer));
+      return { transport: 'written' };
+    });
+    const delivery = flow.deliverFederationItem(job);
+    try {
+      await Promise.race([
+        startedPut,
+        delivery.then(() => {
+          throw new Error('Delivery ended before the expected PUT');
+        }),
+      ]);
+      await endGrant(app.db, sharing(), {
+        grantId: grant.id,
+        reason: 'revoked',
+        expectedVersion: grant.version,
+      });
+      await expect(flow.purgeFederationGrantPass(ending)).resolves.toEqual({
+        purged: 0,
+        more: false,
+      });
+      await expect(flow.settleFederationGrantEnd(ending)).rejects.toThrow(
+        'FEDERATION_COPY_UNCONFIRMED',
+      );
+      expect(store.deleteForPurge).not.toHaveBeenCalled();
+      expect(objects.get(source)).toEqual(bytes);
+    } finally {
+      finish();
+    }
+    await expect(delivery).resolves.toBe('closed');
+    await expect(flow.settleFederationGrantEnd(ending)).resolves.toBe(false);
+    expect(store.deleteForPurge.mock.calls).toEqual([[destination], [source]]);
+    expect(objects.size).toBe(0);
+    expect(
+      (await sql.query('select id from federation.inbound_items where grant_id=$1', [grant.id]))
+        .rows,
+    ).toEqual([]);
+  });
+
+  it('only removes the sender file for a withdrawn sender that never claimed the destination', async () => {
+    const { grant, itemId, bytes, source, destination } = await queuedFile();
+    const { store, objects } = transferStore();
+    objects.set(source, bytes);
+    objects.set(destination, Buffer.from('Generated copy owned elsewhere'));
+    await withTenantTx(app.db, sharing(), (tx) =>
+      tx
+        .update(federationOutboundItems)
+        .set({ state: 'withdrawn', withdrawnAt: new Date(), version: 2 })
+        .where(eq(federationOutboundItems.id, itemId)),
+    );
+    const flow = transport(store);
+    await expect(
+      flow.purgeFederationItem({ organizationId: sharing().organizationId, itemId }),
+    ).resolves.toEqual({ purged: 0, more: false });
+    expect(store.deleteForPurge.mock.calls).toEqual([[source]]);
+    expect(objects.get(destination)?.toString()).toBe('Generated copy owned elsewhere');
+    expect(
+      (await sql.query('select id from federation.outbound_items where grant_id=$1', [grant.id]))
+        .rows,
+    ).toEqual([]);
   });
 });

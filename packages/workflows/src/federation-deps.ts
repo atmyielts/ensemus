@@ -8,7 +8,25 @@ import type { BridgeDatabase } from '@ensemus/database/federation';
  * tests can run without the items slice. The worker wires these to the real services in @ensemus/application,
  * and a test's doubles stay with its tests.
  */
+type CopyTarget = { itemId: string; grantId: string; receiverOrganizationId: string };
+
 export interface FederationFollowUp {
+  loadFileCopy(
+    context: TenantContext,
+    target: CopyTarget,
+  ): Promise<'closed' | 'unclaimed' | 'claimed' | 'verified'>;
+  claimFileCopy(
+    context: TenantContext,
+    target: CopyTarget,
+  ): Promise<'admitted' | 'claimed' | 'closed'>;
+  observeFileCopy(
+    context: TenantContext,
+    target: CopyTarget,
+    proof: {
+      sha256: string;
+      sizeBytes: number;
+    },
+  ): Promise<void>;
   /** Where a sender's item is. Finds only the sender's own. */
   loadItemGrant(
     context: TenantContext,
@@ -25,7 +43,7 @@ export interface FederationFollowUp {
   settleGrantEnd(
     context: TenantContext,
     input: { grantId: string; counterpartyOrganizationId: string },
-  ): Promise<void>;
+  ): Promise<boolean>;
   /** Deletes one withdrawn item's row and file, once its inbound copy is gone. */
   removeWithdrawnItem(context: TenantContext, itemId: string): Promise<void>;
 }

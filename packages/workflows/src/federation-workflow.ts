@@ -1,7 +1,8 @@
-// Owned by the bridge slice (EXP-07). See docs/06-delivery/m11c-slices.md and ADR-035 D3. Deterministic workflow
-// code: only @temporalio/workflow and types may be imported here. It runs on PLATFORM_TASK_QUEUE, where the
-// dispatcher starts it, and every Activity is proxied to FEDERATION_TASK_QUEUE.
-import { ApplicationFailure } from '@temporalio/workflow';
+// The dispatcher starts these on the platform queue. Only the optional federation worker
+// polls for the Activities, and every input and result is a reference, count or decision.
+import { proxyActivities, continueAsNew } from '@temporalio/workflow';
+import { FEDERATION_TASK_QUEUE } from './constants';
+import type { FederationActivities } from './federation-activities';
 import type {
   FederationDeliveryResult,
   FederationItemInput,
@@ -9,16 +10,39 @@ import type {
   FederationPurgeResult,
 } from './schemas';
 
-/** Carries one item across, once. No event starts this until someone has turned the feature on. */
+const activities = proxyActivities<FederationActivities>({
+  taskQueue: FEDERATION_TASK_QUEUE,
+  startToCloseTimeout: '5 minutes',
+  retry: { initialInterval: '2 seconds', maximumInterval: '5 minutes' },
+});
+const passesPerRun = 50;
+
 export async function federationDeliveryWorkflow(
-  _input: FederationItemInput,
+  input: FederationItemInput,
 ): Promise<FederationDeliveryResult> {
-  throw ApplicationFailure.nonRetryable('Not built yet', 'NOT_IMPLEMENTED');
+  const outcome = await activities.deliverFederationItem(input);
+  if (outcome === 'delivered') await activities.recordFederationItemReceived(input);
+  return { itemId: input.itemId, outcome };
 }
 
-/** Removes a whole ended grant's copies, or one withdrawn item's, until none are left. */
 export async function federationPurgeWorkflow(
-  _input: FederationPurgeInput,
+  input: FederationPurgeInput,
+  progress: { purged: number; inboundDone: boolean } = { purged: 0, inboundDone: false },
 ): Promise<FederationPurgeResult> {
-  throw ApplicationFailure.nonRetryable('Not built yet', 'NOT_IMPLEMENTED');
+  if ('itemId' in input) {
+    const { purged } = await activities.purgeFederationItem(input);
+    return { purged };
+  }
+
+  let { purged, inboundDone } = progress;
+  for (let pass = 0; pass < passesPerRun; pass++) {
+    if (!inboundDone) {
+      const result = await activities.purgeFederationGrantPass(input);
+      purged += result.purged;
+      inboundDone = !result.more;
+    } else if (!(await activities.settleFederationGrantEnd(input))) {
+      return { purged };
+    }
+  }
+  return continueAsNew<typeof federationPurgeWorkflow>(input, { purged, inboundDone });
 }
