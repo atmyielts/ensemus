@@ -67,22 +67,30 @@ export async function publishGeneratedProcess(person: Person, organization: stri
   });
   if (typeof simulation.id !== 'string') throw new Error('TEST_SIMULATION_REFUSED');
   let passed = false;
+  let lastStatus = 'unknown';
   for (let attempt = 0; attempt < 90; attempt++) {
     const response = await fetch(BASE + base + `/simulations/${simulation.id}`, {
         headers: { cookie: person.jar.cookie },
       }),
-      row = (await response.json()) as { status?: string; subject_sha256?: string };
-    if (!response.ok) throw new Error('TEST_SIMULATION_READ_REFUSED');
+      row = (await response.json()) as {
+        status?: string;
+        subject_sha256?: string;
+        outcome_code?: string;
+      };
+    if (!response.ok) throw new Error(`TEST_SIMULATION_READ_REFUSED:${response.status}`);
+    if (row.status === 'queued' || row.status === 'running') lastStatus = row.status;
     if (row.status === 'passed') {
       if (row.subject_sha256 !== saved.spec_sha256) throw new Error('TEST_SIMULATION_STALE');
       passed = true;
       break;
     }
-    if (['failed', 'errored'].includes(row.status ?? ''))
-      throw new Error('TEST_SCENARIO_NOT_PASSED');
+    if (row.status === 'failed' || row.status === 'errored') {
+      const code = /^[A-Z0-9_]{1,64}$/.test(row.outcome_code ?? '') ? row.outcome_code : 'unknown';
+      throw new Error(`TEST_SCENARIO_NOT_PASSED:${row.status}:${code}`);
+    }
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
-  if (!passed) throw new Error('TEST_SCENARIO_NOT_FINISHED');
+  if (!passed) throw new Error(`TEST_SCENARIO_NOT_FINISHED:${lastStatus}`);
   let review = await call('POST', '/publish-reviews', {
     subject_kind: 'process_draft',
     subject_id: draft.id,

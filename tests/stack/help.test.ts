@@ -120,7 +120,10 @@ describe('the same page for everyone', () => {
       [second, secondOrganization],
     ] as const) {
       const { html } = await read(`/o/${organization}`, person.jar);
-      expect(html).toMatch(/<a[^>]*href="\/help"[^>]*>Help/);
+      const labels = [...html.matchAll(/<a\b[^>]*\shref="\/help"[^>]*>([\s\S]*?)<\/a>/g)].map(
+        ([, contents]) => contents!.replace(/<[^>]*>/g, '').trim(),
+      );
+      expect(labels).toContain('Help');
     }
   });
 });

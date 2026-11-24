@@ -334,6 +334,11 @@ const HOSTED_SUITES = [
   'tests/stack/saas-hosted-coverage.test.ts',
   'tests/stack/ai-canary.test.ts',
 ];
+const BUSINESS_PROPOSAL_ENV = { ENSEMUS_CONNECTORS_ENABLED: 'true' };
+const BUSINESS_PROPOSAL_SUITES = [
+  'tests/stack/business-actions-api.test.ts',
+  'tests/stack/business-connection-setup.test.ts',
+];
 const MODE_SERVICES = ['web', 'web-2', 'worker', 'agent-worker'];
 const recreate = (env) =>
   composeWith(env, 'up', '-d', '--no-deps', '--force-recreate', '--wait', ...MODE_SERVICES);
@@ -359,6 +364,7 @@ function showServerProblems(label) {
 
 // API-12's check reads what every other suite recorded, so its file runs after all of them, both modes included.
 const API_SUITE = 'tests/stack/api.test.ts';
+const PROCESS_SUITE = 'tests/stack/process-runs.test.ts';
 // The drill stops the whole stack and restores its databases over it, leaving authentication fenced until an
 // operator acknowledges (backup-and-restore.md). Nothing may run after it, so it is the last thing the gate does.
 const RESTORE_SUITE = 'tests/stack/restore-drill.test.ts';
@@ -448,10 +454,46 @@ try {
     }
   } else {
     if (!outagesOnly) {
-      const everyOther = ['--exclude', API_SUITE, '--exclude', RESTORE_SUITE];
+      // Establish real process publication and execution on a fresh stack before other suites
+      // stop or restore individual services. The same API coverage record includes this run.
+      if (!stackTests('process publication and execution', [PROCESS_SUITE])) {
+        failed = true;
+        showServerProblems('process publication and execution');
+      }
+      const everyOther = [
+        '--exclude',
+        API_SUITE,
+        '--exclude',
+        RESTORE_SUITE,
+        '--exclude',
+        PROCESS_SUITE,
+      ];
       if (!stackTests('the stack test suite', everyOther)) {
         failed = true;
         showServerProblems('the stack test suite');
+      }
+
+      // Only the web replicas need enabled connector admission. The proposal tests write generated
+      // attempts under the connector database role, so they need no adapter or connector worker.
+      composeWith(
+        BUSINESS_PROPOSAL_ENV,
+        'up',
+        '-d',
+        '--no-deps',
+        '--force-recreate',
+        '--wait',
+        'web',
+        'web-2',
+      );
+      if (
+        !stackTests(
+          'business connector proposal and setup tests',
+          BUSINESS_PROPOSAL_SUITES,
+          BUSINESS_PROPOSAL_ENV,
+        )
+      ) {
+        failed = true;
+        showServerProblems('business connector proposal and setup tests');
       }
 
       console.log(

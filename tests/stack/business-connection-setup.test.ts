@@ -83,7 +83,7 @@ describe('customer business connection setup', () => {
       `refuses ${type} unless the operator offered it`,
       async () => {
         const result = await call(owner, body(type));
-        expect(result.status).toBe(enabled ? 400 : 503);
+        expect(result.status).toBe(enabled ? 400 : 409);
         expect(result.json.code).toBe(enabled ? 'INVALID_INPUT' : 'CONNECTOR_NOT_AVAILABLE');
       },
     );

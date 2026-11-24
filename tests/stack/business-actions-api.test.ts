@@ -25,6 +25,8 @@ import { seedConnection } from '../helpers/integrations';
 import { urls } from '../helpers/stack';
 import { contractProblems } from '../helpers/openapi';
 const hash = (x: unknown) => createHash('sha256').update(canonicalJson(x)).digest('hex');
+const connectorsEnabled = process.env.ENSEMUS_CONNECTORS_ENABLED === 'true';
+const test = it.runIf(connectorsEnabled);
 describe('business proposals through the built production API', () => {
   const web = openAppDatabase(urls.app()),
     connector = openAppDatabase(urls.connector());
@@ -181,11 +183,26 @@ describe('business proposals through the built production API', () => {
         approval_id: string;
         request_hash: string;
         status: string;
+        code?: string;
       },
       headers: response.headers,
     };
   }
-  it('refuses anonymous, foreign, ungranted and changed-origin requests without a proposal', async () => {
+  it.runIf(!connectorsEnabled)(
+    'refuses a valid proposal when connectors are disabled',
+    async () => {
+      const fixture = fixtures.get('crm_http')!;
+      const result = await post(root() + `/business-records/${fixture.recordId}/updates`, {
+        work_unit_id: await work(),
+        expected_version: 'v1',
+        changes: { status: 'qualified' },
+        approver_membership_id: reviewerContext.membershipId,
+      });
+      expect(result.status).toBe(409);
+      expect(result.body.code).toBe('CONNECTOR_NOT_AVAILABLE');
+    },
+  );
+  test('refuses anonymous, foreign, ungranted and changed-origin requests without a proposal', async () => {
     const f = fixtures.get('crm_http')!,
       path = root() + `/business-records/${f.recordId}/updates`;
     const body = {
@@ -205,7 +222,7 @@ describe('business proposals through the built production API', () => {
     expect((await post(path, { ...body, changes: { name: 'Read-only' } })).status).toBe(400);
     expect((await post(path, { ...body, expected_version: 'stale' })).status).toBe(409);
   });
-  it('replays an exact update, rejects changed bytes under its key and creates a distinct revision', async () => {
+  test('replays an exact update, rejects changed bytes under its key and creates a distinct revision', async () => {
     const f = fixtures.get('crm_http')!,
       path = root() + `/business-records/${f.recordId}/updates`,
       key = randomUUID();
@@ -242,7 +259,7 @@ describe('business proposals through the built production API', () => {
     expect(revised.body.id).not.toBe(first.body.id);
     expect(revised.body.request_hash).not.toBe(first.body.request_hash);
   });
-  it('creates only internal ticket notes and draft invoices, and rejects a payment field', async () => {
+  test('creates only internal ticket notes and draft invoices, and rejects a payment field', async () => {
     const t = fixtures.get('ticketing_http')!;
     const note = await post(root() + `/business-records/${t.recordId}/ticket-comments`, {
       work_unit_id: await work(),
@@ -271,7 +288,7 @@ describe('business proposals through the built production API', () => {
     ).toBe(400);
     expect((await post(root() + '/invoice-drafts', body)).status).toBe(201);
   });
-  it('requires a proven failed action for retries, gives it a new approval, and replays the retry key', async () => {
+  test('requires a proven failed action for retries, gives it a new approval, and replays the retry key', async () => {
     const f = fixtures.get('crm_http')!,
       body = {
         work_unit_id: await work(),
@@ -306,7 +323,7 @@ describe('business proposals through the built production API', () => {
     expect(retried.body.approval_id).not.toBe(p.body.approval_id);
     expect((await post(retryPath, retryBody, owner, key)).body).toEqual(retried.body);
   });
-  it('refuses unversioned updates and hides record-backed proposals when the requester loses source access', async () => {
+  test('refuses unversioned updates and hides record-backed proposals when the requester loses source access', async () => {
     const f = fixtures.get('crm_http')!,
       service = createServiceContext(organization);
     const version = async (value: string | null) =>
