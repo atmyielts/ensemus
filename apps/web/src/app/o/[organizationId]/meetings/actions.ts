@@ -21,7 +21,6 @@ import { requireTenant } from '@/server/tenant';
 import { getRuntime } from '@/server/runtime';
 import { redirectForSsoRefusal } from '@/server/interactive-refusal';
 import { studioOnce } from '@/server/studio-api';
-import { requestNotesImportSchema } from '@ensemus/contracts/meetings';
 import { importNotesOnce, requestNotesImportOnce } from '@/server/meeting-api';
 import type { MeetingFormState } from './form-state';
 const text = (form: FormData, key: string) =>
@@ -32,6 +31,10 @@ const uuid = (value: string) => {
   return p.data;
 };
 const idOf = (form: FormData, name: string) => uuid(text(form, name));
+const optionalIdOf = (form: FormData, name: string) => {
+  const value = text(form, name);
+  return value ? uuid(value) : undefined;
+};
 async function fail(t: Awaited<ReturnType<typeof requireTenant>>, error: unknown) {
   redirectForSsoRefusal(error);
   if (isAuditedRefusal(error))
@@ -76,8 +79,7 @@ export async function saveMeetingAction(
         .enum(['public', 'internal', 'confidential', 'restricted'])
         .safeParse(text(form, 'classification'));
       if (!parsed.success) throw new AppError('INVALID_INPUT');
-      const source = text(form, 'resourceId');
-      const resourceId = source ? uuid(source) : undefined;
+      const resourceId = optionalIdOf(form, 'resourceId');
       const input = {
         ...(resourceId ? { resource_id: resourceId } : {}),
         title: text(form, 'title'),
@@ -143,17 +145,9 @@ export async function requestConnectedNotesAction(form: FormData): Promise<void>
   const path = `/o/${organizationId}/meetings/${meetingId}`;
   let errorCode: string | null = null;
   try {
-    const parsed = requestNotesImportSchema.safeParse({
-      provider_approval_id: text(form, 'providerApprovalId'),
+    await requestNotesImportOnce(t.database, t.context, text(form, 'requestKey'), meetingId, {
+      provider_approval_id: idOf(form, 'providerApprovalId'),
     });
-    if (!parsed.success) throw new AppError('INVALID_INPUT');
-    await requestNotesImportOnce(
-      t.database,
-      t.context,
-      text(form, 'requestKey'),
-      meetingId,
-      parsed.data,
-    );
     revalidatePath(path);
   } catch (error) {
     errorCode = await fail(t, error);

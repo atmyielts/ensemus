@@ -125,7 +125,7 @@
   .skip:focus {
     left: 1rem;
     top: 1rem;
-    z-index: 10;
+    z-index: 30;
     background: var(--surface);
     padding: 0.5rem 0.875rem;
     border-radius: var(--radius-small);

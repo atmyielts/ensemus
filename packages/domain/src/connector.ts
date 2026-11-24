@@ -188,15 +188,15 @@ export const SHIPPED_CONNECTOR_RULES: readonly ConnectorTypeRule[] = [
     },
   },
   { type: 'inbound_webhook', credential: { required: false }, configFields: {} },
+  ...['crm_http', 'ticketing_http', 'accounting_http'].map((type) => ({
+    type,
+    credential: { required: true },
+  })),
   {
     type: 'meeting_notes_http',
     credential: { required: true },
     configFields: { tlsServerName: { required: false, kind: 'name' } },
   },
-  ...['crm_http', 'ticketing_http', 'accounting_http'].map((type) => ({
-    type,
-    credential: { required: true },
-  })),
 ];
 
 // Settings are shown to administrators and can never name where to connect, so a key reading like a
