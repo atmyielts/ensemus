@@ -16,10 +16,14 @@ import { parseArgs } from 'node:util';
 import {
   EXPORT_MANIFEST_PATH,
   isArchivePath,
+  isJoinedPortabilityVersion,
+  MAX_JOINED_RECORD_BYTES,
   MAX_ARCHIVE_PARTS,
   MAX_PART_PLAINTEXT_BYTES,
   EXPORT_SECTIONS,
   matchesPortabilityInventory,
+  PORTABILITY_INVENTORY_PROFILES,
+  SKILL_BUNDLE_PORTABILITY_VERSION,
   type ImportFailureCode,
 } from '@ensemus/domain/portability';
 import {
@@ -129,6 +133,14 @@ function readManifest(plain: Buffer) {
     if (part.path.split('/')[0] !== part.section || seen.has(part.path)) {
       throw new Refused('MANIFEST_INVALID');
     }
+    if (
+      part.section === 'skills' &&
+      part.path.endsWith('.bin.sealed') &&
+      (manifest.schema_version !== 2 ||
+        manifest.inventory_version !== SKILL_BUNDLE_PORTABILITY_VERSION ||
+        part.records !== 0)
+    )
+      throw new Refused('MANIFEST_INVALID');
     seen.add(part.path);
   }
   if (manifest.schema_version === 2) {
@@ -158,12 +170,16 @@ function readManifest(plain: Buffer) {
       )
         throw new Refused('MANIFEST_INVALID');
     }
+    const profile = manifest.inventory_version;
+    const joined = isJoinedPortabilityVersion(profile);
+    const carriesSkillRecords =
+      joined &&
+      PORTABILITY_INVENTORY_PROFILES[profile].some((entry) => entry.table === 'skills.packages');
     if (
-      declared.skills?.parts !== 0 ||
-      (manifest.inventory_version !== 'ensemus.m3-m7/3' &&
-        declared['custom-objects']?.parts !== 0) ||
-      (manifest.inventory_version === 'ensemus.m3-m7/3'
-        ? manifest.record_max_bytes !== 4194304
+      (!carriesSkillRecords && declared.skills?.parts !== 0) ||
+      (!joined && declared['custom-objects']?.parts !== 0) ||
+      (joined
+        ? manifest.record_max_bytes !== MAX_JOINED_RECORD_BYTES
         : manifest.record_max_bytes !== undefined) ||
       !Number.isSafeInteger(manifest.generated_bodies_excluded) ||
       (manifest.generated_bodies_excluded as number) < 0

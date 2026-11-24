@@ -13,7 +13,8 @@ import {
   MEETING_HISTORY_PORTABILITY_VERSION,
   MARKETPLACE_PUBLISHER_PORTABILITY_VERSION,
   SKILL_METADATA_PORTABILITY_VERSION,
-  RESIDENCY_PORTABILITY_INVENTORY,
+  SKILL_BUNDLE_PORTABILITY_INVENTORY,
+  SKILL_BUNDLE_PORTABILITY_VERSION,
   RESIDENCY_PORTABILITY_VERSION,
   SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION,
   PORTABILITY_INVENTORY_PROFILES,
@@ -22,6 +23,7 @@ import {
   MAX_JOINED_RECORD_BYTES,
   type ExportSection,
 } from '@ensemus/domain/portability';
+import { skillBundleObjectKey } from '@ensemus/domain/skill';
 import { assertPortableDefinitionIntegrity } from '@ensemus/domain/portable-definition';
 import { sql } from 'drizzle-orm';
 import { withTenantTx, type AppDatabase, type TenantContext, type Tx } from '@ensemus/database';
@@ -107,6 +109,7 @@ const skillReadersByProfile: Partial<Record<JoinedPortabilityVersion, readonly P
     [BUSINESS_RECORD_PORTABILITY_VERSION]: publisherReaders,
     [SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION]: publisherReaders,
     [RESIDENCY_PORTABILITY_VERSION]: publisherReaders,
+    [SKILL_BUNDLE_PORTABILITY_VERSION]: publisherReaders,
   };
 const residencyRequirementReader: PortableReader = {
   table: 'sovereign.portable_residency_requirements',
@@ -527,7 +530,7 @@ export async function assertJoinedPortabilitySchema(
       AND schemaname NOT IN ('information_schema','drizzle')`,
   );
   const known = new Set<string>([
-    ...RESIDENCY_PORTABILITY_INVENTORY.map((entry) => entry.table),
+    ...SKILL_BUNDLE_PORTABILITY_INVENTORY.map((entry) => entry.table),
     ...PENDING_PORTABILITY_TABLES,
   ]);
   if (present.some((row) => !known.has(row.table_name))) throw new RecordRefused();
@@ -581,7 +584,9 @@ function exporter(section: ExportSection): PortabilitySection['exportPage'] {
   return async (tx, context, { cursor, limit, inventoryVersion }): Promise<ExportPage> => {
     await assertJoinedPortabilitySchema(tx, inventoryVersion);
     const exportViewer = await assertExportViewer(tx);
-    const includesResidency = inventoryVersion === RESIDENCY_PORTABILITY_VERSION;
+    const includesSkillBundles = inventoryVersion === SKILL_BUNDLE_PORTABILITY_VERSION;
+    const includesResidency =
+      inventoryVersion === RESIDENCY_PORTABILITY_VERSION || includesSkillBundles;
     const includesUploadCleanup =
       inventoryVersion === SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION || includesResidency;
     const includesBusinessReferences =
@@ -617,7 +622,15 @@ function exporter(section: ExportSection): PortabilitySection['exportPage'] {
             { mode: 'action', kind: 'business_record_action_reference' },
           ] as const)
         : section === 'skills' && includesUploadCleanup
-          ? ([{ mode: 'cleanup', kind: 'skill_upload_cleanup_history' }] as const)
+          ? ([
+              { mode: 'cleanup', kind: 'skill_upload_cleanup_history' },
+              ...(includesSkillBundles
+                ? ([
+                    { mode: 'bundle', kind: 'skill_bundle_version' },
+                    { mode: 'test', kind: 'skill_test_history' },
+                  ] as const)
+                : []),
+            ] as const)
           : [];
     const totalReaders = list.length + nativeReaders.length;
     const next = (after: string | null) =>
@@ -628,17 +641,34 @@ function exporter(section: ExportSection): PortabilitySection['exportPage'] {
           : null;
     const nativeReader = nativeReaders[state.index - list.length];
     if (nativeReader) {
-      const pageSize = Math.min(limit, 200);
+      const { mode, kind } = nativeReader;
+      const pageSize = Math.min(limit, mode === 'bundle' ? 1 : 200);
       const rows = await queryRows<{ key: string; record: unknown }>(
         tx,
-        nativeReader.mode === 'cleanup'
+        mode === 'cleanup'
           ? sql`select key,record from sovereign.portable_skill_upload_cleanup_page(${state.key}::uuid,${pageSize})`
-          : sql`select key,record from sovereign.portable_business_page(${nativeReader.mode},${state.key}::uuid,${pageSize})`,
+          : mode === 'bundle' || mode === 'test'
+            ? sql`select key,record from sovereign.portable_skill_bundle_page(${mode},${state.key}::uuid,${pageSize})`
+            : sql`select key,record from sovereign.portable_business_page(${mode},${state.key}::uuid,${pageSize})`,
+      );
+      const records = rows.map(({ record }) => extensionRecordSchema.parse(record));
+      const originals = records.flatMap((record) =>
+        record.kind === 'skill_bundle_version'
+          ? [
+              {
+                resourceId: record.id,
+                objectKey: skillBundleObjectKey(context.organizationId, record.id),
+                sha256: record.bundle_sha256,
+                sizeBytes: record.size_bytes,
+              },
+            ]
+          : [],
       );
       return {
-        recordKind: nativeReader.kind,
-        records: rows.map(({ record }) => extensionRecordSchema.parse(record)),
+        recordKind: kind,
+        records,
         nextCursor: next(rows.length === pageSize ? (rows.at(-1)?.key ?? null) : null),
+        ...(originals.length ? { originals } : {}),
       };
     }
     const reader = list[state.index];
@@ -691,7 +721,7 @@ function exporter(section: ExportSection): PortabilitySection['exportPage'] {
       record.kind === 'knowledge_document'
         ? [
             {
-              documentId: record.id,
+              resourceId: record.id,
               objectKey: `${context.organizationId}/knowledge/${record.id}`,
               sha256: record.content_sha256,
               sizeBytes: record.size_bytes,
@@ -919,7 +949,17 @@ export const EXTENDED_PORTABILITY_SECTIONS: readonly PortabilitySection[] = (
           return rows.length === ids.length;
         },
       }
-    : {}),
+    : section === 'skills'
+      ? {
+          confirmOriginals: async (tx: Tx, _context: TenantContext, ids: readonly string[]) => {
+            const [proof] = await queryRows<{ allowed: boolean }>(
+              tx,
+              sql`select sovereign.portable_skill_bundles_confirm(${sql.param([...ids])}::uuid[]) as allowed`,
+            );
+            return proof?.allowed === true;
+          },
+        }
+      : {}),
 }));
 
 export const SOURCE_PORTABILITY_SECTIONS: readonly PortabilitySection[] = [

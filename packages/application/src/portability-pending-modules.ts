@@ -8,8 +8,6 @@ export const PENDING_PORTABILITY_TABLES = [
   'marketplace.submissions',
   'sandbox.runs',
   'skills.packages',
-  'skills.test_runs',
-  'skills.package_versions',
   'skills.trusted_signers',
   'federation.org_settings',
   'federation.grants',

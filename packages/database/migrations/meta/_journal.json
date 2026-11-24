@@ -1380,6 +1380,20 @@
       "when": 1794201807669,
       "tag": "0789_residency_portability",
       "breakpoints": true
+    },
+    {
+      "idx": 197,
+      "version": "7",
+      "when": 1794201807670,
+      "tag": "0790_skill_bundle_portability",
+      "breakpoints": true
+    },
+    {
+      "idx": 198,
+      "version": "7",
+      "when": 1794201807671,
+      "tag": "0791_skill_bundle_import_proofs",
+      "breakpoints": true
     }
   ]
 }

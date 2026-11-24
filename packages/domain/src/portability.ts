@@ -58,6 +58,7 @@ export const MEETING_HISTORY_PORTABILITY_VERSION = 'ensemus.meeting-history/8' a
 export const BUSINESS_RECORD_PORTABILITY_VERSION = 'ensemus.business-records/9' as const;
 export const SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION = 'ensemus.skill-upload-cleanup/10' as const;
 export const RESIDENCY_PORTABILITY_VERSION = 'ensemus.residency/11' as const;
+export const SKILL_BUNDLE_PORTABILITY_VERSION = 'ensemus.skill-bundles/12' as const;
 export type JoinedPortabilityVersion =
   | typeof PORTABILITY_INVENTORY_VERSION
   | typeof FEDERATION_PORTABILITY_VERSION
@@ -67,7 +68,8 @@ export type JoinedPortabilityVersion =
   | typeof MEETING_HISTORY_PORTABILITY_VERSION
   | typeof BUSINESS_RECORD_PORTABILITY_VERSION
   | typeof SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION
-  | typeof RESIDENCY_PORTABILITY_VERSION;
+  | typeof RESIDENCY_PORTABILITY_VERSION
+  | typeof SKILL_BUNDLE_PORTABILITY_VERSION;
 export function isJoinedPortabilityVersion(profile: unknown): profile is JoinedPortabilityVersion {
   return (
     profile === PORTABILITY_INVENTORY_VERSION ||
@@ -78,7 +80,8 @@ export function isJoinedPortabilityVersion(profile: unknown): profile is JoinedP
     profile === MEETING_HISTORY_PORTABILITY_VERSION ||
     profile === BUSINESS_RECORD_PORTABILITY_VERSION ||
     profile === SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION ||
-    profile === RESIDENCY_PORTABILITY_VERSION
+    profile === RESIDENCY_PORTABILITY_VERSION ||
+    profile === SKILL_BUNDLE_PORTABILITY_VERSION
   );
 }
 export const PORTABLE_SOURCE_SECTIONS = [
@@ -442,6 +445,12 @@ export const RESIDENCY_PORTABILITY_INVENTORY = [
   inventory('tenancy.residency_requirements', 'policy', 'quarantined'),
 ] as const;
 
+export const SKILL_BUNDLE_PORTABILITY_INVENTORY = [
+  ...RESIDENCY_PORTABILITY_INVENTORY,
+  inventory('skills.package_versions', 'skills', 'original_bytes'),
+  inventory('skills.test_runs', 'skills', 'quarantined'),
+] as const;
+
 export const PORTABILITY_INVENTORY_PROFILES = {
   [LEGACY_PORTABILITY_INVENTORY_VERSION]: PORTABILITY_INVENTORY_V1,
   [PORTABILITY_INVENTORY_V2_VERSION]: PORTABILITY_INVENTORY_V2,
@@ -454,6 +463,7 @@ export const PORTABILITY_INVENTORY_PROFILES = {
   [BUSINESS_RECORD_PORTABILITY_VERSION]: BUSINESS_RECORD_PORTABILITY_INVENTORY,
   [SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION]: SKILL_UPLOAD_CLEANUP_PORTABILITY_INVENTORY,
   [RESIDENCY_PORTABILITY_VERSION]: RESIDENCY_PORTABILITY_INVENTORY,
+  [SKILL_BUNDLE_PORTABILITY_VERSION]: SKILL_BUNDLE_PORTABILITY_INVENTORY,
 } as const;
 
 export function matchesPortabilityInventory(
@@ -557,6 +567,11 @@ export function knowledgePartPath(documentId: string) {
   return `knowledge/${documentId}.bin.sealed`;
 }
 
+export function skillBundlePartPath(versionId: string) {
+  if (!IS_UUID.test(versionId)) throw new Error('Not a valid part');
+  return `skills/${versionId}.bin.sealed`;
+}
+
 /**
  * Whether a path from an archive is one this format makes. An archive is untrusted input, so this is an
  * allowlist rather than a hunt for `..`: a path that is not exactly this shape is refused, whatever it
@@ -569,7 +584,8 @@ export function isArchivePath(path: string): boolean {
   const [, section, file] = match as unknown as [string, string, string];
   if (!isExportSection(section)) return false;
   return file.endsWith('.bin')
-    ? (section === 'artifacts' || section === 'knowledge') && IS_UUID.test(file.slice(0, 36))
+    ? (section === 'artifacts' || section === 'knowledge' || section === 'skills') &&
+        IS_UUID.test(file.slice(0, 36))
     : true;
 }
 

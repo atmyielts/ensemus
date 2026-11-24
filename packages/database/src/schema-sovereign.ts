@@ -165,7 +165,7 @@ export const organizationExports = sovereignSchema.table(
     check('organization_exports_scope_check', sql`${t.scope} in ('standard')`),
     check(
       'organization_exports_inventory_version_check',
-      sql`${t.inventoryVersion} is null or ${t.inventoryVersion} in ('ensemus.m3-m7/3','ensemus.m3-m7-federation/4','ensemus.skill-metadata/5','ensemus.marketplace-publisher/6','ensemus.meeting-config/7','ensemus.meeting-history/8','ensemus.business-records/9','ensemus.skill-upload-cleanup/10','ensemus.residency/11')`,
+      sql`${t.inventoryVersion} is null or ${t.inventoryVersion} in ('ensemus.m3-m7/3','ensemus.m3-m7-federation/4','ensemus.skill-metadata/5','ensemus.marketplace-publisher/6','ensemus.meeting-config/7','ensemus.meeting-history/8','ensemus.business-records/9','ensemus.skill-upload-cleanup/10','ensemus.residency/11','ensemus.skill-bundles/12')`,
     ),
     check('organization_exports_key_id_format', sql`${t.recipientKeyId} ~ '^[0-9a-f]{32}$'`),
     check('organization_exports_version_check', sql`${t.version} > 0`),

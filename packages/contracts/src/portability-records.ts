@@ -37,8 +37,11 @@ const MEETING_HISTORY_PORTABILITY_VERSION = 'ensemus.meeting-history/8';
 const BUSINESS_RECORD_PORTABILITY_VERSION = 'ensemus.business-records/9';
 const SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION = 'ensemus.skill-upload-cleanup/10';
 const RESIDENCY_PORTABILITY_VERSION = 'ensemus.residency/11';
+const SKILL_BUNDLE_PORTABILITY_VERSION = 'ensemus.skill-bundles/12';
+const carriesResidency = (version: unknown) =>
+  version === RESIDENCY_PORTABILITY_VERSION || version === SKILL_BUNDLE_PORTABILITY_VERSION;
 const carriesUploadCleanup = (version: unknown) =>
-  version === SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION || version === RESIDENCY_PORTABILITY_VERSION;
+  version === SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION || carriesResidency(version);
 const carriesBusinessReferences = (version: unknown) =>
   version === BUSINESS_RECORD_PORTABILITY_VERSION || carriesUploadCleanup(version);
 const carriesMeetingHistory = (version: unknown) =>
@@ -446,6 +449,41 @@ const BUSINESS_RECORD_KINDS = [
 ] as const;
 
 export const extensionRecordSchema = z.discriminatedUnion('kind', [
+  z.strictObject({
+    kind: z.literal('skill_bundle_version'),
+    id,
+    package_id: id,
+    uploaded_by_membership_id: id,
+    state: z.enum(['verified', 'published', 'yanked']),
+    semver: z
+      .string()
+      .max(120)
+      .regex(/^[0-9]+\.[0-9]+\.[0-9]+$/),
+    bundle_sha256: sha256,
+    size_bytes: z.int().min(1).max(8_388_608),
+    uploaded_at: moment,
+    updated_at: moment,
+  }),
+  z
+    .strictObject({
+      kind: z.literal('skill_test_history'),
+      id,
+      skill_version_id: id,
+      mode: z.enum(['contract', 'sandbox']),
+      outcome: z.enum(['passed', 'failed', 'error']),
+      fixtures_total: z.int().min(1).max(50),
+      fixtures_passed: z.int().min(0).max(50),
+      first_failed_fixture: z.int().min(0).max(49).nullable(),
+      started_at: moment,
+      finished_at: moment,
+    })
+    .refine(
+      (record) =>
+        record.fixtures_passed <= record.fixtures_total &&
+        (record.outcome !== 'passed' || record.fixtures_passed === record.fixtures_total) &&
+        (record.first_failed_fixture === null ||
+          record.first_failed_fixture < record.fixtures_total),
+    ),
   z.strictObject({
     kind: z.literal('residency_requirement'),
     id,
@@ -962,6 +1000,8 @@ export const EXTENSION_SECTION_KINDS = {
     ...SKILL_METADATA_RECORD_KINDS,
     'marketplace_publisher_history',
     'skill_upload_cleanup_history',
+    'skill_bundle_version',
+    'skill_test_history',
   ],
   'custom-objects': [
     'custom_object_type',
@@ -1017,7 +1057,12 @@ export function assertPortableExtensionProfile(
     throw new Error('RECORD_REFUSED');
   if (kind === 'skill_upload_cleanup_history' && !carriesUploadCleanup(inventoryVersion))
     throw new Error('RECORD_REFUSED');
-  if (kind === 'residency_requirement' && inventoryVersion !== RESIDENCY_PORTABILITY_VERSION)
+  if (kind === 'residency_requirement' && !carriesResidency(inventoryVersion))
+    throw new Error('RECORD_REFUSED');
+  if (
+    (kind === 'skill_bundle_version' || kind === 'skill_test_history') &&
+    inventoryVersion !== SKILL_BUNDLE_PORTABILITY_VERSION
+  )
     throw new Error('RECORD_REFUSED');
 }
 
@@ -1088,6 +1133,7 @@ const manifestV2Schema = manifestV1Schema.extend({
     BUSINESS_RECORD_PORTABILITY_VERSION,
     SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION,
     RESIDENCY_PORTABILITY_VERSION,
+    SKILL_BUNDLE_PORTABILITY_VERSION,
   ]),
   record_max_bytes: z.literal(4 * 1024 * 1024).optional(),
   generated_bodies_excluded: z.int().min(0),

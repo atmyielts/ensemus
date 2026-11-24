@@ -14,7 +14,7 @@ node open-archive.mjs --archive <file.tar> --key-file <private key> --out <folde
 
 `open-archive` works in a folder beside the one you name, which takes that name only once everything has checked out. So a folder with that name is always a whole archive, and a refused archive leaves nothing. It prints counts and IDs. Exit status is `0` when opened, `1` when the archive was refused, `2` for a bad argument, an unreadable key, or a folder that already exists.
 
-**Status:** both tools are unit-tested with generated keys and hand-built archives. Opening an archive made by a real export depends on the export slice, and has not been run end to end. This construction has not had its outside security review (ADR-030 D6).
+The checkout tests use generated keys and hand-built archives. The PostgreSQL integration suite also creates an archive through the export worker and recovers an original skill bundle with the standalone opener. The outside security review is still pending under ADR-030 D6.
 
 ## The outer layer: plain tar
 
@@ -29,7 +29,9 @@ An archive that has no end marker was cut off. Refuse it.
 |---|---|
 | `manifest.json.sealed` | The manifest, sealed |
 | `<section>/<kind>-<NNNNNN>.jsonl.sealed` | A page of records, sealed |
-| `artifacts/<uuid>.bin.sealed` | One file's original bytes, sealed |
+| `artifacts/<uuid>.bin.sealed` | One work artifact's original bytes, sealed |
+| `knowledge/<uuid>.bin.sealed` | One uploaded Knowledge document's original bytes, sealed |
+| `skills/<uuid>.bin.sealed` | One verified skill version's original bundle, sealed |
 
 **Treat an archive as hostile however it reached you**, since anyone with your public key can make one. A name that is not exactly one of those shapes is to be refused. Do not try to clean it up, and do not join it to a path first. The shapes, as regular expressions:
 
@@ -38,7 +40,7 @@ manifest.json.sealed
 ^([a-z-]+)/([a-z_]+-\d{6}\.jsonl|[0-9a-f-]{36}\.bin)\.sealed$
 ```
 
-A `.bin` part is only valid in `artifacts/`, and its name has to be a UUID. The section has to be one of: `organizations`, `people`, `clients`, `projects`, `work`, `relations`, `artifacts`, `history`, `connections`, `tombstones`, `audit-redacted`, `knowledge`, `agents`, `skills`, `policy`, `custom-objects`.
+A `.bin` part uses a UUID and belongs in `artifacts/`, `knowledge/`, or, with the `ensemus.skill-bundles/12` inventory, `skills/`. Use `open-archive.mjs` to recover a skill bundle as `skills/<uuid>.bin`. Submit those bytes through the receiving workspace’s skill upload and verification workflow. The section has to be one of: `organizations`, `people`, `clients`, `projects`, `work`, `relations`, `artifacts`, `history`, `connections`, `tombstones`, `audit-redacted`, `knowledge`, `agents`, `skills`, `policy`, `custom-objects`.
 
 ## A sealed object
 

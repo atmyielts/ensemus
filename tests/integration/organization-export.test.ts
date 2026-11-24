@@ -5,10 +5,14 @@
 // Needs migrations 0300 and 0301 in the journal, which the final merge stitches. Until then this cannot pass, and
 // it has never run. Generated values only: `@example.invalid`, generated keys, and canaries made up here.
 import { createHash, generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join as joinPath } from 'node:path';
 import pg from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   acceptInvitation,
+  addTrustedSigner,
   addArtifact,
   addTeamMember,
   approveMeetingProvider,
@@ -31,6 +35,7 @@ import {
   getMeetingSettings,
   getPublisher,
   getWorkUnit,
+  inspectOrganizationArchive,
   listOrganizationExports,
   listImportedDefinitions,
   listResidencyRequirements,
@@ -75,6 +80,7 @@ import {
   organizationExports,
   sealedSecrets,
   skillBundleUploads,
+  skillVersions,
   webhookEndpoints,
   withTenantTx,
   workArtifacts,
@@ -99,6 +105,8 @@ import {
   MEETING_CONFIGURATION_PORTABILITY_VERSION,
   MEETING_HISTORY_PORTABILITY_INVENTORY,
   MEETING_HISTORY_PORTABILITY_VERSION,
+  SKILL_BUNDLE_PORTABILITY_INVENTORY,
+  SKILL_BUNDLE_PORTABILITY_VERSION,
   SKILL_METADATA_PORTABILITY_INVENTORY,
   SKILL_METADATA_PORTABILITY_VERSION,
   RESIDENCY_PORTABILITY_INVENTORY,
@@ -106,15 +114,21 @@ import {
   SKILL_UPLOAD_CLEANUP_PORTABILITY_INVENTORY,
   SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION,
   isArchivePath,
+  skillBundlePartPath,
+  type ExportSection,
 } from '@ensemus/domain/portability';
+import { SANDBOX_DEFAULT_CEILINGS } from '@ensemus/domain/sandbox';
+import { skillBundleObjectKey } from '@ensemus/domain/skill';
 import {
   exportTargetRef,
   ORGANIZATION_EXPORT_READY,
   ORGANIZATION_EXPORT_REQUESTED,
 } from '@ensemus/domain/sovereign-events';
+import { buildTestBundle, generateTestKey } from '@ensemus/skills/testing';
 import { open } from '@ensemus/sovereign/sealed';
 import { readTarEntries } from '@ensemus/sovereign/tar';
 import { createPortabilityActivities } from '@ensemus/workflows/portability-activities';
+import { createSkillVerificationActivities } from '@ensemus/workflows/skill-verification-activities';
 import { and, eq, sql } from 'drizzle-orm';
 import {
   seedExportRow,
@@ -140,7 +154,8 @@ import { seedConnection, seedExternalAction } from '../helpers/integrations';
 import { proveSecondFactor } from '../helpers/product';
 import { seedPackage, seedSigner } from '../helpers/skills';
 import { secret, urls } from '../helpers/stack';
-import { archiveReader } from './fixtures/archive-builder';
+import { archiveReader, buildTar, sealManifest, sealPart } from './fixtures/archive-builder';
+import { openArchive } from '../../workers/workflow/src/tools/open-archive';
 
 /** A store in memory, which remembers what was asked of it and can be told to fail. */
 class MemoryStore implements ObjectStore {
@@ -1081,6 +1096,151 @@ describe('organization export', () => {
     } finally {
       await clearDeploymentProfile();
     }
+  });
+
+  it('recovers verified workspace skill bundles and keeps destination imports inert', async () => {
+    const source = await newOrg();
+    const target = await newOrg();
+    const pkg = await seedPackage(db(), source);
+    const key = generateTestKey();
+    const enabled = { isEnabled: async () => true };
+    await addTrustedSigner(db(), source, enabled, {
+      displayName: 'Archive fixture',
+      publicKey: key.publicKey,
+    });
+    const { bytes } = buildTestBundle({ name: pkg.name, key });
+    const store = new MemoryStore();
+    const uploadStore = Object.assign(store, {
+      async putSingleAttempt(objectKey: string, body: Buffer) {
+        await store.put(objectKey, body);
+        return { transport: 'written' } as const;
+      },
+    });
+    const upload = await uploadSkillBundle(db(), uploadStore, source, enabled, {
+      packageId: pkg.id,
+      bytes,
+    });
+    expect(await drive(source, store, await request(source))).toEqual({
+      state: 'failed',
+      code: 'RECORD_REFUSED',
+    });
+    const verifier = createSkillVerificationActivities({
+      database: workerDb(),
+      store,
+      ceilings: SANDBOX_DEFAULT_CEILINGS,
+      reviewKeys: new Map(),
+    });
+    await expect(
+      verifier.checkSkillBundle({
+        organizationId: source.organizationId,
+        skillVersionId: upload.id,
+      }),
+    ).resolves.toEqual({ step: 'finished', outcome: 'verified' });
+
+    const exportId = await request(source);
+    await expect(drive(source, store, exportId)).resolves.toMatchObject({ state: 'finished' });
+    const opened = await downloadAndOpen(source, store, exportId);
+    expect(opened.manifest).toMatchObject({
+      inventory_version: SKILL_BUNDLE_PORTABILITY_VERSION,
+      inventory: SKILL_BUNDLE_PORTABILITY_INVENTORY,
+    });
+    const path = skillBundlePartPath(upload.id);
+    expect(opened.parts.get(path)).toEqual(bytes);
+    const versions = recordsOf(opened, 'skill_bundle_version');
+    expect(versions).toMatchObject([
+      {
+        id: upload.id,
+        package_id: pkg.id,
+        state: 'verified',
+        bundle_sha256: sha256Hex(bytes),
+        size_bytes: bytes.length,
+      },
+    ]);
+    expect(recordsOf(opened, 'skill_test_history')).toMatchObject([
+      {
+        skill_version_id: upload.id,
+        mode: 'contract',
+        outcome: 'passed',
+      },
+    ]);
+
+    const scratch = await mkdtemp(joinPath(tmpdir(), 'ensemus-skill-archive-'));
+    try {
+      const archivePath = joinPath(scratch, 'sample.tar');
+      const outFolder = joinPath(scratch, 'opened');
+      await writeFile(archivePath, opened.bytes);
+      await expect(
+        openArchive({
+          archivePath,
+          outFolder,
+          recipientPrivateKeyPem: recipient.privateKeyPem,
+        }),
+      ).resolves.toMatchObject({ ok: true, exportId });
+      expect(await readFile(joinPath(outFolder, path.replace(/\.sealed$/, '')))).toEqual(bytes);
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
+
+    const originalParts = Array.from(opened.parts.entries());
+    const changedBody = Buffer.from(bytes);
+    changedBody[0] = changedBody[0]! ^ 1;
+    const resealed = originalParts.map(([name, plain]) => {
+      const declared = opened.manifest.parts.find((part) => part.path === name);
+      if (!declared) throw new Error('FIXTURE_PART_MISSING');
+      return sealPart(
+        recipient,
+        declared.section as ExportSection,
+        name,
+        name === path ? changedBody : plain,
+        declared.records,
+      );
+    });
+    const tampered = buildTar([
+      sealManifest(recipient, { ...opened.manifest, parts: resealed.map(({ part }) => part) }),
+      ...resealed.map(({ file }) => file),
+    ]);
+    await expect(
+      inspectOrganizationArchive(archiveReader(tampered), recipient.privateKeyPem),
+    ).resolves.toMatchObject({ ok: false, code: 'PART_CHANGED' });
+
+    const targetStore = new MemoryStore();
+    const bound = await requestOrganizationImport(db(), target);
+    const result = await runOrganizationImport(
+      workerDb(),
+      worker(target),
+      {
+        importId: bound.id,
+        archive: archiveReader(opened.bytes),
+        recipientPrivateKeyPem: recipient.privateKeyPem,
+      },
+      { sections: SOURCE_PORTABILITY_SECTIONS, ledger: targetStore, store: targetStore },
+    );
+    expect(result).toMatchObject({
+      status: 'completed_with_warnings',
+      failureCode: null,
+      appliedCounts: { skill_bundle_version: 1, skill_test_history: 1 },
+    });
+    expect(result.warningCounts.RELATION_DANGLING ?? 0).toBe(0);
+    expect(await withTenantTx(db(), target, (tx) => tx.select().from(skillVersions))).toEqual([]);
+    expect(
+      [...targetStore.objects.keys()].some((objectKey) => objectKey.includes('/skills/')),
+    ).toBe(false);
+    expect(await listImportedDefinitions(db(), target)).toContainEqual({
+      section: 'skills',
+      record_kind: 'skill_bundle_version',
+      source_id: upload.id,
+      record: versions[0],
+    });
+    const targetAdmin = await join(target, 'skill-review-admin', 'admin');
+    expect(await listImportedDefinitions(db(), targetAdmin)).not.toContainEqual(
+      expect.objectContaining({ record_kind: 'skill_bundle_version' }),
+    );
+
+    store.objects.set(skillBundleObjectKey(source.organizationId, upload.id), changedBody);
+    expect(await drive(source, store, await request(source))).toEqual({
+      state: 'failed',
+      code: 'BYTES_CHANGED',
+    });
   });
 
   it('carries meeting settings and provider decisions as review records without activating them', async () => {

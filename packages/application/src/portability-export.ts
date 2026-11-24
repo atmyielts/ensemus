@@ -28,6 +28,7 @@ import { can } from '@ensemus/domain/policy';
 import {
   artifactPartPath,
   knowledgePartPath,
+  skillBundlePartPath,
   assertPortabilitySections,
   FEDERATION_PORTABILITY_VERSION,
   SKILL_METADATA_PORTABILITY_VERSION,
@@ -37,6 +38,7 @@ import {
   BUSINESS_RECORD_PORTABILITY_VERSION,
   RESIDENCY_PORTABILITY_VERSION,
   SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION,
+  SKILL_BUNDLE_PORTABILITY_VERSION,
   isJoinedPortabilityVersion,
   PORTABILITY_INVENTORY_PROFILES,
   PORTABILITY_INVENTORY_VERSION,
@@ -85,6 +87,7 @@ import {
 import { RecordRefused } from './portability-sections-import';
 import { queryRows } from './portability-sql';
 import type { ResidencyPolicy } from '@ensemus/domain/residency';
+import { SKILL_BUNDLE_MAX_BYTES, skillBundleObjectKey } from '@ensemus/domain/skill';
 import { assertExportEpoch, isExportEpochCurrent } from './portability-epoch';
 import type { ExportPage, PortabilitySection } from './sovereign-ports';
 import { auditAction, notify } from './work';
@@ -520,13 +523,17 @@ const stepOf = (row: ExportRow): ExportStep =>
 async function archiveStorageMatchesResidency(tx: Tx, policy: ResidencyPolicy | undefined) {
   const regions = policy?.surfaces.storage?.regions;
   const region = policy?.homeRegion;
-  if (!region || !regions?.length || regions.some((declared) => declared !== region)) return false;
+  const declared =
+    region && regions?.length && regions.every((value) => value === region) ? region : null;
   const [proof] = await queryRows<{ allowed: boolean }>(
     tx,
-    sql`select sovereign.portable_residency_storage_matches(${region}) as allowed`,
+    sql`select sovereign.portable_residency_storage_matches(${declared}) as allowed`,
   );
   return proof?.allowed === true;
 }
+
+const checksArchiveResidency = (profile: string | null) =>
+  profile === RESIDENCY_PORTABILITY_VERSION || profile === SKILL_BUNDLE_PORTABILITY_VERSION;
 
 /** Moves it to `running` and records `snapshot_at`. On a row already finished, answers `finished`. */
 export async function beginExport(
@@ -553,12 +560,13 @@ export async function beginExport(
         when sovereign.portable_profile_clear(${BUSINESS_RECORD_PORTABILITY_VERSION}) then ${BUSINESS_RECORD_PORTABILITY_VERSION}
         when sovereign.portable_profile_clear(${SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION}) then ${SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION}
         when sovereign.portable_profile_clear(${RESIDENCY_PORTABILITY_VERSION}) then ${RESIDENCY_PORTABILITY_VERSION}
+        when sovereign.portable_profile_clear(${SKILL_BUNDLE_PORTABILITY_VERSION}) then ${SKILL_BUNDLE_PORTABILITY_VERSION}
         else null end as profile`,
     );
     const profile = admitted?.profile;
     if (
       !profile ||
-      (profile === RESIDENCY_PORTABILITY_VERSION &&
+      (checksArchiveResidency(profile) &&
         !(await archiveStorageMatchesResidency(tx, deps.residencyPolicy)))
     ) {
       await recordFailure(tx, context, row, 'RECORD_REFUSED');
@@ -567,7 +575,7 @@ export async function beginExport(
     const includesBusinessReferences =
       profile === BUSINESS_RECORD_PORTABILITY_VERSION ||
       profile === SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION ||
-      profile === RESIDENCY_PORTABILITY_VERSION;
+      checksArchiveResidency(profile);
     try {
       await assertJoinedPortabilitySchema(tx, profile);
       if (profile === MEETING_HISTORY_PORTABILITY_VERSION || includesBusinessReferences)
@@ -865,19 +873,30 @@ async function writeRecords(
   const part = await storePart(run, section, path, encoded.count, encoded.body);
   const originals: PartValues[] = [];
   for (const original of read.originals ?? []) {
+    const id = original.resourceId;
+    const isSkillBundle =
+      section === 'skills' && inventoryVersion === SKILL_BUNDLE_PORTABILITY_VERSION;
     if (
-      section !== 'knowledge' ||
-      original.objectKey !== `${context.organizationId}/knowledge/${original.documentId}` ||
-      original.sizeBytes > 26214400 ||
+      (section !== 'knowledge' && !isSkillBundle) ||
+      original.objectKey !==
+        (isSkillBundle
+          ? skillBundleObjectKey(context.organizationId, id)
+          : `${context.organizationId}/knowledge/${id}`) ||
+      original.sizeBytes > (isSkillBundle ? SKILL_BUNDLE_MAX_BYTES : 26_214_400) ||
       row.partCount + originals.length + 2 > MAX_ARCHIVE_PARTS
     )
       return failStep(run, 'RECORD_REFUSED');
     await assertRunEpoch(run);
-    const bytes = await fromStore(() => run.store.get(original.objectKey));
+    const bytes = await fromStore(() =>
+      isSkillBundle
+        ? run.store.get(original.objectKey, SKILL_BUNDLE_MAX_BYTES)
+        : run.store.get(original.objectKey),
+    );
     await assertRunEpoch(run);
     if (bytes.length !== original.sizeBytes || sha256(bytes) !== original.sha256)
       return failStep(run, 'BYTES_CHANGED');
-    originals.push(await storePart(run, section, knowledgePartPath(original.documentId), 0, bytes));
+    const path = isSkillBundle ? skillBundlePartPath(id) : knowledgePartPath(id);
+    originals.push(await storePart(run, section, path, 0, bytes));
   }
   const sequences = { ...progress.sequences, [sequenceKey]: sequence };
   return commitStep(run, {
@@ -893,7 +912,7 @@ async function writeRecords(
             owner.confirmOriginals!(
               scoped,
               context,
-              (read.originals ?? []).map((item) => item.documentId),
+              (read.originals ?? []).map((item) => item.resourceId),
             ),
           ))
         )
@@ -1297,7 +1316,7 @@ async function readRun(
     if (row.status === 'requested') throw new AppError('INVALID_STATE');
     await assertExportEpoch(tx, context, row.id);
     if (
-      row.inventoryVersion === RESIDENCY_PORTABILITY_VERSION &&
+      checksArchiveResidency(row.inventoryVersion) &&
       !(await archiveStorageMatchesResidency(tx, deps.residencyPolicy))
     ) {
       const latest = await findExport(tx, context, exportId, true);

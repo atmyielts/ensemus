@@ -31,6 +31,8 @@ import {
 import {
   artifactPartPath,
   knowledgePartPath,
+  skillBundlePartPath,
+  SKILL_BUNDLE_PORTABILITY_VERSION,
   matchesPortabilityInventory,
   PORTABILITY_INVENTORY_PROFILES,
   assertPortabilitySections,
@@ -48,6 +50,7 @@ import {
   type ImportWarningCode,
   type ImportedRecordType,
 } from '@ensemus/domain/portability';
+import { SKILL_BUNDLE_MAX_BYTES } from '@ensemus/domain/skill';
 import { can, canManageWork, type Classification } from '@ensemus/domain/policy';
 import {
   AGGREGATE_ORGANIZATION_IMPORT,
@@ -405,6 +408,14 @@ function assertPartsAreExact(entries: ReadonlyMap<string, TarEntry>, manifest: E
     if (!isArchivePath(part.path) || part.path.split('/')[0] !== part.section) {
       throw new ImportFailure('MANIFEST_INVALID');
     }
+    if (
+      part.section === 'skills' &&
+      isBinaryPart(part) &&
+      (part.records !== 0 ||
+        manifest.schema_version !== 2 ||
+        manifest.inventory_version !== SKILL_BUNDLE_PORTABILITY_VERSION)
+    )
+      throw new ImportFailure('MANIFEST_INVALID');
     listed.add(part.path);
   }
   for (const path of listed) if (!entries.has(path)) throw new ImportFailure('PART_MISSING');
@@ -507,7 +518,7 @@ function readLines(plain: Buffer, part: ManifestPart, inventoryVersion?: string)
   return lines;
 }
 
-const isArtifactBytes = (part: ManifestPart) => part.path.endsWith('.bin.sealed');
+const isBinaryPart = (part: ManifestPart) => part.path.endsWith('.bin.sealed');
 const tombstoneKey = (targetType: string, targetId: string) =>
   `${targetType}/${canonicalId(targetId)}`;
 
@@ -584,17 +595,25 @@ async function readArchiveTombstones(opened: OpenedArchive) {
  */
 async function verifyEveryPart(opened: OpenedArchive, tombstoned: TombstoneSet) {
   const bytesParts = new Map<string, ManifestPart>();
+  const skillFiles = new Map<string, number>();
+  const expectedSkillFiles = new Map<string, number>();
   for (const part of opened.manifest.parts) {
-    if (isArtifactBytes(part)) bytesParts.set(part.path, part);
+    if (isBinaryPart(part)) bytesParts.set(part.path, part);
   }
   for (const part of opened.manifest.parts) {
     if (part.section === 'tombstones') continue;
-    if (isArtifactBytes(part)) {
+    if (isBinaryPart(part)) {
       const artifactId = part.path.slice(part.section.length + 1, -'.bin.sealed'.length);
-      if (tombstoned.has(tombstoneKey('artifact', artifactId))) {
+      if (part.section === 'artifacts' && tombstoned.has(tombstoneKey('artifact', artifactId))) {
         await readSealedPart(opened, part);
       } else {
-        await readPart(opened, part);
+        if (
+          part.section === 'skills' &&
+          part.sealed_bytes > SKILL_BUNDLE_MAX_BYTES + SEALED_OVERHEAD_BYTES
+        )
+          throw new ImportFailure('PART_CHANGED');
+        const plain = await readPart(opened, part);
+        if (part.section === 'skills') skillFiles.set(part.path, plain.length);
       }
       continue;
     }
@@ -615,8 +634,24 @@ async function verifyEveryPart(opened: OpenedArchive, tombstoned: TombstoneSet) 
         if (!bytes || bytes.plaintext_sha256 !== record.content_sha256)
           throw new ImportFailure('PART_CHANGED');
       }
+      if (record.kind === 'skill_bundle_version') {
+        const path = skillBundlePartPath(record.id);
+        const binary = bytesParts.get(path);
+        if (
+          expectedSkillFiles.has(path) ||
+          !binary ||
+          binary.plaintext_sha256 !== record.bundle_sha256
+        )
+          throw new ImportFailure('PART_CHANGED');
+        expectedSkillFiles.set(path, record.size_bytes);
+      }
     }
   }
+  if (
+    skillFiles.size !== expectedSkillFiles.size ||
+    [...expectedSkillFiles].some(([path, size]) => skillFiles.get(path) !== size)
+  )
+    throw new ImportFailure('PART_CHANGED');
 }
 
 /** A file's record has to agree with the bytes listed for it. The bytes were hashed against the manifest. */
@@ -741,7 +776,7 @@ function partsInOrder(manifest: ExportManifest) {
     return rank === -1 ? SECTION_ORDER.length : rank;
   };
   return manifest.parts
-    .filter((part) => !isArtifactBytes(part))
+    .filter((part) => !isBinaryPart(part))
     .sort(
       (a, b) =>
         sectionRank(a.section) - sectionRank(b.section) ||
@@ -978,7 +1013,7 @@ async function applyParts(
 ) {
   const implemented = new Map(deps.sections.map((section) => [section.section as string, section]));
   const bytesParts = new Map(
-    opened.manifest.parts.filter(isArtifactBytes).map((part) => [part.path, part]),
+    opened.manifest.parts.filter(isBinaryPart).map((part) => [part.path, part]),
   );
   const ordered = partsInOrder(opened.manifest);
   const { row } = state;
@@ -1053,6 +1088,17 @@ async function applyParts(
       records = stored.keep;
       filesFinished = stored.finishedPaths;
       addWarnings(warnings, stored.warnings);
+    }
+    if (part.section === 'skills') {
+      // Preflight checked the bytes. Mark the parts reviewed without copying code into the target.
+      filesFinished = validatePart(part.section, lines, scope.inventoryVersion).flatMap(
+        (record) => {
+          if (record.kind !== 'skill_bundle_version') return [];
+          const binary = bytesParts.get(skillBundlePartPath(record.id));
+          if (!binary) throw new ImportFailure('PART_CHANGED');
+          return [binary];
+        },
+      );
     }
     const kind = (lines[0] as { kind?: unknown } | undefined)?.kind;
     const countKey = typeof kind === 'string' ? kind : part.section;
