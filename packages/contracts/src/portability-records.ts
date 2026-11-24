@@ -33,9 +33,12 @@ const SKILL_METADATA_PORTABILITY_VERSION = 'ensemus.skill-metadata/5';
 const MARKETPLACE_PUBLISHER_PORTABILITY_VERSION = 'ensemus.marketplace-publisher/6';
 const MEETING_CONFIGURATION_PORTABILITY_VERSION = 'ensemus.meeting-config/7';
 const MEETING_HISTORY_PORTABILITY_VERSION = 'ensemus.meeting-history/8';
+const BUSINESS_RECORD_PORTABILITY_VERSION = 'ensemus.business-records/9';
+const carriesMeetingHistory = (version: unknown) =>
+  version === MEETING_HISTORY_PORTABILITY_VERSION ||
+  version === BUSINESS_RECORD_PORTABILITY_VERSION;
 const carriesMeetingConfiguration = (version: unknown) =>
-  version === MEETING_CONFIGURATION_PORTABILITY_VERSION ||
-  version === MEETING_HISTORY_PORTABILITY_VERSION;
+  version === MEETING_CONFIGURATION_PORTABILITY_VERSION || carriesMeetingHistory(version);
 const carriesPublisherHistory = (version: unknown) =>
   version === MARKETPLACE_PUBLISHER_PORTABILITY_VERSION || carriesMeetingConfiguration(version);
 const carriesPortableSkillMetadata = (version: unknown) =>
@@ -431,7 +434,28 @@ const meetingReference = z
   .max(400)
   .refine((value) => [...value].length <= 200);
 
+const BUSINESS_RECORD_KINDS = [
+  'business_record_reference',
+  'business_record_action_reference',
+] as const;
+
 export const extensionRecordSchema = z.discriminatedUnion('kind', [
+  z.strictObject({
+    kind: z.literal('business_record_reference'),
+    id,
+    connection_id: id,
+    resource_id: id,
+    stream: z.string().regex(/^[a-z0-9_.-]{1,64}$/),
+    classification,
+    first_seen_at: moment,
+    updated_at: moment,
+  }),
+  z.strictObject({
+    kind: z.literal('business_record_action_reference'),
+    id,
+    business_record_id: id,
+    created_at: moment,
+  }),
   z.strictObject({
     kind: z.literal('meeting_purge_history'),
     id,
@@ -926,7 +950,7 @@ export const EXTENSION_SECTION_KINDS = {
     'graph_edge',
     'artifact_citation',
   ],
-  connections: ['external_resource', 'external_acl', 'mcp_definition'],
+  connections: ['external_resource', 'external_acl', 'mcp_definition', ...BUSINESS_RECORD_KINDS],
   clients: ['client_reader'],
   history: ['action_attempt'],
 } as const;
@@ -954,7 +978,12 @@ export function assertPortableExtensionProfile(
     throw new Error('RECORD_REFUSED');
   if (
     (MEETING_HISTORY_RECORD_KINDS as readonly string[]).includes(kind) &&
-    inventoryVersion !== MEETING_HISTORY_PORTABILITY_VERSION
+    !carriesMeetingHistory(inventoryVersion)
+  )
+    throw new Error('RECORD_REFUSED');
+  if (
+    (BUSINESS_RECORD_KINDS as readonly string[]).includes(kind) &&
+    inventoryVersion !== BUSINESS_RECORD_PORTABILITY_VERSION
   )
     throw new Error('RECORD_REFUSED');
 }
@@ -1023,6 +1052,7 @@ const manifestV2Schema = manifestV1Schema.extend({
     MARKETPLACE_PUBLISHER_PORTABILITY_VERSION,
     MEETING_CONFIGURATION_PORTABILITY_VERSION,
     MEETING_HISTORY_PORTABILITY_VERSION,
+    BUSINESS_RECORD_PORTABILITY_VERSION,
   ]),
   record_max_bytes: z.literal(4 * 1024 * 1024).optional(),
   generated_bodies_excluded: z.int().min(0),
@@ -1076,7 +1106,7 @@ export const exportManifestSchema = z
     const joined = value.schema_version === 2 && isJoinedInventory(value.inventory_version);
     if (
       value.schema_version === 2 &&
-      value.inventory_version !== MEETING_HISTORY_PORTABILITY_VERSION &&
+      !carriesMeetingHistory(value.inventory_version) &&
       value.inventory.length > 256
     )
       ctx.addIssue({

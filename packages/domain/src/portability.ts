@@ -55,13 +55,15 @@ export const SKILL_METADATA_PORTABILITY_VERSION = 'ensemus.skill-metadata/5' as 
 export const MARKETPLACE_PUBLISHER_PORTABILITY_VERSION = 'ensemus.marketplace-publisher/6' as const;
 export const MEETING_CONFIGURATION_PORTABILITY_VERSION = 'ensemus.meeting-config/7' as const;
 export const MEETING_HISTORY_PORTABILITY_VERSION = 'ensemus.meeting-history/8' as const;
+export const BUSINESS_RECORD_PORTABILITY_VERSION = 'ensemus.business-records/9' as const;
 export type JoinedPortabilityVersion =
   | typeof PORTABILITY_INVENTORY_VERSION
   | typeof FEDERATION_PORTABILITY_VERSION
   | typeof SKILL_METADATA_PORTABILITY_VERSION
   | typeof MARKETPLACE_PUBLISHER_PORTABILITY_VERSION
   | typeof MEETING_CONFIGURATION_PORTABILITY_VERSION
-  | typeof MEETING_HISTORY_PORTABILITY_VERSION;
+  | typeof MEETING_HISTORY_PORTABILITY_VERSION
+  | typeof BUSINESS_RECORD_PORTABILITY_VERSION;
 export function isJoinedPortabilityVersion(profile: unknown): profile is JoinedPortabilityVersion {
   return (
     profile === PORTABILITY_INVENTORY_VERSION ||
@@ -69,7 +71,8 @@ export function isJoinedPortabilityVersion(profile: unknown): profile is JoinedP
     profile === SKILL_METADATA_PORTABILITY_VERSION ||
     profile === MARKETPLACE_PUBLISHER_PORTABILITY_VERSION ||
     profile === MEETING_CONFIGURATION_PORTABILITY_VERSION ||
-    profile === MEETING_HISTORY_PORTABILITY_VERSION
+    profile === MEETING_HISTORY_PORTABILITY_VERSION ||
+    profile === BUSINESS_RECORD_PORTABILITY_VERSION
   );
 }
 export const PORTABLE_SOURCE_SECTIONS = [
@@ -417,6 +420,12 @@ export const MEETING_HISTORY_PORTABILITY_INVENTORY = [
   inventory('meetings.import_requests', 'policy', 'quarantined'),
 ] as const;
 
+export const BUSINESS_RECORD_PORTABILITY_INVENTORY = [
+  ...MEETING_HISTORY_PORTABILITY_INVENTORY,
+  inventory('integrations.business_records', 'connections', 'quarantined'),
+  inventory('integrations.business_record_actions', 'connections', 'quarantined'),
+] as const;
+
 export const PORTABILITY_INVENTORY_PROFILES = {
   [LEGACY_PORTABILITY_INVENTORY_VERSION]: PORTABILITY_INVENTORY_V1,
   [PORTABILITY_INVENTORY_V2_VERSION]: PORTABILITY_INVENTORY_V2,
@@ -426,6 +435,7 @@ export const PORTABILITY_INVENTORY_PROFILES = {
   [MARKETPLACE_PUBLISHER_PORTABILITY_VERSION]: MARKETPLACE_PUBLISHER_PORTABILITY_INVENTORY,
   [MEETING_CONFIGURATION_PORTABILITY_VERSION]: MEETING_CONFIGURATION_PORTABILITY_INVENTORY,
   [MEETING_HISTORY_PORTABILITY_VERSION]: MEETING_HISTORY_PORTABILITY_INVENTORY,
+  [BUSINESS_RECORD_PORTABILITY_VERSION]: BUSINESS_RECORD_PORTABILITY_INVENTORY,
 } as const;
 
 export function matchesPortabilityInventory(

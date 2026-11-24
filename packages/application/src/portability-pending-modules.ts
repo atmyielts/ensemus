@@ -2,8 +2,6 @@
 // proof that this tenant has no such data; this list does not declare the tables portable or erasable.
 // The complete portability inventory remains a release gate until a new reviewed profile covers them.
 export const PENDING_PORTABILITY_TABLES = [
-  'integrations.business_record_actions',
-  'integrations.business_records',
   'marketplace.installations',
   'marketplace.listings',
   'marketplace.security_reviews',

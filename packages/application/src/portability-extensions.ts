@@ -8,8 +8,9 @@ import {
   type ExtensionRecord,
 } from '@ensemus/contracts/portability-records';
 import {
+  BUSINESS_RECORD_PORTABILITY_INVENTORY,
+  BUSINESS_RECORD_PORTABILITY_VERSION,
   MEETING_CONFIGURATION_PORTABILITY_VERSION,
-  MEETING_HISTORY_PORTABILITY_INVENTORY,
   MEETING_HISTORY_PORTABILITY_VERSION,
   MARKETPLACE_PUBLISHER_PORTABILITY_VERSION,
   SKILL_METADATA_PORTABILITY_VERSION,
@@ -101,6 +102,7 @@ const skillReadersByProfile: Partial<Record<JoinedPortabilityVersion, readonly P
     [MARKETPLACE_PUBLISHER_PORTABILITY_VERSION]: publisherReaders,
     [MEETING_CONFIGURATION_PORTABILITY_VERSION]: publisherReaders,
     [MEETING_HISTORY_PORTABILITY_VERSION]: publisherReaders,
+    [BUSINESS_RECORD_PORTABILITY_VERSION]: publisherReaders,
   };
 const meetingConfigurationReaders: readonly PortableReader[] = [
   {
@@ -508,7 +510,7 @@ export async function assertJoinedPortabilitySchema(
       AND schemaname NOT IN ('information_schema','drizzle')`,
   );
   const known = new Set<string>([
-    ...MEETING_HISTORY_PORTABILITY_INVENTORY.map((entry) => entry.table),
+    ...BUSINESS_RECORD_PORTABILITY_INVENTORY.map((entry) => entry.table),
     ...PENDING_PORTABILITY_TABLES,
   ]);
   if (present.some((row) => !known.has(row.table_name))) throw new RecordRefused();
@@ -550,11 +552,22 @@ export async function assertMeetingHistoryViewer(tx: Tx, organizationId: string,
   if (result?.allowed !== true) throw new RecordRefused();
 }
 
+export async function hasPortableBusinessRecords(tx: Tx): Promise<boolean> {
+  const [proof] = await queryRows<{ allowed: boolean }>(
+    tx,
+    sql`select record->'allowed' as allowed from sovereign.portable_business_page('check',null,1)`,
+  );
+  return proof?.allowed === true;
+}
+
 function exporter(section: ExportSection): PortabilitySection['exportPage'] {
   return async (tx, context, { cursor, limit, inventoryVersion }): Promise<ExportPage> => {
     await assertJoinedPortabilitySchema(tx, inventoryVersion);
     const exportViewer = await assertExportViewer(tx);
-    if (section === 'policy' && inventoryVersion === MEETING_HISTORY_PORTABILITY_VERSION)
+    const includesMeetingHistory =
+      inventoryVersion === MEETING_HISTORY_PORTABILITY_VERSION ||
+      inventoryVersion === BUSINESS_RECORD_PORTABILITY_VERSION;
+    if (section === 'policy' && includesMeetingHistory)
       await assertMeetingHistoryViewer(tx, context.organizationId, exportViewer);
     const list =
       section === 'skills'
@@ -564,12 +577,10 @@ function exporter(section: ExportSection): PortabilitySection['exportPage'] {
             ...(M7_PORTABLE_READERS[section] ?? []),
             ...(section === 'policy' &&
             (inventoryVersion === MEETING_CONFIGURATION_PORTABILITY_VERSION ||
-              inventoryVersion === MEETING_HISTORY_PORTABILITY_VERSION)
+              includesMeetingHistory)
               ? meetingConfigurationReaders
               : []),
-            ...(section === 'policy' && inventoryVersion === MEETING_HISTORY_PORTABILITY_VERSION
-              ? MEETING_HISTORY_READERS
-              : []),
+            ...(section === 'policy' && includesMeetingHistory ? MEETING_HISTORY_READERS : []),
           ];
     if (section === 'skills' && !list.length)
       return { recordKind: 'skills', records: [], nextCursor: null };
@@ -577,6 +588,33 @@ function exporter(section: ExportSection): PortabilitySection['exportPage'] {
       cursor === null
         ? { index: 0, key: null as string | null }
         : (JSON.parse(cursor) as { index: number; key: string | null });
+    const businessReaders =
+      section === 'connections' && inventoryVersion === BUSINESS_RECORD_PORTABILITY_VERSION
+        ? ([
+            { mode: 'record', kind: 'business_record_reference' },
+            { mode: 'action', kind: 'business_record_action_reference' },
+          ] as const)
+        : [];
+    const totalReaders = list.length + businessReaders.length;
+    const next = (after: string | null) =>
+      after !== null
+        ? JSON.stringify({ index: state.index, key: after })
+        : state.index + 1 < totalReaders
+          ? JSON.stringify({ index: state.index + 1, key: null })
+          : null;
+    const businessReader = businessReaders[state.index - list.length];
+    if (businessReader) {
+      const pageSize = Math.min(limit, 200);
+      const rows = await queryRows<{ key: string; record: unknown }>(
+        tx,
+        sql`select key,record from sovereign.portable_business_page(${businessReader.mode},${state.key}::uuid,${pageSize})`,
+      );
+      return {
+        recordKind: businessReader.kind,
+        records: rows.map(({ record }) => extensionRecordSchema.parse(record)),
+        nextCursor: next(rows.length === pageSize ? (rows.at(-1)?.key ?? null) : null),
+      };
+    }
     const reader = list[state.index];
     if (!reader) throw new RecordRefused();
     const key = reader.key ?? 't.id::text';
@@ -622,11 +660,7 @@ function exporter(section: ExportSection): PortabilitySection['exportPage'] {
     });
     const last = rows.at(-1);
     const more = rows.length === pageSize && last;
-    const nextCursor = more
-      ? JSON.stringify({ index: state.index, key: last.key })
-      : state.index + 1 < list.length
-        ? JSON.stringify({ index: state.index + 1, key: null })
-        : null;
+    const nextCursor = next(more ? last.key : null);
     const originals = records.flatMap((record) =>
       record.kind === 'knowledge_document'
         ? [

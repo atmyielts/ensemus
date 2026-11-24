@@ -12,6 +12,7 @@ import {
   addArtifact,
   addTeamMember,
   approveMeetingProvider,
+  applyBusinessRecordPage,
   beginExport,
   SOURCE_PORTABILITY_SECTIONS,
   createClient,
@@ -35,6 +36,7 @@ import {
   listMeetings,
   listMeetingProviderApprovals,
   openExportArchive,
+  proposeRecordUpdate,
   purgeExpiredExports,
   recordMeetingConsent,
   requestMeetingNotesImport,
@@ -57,6 +59,7 @@ import {
 } from '@ensemus/contracts/portability-records';
 import {
   connections,
+  businessRecords,
   createOrganization,
   domainEvents,
   externalResourceAcl,
@@ -74,9 +77,12 @@ import {
   type TenantContext,
 } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
+import { canonicalJson } from '@ensemus/domain/approval';
 import { storeSecret } from '@ensemus/secrets/seal';
 import {
   artifactPartPath,
+  BUSINESS_RECORD_PORTABILITY_INVENTORY,
+  BUSINESS_RECORD_PORTABILITY_VERSION,
   EXPORT_MANIFEST_PATH,
   EXPORT_OBJECT_PREFIX,
   FEDERATION_PORTABILITY_INVENTORY,
@@ -568,6 +574,163 @@ describe('organization export', () => {
     const reviewingAdmin = await join(target, 'review-admin', 'admin');
     expect(await listImportedDefinitions(db(), reviewingAdmin)).not.toContainEqual(expectedReceipt);
     expect((await listMeetings(db(), target, {})).items).toEqual([]);
+  });
+
+  it('carries readable business record references and preserves proposed-action links as review', async () => {
+    const source = await newOrg();
+    const target = await newOrg();
+    const approver = await join(source, 'business-reviewer', 'admin');
+    const connector = openAppDatabase(urls.connector());
+    const stream = 'crm.accounts';
+    const externalId = `generated-source-${randomUUID()}`;
+    const fields = { name: `private cached account ${randomUUID()}`, status: 'open' };
+    const digest = sha256Hex(Buffer.from(canonicalJson(fields)));
+    const connectionId = await seedConnection(db(), source, {
+      connectorType: 'crm_http',
+      config: { streams: [stream], scopes: ['crm_http.read', 'crm_http.write'] },
+      grantedScopes: ['crm_http.read', 'crm_http.write'],
+    });
+    const store = new MemoryStore();
+    try {
+      const service = createServiceContext(source.organizationId);
+      await applyBusinessRecordPage(connector.db, service, {
+        connectionId,
+        connectorType: 'crm_http',
+        stream,
+        records: [
+          {
+            externalId,
+            externalVersion: 'source-v1',
+            displayName: fields.name,
+            fields,
+            fieldsSha256: digest,
+            classification: 'internal',
+          },
+        ],
+        deletedExternalIds: [],
+      });
+      const resourceId = randomUUID();
+      await withTenantTx(connector.db, service, async (tx) => {
+        await tx.insert(externalResources).values({
+          organizationId: source.organizationId,
+          id: resourceId,
+          connectionId,
+          stream,
+          resourceType: stream,
+          externalId,
+          externalVersion: 'source-v1',
+          contentSha256: digest,
+          classification: 'internal',
+          aclState: 'mapped',
+        });
+        await tx.insert(externalResourceAcl).values({
+          organizationId: source.organizationId,
+          resourceId,
+          membershipId: approver.membershipId,
+          principalKind: 'user',
+          principalExternalId: 'source-reviewer',
+          access: 'read',
+        });
+      });
+      const refused = await request(source);
+      expect(await drive(source, store, refused)).toEqual({
+        state: 'failed',
+        code: 'RECORD_REFUSED',
+      });
+      expect(store.exportKeys()).toEqual([]);
+
+      await withTenantTx(connector.db, service, (tx) =>
+        tx.insert(externalResourceAcl).values({
+          organizationId: source.organizationId,
+          resourceId,
+          membershipId: source.membershipId,
+          principalKind: 'user',
+          principalExternalId: 'source-owner',
+          access: 'read',
+        }),
+      );
+      const [record] = await withTenantTx(db(), source, (tx) =>
+        tx
+          .select({ id: businessRecords.id })
+          .from(businessRecords)
+          .where(eq(businessRecords.connectionId, connectionId)),
+      );
+      expect(record).toBeDefined();
+      const work = await createWorkUnit(db(), source, {
+        title: 'Review generated business change',
+        classification: 'internal',
+      });
+      const proposal = await proposeRecordUpdate(db(), source, {
+        recordId: record!.id,
+        workUnitId: work.id,
+        expectedVersion: 'source-v1',
+        changes: { status: 'qualified' },
+        approverMembershipId: approver.membershipId,
+      });
+      const exportId = await request(source);
+      expect(await drive(source, store, exportId)).toMatchObject({ state: 'finished' });
+      const opened = await downloadAndOpen(source, store, exportId);
+      expect(opened.manifest).toMatchObject({
+        inventory_version: BUSINESS_RECORD_PORTABILITY_VERSION,
+        inventory: BUSINESS_RECORD_PORTABILITY_INVENTORY,
+      });
+      const records = recordsOf(opened, 'business_record_reference');
+      expect(records).toMatchObject([
+        { id: record!.id, connection_id: connectionId, resource_id: resourceId, stream },
+      ]);
+      expect(recordsOf(opened, 'business_record_action_reference')).toMatchObject([
+        { id: proposal.externalActionId, business_record_id: record!.id },
+      ]);
+      expect(opened.text).not.toContain(fields.name);
+      expect(opened.text).not.toContain(digest);
+      expect(() =>
+        validatePortableRecord('connections', records[0], MEETING_HISTORY_PORTABILITY_VERSION),
+      ).toThrow('RECORD_REFUSED');
+
+      const targetStore = new MemoryStore();
+      const bound = await requestOrganizationImport(db(), target);
+      const imported = await runOrganizationImport(
+        workerDb(),
+        worker(target),
+        {
+          importId: bound.id,
+          archive: archiveReader(opened.bytes),
+          recipientPrivateKeyPem: recipient.privateKeyPem,
+        },
+        { sections: SOURCE_PORTABILITY_SECTIONS, ledger: targetStore, store: targetStore },
+      );
+      expect(imported.appliedCounts).toMatchObject({
+        business_record_reference: 1,
+        business_record_action_reference: 1,
+      });
+      const receipt = expect.objectContaining({ section: 'connections', record: records[0] });
+      expect(await listImportedDefinitions(db(), target)).toContainEqual(receipt);
+      const targetAdmin = await join(target, 'business-import-reviewer', 'admin');
+      expect(await listImportedDefinitions(db(), targetAdmin)).not.toContainEqual(receipt);
+      expect(
+        (
+          await su.query('select id from integrations.business_records where organization_id=$1', [
+            target.organizationId,
+          ])
+        ).rows,
+      ).toEqual([]);
+
+      await withTenantTx(connector.db, service, (tx) =>
+        tx
+          .delete(externalResourceAcl)
+          .where(
+            and(
+              eq(externalResourceAcl.resourceId, resourceId),
+              eq(externalResourceAcl.membershipId, source.membershipId),
+            ),
+          ),
+      );
+      await expect(openExportArchive(db(), store, source, exportId)).rejects.toMatchObject({
+        code: 'EXPORT_SUPERSEDED',
+      });
+    } finally {
+      await connector.close();
+    }
   });
 
   it('refuses purged meeting history where the exporting owner was not a participant', async () => {

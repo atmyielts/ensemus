@@ -20,6 +20,8 @@ A later profile can also archive purged meeting receipts when the requesting own
 
 Never export bearer keys, OAuth refresh tokens, or shared Ensemus service credentials in plaintext. Include connector identities and required scopes; on import, authorized customer re-binds new credentials. Imported external resource IDs must be reconciled rather than blindly using source account IDs in another organization.
 
+The business-record profile preserves connection, resource, and action references for review. The requesting owner must have a current source grant for each record and be able to read each linked Work Unit. The archive leaves out cached connector fields and fingerprints. The owner who authorized the import can review the references, then reconnect and sync the source under fresh credentials and grants. Importing the archive does not create live business records or replay actions.
+
 ## 4. Cloud/BYOM ↔ Sovereign
 
 Cloud-to-BYOM switches provider profiles within the same business database; rerun capability checks and re-embed if model dimensionality changes. SaaS-to-Sovereign exports require tenant data snapshot, blobs, policy/auth mapping, work/event history, agent version specs, compatible local models, index rebuild or conversion, migration logs, and verified import. Privacy/data residency obligations govern transfer channel and erasure after acceptance.
