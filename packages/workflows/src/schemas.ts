@@ -147,7 +147,7 @@ export type SkillVerificationOutcome = 'verified' | 'rejected';
 export type SkillCheckStep =
   /** Refused or already finished, and the row says so. */
   | { step: 'finished'; outcome: SkillVerificationOutcome }
-  /** No code to run. The contract test passed and the row is verified. */
+  /** The contract passed and the signed code still needs its native fixture runs. */
   | { step: 'run_fixtures'; sandboxRunIds: readonly string[] };
 
 export const sandboxRunInputSchema = z.strictObject({

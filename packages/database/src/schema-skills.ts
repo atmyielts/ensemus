@@ -348,6 +348,7 @@ export const sandboxRuns = sandboxSchema.table(
     purpose: text().notNull(),
     /** Set for a run that tests a version, so a result is tied to what it tested. */
     testFixture: integer(),
+    fixtureSignerKeyId: text(),
     workUnitId: uuid(),
     /** M4's run and step. Plain IDs until the final merge adds the keys (ADR-034 D8). */
     agentRunId: uuid(),
@@ -402,6 +403,13 @@ export const sandboxRuns = sandboxSchema.table(
     index('sandbox_runs_status_idx').on(t.organizationId, t.status, t.updatedAt),
     index('sandbox_runs_version_idx').on(t.organizationId, t.skillVersionId, t.createdAt),
     index('sandbox_runs_agent_idx').on(t.organizationId, t.agentRunId),
+    uniqueIndex('sandbox_bound_fixture_once')
+      .on(t.organizationId, t.skillVersionId, t.testFixture)
+      .where(sql`${t.fixtureSignerKeyId} is not null`),
+    check(
+      'sandbox_fixture_signer_binding',
+      sql`${t.fixtureSignerKeyId} is null or (${t.purpose}='skill_test' and ${t.fixtureSignerKeyId} ~ '^[0-9a-f]{64}$' and ${t.testFixture} between 0 and 49)`,
+    ),
     check('sandbox_runs_purpose', sql`${t.purpose} in ('skill_test','agent_tool','operator_test')`),
     check(
       'sandbox_runs_status',
@@ -645,6 +653,8 @@ export const marketplaceInstallations = marketplaceSchema.table(
     createdAt: createdAt(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     removedAt: timestamp({ withTimezone: true }),
+    birthMaterialGeneration: uuid(),
+    birthAuthGeneration: uuid(),
   },
   (t) => [
     primaryKey({ columns: [t.organizationId, t.id] }),
@@ -679,6 +689,10 @@ export const marketplaceInstallations = marketplaceSchema.table(
     check(
       'marketplace_installations_installed',
       sql`${t.state} <> 'installed' or (${t.packageId} is not null and ${t.skillVersionId} is not null)`,
+    ),
+    check(
+      'marketplace_installation_birth_generation_pair',
+      sql`(${t.birthMaterialGeneration} is null) = (${t.birthAuthGeneration} is null)`,
     ),
     check('marketplace_installations_version', sql`${t.version} > 0`),
   ],

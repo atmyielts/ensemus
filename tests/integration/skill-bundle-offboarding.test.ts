@@ -207,6 +207,7 @@ describe('skill bundle offboarding', () => {
           digest: '1'.repeat(64),
           purpose: 'skill_test',
           testFixture: 0,
+          fixtureSignerKeyId: '2'.repeat(64),
           classification: 'internal',
           input: { generated: true },
           ...testPolicy(),

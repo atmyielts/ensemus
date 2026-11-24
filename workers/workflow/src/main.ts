@@ -120,8 +120,12 @@ async function main() {
   const ports = createSaasPorts(store);
   const saas = loadSaasConfig();
   const billingEnabled = saas.billingEnabled;
-  // Off and empty unless an operator says otherwise. Checking a bundle needs no secret and no runner.
+  // The platform worker admits fixture IDs. Only the dedicated worker reaches the runner.
   const skills = loadSkillWorkerConfig();
+  const skillGate = entitledSkillFeatureGate(
+    loadSkillFeatures(),
+    createEntitlementChecker(db, billingEnabled),
+  );
   const skillDeps = {
     database: db,
     store,
@@ -194,15 +198,9 @@ async function main() {
         egress: denyAllMeetingEgress,
       }),
       ...createMeetingImportPlatformActivities({ database: db }),
-      ...createSkillVerificationActivities(skillDeps),
+      ...createSkillVerificationActivities({ ...skillDeps, sandboxGate: skillGate }),
       ...createSandboxRunPlatformActivities(skillDeps),
-      ...createMarketplaceInstallActivities({
-        ...skillDeps,
-        gate: entitledSkillFeatureGate(
-          loadSkillFeatures(),
-          createEntitlementChecker(db, billingEnabled),
-        ),
-      }),
+      ...createMarketplaceInstallActivities({ ...skillDeps, gate: skillGate }),
     },
     dataConverter: {
       payloadCodecs: [new AesGcmPayloadCodec(readSecret('TEMPORAL_CODEC_KEY'))],

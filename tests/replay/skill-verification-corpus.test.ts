@@ -7,7 +7,12 @@ import { repoRoot } from '../helpers/stack';
 import { CORPUS_DIR, FAILURE_CONVERTER, REPLAY_KEY, WORKFLOWS } from './corpus';
 
 describe('skill verification replay', () => {
-  it.each(['declarative-verified', 'bundle-unavailable'])(
+  it.each([
+    'declarative-verified',
+    'bundle-unavailable',
+    'sandbox-verified',
+    'sandbox-unavailable',
+  ])(
     'replays %s',
     async (outcome) => {
       const file = join(repoRoot, CORPUS_DIR, `skill-verification-${outcome}.json`);

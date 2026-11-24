@@ -8,8 +8,9 @@ import {
   type SandboxRunStatus,
 } from '@ensemus/domain/sandbox';
 import { SKILL_BUNDLE_MAX_BYTES } from '@ensemus/domain/skill';
-import { matchesSkillSchema, parseSkillBundle } from '@ensemus/skills/bundle';
+import { matchesSkillSchema, parseSkillBundle, readFixtures } from '@ensemus/skills/bundle';
 import { keyIdOf, verifySkillSignature } from '@ensemus/skills/signature';
+import { policyForManifest } from '@ensemus/skills/supply-chain';
 import { Context } from '@temporalio/activity';
 import { ApplicationFailure } from '@temporalio/common';
 import type { SandboxExecuteStep, SandboxRunInput, SandboxRunOutcome } from './schemas';
@@ -81,20 +82,21 @@ export function createSandboxRunActivities(deps: SandboxActivityDeps) {
           return stepFrom(await decline('SKILL_BYTES_CHANGED'));
         }
         const parsed = parseSkillBundle(bytes);
+        const signature = parsed.ok
+          ? Buffer.from(parsed.parsed.bundle.signature.value_base64, 'base64')
+          : null;
         if (
           !parsed.ok ||
           !job.signerKey ||
-          !job.signature ||
+          !signature ||
           createHash('sha256').update(bytes).digest('hex') !== job.bundleSha256 ||
           parsed.parsed.digest !== job.digest ||
           parsed.parsed.bundle.signature.key_id !== job.signerKeyId ||
-          Buffer.from(parsed.parsed.bundle.signature.value_base64, 'base64').compare(
-            job.signature,
-          ) !== 0 ||
+          (job.signature ? !signature.equals(job.signature) : job.purpose !== 'skill_test') ||
           keyIdOf(job.signerKey) !== job.signerKeyId ||
           !verifySkillSignature({
             digest: job.digest,
-            signature: job.signature,
+            signature,
             publicKey: job.signerKey,
           })
         )
@@ -102,6 +104,28 @@ export function createSandboxRunActivities(deps: SandboxActivityDeps) {
 
         if (!matchesSkillSchema(parsed.parsed.manifest.input_schema, job.input))
           return stepFrom(await decline('SKILL_NOT_USABLE'));
+        let outputSchema = job.outputSchema;
+        const fixtureFiles = new Set<string>();
+        if (job.purpose === 'skill_test') {
+          const { manifest } = parsed.parsed;
+          const fixtures = readFixtures(parsed.parsed);
+          const fixture = job.testFixture === undefined ? undefined : fixtures?.[job.testFixture];
+          const compiled = policyForManifest(manifest, deps.ceilings);
+          if (
+            !fixture ||
+            canonicalJson(fixture.input) !== canonicalJson(job.input) ||
+            !compiled.ok ||
+            compiled.policy === null ||
+            compiled.policyHash !== job.policyHash
+          ) {
+            return stepFrom(await decline('SKILL_NOT_USABLE'));
+          }
+          for (const entry of manifest.tests) {
+            fixtureFiles.add(entry.input);
+            fixtureFiles.add(entry.expected_output);
+          }
+          outputSchema = manifest.output_schema;
+        }
         if (
           activity.cancellationSignal.aborted ||
           !(await deps.control.canExecute(organizationId, { sandboxRunId, attempt: job.attempt }))
@@ -115,7 +139,9 @@ export function createSandboxRunActivities(deps: SandboxActivityDeps) {
               jobId: randomUUID(),
               policy: job.policy,
               policyHash: job.policyHash,
-              files: Array.from(parsed.parsed.files, ([path, content]) => ({ path, content })),
+              files: Array.from(parsed.parsed.files)
+                .filter(([path]) => !fixtureFiles.has(path))
+                .map(([path, content]) => ({ path, content })),
               stdin: Buffer.from(canonicalJson(job.input), 'utf8'),
             },
             activity.cancellationSignal,
@@ -139,7 +165,7 @@ export function createSandboxRunActivities(deps: SandboxActivityDeps) {
         if (result.ending === 'exited' && result.exitCode === 0) {
           try {
             const value: unknown = JSON.parse(decoder.decode(result.stdout));
-            output = matchesSkillSchema(job.outputSchema, value)
+            output = matchesSkillSchema(outputSchema, value)
               ? { ok: true, value }
               : { ok: false, code: 'OUTPUT_FAILED_SCHEMA' };
           } catch {

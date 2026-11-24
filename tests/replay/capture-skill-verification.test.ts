@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { ApplicationFailure } from '@temporalio/common';
-import { describe, it } from 'vitest';
+import { SANDBOX_TASK_QUEUE } from '@ensemus/workflows/constants';
+import { describe, expect, it } from 'vitest';
 import { capturing, withCaptureWorkers } from './capture-support';
 
 describe.skipIf(!capturing)('capture skill verification outcomes', () => {
@@ -36,6 +37,40 @@ describe.skipIf(!capturing)('capture skill verification outcomes', () => {
           workflowType: 'skillVerificationWorkflow',
           args: args(),
         });
+      },
+    );
+  }, 120_000);
+
+  it('records passing fixture children and stops when the runner is unavailable', async () => {
+    let fixtureIds: string[];
+    let unavailable = false;
+    const executed: string[] = [];
+    await withCaptureWorkers(
+      {
+        queues: ['ensemus-platform', SANDBOX_TASK_QUEUE],
+        activities: {
+          checkSkillBundle: async () => ({ step: 'run_fixtures', sandboxRunIds: fixtureIds }),
+          executeSandboxRun: async ({ sandboxRunId }: { sandboxRunId: string }) => {
+            executed.push(sandboxRunId);
+            return { step: 'settled', outcome: unavailable ? 'runner_unavailable' : 'succeeded' };
+          },
+          finishSkillVerification: async () => (unavailable ? 'rejected' : 'verified'),
+        },
+      },
+      async (run) => {
+        for (const scenario of ['sandbox-verified', 'sandbox-unavailable'] as const) {
+          unavailable = scenario === 'sandbox-unavailable';
+          fixtureIds = [randomUUID(), randomUUID()];
+          executed.length = 0;
+          await run.record(`skill-verification-${scenario}`, {
+            workflowType: 'skillVerificationWorkflow',
+            args: [{ organizationId: randomUUID(), skillVersionId: randomUUID() }],
+            async afterStart(handle) {
+              await expect(handle.result()).resolves.toBe(unavailable ? 'rejected' : 'verified');
+              expect(executed).toEqual(unavailable ? [fixtureIds[0]] : fixtureIds);
+            },
+          });
+        }
       },
     );
   }, 120_000);

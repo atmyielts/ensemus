@@ -93,6 +93,7 @@ describe('restricted erasure independently verifies every tenant-content table',
       'federation.org_settings',
       'integrations.business_record_actions',
       'integrations.business_records',
+      'marketplace.installations',
       'meetings.consent_records',
       'meetings.derivation_runs',
       'meetings.import_requests',
@@ -159,18 +160,22 @@ describe('restricted erasure independently verifies every tenant-content table',
     ).rejects.toMatchObject({ code: '42501' });
     await asRole('ensemus_eraser', async (client) => {
       const { rows } = await client.query(
-        `select n.nspname as schema_name, has_table_privilege(current_user,c.oid,'DELETE') as deletable
+        `select n.nspname||'.'||c.relname as ref,
+           (has_table_privilege(current_user,c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE')
+             or has_any_column_privilege(current_user,c.oid,'SELECT,INSERT,UPDATE')) as reachable
          from pg_class c join pg_namespace n on c.relnamespace=n.oid
-         where (n.nspname,c.relname) in (
-           ('federation','outbound_items'),('marketplace','installations')
-         ) order by n.nspname`,
+         where (n.nspname,c.relname)=('federation','outbound_items')
+           or (n.nspname='marketplace' and c.relname<>'installations' and c.relkind in ('r','p'))
+         order by (n.nspname||'.'||c.relname) collate "C"`,
       );
-      expect(rows).toEqual(
-        ['federation', 'marketplace'].map((schema_name) => ({
-          schema_name,
-          deletable: false,
-        })),
-      );
+      expect(rows).toEqual([
+        { ref: 'federation.outbound_items', reachable: false },
+        { ref: 'marketplace.listing_object_reservations', reachable: false },
+        { ref: 'marketplace.listings', reachable: false },
+        { ref: 'marketplace.publishers', reachable: false },
+        { ref: 'marketplace.security_reviews', reachable: false },
+        { ref: 'marketplace.submissions', reachable: false },
+      ]);
     });
   });
 

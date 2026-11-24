@@ -3,10 +3,14 @@
 import {
   ActivityFailure,
   ApplicationFailure,
+  executeChild,
   isCancellation,
+  patched,
   proxyActivities,
 } from '@temporalio/workflow';
 import type { SkillVerificationInput, SkillVerificationOutcome } from './schemas';
+import { sandboxRunWorkflowIdFor } from './schemas';
+import { sandboxRunWorkflow } from './sandbox-run-workflow';
 import type { SkillVerificationActivities } from './skill-verification-activities';
 
 const activities = proxyActivities<SkillVerificationActivities>({
@@ -21,6 +25,16 @@ export async function skillVerificationWorkflow(
   try {
     const step = await activities.checkSkillBundle(input);
     if (step.step === 'finished') return step.outcome;
+    if (patched('skill-verification-native-fixtures-v1')) {
+      for (const sandboxRunId of step.sandboxRunIds) {
+        const child = { organizationId: input.organizationId, sandboxRunId };
+        const result = await executeChild(sandboxRunWorkflow, {
+          args: [child],
+          workflowId: sandboxRunWorkflowIdFor(child),
+        });
+        if (result.outcome !== 'succeeded') break;
+      }
+    }
     return await activities.finishSkillVerification(input);
   } catch (error) {
     if (isCancellation(error)) throw error;

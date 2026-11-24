@@ -3,6 +3,7 @@
 // RLS still confines every query to that tenant. Nothing here touches bytes: the Activity reads and checks
 // them with @ensemus/skills, and hands over only what it found.
 import {
+  sandboxRuns,
   skillPackages,
   skillTestRuns,
   skillVersions,
@@ -12,7 +13,12 @@ import {
   type TenantContext,
   type Tx,
 } from '@ensemus/database';
-import type { SandboxPolicy } from '@ensemus/domain/sandbox';
+import { canonicalJson } from '@ensemus/domain/approval';
+import {
+  SANDBOX_INPUT_MAX_BYTES,
+  sandboxPolicyHash,
+  type SandboxPolicy,
+} from '@ensemus/domain/sandbox';
 import { SKILL_REJECT_CODES } from '@ensemus/domain/skill';
 import type {
   SkillExecutionKind,
@@ -30,11 +36,12 @@ import {
   SKILL_VERSION_VERIFIED,
   skillVersionTargetRef,
 } from '@ensemus/domain/skill-events';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, isNotNull, sql } from 'drizzle-orm';
 import { AppError, pgCode } from './errors';
 import { emit } from './events';
 import { idSchema } from './ids';
 import { readInstallingListing, type InstallationSubject } from './marketplace-install';
+import { sandboxJsonbSize, settleUnstartedVerificationRuns } from './sandbox-runs';
 import { SKILL_SQLSTATE } from './skill-ports';
 import { auditAction, notify } from './work';
 
@@ -119,7 +126,10 @@ async function rejectInTx(tx: Tx, context: TenantContext, id: string, code: Skil
     })
     .where(and(forVersion(context, id), sql`${skillVersions.state} in ('uploaded','verifying')`))
     .returning();
-  if (row) await announceSettlement(tx, context, row, false);
+  if (row) {
+    await settleUnstartedVerificationRuns(tx, context, id);
+    await announceSettlement(tx, context, row, false);
+  }
 }
 
 /**
@@ -344,28 +354,124 @@ export async function markSkillVersionVerified(
  * their IDs in fixture order. Classification is `internal`: a fixture is the publisher's own test data.
  */
 export function createFixtureRuns(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: {
+  database: AppDatabase,
+  context: TenantContext,
+  input: {
     skillVersionId: string;
     digest: string;
+    signerKeyId: string;
     policy: SandboxPolicy;
     policyHash: string;
     fixtures: ReadonlyArray<{ position: number; input: unknown }>;
   },
 ): Promise<readonly string[]> {
-  throw new Error('NOT_IMPLEMENTED');
+  if (
+    !/^[0-9a-f]{64}$/.test(input.digest) ||
+    !/^[0-9a-f]{64}$/.test(input.signerKeyId) ||
+    sandboxPolicyHash(input.policy) !== input.policyHash ||
+    input.fixtures.length < 1 ||
+    input.fixtures.length > 50 ||
+    input.fixtures.some(({ position }, index) => position !== index)
+  ) {
+    throw new AppError('INVALID_INPUT');
+  }
+  return verificationTx(database, context, input.skillVersionId, async (tx, id) => {
+    const [version] = await tx
+      .select({ state: skillVersions.state })
+      .from(skillVersions)
+      .where(forVersion(context, id));
+    if (version?.state !== 'verifying') return [];
+    const prior = await tx
+      .select()
+      .from(sandboxRuns)
+      .where(
+        and(
+          eq(sandboxRuns.organizationId, context.organizationId),
+          eq(sandboxRuns.skillVersionId, id),
+          eq(sandboxRuns.purpose, 'skill_test'),
+          isNotNull(sandboxRuns.fixtureSignerKeyId),
+        ),
+      )
+      .orderBy(asc(sandboxRuns.testFixture));
+    if (prior.length) {
+      if (
+        prior.length !== input.fixtures.length ||
+        prior.some(
+          (row, index) =>
+            row.testFixture !== index ||
+            row.digest !== input.digest ||
+            row.fixtureSignerKeyId !== input.signerKeyId ||
+            row.policyHash !== input.policyHash ||
+            canonicalJson(row.input) !== canonicalJson(input.fixtures[index]!.input),
+        )
+      )
+        throw new AppError('INVALID_STATE');
+      return prior.map(({ id }) => id);
+    }
+    const rows = [];
+    for (const fixture of input.fixtures) {
+      const body = canonicalJson(fixture.input);
+      const size =
+        Buffer.byteLength(body) <= SANDBOX_INPUT_MAX_BYTES
+          ? await sandboxJsonbSize(tx, body)
+          : null;
+      if (size === null || size > SANDBOX_INPUT_MAX_BYTES) throw new AppError('INVALID_INPUT');
+      rows.push({
+        organizationId: context.organizationId,
+        skillVersionId: id,
+        digest: input.digest,
+        fixtureSignerKeyId: input.signerKeyId,
+        purpose: 'skill_test',
+        testFixture: fixture.position,
+        classification: 'internal',
+        input: sql`${body}::jsonb`,
+        policy: input.policy,
+        policyHash: input.policyHash,
+      });
+    }
+    const created = await tx
+      .insert(sandboxRuns)
+      .values(rows)
+      .returning({ id: sandboxRuns.id, position: sandboxRuns.testFixture });
+    return created.sort((left, right) => left.position! - right.position!).map(({ id }) => id);
+  });
 }
 
 /** The settled result of each fixture's run, in fixture order. Output stays in PostgreSQL. */
 export function loadFixtureRunResults(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: { skillVersionId: string },
+  database: AppDatabase,
+  context: TenantContext,
+  input: { skillVersionId: string; digest: string; signerKeyId: string },
 ): Promise<
-  ReadonlyArray<{ position: number; sandboxRunId: string; status: string; output: unknown }>
+  ReadonlyArray<{
+    position: number;
+    sandboxRunId: string;
+    status: string;
+    outcomeCode: string | null;
+    output: unknown;
+  }>
 > {
-  throw new Error('NOT_IMPLEMENTED');
+  return verificationTx(database, context, input.skillVersionId, (tx, id) =>
+    tx
+      .select({
+        position: sql<number>`${sandboxRuns.testFixture}`,
+        sandboxRunId: sandboxRuns.id,
+        status: sandboxRuns.status,
+        outcomeCode: sandboxRuns.outcomeCode,
+        output: sandboxRuns.output,
+      })
+      .from(sandboxRuns)
+      .where(
+        and(
+          eq(sandboxRuns.organizationId, context.organizationId),
+          eq(sandboxRuns.skillVersionId, id),
+          eq(sandboxRuns.purpose, 'skill_test'),
+          eq(sandboxRuns.digest, input.digest),
+          eq(sandboxRuns.fixtureSignerKeyId, input.signerKeyId),
+        ),
+      )
+      .orderBy(asc(sandboxRuns.testFixture)),
+  );
 }
 
 async function marketplaceVerificationDenial(

@@ -1317,6 +1317,20 @@
       "when": 1794201807660,
       "tag": "0780_marketplace_listing_review_summary",
       "breakpoints": true
+    },
+    {
+      "idx": 188,
+      "version": "7",
+      "when": 1794201807661,
+      "tag": "0781_marketplace_buyer_erasure",
+      "breakpoints": true
+    },
+    {
+      "idx": 189,
+      "version": "7",
+      "when": 1794201807662,
+      "tag": "0782_sandbox_verification_fixtures",
+      "breakpoints": true
     }
   ]
 }

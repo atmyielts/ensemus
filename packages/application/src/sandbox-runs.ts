@@ -44,6 +44,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { AppError, pgCode } from './errors';
 import { emit } from './events';
 import { idSchema } from './ids';
+import { readInstallingListing } from './marketplace-install';
 import { requireSkillMember } from './skill-access';
 import type { AgentRunGuard, SkillFeatureGate } from './skill-ports';
 
@@ -98,7 +99,7 @@ function jsonText(value: unknown) {
   }
 }
 
-async function jsonbSize(tx: Tx, serialized: string): Promise<number | null> {
+export async function sandboxJsonbSize(tx: Tx, serialized: string): Promise<number | null> {
   const size = await tx.execute<{ size: number | null }>(sql`
     with candidate as materialized (select ${serialized}::text as body)
     select case when pg_input_is_valid(body, 'jsonb')
@@ -216,6 +217,68 @@ async function requireOperator(tx: Tx, context: TenantContext) {
   if (!can(role, 'sandbox.run')) throw new AppError('FORBIDDEN');
 }
 
+/** Only the original, still-verifying bundle signed by a currently authorized key can run. */
+async function readFixtureVersion(tx: Tx, context: TenantContext, run: SandboxRunRow) {
+  if (run.testFixture === null || !run.fixtureSignerKeyId) return null;
+  const [row] = await tx
+    .select({
+      version: skillVersions,
+      origin: skillPackages.origin,
+    })
+    .from(skillVersions)
+    .innerJoin(
+      skillPackages,
+      and(
+        eq(skillPackages.organizationId, skillVersions.organizationId),
+        eq(skillPackages.id, skillVersions.packageId),
+      ),
+    )
+    .where(
+      and(
+        eq(skillVersions.organizationId, context.organizationId),
+        eq(skillVersions.id, run.skillVersionId),
+        eq(skillVersions.state, 'verifying'),
+        eq(skillPackages.state, 'active'),
+      ),
+    );
+  if (
+    !row ||
+    row.version.bundleObjectKey !== skillBundleObjectKey(context.organizationId, run.skillVersionId)
+  )
+    return null;
+  const signing =
+    row.origin === 'marketplace'
+      ? await readInstallingListing(tx, context, run.skillVersionId).then((listing) => {
+          if (
+            listing?.state !== 'listed' ||
+            listing.digest !== run.digest ||
+            listing.signerKeyId !== run.fixtureSignerKeyId ||
+            listing.bundleSha256 !== row.version.bundleSha256
+          )
+            return null;
+          return { signerKey: listing.signerPublicKey, signature: listing.signature };
+        })
+      : await tx
+          .select({ signerKey: trustedSigners.publicKey })
+          .from(trustedSigners)
+          .where(
+            and(
+              eq(trustedSigners.organizationId, context.organizationId),
+              eq(trustedSigners.keyId, run.fixtureSignerKeyId),
+              eq(trustedSigners.state, 'active'),
+            ),
+          )
+          .then(([signer]) => (signer ? { ...signer, signature: null } : null));
+  if (!signing) return null;
+  return {
+    ...signing,
+    bundleObjectKey: row.version.bundleObjectKey,
+    bundleSha256: row.version.bundleSha256,
+    signerKeyId: run.fixtureSignerKeyId,
+    digest: run.digest,
+  };
+}
+
 function workerOnly(context: TenantContext) {
   if (context.actorType !== 'service') throw new AppError('FORBIDDEN');
 }
@@ -293,7 +356,7 @@ export async function requestSandboxRunInTx(
   const serialized = jsonText(input.input);
   if (Buffer.byteLength(serialized, 'utf8') > SANDBOX_INPUT_MAX_BYTES)
     throw new AppError('SANDBOX_INPUT_TOO_LARGE');
-  const bytes = await jsonbSize(tx, serialized);
+  const bytes = await sandboxJsonbSize(tx, serialized);
   if (bytes === null) throw new AppError('INVALID_INPUT');
   if (bytes > SANDBOX_INPUT_MAX_BYTES) throw new AppError('SANDBOX_INPUT_TOO_LARGE');
   if (input.purpose === 'agent_tool') {
@@ -416,6 +479,7 @@ export type PreparedSandboxJob = {
   skillVersionId: string;
   digest: string;
   purpose: SandboxRunPurpose;
+  testFixture?: number;
   policy: SandboxPolicy;
   policyHash: string;
   input: unknown;
@@ -423,7 +487,7 @@ export type PreparedSandboxJob = {
   bundleSha256: string;
   signerKeyId: string;
   signerKey: Buffer;
-  signature: Buffer;
+  signature: Buffer | null;
   outputSchema: unknown;
 };
 
@@ -473,6 +537,27 @@ async function settle(
   return status;
 }
 
+/** A rejected version must leave none of its unused fixture rows available for execution. */
+export async function settleUnstartedVerificationRuns(
+  tx: Tx,
+  context: TenantContext,
+  skillVersionId: string,
+) {
+  const rows = await tx
+    .select()
+    .from(sandboxRuns)
+    .where(
+      and(
+        eq(sandboxRuns.organizationId, context.organizationId),
+        eq(sandboxRuns.skillVersionId, skillVersionId),
+        eq(sandboxRuns.purpose, 'skill_test'),
+        eq(sandboxRuns.status, 'queued'),
+      ),
+    )
+    .for('update');
+  for (const row of rows) await settle(tx, context, row, 'denied', 'SKILL_NOT_USABLE');
+}
+
 /** Commits the attempt and its exact fresh probe before handing a job to the worker. */
 export function beginSandboxAttempt(
   database: AppDatabase,
@@ -507,20 +592,28 @@ export function beginSandboxAttempt(
       };
     if (!input.enabled) return deny('FEATURE_DISABLED');
 
-    // Nothing supplies a native runtime/admission proof for gateway or verification fixture jobs yet.
-    if (row.purpose !== 'operator_test')
-      return deny(row.purpose === 'agent_tool' ? 'AGENT_LINK_UNAVAILABLE' : 'SKILL_NOT_USABLE');
-    const skill = await readRunnableVersion(tx, context, row.skillVersionId, true);
-    if (!skill.found || !skill.usable || row.digest !== skill.digest)
-      return deny('SKILL_NOT_USABLE');
+    if (row.purpose === 'agent_tool') return deny('AGENT_LINK_UNAVAILABLE');
+    const fixture =
+      row.purpose === 'skill_test' ? await readFixtureVersion(tx, context, row) : null;
+    const interactive =
+      row.purpose === 'operator_test'
+        ? await readRunnableVersion(tx, context, row.skillVersionId, true)
+        : null;
+    const operator = interactive?.found && interactive.usable ? interactive : null;
+    const skill = fixture ?? operator;
+    if (!skill || row.digest !== skill.digest) return deny('SKILL_NOT_USABLE');
     if (
+      operator &&
       !sandboxAcceptsClassification(
         row.classification as SandboxRunView['classification'],
-        skill.maximum,
+        operator.maximum,
       )
     )
       return deny('CLASSIFICATION_NOT_ALLOWED');
-    const compiled = compileVersionPolicy(skill.manifest, input.ceilings);
+    const checked = operator
+      ? compileVersionPolicy(operator.manifest, input.ceilings)
+      : compileSandboxPolicy(row.policy as SandboxPolicy, input.ceilings);
+    const compiled = checked?.ok ? checked : null;
     if (
       !compiled ||
       compiled.policyHash !== row.policyHash ||
@@ -575,6 +668,7 @@ export function beginSandboxAttempt(
         skillVersionId: row.skillVersionId,
         digest: skill.digest,
         purpose: row.purpose as SandboxRunPurpose,
+        ...(row.testFixture === null ? {} : { testFixture: row.testFixture }),
         policy: compiled.policy,
         policyHash: compiled.policyHash,
         input: row.input,
@@ -583,7 +677,7 @@ export function beginSandboxAttempt(
         signerKeyId: skill.signerKeyId,
         signerKey: skill.signerKey,
         signature: skill.signature,
-        outputSchema: compiled.outputSchema,
+        outputSchema: compiled && 'outputSchema' in compiled ? compiled.outputSchema : null,
       },
     };
   });
@@ -638,7 +732,7 @@ export function finishSandboxAttempt(
     const body = jsonText(input.output.value);
     if (Buffer.byteLength(body, 'utf8') > SANDBOX_INPUT_MAX_BYTES)
       return settle(tx, context, row, 'output_exceeded', 'OUTPUT_LIMIT', fixed);
-    const bytes = await jsonbSize(tx, body);
+    const bytes = await sandboxJsonbSize(tx, body);
     if (bytes === null) return settle(tx, context, row, 'failed', 'OUTPUT_NOT_JSON', fixed);
     if (bytes > SANDBOX_INPUT_MAX_BYTES)
       return settle(tx, context, row, 'output_exceeded', 'OUTPUT_LIMIT', fixed);
@@ -709,6 +803,7 @@ export function sandboxAttemptCanExecute(
     const row = await runRow(tx, context, input.sandboxRunId, true);
     if (row.status !== 'running' || row.attempts !== input.attempt || row.cancelRequestedAt)
       return false;
+    if (row.purpose === 'skill_test') return (await readFixtureVersion(tx, context, row)) !== null;
     const skill = await readRunnableVersion(tx, context, row.skillVersionId, true);
     return skill.found && skill.usable && skill.digest === row.digest;
   });

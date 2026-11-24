@@ -5,16 +5,24 @@ import {
   requestSandboxRun,
   requestHash,
   runIdempotent,
+  uploadSkillBundle,
 } from '@ensemus/application';
 import { createSandboxWorkerControl } from '@ensemus/application/sandbox-worker-control';
 import { openAppDatabase, sandboxRuns, withTenantTx } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
 import { SANDBOX_DEFAULT_CEILINGS } from '@ensemus/domain/sandbox';
-import { createSandboxRunPlatformActivities } from '@ensemus/workflows/sandbox-run-activities';
+import { createScriptedRunner } from '@ensemus/sandbox/testing';
+import { buildTestBundle } from '@ensemus/skills/testing';
+import {
+  createSandboxRunActivities,
+  createSandboxRunPlatformActivities,
+} from '@ensemus/workflows/sandbox-run-activities';
+import { createSkillVerificationActivities } from '@ensemus/workflows/skill-verification-activities';
+import { Context } from '@temporalio/activity';
 import { eq, sql } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { makeTwoTenants } from '../helpers/product';
-import { seedPackage, seedSigner, seedVersion } from '../helpers/skills';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { makeTwoTenants, proveSecondFactor } from '../helpers/product';
+import { seedPackage, seedSigner } from '../helpers/skills';
 import { urls } from '../helpers/stack';
 import { LifecycleMemoryStore } from './saas-lifecycle-fixture';
 
@@ -28,22 +36,96 @@ describe('sandbox request native authority', () => {
   let worker: ReturnType<typeof openAppDatabase>;
   let tenants: Awaited<ReturnType<typeof makeTwoTenants>>;
   let skillVersionId: string;
+  async function fixture(output: Record<string, unknown>) {
+    const owner = tenants.a.owner.context;
+    const pkg = await seedPackage(app.db, owner);
+    const { signer } = await seedSigner(app.db, owner);
+    const built = buildTestBundle({
+      key: signer,
+      name: pkg.name,
+      source: 'process.stdout.write(JSON.stringify({sample: true}));',
+    });
+    const store = new LifecycleMemoryStore();
+    const objects = Object.assign(store, {
+      async putSingleAttempt(key: string, body: Buffer) {
+        await store.put(key, body);
+        return { transport: 'written' } as const;
+      },
+    });
+    const version = await uploadSkillBundle(app.db, objects, owner, enabled, {
+      packageId: pkg.id,
+      bytes: built.bytes,
+    });
+    const input = { organizationId: owner.organizationId, skillVersionId: version.id };
+    const verifier = createSkillVerificationActivities({
+      database: worker.db,
+      store: objects,
+      ceilings,
+      reviewKeys: new Map(),
+      sandboxGate: enabled,
+    });
+    const runner = createScriptedRunner({
+      execute() {
+        const stdout = Buffer.from(JSON.stringify(output));
+        return {
+          ending: 'exited',
+          exitCode: 0,
+          wallMs: 10,
+          cpuMs: 2,
+          peakMemoryKb: 64,
+          stdout,
+          stdoutBytes: stdout.length,
+          stderrBytes: 0,
+          runtime: { name: 'scripted', version: 'test' },
+        };
+      },
+    });
+    const activity = createSandboxRunActivities({
+      control: await createSandboxWorkerControl(worker.db),
+      gate: enabled,
+      ceilings,
+      store: objects,
+      runner,
+      maxConcurrentPerTenant: 1,
+      probeMaxAgeMs: 30_000,
+    });
+    const step = await verifier.checkSkillBundle(input);
+    expect(step.step).toBe('run_fixtures');
+    if (step.step !== 'run_fixtures') throw new Error('TEST_FIXTURE_NOT_QUEUED');
+    expect(await verifier.checkSkillBundle(input)).toEqual(step);
+    const sandboxRunId = step.sandboxRunIds[0]!;
+    const native = { organizationId: owner.organizationId, sandboxRunId };
+    await expect(getSandboxRun(app.db, owner, sandboxRunId)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+    const activityContext = vi.spyOn(Context, 'current').mockReturnValue({
+      heartbeat() {},
+      cancellationSignal: new AbortController().signal,
+    } as Context);
+    try {
+      await expect(activity.executeSandboxRun(native)).resolves.toEqual({
+        step: 'settled',
+        outcome: 'succeeded',
+      });
+    } finally {
+      activityContext.mockRestore();
+    }
+    expect(runner.jobs).toHaveLength(1);
+    expect(runner.jobs[0]!.stdin.toString()).toBe('{"sample":true}');
+    expect(runner.jobs[0]!.files.every(({ path }) => !path.startsWith('tests/'))).toBe(true);
+    return { input, verifier };
+  }
+
   beforeAll(async () => {
     app = openAppDatabase(urls.app());
     worker = openAppDatabase(urls.worker());
     tenants = await makeTwoTenants(app.db);
-    const owner = tenants.a.owner.context;
-    const pkg = await seedPackage(app.db, owner);
-    const { signer } = await seedSigner(app.db, owner);
-    // A DDL/dispatch fixture, not runtime evidence. Its bytes never leave PostgreSQL in these tests.
-    const version = await seedVersion(app.db, owner, {
-      packageId: pkg.id,
-      packageName: pkg.name,
-      signer,
-      kind: 'sandbox',
-      state: 'verified',
-    });
-    skillVersionId = version.id;
+    await proveSecondFactor(tenants.a.owner);
+    // A scripted runner tests the database and Activity boundary. Native OCI has its own suite.
+    const { input, verifier } = await fixture({ sample: true });
+    await expect(verifier.finishSkillVerification(input)).resolves.toBe('verified');
+    await expect(verifier.finishSkillVerification(input)).resolves.toBe('verified');
+    skillVersionId = input.skillVersionId;
   });
   afterAll(async () => {
     await Promise.all([app?.close(), worker?.close()]);
@@ -80,8 +162,8 @@ describe('sandbox request native authority', () => {
     await expect(getSandboxStatus(app.db, owner, { enabled: false, ceilings })).resolves.toEqual({
       enabled: false,
       ceilings,
-      isolationEvidence: 'none',
-      lastProbePassedAt: null,
+      isolationEvidence: 'probe_passed',
+      lastProbePassedAt: expect.any(Date),
     });
     await cancelSandboxRun(app.db, owner, row.id);
     await cancelSandboxRun(app.db, owner, row.id);
@@ -107,6 +189,11 @@ describe('sandbox request native authority', () => {
       'sandbox_run.settled',
     ]);
     expect(JSON.stringify(aggregate.rows)).not.toContain('generated fixture');
+  });
+
+  it('rejects a signed fixture that returns valid JSON with the wrong value', async () => {
+    const { input, verifier } = await fixture({ sample: false });
+    await expect(verifier.finishSkillVerification(input)).resolves.toBe('rejected');
   });
 
   it('refuses disabled, oversize and over-classified requests before any new run', async () => {
