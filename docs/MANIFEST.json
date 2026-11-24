@@ -1197,8 +1197,8 @@
     },
     {
       "path": "guides/operator/install-compose.md",
-      "size_bytes": 11244,
-      "sha256": "cba57788c2377d5fd4c914beb2fe31a5b0b436b33b4fda641723b815a2cbad15"
+      "size_bytes": 12478,
+      "sha256": "89715ccdad9897afd2da6f1fe3504e621bc93e6c77e9c49e0c9546cdf24e2e01"
     },
     {
       "path": "guides/operator/license-issuance.md",

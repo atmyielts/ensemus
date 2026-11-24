@@ -41,7 +41,7 @@ python3 - <<'PYTHON'
 from pathlib import Path
 
 base = Path("infrastructure/compose/proxy/Caddyfile").read_text()
-site = "{$ENSEMUS_HOSTNAME:localhost} {\n\ttls internal\n"
+site = "{$ENSEMUS_HOSTNAME:localhost} {\n\timport {$ENSEMUS_TLS_PROFILE:ensemus_internal_tls}\n"
 replacement = """http://:8080 {
 	# Only the same-origin request whose Origin Codespaces maps to its loopback address.
 	@codespaces_same_origin {

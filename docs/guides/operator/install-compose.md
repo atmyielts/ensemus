@@ -5,7 +5,7 @@ area: op-install
 tickets: [PLAT-15, PLAT-11]
 modes: [cloud, byom, sovereign]
 status: written_untested
-sources: [infrastructure/compose/compose.yaml, infrastructure/compose/proxy/Caddyfile, infrastructure/compose/postgres/10-provision.sh, infrastructure/compose/postgres/provision.sql, infrastructure/compose/temporal/setup-schema.sh, infrastructure/compose/temporal/setup-namespace.sh, infrastructure/containers/Dockerfile.web, infrastructure/containers/Dockerfile.worker, infrastructure/scripts/generate-test-secrets.mjs, packages/config/src/index.ts, packages/telemetry/src/console-guard.ts, apps/web/start.mjs, apps/web/src/app/api/health/ready/route.ts, apps/web/src/app/api/health/live/route.ts, apps/web/src/app/sign-in/page.tsx, workers/workflow/src/migrate.ts, docs/05-operations/05-container-deployment-runbook.md, docs/00-foundation/adr/ADR-025-m1-implementation-decisions.md, tests/stack/platform.test.ts]
+sources: [infrastructure/compose/compose.yaml, infrastructure/compose/compose.public.yaml, infrastructure/compose/proxy/Caddyfile, infrastructure/compose/postgres/10-provision.sh, infrastructure/compose/postgres/provision.sql, infrastructure/compose/temporal/setup-schema.sh, infrastructure/compose/temporal/setup-namespace.sh, infrastructure/containers/Dockerfile.web, infrastructure/containers/Dockerfile.worker, infrastructure/scripts/generate-test-secrets.mjs, packages/config/src/index.ts, packages/telemetry/src/console-guard.ts, apps/web/start.mjs, apps/web/src/app/api/health/ready/route.ts, apps/web/src/app/api/health/live/route.ts, apps/web/src/app/sign-in/page.tsx, workers/workflow/src/migrate.ts, docs/05-operations/05-container-deployment-runbook.md, docs/00-foundation/adr/ADR-025-m1-implementation-decisions.md, tests/stack/platform.test.ts]
 tests: []
 needs_walkthrough: true
 ---
@@ -132,6 +132,14 @@ That prints `{"status":"ready"}`. It means the web tier can reach PostgreSQL. It
 **The sign-in page shows up.** Open `https://localhost:8443/sign-in`, or your own address. You see `Sign in to Ensemus`, and below the form, `Given a setup code? Use it here`. If you see `Create an account` instead, sign-up is on.
 
 **The boundaries hold.** Run the checks at the end of [What you are running](overview.md).
+
+### Share a direct public HTTPS link
+
+On a public host that has ports 80 and 443 available, add `infrastructure/compose/compose.public.yaml` to the Compose command for this installation. In the installation's settings file set `ENSEMUS_HOSTNAME` to the public DNS name or IPv4 address, with no scheme or port, and set `ENSEMUS_BIND_ADDRESS=0.0.0.0`. A DNS name must resolve to the host. Run Compose with the same files and project name for later commands.
+
+The overlay publishes ports 80 and 443 on the proxy, sets the app's origin to HTTPS at that address, and uses Let's Encrypt's short-lived profile for automatic certificate issuance and renewal. The proxy must be reachable on those ports and be able to reach Let's Encrypt. Keep the `caddy-data` volume across restarts.
+
+Before sharing the address, open the sign-in page on another network and confirm it loads with a trusted certificate. For a host named `demo.example.invalid`, the page would be `https://demo.example.invalid/sign-in`. If mail is off, create workspace invitations and share their one-time links privately in chat. [Members and invitations](../user/members-and-invitations.md) explains the owner confirmation step.
 
 ## Step 7: Let the first person in
 
