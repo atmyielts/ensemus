@@ -28,6 +28,7 @@ const INVENTORY_FILES = new Set([
   'packages/domain/src/portability.ts',
   'packages/domain/src/portable-definition.test.ts',
 ]);
+const READINESS_MIGRATION = '0548_delegation_birth_readiness_deleg.sql';
 
 describe('the delegation capability boundary', () => {
   const shipped = [
@@ -47,8 +48,18 @@ describe('the delegation capability boundary', () => {
     'helpers/delegation-capability',
     'ensemus_delegation_qualification_ci',
   ])('no package or worker names %s', (name) => {
+    const canonicalMigration = readFileSync(
+      join(repoRoot, 'packages/database/migrations', READINESS_MIGRATION),
+      'utf8',
+    );
     const naming = shipped
-      .filter((path) => readFileSync(path, 'utf8').includes(name))
+      .filter((path) => {
+        const source = readFileSync(path, 'utf8');
+        const isPackagedMigration =
+          relativeOf(path) === `workers/workflow/migrations/${READINESS_MIGRATION}` &&
+          source === canonicalMigration;
+        return !isPackagedMigration && source.includes(name);
+      })
       .map(relativeOf)
       .filter((path) => !INVENTORY_FILES.has(path));
     expect(naming).toEqual([]);

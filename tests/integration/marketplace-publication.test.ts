@@ -4,6 +4,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   addTrustedSigner,
+  SOURCE_PORTABILITY_SECTIONS,
+  runOrganizationImport,
+  requestOrganizationImport,
+  requestOrganizationExport,
+  openExportArchive,
+  listImportedDefinitions,
+  finishExport,
+  exportNextBatch,
+  beginExport,
   createPublisher,
   createSkillPackage,
   getListing,
@@ -23,6 +32,7 @@ import {
   type ObjectStore,
 } from '@ensemus/application';
 import {
+  createOrganization,
   marketplaceInstallations,
   marketplaceReviews,
   openAppDatabase,
@@ -34,10 +44,16 @@ import {
 } from '@ensemus/database/marketplace-operator';
 import { createServiceContext } from '@ensemus/database/service';
 import { listingObjectKey, REVIEW_CHECKS } from '@ensemus/domain/marketplace';
-import { SKILL_METADATA_PORTABILITY_VERSION } from '@ensemus/domain/portability';
+import { exportManifestSchema } from '@ensemus/contracts/portability-records';
+import {
+  EXPORT_MANIFEST_PATH,
+  SKILL_METADATA_PORTABILITY_VERSION,
+} from '@ensemus/domain/portability';
 import { SANDBOX_DEFAULT_CEILINGS } from '@ensemus/domain/sandbox';
 import { skillBundleObjectKey } from '@ensemus/domain/skill';
 import { buildTestBundle, generateTestKey } from '@ensemus/skills/testing';
+import { open } from '@ensemus/sovereign/sealed';
+import { readTarEntries } from '@ensemus/sovereign/tar';
 import { createMarketplaceInstallActivities } from '@ensemus/workflows/marketplace-install-activities';
 import { eq, sql } from 'drizzle-orm';
 import { createSkillVerificationActivities } from '@ensemus/workflows/skill-verification-activities';
@@ -46,6 +62,9 @@ import { marketplaceCommand } from '../../workers/workflow/src/marketplace-comma
 import { makeTwoTenants, proveSecondFactor } from '../helpers/product';
 import { provisionMarketplaceRole } from '../helpers/skills';
 import { urls } from '../helpers/stack';
+import { nativeSovereignContext, testRecipient } from '../helpers/sovereign';
+import { archiveReader } from './fixtures/archive-builder';
+import { LifecycleMemoryStore } from './saas-lifecycle-fixture';
 
 const enabled = { isEnabled: async () => true };
 const disabled = { isEnabled: async () => false };
@@ -443,6 +462,109 @@ describe('marketplace tenant actions and signed offline publication', () => {
       });
     await expect(metadataProfile()).resolves.toBe(true);
 
+    const recipient = testRecipient();
+    const exportDeps = {
+      sections: SOURCE_PORTABILITY_SECTIONS,
+      sourceRelease: 'test-release',
+      retentionHours: 24,
+    };
+    const { id: exportId } = await requestOrganizationExport(web.db, buyer, {
+      recipientPublicKey: recipient.publicKeyBase64,
+      sourceRelease: exportDeps.sourceRelease,
+    });
+    const buyerService = createServiceContext(buyer.organizationId);
+    let exportStep = await beginExport(worker.db, buyerService, { exportId }, exportDeps);
+    while (exportStep.state === 'continue') {
+      exportStep = await exportNextBatch(worker.db, store, buyerService, { exportId }, exportDeps);
+    }
+    expect(exportStep.state).not.toBe('failed');
+    do {
+      exportStep = await finishExport(worker.db, store, buyerService, { exportId }, exportDeps);
+    } while (exportStep.state === 'continue');
+    expect(exportStep.state).toBe('finished');
+
+    const archive = await openExportArchive(web.db, store, buyer, exportId);
+    const chunks: Buffer[] = [];
+    for await (const chunk of archive.chunks) chunks.push(chunk);
+    const tar = Buffer.concat(chunks);
+    const read = async (offset: number, length: number) => tar.subarray(offset, offset + length);
+    const expectedReceipts = [
+      {
+        id: untrusted.installationId,
+        listing_id: listingId,
+        state: 'failed',
+        failure_code: 'ATTESTATION_INVALID',
+      },
+      {
+        id: denied.installationId,
+        listing_id: listingId,
+        state: 'failed',
+        failure_code: 'LISTING_NOT_AVAILABLE',
+      },
+    ];
+    const receipts: unknown[] = [];
+    let manifest;
+    for await (const entry of readTarEntries(read, tar.length)) {
+      if (entry.path === EXPORT_MANIFEST_PATH) {
+        manifest = exportManifestSchema.parse(
+          JSON.parse(
+            open(await read(entry.offset, entry.size), recipient.privateKey).toString('utf8'),
+          ),
+        );
+      } else if (entry.path.startsWith('skills/') && entry.path.endsWith('.jsonl.sealed')) {
+        const bytes = open(await read(entry.offset, entry.size), recipient.privateKey);
+        for (const line of bytes.toString('utf8').trim().split('\n')) {
+          if (line) receipts.push(JSON.parse(line));
+        }
+      }
+    }
+    expect(manifest).toMatchObject({
+      inventory_version: SKILL_METADATA_PORTABILITY_VERSION,
+      sections: { skills: { records: 2 } },
+    });
+    expect(receipts).toHaveLength(2);
+    expect(receipts).toEqual(
+      expect.arrayContaining(
+        expectedReceipts.map((receipt) =>
+          expect.objectContaining({ ...receipt, kind: 'marketplace_failed_installation' }),
+        ),
+      ),
+    );
+
+    const generatedTarget = await createOrganization(web.db, {
+      userId: buyer.userId,
+      name: 'Generated receipt review workspace',
+      commercialMode: 'sovereign',
+    });
+    const targetOwner = await nativeSovereignContext(
+      web.db,
+      buyer.userId,
+      generatedTarget.organizationId,
+    );
+    const { id: importId } = await requestOrganizationImport(web.db, targetOwner);
+    const targetStore = new LifecycleMemoryStore();
+    const imported = await runOrganizationImport(
+      worker.db,
+      createServiceContext(targetOwner.organizationId),
+      { importId, archive: archiveReader(tar), recipientPrivateKeyPem: recipient.privateKeyPem },
+      { sections: SOURCE_PORTABILITY_SECTIONS, ledger: targetStore, store: targetStore },
+    );
+    expect(imported.status, imported.failureCode ?? undefined).toBe('completed_with_warnings');
+    expect(imported.appliedCounts.marketplace_failed_installation).toBe(2);
+    expect(await listImportedDefinitions(web.db, targetOwner)).toEqual(
+      expect.arrayContaining(
+        expectedReceipts.map((receipt) =>
+          expect.objectContaining({
+            section: 'skills',
+            record_kind: 'marketplace_failed_installation',
+            source_id: receipt.id,
+            record: expect.objectContaining(receipt),
+          }),
+        ),
+      ),
+    );
+    await expect(listInstallations(web.db, targetOwner)).resolves.toEqual([]);
+
     const queued = await request();
     await expect(metadataProfile()).resolves.toBe(false);
     const install = installInput(queued.id);
@@ -568,5 +690,5 @@ describe('marketplace tenant actions and signed offline publication', () => {
       state: 'delisted',
       delistMode: 'revoke',
     });
-  });
+  }, 120_000);
 });
