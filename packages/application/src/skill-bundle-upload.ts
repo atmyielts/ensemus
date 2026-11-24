@@ -3,6 +3,7 @@ import {
   skillBundleUploads,
   skillPackages,
   skillVersions,
+  withTenantTx,
   type AppDatabase,
   type TenantContext,
   type Tx,
@@ -18,7 +19,7 @@ import {
   SKILL_VERSION_UPLOADED,
   skillVersionTargetRef,
 } from '@ensemus/domain/skill-events';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import type { ObjectStore } from './artifacts';
 import { AppError } from './errors';
 import { emit } from './events';
@@ -186,5 +187,23 @@ export async function uploadSkillBundle(
     .putSingleAttempt(key(write.id), bytes, SKILL_BUNDLE_MEDIA_TYPE)
     .catch(() => null);
   if (result?.transport !== 'written') throw new AppError('SKILL_UPLOAD_PENDING');
+  try {
+    await withTenantTx(database, context, (tx) =>
+      tx
+        .update(skillBundleUploads)
+        .set({ putFinishedAt: sql`clock_timestamp()` })
+        .where(
+          and(
+            eq(skillBundleUploads.organizationId, context.organizationId),
+            eq(skillBundleUploads.id, write.id),
+            eq(skillBundleUploads.membershipId, context.membershipId),
+            isNull(skillBundleUploads.putFinishedAt),
+          ),
+        ),
+    );
+  } catch {
+    // The single PUT may have landed. A repeat can try a read-back without writing this key again.
+    throw new AppError('SKILL_UPLOAD_PENDING');
+  }
   return finish(write.id);
 }

@@ -2,6 +2,7 @@
 // one. These exercise the real Activity's ordering. Real role/SQL checks are in ai-stranded-recovery.
 import { randomUUID } from 'node:crypto';
 import {
+  expireDueGrants,
   expireOverdueApprovals,
   failRun,
   listHeldRuns,
@@ -10,6 +11,7 @@ import {
   purgeExpiredWebhookDeliveries,
   purgeExpiredExports,
   purgeRevokedBusinessRecords,
+  purgeAbandonedSkillUpload,
   reissueStaleRunRequests,
   sendDueReminders,
   type ObjectStore,
@@ -21,6 +23,7 @@ import { createActivities, type WorkflowProbe } from './activities';
 
 vi.mock('@ensemus/application', async (original) => ({
   ...(await original<typeof import('@ensemus/application')>()),
+  expireDueGrants: vi.fn(),
   expireOverdueApprovals: vi.fn(),
   failRun: vi.fn(),
   listHeldRuns: vi.fn(),
@@ -29,6 +32,7 @@ vi.mock('@ensemus/application', async (original) => ({
   purgeExpiredWebhookDeliveries: vi.fn(),
   purgeExpiredExports: vi.fn(),
   purgeRevokedBusinessRecords: vi.fn(),
+  purgeAbandonedSkillUpload: vi.fn(),
   reissueStaleRunRequests: vi.fn(),
   sendDueReminders: vi.fn(),
 }));
@@ -62,7 +66,8 @@ function fixture() {
     pending.agent = 'failed';
   });
   const probeWorkflow = vi.fn<WorkflowProbe>(async () => 'closed');
-  const activities = createActivities({ database, store: {} as ObjectStore, probeWorkflow });
+  const store = {} as ObjectStore;
+  const activities = createActivities({ database, store, skillCleanupStore: store, probeWorkflow });
   return {
     run: () => activities.sendReminders({ organizationId }),
     transaction,
@@ -73,6 +78,7 @@ function fixture() {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(expireDueGrants).mockResolvedValue(0);
   vi.mocked(expireOverdueApprovals).mockResolvedValue(0);
   vi.mocked(reissueStaleRunRequests).mockResolvedValue(0);
   vi.mocked(sendDueReminders).mockResolvedValue(0);
@@ -80,6 +86,7 @@ beforeEach(() => {
   vi.mocked(purgeExpiredWebhookDeliveries).mockResolvedValue(0);
   vi.mocked(purgeExpiredExports).mockResolvedValue(0);
   vi.mocked(purgeRevokedBusinessRecords).mockResolvedValue(0);
+  vi.mocked(purgeAbandonedSkillUpload).mockResolvedValue({ state: 'idle' });
   vi.mocked(listHeldRuns).mockResolvedValue({
     items: [{ id: workId, runId: temporalRunId }],
     next: null,
@@ -134,6 +141,7 @@ describe('stranded work and its exact agent run', () => {
     expect(world.stored()).toEqual({ work: 'running', agent: 'running' });
     expect(sendDueReminders).toHaveBeenCalled();
     expect(purgeExpiredWebhookDeliveries).toHaveBeenCalled();
+    expect(purgeAbandonedSkillUpload).toHaveBeenCalled();
   });
 
   it('does not close the agent run if failing its work was refused', async () => {

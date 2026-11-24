@@ -250,6 +250,9 @@ export const skillBundleUploads = skillsSchema.table(
     createdAt: timestamp({ withTimezone: true })
       .notNull()
       .default(sql`clock_timestamp()`),
+    putFinishedAt: timestamp({ withTimezone: true }),
+    putMaterialGeneration: uuid(),
+    putAuthGeneration: uuid(),
   },
   (t) => [
     primaryKey({ columns: [t.organizationId, t.id] }),
@@ -264,6 +267,14 @@ export const skillBundleUploads = skillsSchema.table(
     uniqueIndex('skill_bundle_upload_one_writer')
       .on(t.organizationId, t.packageId, t.bundleSha256)
       .where(sql`${t.state} = 'writing'`),
+    index('skill_upload_cleanup_ready')
+      .on(t.organizationId, t.putFinishedAt, t.id)
+      .where(sql`${t.putFinishedAt} is not null and ${t.state} in ('writing','superseded')`),
+    check(
+      'skill_upload_put_receipt',
+      sql`(${t.putFinishedAt} is null and ${t.putMaterialGeneration} is null and ${t.putAuthGeneration} is null)
+        or (${t.putFinishedAt} is not null and ${t.putMaterialGeneration} is not null and ${t.putAuthGeneration} is not null)`,
+    ),
     check('bundle_uploads_bundle_sha256_check', sql`${t.bundleSha256} ~ '^[0-9a-f]{64}$'`),
     check('bundle_uploads_size_bytes_check', sql`${t.sizeBytes} between 1 and 8388608`),
     check('bundle_uploads_state_check', sql`${t.state} in ('writing','attached','superseded')`),

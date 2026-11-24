@@ -45,6 +45,7 @@ export * from './sovereign-ports';
 export * from './sandbox-runs';
 export * from './skill-ports';
 export * from './skill-verification';
+export * from './skill-upload-cleanup';
 export * from './skills';
 export * from './residency';
 export * from './tenancy';

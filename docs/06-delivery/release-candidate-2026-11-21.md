@@ -1362,3 +1362,19 @@ Native PostgreSQL tests exercised a generated upload, worker verification, a sec
 publication, a withdrawal, and use denied after disabling the package or revoking trust. They
 also covered a stale publish, a foreign version, an ordinary member, and raw SQL attempts to
 forge or rewrite publication receipts. The new migration is awaiting human security review.
+
+### Abandoned skill bundle cleanup (EXP-04, LIFE-01)
+
+Migration 0769 records the provider's positive completion of a single PUT before the app attaches
+the version. The platform worker checks at most one abandoned upload per tenant upkeep run. It
+can delete the canonical key after a superseded write finishes or an unattached finished write
+is an hour old. PostgreSQL fences attachment first and admits deletion under the existing
+legal-hold barrier. The worker records a terminal DELETE and independently checks physical
+absence. A repeated run can retry the absence read of a completed DELETE. An unknown PUT or
+DELETE and a prior-generation receipt remain in the inventory.
+
+A generated bundle in a separate local S3-compatible bucket was removed through the actual
+worker upkeep activity, and PostgreSQL retained a proven deletion receipt. Integration coverage
+includes hold placement, unknown storage responses, foreign tenants, and refusal to attach a
+fenced key. The migration is awaiting human security review. Attached bundle erasure, unknown
+operation recovery, and restore requalification remain open.

@@ -131,7 +131,12 @@ async function main() {
     maxConcurrentActivityTaskExecutions: PLATFORM_ACTIVITY_SLOTS,
     workflowBundle: { codePath: path.join(here, 'workflow-bundle.cjs') },
     activities: {
-      ...createActivities({ database: db, store: generatedObjects, probeWorkflow }),
+      ...createActivities({
+        database: db,
+        store: generatedObjects,
+        skillCleanupStore: generatedObjects,
+        probeWorkflow,
+      }),
       // Only what reads PostgreSQL. Anything holding a credential is on the connector queue.
       ...createExternalActionPlatformActivities({ database: db }),
       ...createClientOnboardingActivities({

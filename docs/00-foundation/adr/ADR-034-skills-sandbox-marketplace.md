@@ -15,8 +15,15 @@ attempt. The version, audit event, and outbox event become visible in one transa
 successful write. The uploader can recover a lost response by resending the same file. Recovery
 matches the stored bytes against the file before attaching that reservation. An unresolved
 attempt older than two minutes can be replaced with a new key. The superseded key stays recorded
-for physical cleanup. The artifact sweep handles artifact keys. Skill bundle cleanup remains a
-separate release gate.
+for physical cleanup.
+
+**Abandoned upload cleanup update, 2026-11-24.** The native platform worker can clean a
+superseded key with a positive storage write receipt. An unattached key with such a receipt
+becomes eligible after one hour. The reservation is fenced before deletion and the common
+legal-hold and deletion authority admits the canonical key. A terminal DELETE and physical
+absence are separate observations. An unknown PUT, an ambiguous DELETE, or a receipt from a
+different restore generation remains in the inventory. Tenant erasure for attached bundles
+and requalification after a restore remain open.
 
 **Version release update, 2026-11-24.** A second workspace administrator can publish a verified
 version when the package is active and the catalog is enabled. Publication and withdrawal use

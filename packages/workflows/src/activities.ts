@@ -11,6 +11,7 @@ import {
   failRun,
   listHeldRuns,
   notifyFederationGrantAccepted,
+  purgeAbandonedSkillUpload,
   loadChangeable,
   purgeDueBlobs,
   purgeExpiredExports,
@@ -68,6 +69,8 @@ export type WorkflowProbe = (input: {
 export function createActivities(deps: {
   database: AppDatabase;
   store: ObjectStore;
+  /** The native platform worker supplies the skill bucket cleanup transport. */
+  skillCleanupStore?: ObjectStore;
   /** Asks Temporal whether a run is still open. Without one, stranded work is left for later. */
   probeWorkflow?: WorkflowProbe;
 }) {
@@ -295,6 +298,14 @@ export function createActivities(deps: {
       await attempt(() => expireDueGrants(database, ctx), 0);
       await attempt(() => purgeExpiredExports(database, store, ctx, now), 0);
       await attempt(() => purgeRevokedBusinessRecords(database, ctx), 0);
+      if (deps.skillCleanupStore) {
+        const skillStore = deps.skillCleanupStore;
+        const cleanup = await attempt(
+          () => purgeAbandonedSkillUpload(database, skillStore, ctx),
+          null,
+        );
+        if (cleanup?.state === 'unconfirmed') log.warn('skill_upload.cleanup_unconfirmed');
+      }
       if (failures.length > 0) throw failures[0];
       return reminders;
     },

@@ -1247,6 +1247,13 @@
       "when": 1794201807650,
       "tag": "0768_skill_version_release_authority",
       "breakpoints": true
+    },
+    {
+      "idx": 178,
+      "version": "7",
+      "when": 1794201807651,
+      "tag": "0769_skill_bundle_upload_cleanup",
+      "breakpoints": true
     }
   ]
 }

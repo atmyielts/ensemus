@@ -260,6 +260,9 @@ describe('durable skill bundle upload', () => {
       );
       didResume();
       expect(await first).toEqual(second);
+      expect(
+        (await receipts(pkg.id)).find(({ id }) => id === record?.id)?.putFinishedAt,
+      ).toBeInstanceOf(Date);
       expect(await listSkillVersions(app.db, owner(), pkg.id)).toEqual([second]);
       expect(store.putSingleAttempt).toHaveBeenCalledTimes(2);
       expect(objects.size).toBe(2);
