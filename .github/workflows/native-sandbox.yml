@@ -32,14 +32,16 @@ jobs:
           set -euo pipefail
           image=$(awk '$1 == "FROM" && $2 ~ /^node:24-slim@sha256:[a-f0-9]+$/ { print $2; exit }' infrastructure/containers/Dockerfile.worker)
           test -n "$image"
-          rootfs=$(mktemp -d "$RUNNER_TEMP/ensemus-native-rootfs.XXXXXX")
-          sudo --non-interactive chown root:root "$rootfs"
+          # runc enters a mapped user namespace before traversing this path.
+          rootfs=$(sudo --non-interactive mktemp -d /tmp/ensemus-native-rootfs.XXXXXX)
           docker pull "$image"
           container=$(docker create "$image")
           trap 'docker rm "$container"' EXIT
           docker export "$container" | sudo --non-interactive tar -xpf - -C "$rootfs"
           sudo --non-interactive chmod 0755 "$rootfs"
           sudo --non-interactive mkdir -p "$rootfs/dev" "$rootfs/proc" "$rootfs/skill" "$rootfs/tmp"
+          sudo --non-interactive setpriv --reuid 65532 --regid 65532 --clear-groups --no-new-privs \
+            /usr/bin/test -x "$rootfs/usr/local/bin/node"
           printf 'ENSEMUS_NATIVE_ROOTFS=%s\nENSEMUS_NATIVE_RUNC=%s\n' "$rootfs" "$(realpath "$(command -v runc)")" >> "$GITHUB_ENV"
       - name: Run the probes on the Linux host
         env:
