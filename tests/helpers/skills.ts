@@ -210,6 +210,47 @@ export async function seedVersion(
   );
   if (options.state === 'verifying') return seeded;
   await withFixtureSkillVerifier(organizationId, async (tx) => {
+    if (kind === 'sandbox') {
+      // Structural test seed only. Production gets these receipts from the native runner.
+      const runId = randomUUID();
+      const run = and(eq(sandboxRuns.organizationId, organizationId), eq(sandboxRuns.id, runId));
+      await tx.insert(sandboxRuns).values({
+        organizationId,
+        id: runId,
+        skillVersionId: id,
+        digest,
+        purpose: 'skill_test',
+        fixtureSignerKeyId: options.signer.keyId,
+        testFixture: 0,
+        classification: 'internal',
+        input: {},
+        ...testPolicy(),
+      });
+      await tx
+        .update(sandboxRuns)
+        .set({
+          status: 'running',
+          attempts: 1,
+          isolationProbePassedAt: new Date(),
+          startedAt: new Date(),
+          runtimeName: 'scripted',
+          runtimeVersion: 'fixture',
+          version: 2,
+        })
+        .where(run);
+      await tx
+        .update(sandboxRuns)
+        .set({
+          status: 'succeeded',
+          exitCode: 0,
+          output: {},
+          outcomeCode: 'EXITED_ZERO',
+          outputSha256: createHash('sha256').update('{}').digest('hex'),
+          finishedAt: new Date(),
+          version: 3,
+        })
+        .where(run);
+    }
     await tx.insert(skillTestRuns).values({
       organizationId,
       skillVersionId: id,

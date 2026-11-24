@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { isIPv4 } from 'node:net';
 import { SANDBOX_DEFAULT_CEILINGS, type SandboxLimits } from '@ensemus/domain/sandbox';
 import { z } from 'zod';
 
@@ -309,8 +310,25 @@ export function loadSkillWorkerConfig(env: NodeJS.ProcessEnv = process.env) {
   return { ceilings: loadSandboxCeilings(env), reviewKeys: loadReviewKeys(env) };
 }
 
+function isSandboxPrivateHost(host: string): boolean {
+  if (host === '127.0.0.1') return true;
+  if (!isIPv4(host)) return false;
+  const [first = 0, second = 0] = host.split('.').map(Number);
+  return (
+    first === 10 ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168)
+  );
+}
+
+const sandboxRunnerUrl = z.string().refine((text) => {
+  const host = /^https?:\/\/((?:[0-9]{1,3}\.){3}[0-9]{1,3})(?::[0-9]+)?\/?$/.exec(text)?.[1];
+  const url = URL.parse(text);
+  return host !== undefined && isSandboxPrivateHost(host) && url?.hostname === host;
+});
+
 const sandboxWorkerSchema = z.object({
-  ENSEMUS_SANDBOX_RUNNER_URL: z.url().default('http://sandbox-runner:8080'),
+  ENSEMUS_SANDBOX_RUNNER_URL: sandboxRunnerUrl.default('http://127.0.0.1:8080'),
   ENSEMUS_SANDBOX_MAX_CONCURRENT_PER_TENANT: z.coerce.number().int().min(1).default(2),
   ENSEMUS_SANDBOX_PROBE_MAX_AGE_MS: z.coerce.number().int().min(1000).default(300_000),
 });
@@ -334,6 +352,7 @@ const sandboxRunnerSchema = z.object({
   ENSEMUS_SANDBOX_STATE_DIR: z.string().min(1).default('/run/sandbox-state'),
   ENSEMUS_SANDBOX_ROOTFS: z.string().min(1).default('/opt/sandbox/rootfs'),
   ENSEMUS_SANDBOX_WORK_ROOT: z.string().min(1).default('/run/sandbox-jobs'),
+  ENSEMUS_SANDBOX_RUNNER_BIND_HOST: z.string().refine(isSandboxPrivateHost).default('127.0.0.1'),
   ENSEMUS_SANDBOX_RUNNER_PORT: z.coerce.number().int().min(1).max(65535).default(8080),
   ENSEMUS_SANDBOX_MAX_CONCURRENT_JOBS: z.coerce.number().int().min(1).default(2),
 });
@@ -349,6 +368,7 @@ export function loadSandboxRunnerConfig(env: NodeJS.ProcessEnv = process.env) {
     stateDir: parsed.data.ENSEMUS_SANDBOX_STATE_DIR,
     rootfs: parsed.data.ENSEMUS_SANDBOX_ROOTFS,
     workRoot: parsed.data.ENSEMUS_SANDBOX_WORK_ROOT,
+    host: parsed.data.ENSEMUS_SANDBOX_RUNNER_BIND_HOST,
     port: parsed.data.ENSEMUS_SANDBOX_RUNNER_PORT,
     maxConcurrentJobs: parsed.data.ENSEMUS_SANDBOX_MAX_CONCURRENT_JOBS,
     ceilings: loadSandboxCeilings(env),

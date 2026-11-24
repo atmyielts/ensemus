@@ -85,6 +85,41 @@ describe('the sandbox processes', () => {
     ).toBe('/usr/bin/runsc');
   });
 
+  it('binds the runner to loopback unless a private interface is selected', () => {
+    expect(loadSandboxRunnerConfig({}).host).toBe('127.0.0.1');
+    expect(loadSandboxRunnerConfig({ ENSEMUS_SANDBOX_RUNNER_BIND_HOST: '172.30.11.1' }).host).toBe(
+      '172.30.11.1',
+    );
+    for (const host of ['0.0.0.0', '8.8.8.8', '::', 'runner.example']) {
+      expect(() => loadSandboxRunnerConfig({ ENSEMUS_SANDBOX_RUNNER_BIND_HOST: host })).toThrow(
+        ConfigError,
+      );
+    }
+  });
+
+  it('sends runner credentials only to explicit private or loopback HTTP origins', () => {
+    expect(loadSandboxWorkerConfig({}).runnerUrl).toBe('http://127.0.0.1:8080');
+    for (const url of ['http://172.30.11.1:8080', 'https://10.1.0.2:443/', 'http://192.168.0.2']) {
+      expect(loadSandboxWorkerConfig({ ENSEMUS_SANDBOX_RUNNER_URL: url }).runnerUrl).toBe(url);
+    }
+    for (const url of [
+      'http://sandbox-runner:8080',
+      'http://8.8.8.8',
+      'http://172.32.0.1',
+      'http://169.254.169.254',
+      'http://0.0.0.0',
+      'http://0x7f000001',
+      'http://user:password@172.30.11.1',
+      'https://172.30.11.1/?debug',
+      'https://172.30.11.1/path',
+      'ftp://172.30.11.1',
+    ]) {
+      expect(() => loadSandboxWorkerConfig({ ENSEMUS_SANDBOX_RUNNER_URL: url })).toThrow(
+        ConfigError,
+      );
+    }
+  });
+
   it('bound what one tenant can run at once', () => {
     expect(loadSandboxWorkerConfig({}).maxConcurrentPerTenant).toBeGreaterThan(0);
     expect(() =>

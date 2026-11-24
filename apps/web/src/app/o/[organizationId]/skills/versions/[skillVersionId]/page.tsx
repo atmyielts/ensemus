@@ -1,11 +1,14 @@
+import { randomUUID } from 'node:crypto';
 import {
   getPublisher,
+  getSandboxStatus,
   getSkillPackage,
   getSkillVersionReview,
   idSchema,
   listSubmissions,
 } from '@ensemus/application';
 import { can } from '@ensemus/domain/policy';
+import { sandboxAcceptsClassification } from '@ensemus/domain/sandbox';
 import { notFound } from 'next/navigation';
 import {
   BackLink,
@@ -16,7 +19,8 @@ import {
 } from '@/components/ui';
 import { verificationError } from '@/lib/skill-version-copy';
 import { orNotFound, requireTenant } from '@/server/tenant';
-import { getSkillFeatureGate } from '@/server/skill-runtime';
+import { getSandboxCeilings, getSkillFeatureGate } from '@/server/skill-runtime';
+import { SandboxTrialForm } from '../../../sandbox/trial-form';
 import { MarketplaceChangeForm } from '../../../marketplace/forms';
 import { SkillReleaseForm } from './release-form';
 
@@ -38,6 +42,23 @@ export default async function SkillVersionPage({
   const test = version.latestTest;
   const root = `/o/${organizationId}`;
   const gate = getSkillFeatureGate();
+  const canTrial = version.executionKind === 'sandbox' && can(context.role, 'sandbox.run');
+  const sandboxStatus = canTrial
+    ? await getSandboxStatus(database, context, {
+        enabled: await gate.isEnabled(context, 'sandbox'),
+        ceilings: getSandboxCeilings(),
+      })
+    : null;
+  const maximum = version.maxClassification;
+  const trialClassifications = maximum
+    ? (['public', 'internal', 'confidential'] as const).filter((value) =>
+        sandboxAcceptsClassification(value, maximum),
+      )
+    : [];
+  const canQueueTrial =
+    pkg.state === 'active' &&
+    (version.state === 'verified' || version.state === 'published') &&
+    trialClassifications.length > 0;
   const canReview = version.state === 'verified' && can(context.role, 'skill.publish');
   const catalogEnabled = canReview && (await gate.isEnabled(context, 'skill_catalog'));
   const canPublish = catalogEnabled && !uploadedByViewer && pkg.state === 'active';
@@ -107,6 +128,29 @@ export default async function SkillVersionPage({
               </li>
             ))}
           </ul>
+        </section>
+      )}
+      {sandboxStatus && (
+        <section className="card" aria-labelledby="skill-sandbox-trial">
+          <h2 id="skill-sandbox-trial">Sandbox trial</h2>
+          {!sandboxStatus.enabled ? (
+            <p>Sandbox trials are disabled for this workspace.</p>
+          ) : !canQueueTrial ? (
+            <p>Trials require an active package and a verified skill version.</p>
+          ) : (
+            <SandboxTrialForm
+              organizationId={organizationId}
+              skillVersionId={version.id}
+              requestToken={randomUUID()}
+              classifications={trialClassifications}
+            />
+          )}
+          <small className="text-muted-foreground">
+            {sandboxStatus.lastProbePassedAt
+              ? `Limits on this server were last checked at ${formatDateTime(sandboxStatus.lastProbePassedAt)}.`
+              : 'No run has checked the limits on this server yet.'}{' '}
+            Independent review is pending.
+          </small>
         </section>
       )}
       {(canReview || canYank) && (

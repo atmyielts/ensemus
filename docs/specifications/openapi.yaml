@@ -9910,7 +9910,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/SkillVersionID"
     post:
-      x-ensemus-status: planned
       tags:
         - sandbox
       summary: Try a version's code by hand, with input you provide
@@ -9967,7 +9966,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/SandboxRunID"
     get:
-      x-ensemus-status: planned
       tags:
         - sandbox
       summary: One run, with its limits, what it used and how it ended
@@ -9998,7 +9996,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/SandboxRunID"
     post:
-      x-ensemus-status: planned
       tags:
         - sandbox
       summary: Ask a run to stop. It is rechecked before it starts, so a run asked in
@@ -10024,7 +10021,6 @@ paths:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
     get:
-      x-ensemus-status: planned
       tags:
         - sandbox
       summary: Whether code can run on this deployment, and exactly how much anyone

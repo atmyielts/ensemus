@@ -272,6 +272,7 @@ describe('frozen archives beside unfinished modules', () => {
       'federation.org_settings',
       'integrations.business_record_actions',
       'integrations.business_records',
+      'marketplace.installations',
       'meetings.consent_records',
       'meetings.derivation_runs',
       'meetings.import_requests',

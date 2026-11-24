@@ -99,6 +99,7 @@ services:
       # Catalog admission also checks the current company entitlement. Off until the operator enables it.
       ENSEMUS_SKILL_CATALOG_ENABLED: ${ENSEMUS_SKILL_CATALOG_ENABLED:-false}
       ENSEMUS_MARKETPLACE_ENABLED: ${ENSEMUS_MARKETPLACE_ENABLED:-false}
+      ENSEMUS_SANDBOX_ENABLED: ${ENSEMUS_SANDBOX_ENABLED:-false}
       # Hosted checkout (ADR-032 D4a): public identifiers only, and none unless named. Keys are mounted files
       # the connector worker alone reads. The web tier and the connector worker must agree.
       ENSEMUS_CHECKOUT_PROVIDERS: ${ENSEMUS_CHECKOUT_PROVIDERS:-}

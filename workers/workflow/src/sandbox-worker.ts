@@ -29,19 +29,28 @@ const log = createLogger('sandbox-worker');
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 async function main() {
-  // Must run first. The SDK's default logger would print activity error messages.
+  const features = loadSkillFeatures();
+  if (!features.sandbox) {
+    log.info('sandbox_worker.disabled');
+    return;
+  }
+  const config = loadSandboxWorkerConfig();
+  const runner = createRunnerClient({
+    url: config.runnerUrl,
+    token: readSecret('SANDBOX_RUNNER_TOKEN'),
+  });
+  // Install before any Temporal calls. The SDK's default logger would print activity error messages.
   Runtime.install({
     logger: createTemporalLogger(log),
     telemetryOptions: { logging: { filter: 'WARN', forward: {} } },
   });
-  const config = loadSandboxWorkerConfig();
   const connection = await NativeConnection.connect({
     address: process.env.TEMPORAL_ADDRESS ?? 'temporal:7233',
   });
   const app = openAppDatabase(readSecret('DATABASE_URL_APP'));
   const control = await createSandboxWorkerControl(app.db);
   const gate = entitledSkillFeatureGate(
-    loadSkillFeatures(),
+    features,
     createEntitlementChecker(app.db, loadSaasConfig().billingEnabled),
   );
   const store = new S3ObjectStore({
@@ -54,15 +63,13 @@ async function main() {
     connection,
     namespace: process.env.TEMPORAL_NAMESPACE ?? 'default',
     taskQueue: SANDBOX_TASK_QUEUE,
+    maxConcurrentActivityTaskExecutions: 4,
     activities: createSandboxRunActivities({
       control,
       gate,
       ceilings: loadSandboxCeilings(),
       store,
-      runner: createRunnerClient({
-        url: config.runnerUrl,
-        token: readSecret('SANDBOX_RUNNER_TOKEN'),
-      }),
+      runner,
       maxConcurrentPerTenant: config.maxConcurrentPerTenant,
       probeMaxAgeMs: config.probeMaxAgeMs,
     }),

@@ -20,7 +20,7 @@ try {
     maxConcurrentJobs: config.maxConcurrentJobs,
     ceilings: config.ceilings,
   });
-  server.listen(config.port, '127.0.0.1', () => {
+  server.listen(config.port, config.host, () => {
     log.info('sandbox_runner.started', { runtimeConfigured: config.runtimeBinary !== null });
   });
 } catch (error) {
