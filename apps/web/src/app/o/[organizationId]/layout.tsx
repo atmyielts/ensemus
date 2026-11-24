@@ -54,19 +54,22 @@ export default async function OrganizationLayout({
   const workspaceSwitcher = hasOtherWorkspace && <OrganizationSwitcher current={organizationId} />;
   const account = (
     <div className="sidebar-end">
-      <Avatar className="account-avatar rounded-md" aria-hidden="true">
-        <AvatarFallback className="rounded-md font-mono text-xs">
-          {Array.from(actor.name)[0]?.toUpperCase() ?? 'E'}
-        </AvatarFallback>
-      </Avatar>
-      <div className="account-details">
-        <Link className="account-name" href={`${base}/security`} title="Your account security">
-          {actor.name}
-        </Link>
-        <span className="account-email" title={actor.email}>
-          {actor.email}
+      <Link
+        className="account-profile"
+        href={`${base}/security`}
+        aria-label={actor.name}
+        title="Your account security"
+      >
+        <Avatar className="account-avatar rounded-md" aria-hidden="true">
+          <AvatarFallback className="rounded-md font-mono text-xs">
+            {Array.from(actor.name)[0]?.toUpperCase() ?? 'E'}
+          </AvatarFallback>
+        </Avatar>
+        <span className="account-details">
+          <span className="account-name">{actor.name}</span>
+          <span className="account-email">{actor.email}</span>
         </span>
-      </div>
+      </Link>
       <form action={signOutAction}>
         <SubmitButton
           className="quiet account-sign-out"
@@ -96,11 +99,8 @@ export default async function OrganizationLayout({
               <div className="workspace-brand">
                 <Link className="workspace-identity" href={base}>
                   <BrandMark />
-                  <span className="workspace-identity-copy">
-                    <span className="workspace-name" title={organization.name}>
-                      {organization.name}
-                    </span>
-                    <span className="workspace-product">ensemus</span>
+                  <span className="workspace-name" title={organization.name}>
+                    {organization.name}
                   </span>
                 </Link>
                 {workspaceSwitcher}

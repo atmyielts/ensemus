@@ -156,14 +156,16 @@ test('the tablet sidebar opens up the work table and keeps the preference after 
   const work = `/o/${world.organization}/work`;
   await page.goto(work);
   const sidebar = page.getByRole('complementary', { name: 'Workspace sidebar' });
-  const hide = page.getByRole('button', { name: 'Hide sidebar' });
-  const show = page.getByRole('button', { name: 'Show sidebar' });
+  const hide = page.getByRole('button', { name: 'Collapse sidebar' });
+  const show = page.getByRole('button', { name: 'Expand sidebar' });
   const tableHead = page.getByRole('table').locator('thead');
   await expect(sidebar).toBeVisible();
   await expect(tableHead).toHaveCSS('position', 'absolute');
   await hide.focus();
   await page.keyboard.press('Enter');
-  await expect(sidebar).toBeHidden();
+  await expect(sidebar).toBeVisible();
+  await expect(sidebar).toHaveCSS('width', '48px');
+  await expect(sidebar.getByRole('link', { name: 'Work', exact: true })).toBeVisible();
   await expect(show).toBeFocused();
   await expect(show).toHaveAttribute('aria-expanded', 'false');
   await expect(tableHead).toHaveCSS('position', 'static');
@@ -173,7 +175,7 @@ test('the tablet sidebar opens up the work table and keeps the preference after 
   ).toBeLessThanOrEqual(1);
   await page.reload();
   await expect(show).toBeVisible();
-  await expect(sidebar).toBeHidden();
+  await expect(sidebar).toHaveCSS('width', '48px');
   await expect(tableHead).toHaveCSS('position', 'static');
   await show.click();
   await expect(sidebar).toBeVisible();
@@ -192,7 +194,7 @@ test('the desktop navigation still works without scripts after a collapsed prefe
     .context()
     .addCookies([{ name: 'sidebar_state', value: 'false', url: new URL(page.url()).origin }]);
   await page.goto(base);
-  await expect(page.getByRole('button', { name: /^(Hide|Show) sidebar$/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^(Collapse|Expand) sidebar$/ })).toHaveCount(0);
   await page
     .getByRole('navigation', { name: 'Main', exact: true })
     .getByRole('link', { name: 'Work', exact: true })

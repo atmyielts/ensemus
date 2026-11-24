@@ -77,6 +77,7 @@ function NavigationLink({
   child?: boolean;
 }) {
   const current = isNavigationCurrent(item, pathname);
+  const { hydrated, open, isMobile } = useSidebar();
   return (
     <SidebarMenuButton
       asChild
@@ -86,6 +87,7 @@ function NavigationLink({
       <Link
         href={item.href}
         className={child ? 'nav-child-link' : 'nav-link'}
+        title={hydrated && !open && !isMobile && !child ? item.label : undefined}
         onClick={(event) => {
           if (
             event.button !== 0 ||
@@ -226,8 +228,8 @@ export function WorkspaceContext({
           className="-ms-1.5 hidden shrink-0 text-muted-foreground min-[768px]:inline-flex"
           aria-controls="workspace-sidebar"
           aria-expanded={open}
-          aria-label={open ? 'Hide sidebar' : 'Show sidebar'}
-          title={open ? 'Hide sidebar' : 'Show sidebar'}
+          aria-label={open ? 'Collapse sidebar' : 'Expand sidebar'}
+          title={open ? 'Collapse sidebar' : 'Expand sidebar'}
         />
       )}
       <Link className="mobile-workspace-home" href={base}>

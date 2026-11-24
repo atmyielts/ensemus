@@ -44,7 +44,7 @@ for (const theme of ['light', 'dark'] as const)
       if (width < 768) {
         const shortcuts = page.getByRole('navigation', { name: 'Workspace shortcuts' });
         await expect(shortcuts.getByRole('link')).toHaveCount(4);
-        await expect(page.getByRole('button', { name: 'Hide sidebar' })).toBeHidden();
+        await expect(page.getByRole('button', { name: 'Collapse sidebar' })).toBeHidden();
         await page.goto(base);
         const deadline = page.locator('.queue-row time').first();
         await expect(deadline).toBeVisible();

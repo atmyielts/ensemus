@@ -45,16 +45,22 @@ export function OrganizationSwitcher({ current }: { current: string }) {
   if (!enhanced)
     return (
       <Button asChild variant="ghost" size="sm" className="workspace-switch justify-start">
-        <Link href="/" prefetch={false}>
-          Switch organization <ChevronsUpDownIcon aria-hidden="true" />
+        <Link href="/" prefetch={false} title="Switch organization">
+          <span className="workspace-switch-label">Switch organization</span>
+          <ChevronsUpDownIcon aria-hidden="true" />
         </Link>
       </Button>
     );
   return (
     <DropdownMenu onOpenChange={openChanged}>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className="workspace-switch justify-start">
-          Switch organization
+        <Button
+          variant="ghost"
+          size="sm"
+          className="workspace-switch justify-start"
+          title="Switch organization"
+        >
+          <span className="workspace-switch-label">Switch organization</span>
           <ChevronsUpDownIcon aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>

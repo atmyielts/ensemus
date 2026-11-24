@@ -218,37 +218,44 @@
     padding: 12px 10px;
   }
   .workspace-brand {
-    padding: 0 2px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .workspace-brand .workspace-switch {
+    justify-content: center;
+    flex: none;
+    width: 30px;
+    min-height: 32px;
+    margin: 0;
+    padding: 0;
+  }
+  .workspace-brand .workspace-switch-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .workspace-identity {
     display: flex;
     align-items: center;
     min-width: 0;
-    gap: 9px;
-    min-height: 44px;
-    padding: 6px 7px;
+    flex: 1;
+    gap: 8px;
+    min-height: 40px;
+    padding: 4px 6px;
     border: 1px solid transparent;
     border-radius: var(--radius-md);
     color: var(--foreground);
+    font-size: var(--text-small);
+    font-weight: 600;
     text-decoration: none;
   }
   .workspace-identity:hover {
     border-color: var(--border);
     background: var(--card);
-  }
-  .workspace-identity-copy {
-    display: grid;
-    min-width: 0;
-    line-height: 1.25;
-    font-size: 13px;
-    font-weight: 550;
-  }
-  .workspace-product {
-    margin-top: 1px;
-    color: var(--muted-foreground);
-    font-family: var(--font-tech-display);
-    font-size: 11px;
-    font-weight: 500;
   }
   .brand {
     gap: 8px;
@@ -303,7 +310,7 @@
     height: 15px;
   }
   .sidebar-end {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 8px;
     border-top: 1px solid var(--border);
     padding: 8px 4px 0;
@@ -326,7 +333,21 @@
     padding: 0;
     color: var(--muted-foreground);
   }
+  .account-profile {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    gap: 8px;
+    padding: 2px;
+    border-radius: var(--radius-md);
+    color: var(--foreground);
+    text-decoration: none;
+  }
+  .account-profile:hover {
+    background: var(--secondary);
+  }
   .account-avatar {
+    flex: none;
     width: 28px;
     height: 28px;
     background: var(--secondary);
@@ -742,19 +763,74 @@
     html:has(.shell) {
       scroll-padding-block-start: 48px;
     }
-    [data-sidebar-state='collapsed'] .shell {
-      grid-template-columns: minmax(0, 1fr);
-    }
-    [data-sidebar-state='collapsed'] .sidebar {
-      display: none;
-    }
-    [data-sidebar-state='collapsed'] .content {
-      margin-inline-start: 8px;
+    [data-sidebar-state='collapsed'] {
+      .shell {
+        grid-template-columns: 3rem minmax(0, 1fr);
+      }
+      .sidebar-inner {
+        padding-inline: 6px;
+      }
+      .workspace-brand,
+      .sidebar-end {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+      .workspace-identity {
+        justify-content: center;
+        width: 36px;
+        padding-inline: 0;
+      }
+      .desktop-navigation {
+        margin-inline: -4px;
+        padding-inline: 4px;
+        scrollbar-gutter: auto;
+        scrollbar-width: none;
+      }
+      .desktop-navigation .nav {
+        gap: 8px;
+      }
+      .desktop-navigation .nav-group + .nav-group {
+        border-top: 1px solid var(--border);
+        padding-top: 8px;
+      }
+      .desktop-navigation .nav-link {
+        justify-content: center;
+        padding-inline: 0;
+        min-height: 32px;
+      }
+      .desktop-navigation .nav-link:has(.count)::after {
+        content: '';
+        position: absolute;
+        inset-block-start: 6px;
+        inset-inline-end: 6px;
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--primary);
+      }
+      .workspace-brand .workspace-name,
+      .account-details,
+      .desktop-navigation :is(.nav-label, .nav-group-label, .count, .pending) {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+      }
+      .desktop-navigation .nav-children {
+        display: none;
+      }
     }
   }
   @media (768px <= width < 1024px) {
     .shell {
       --shell-sidebar-width: 12.5rem;
+    }
+    [data-sidebar-state='collapsed'] .shell {
+      --workspace-gutter: 8px;
     }
   }
   @media (width < 768px) {
@@ -943,6 +1019,9 @@
     .mobile-navigation-panel .sidebar-end {
       margin-top: 8px;
       padding-top: 4px;
+    }
+    .mobile-navigation-panel .account-profile {
+      min-height: 44px;
     }
     .mobile-navigation-panel .account-sign-out {
       width: 44px;
