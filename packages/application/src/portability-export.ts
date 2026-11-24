@@ -39,6 +39,8 @@ import {
   RESIDENCY_PORTABILITY_VERSION,
   SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION,
   SKILL_BUNDLE_PORTABILITY_VERSION,
+  SANDBOX_HISTORY_PORTABILITY_VERSION,
+  carriesSkillBundleOriginals,
   isJoinedPortabilityVersion,
   PORTABILITY_INVENTORY_PROFILES,
   PORTABILITY_INVENTORY_VERSION,
@@ -533,7 +535,7 @@ async function archiveStorageMatchesResidency(tx: Tx, policy: ResidencyPolicy | 
 }
 
 const checksArchiveResidency = (profile: string | null) =>
-  profile === RESIDENCY_PORTABILITY_VERSION || profile === SKILL_BUNDLE_PORTABILITY_VERSION;
+  profile === RESIDENCY_PORTABILITY_VERSION || carriesSkillBundleOriginals(profile);
 
 /** Moves it to `running` and records `snapshot_at`. On a row already finished, answers `finished`. */
 export async function beginExport(
@@ -561,6 +563,7 @@ export async function beginExport(
         when sovereign.portable_profile_clear(${SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION}) then ${SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION}
         when sovereign.portable_profile_clear(${RESIDENCY_PORTABILITY_VERSION}) then ${RESIDENCY_PORTABILITY_VERSION}
         when sovereign.portable_profile_clear(${SKILL_BUNDLE_PORTABILITY_VERSION}) then ${SKILL_BUNDLE_PORTABILITY_VERSION}
+        when sovereign.portable_profile_clear(${SANDBOX_HISTORY_PORTABILITY_VERSION}) then ${SANDBOX_HISTORY_PORTABILITY_VERSION}
         else null end as profile`,
     );
     const profile = admitted?.profile;
@@ -874,8 +877,7 @@ async function writeRecords(
   const originals: PartValues[] = [];
   for (const original of read.originals ?? []) {
     const id = original.resourceId;
-    const isSkillBundle =
-      section === 'skills' && inventoryVersion === SKILL_BUNDLE_PORTABILITY_VERSION;
+    const isSkillBundle = section === 'skills' && carriesSkillBundleOriginals(inventoryVersion);
     if (
       (section !== 'knowledge' && !isSkillBundle) ||
       original.objectKey !==
@@ -1199,6 +1201,24 @@ async function manifestPiece(run: Run): Promise<ExportStep> {
   );
   const inventoryVersion = row.inventoryVersion ?? PORTABILITY_INVENTORY_VERSION;
   if (!isJoinedPortabilityVersion(inventoryVersion)) return failStep(run, 'RECORD_REFUSED');
+  let sandboxReceiptsExcluded: number | undefined;
+  if (inventoryVersion === SANDBOX_HISTORY_PORTABILITY_VERSION) {
+    const [sandbox] = await withTenantTx(database, context, (tx) =>
+      withPortabilityScope(tx, { 'app.portability_export_id': row.id }, (scoped) =>
+        queryRows<{ count: number | null }>(
+          scoped,
+          sql`select sovereign.portable_sandbox_run_count() as count`,
+        ),
+      ),
+    );
+    const exported = parts.reduce(
+      (count, part) =>
+        count + (part.path.startsWith('skills/sandbox_run_receipt-') ? part.records : 0),
+      0,
+    );
+    if (sandbox?.count == null || sandbox.count < exported) return failStep(run, 'RECORD_REFUSED');
+    sandboxReceiptsExcluded = sandbox.count - exported;
+  }
   const manifest = exportManifestSchema.safeParse({
     format: 'ensemus.organization_export',
     schema_version: 2,
@@ -1206,6 +1226,9 @@ async function manifestPiece(run: Run): Promise<ExportStep> {
     record_max_bytes: MAX_JOINED_RECORD_BYTES,
     inventory: PORTABILITY_INVENTORY_PROFILES[inventoryVersion],
     generated_bodies_excluded: omitted?.count ?? 0,
+    ...(sandboxReceiptsExcluded !== undefined
+      ? { sandbox_receipts_excluded: sandboxReceiptsExcluded }
+      : {}),
     export_id: row.id,
     organization_id: context.organizationId,
     exported_at: now.toISOString(),

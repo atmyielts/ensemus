@@ -40,7 +40,7 @@ manifest.json.sealed
 ^([a-z-]+)/([a-z_]+-\d{6}\.jsonl|[0-9a-f-]{36}\.bin)\.sealed$
 ```
 
-A `.bin` part uses a UUID and belongs in `artifacts/`, `knowledge/`, or, with the `ensemus.skill-bundles/12` inventory, `skills/`. Use `open-archive.mjs` to recover a skill bundle as `skills/<uuid>.bin`. Submit those bytes through the receiving workspace’s skill upload and verification workflow. The section has to be one of: `organizations`, `people`, `clients`, `projects`, `work`, `relations`, `artifacts`, `history`, `connections`, `tombstones`, `audit-redacted`, `knowledge`, `agents`, `skills`, `policy`, `custom-objects`.
+A `.bin` part uses a UUID and belongs in `artifacts/`, `knowledge/`, or, with `ensemus.skill-bundles/12` and later inventories that carry skill originals, `skills/`. Use `open-archive.mjs` to recover a skill bundle as `skills/<uuid>.bin`. Submit those bytes through the receiving workspace’s skill upload and verification workflow. The section has to be one of: `organizations`, `people`, `clients`, `projects`, `work`, `relations`, `artifacts`, `history`, `connections`, `tombstones`, `audit-redacted`, `knowledge`, `agents`, `skills`, `policy`, `custom-objects`.
 
 ## A sealed object
 

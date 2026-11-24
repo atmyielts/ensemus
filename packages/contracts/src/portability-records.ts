@@ -38,8 +38,11 @@ const BUSINESS_RECORD_PORTABILITY_VERSION = 'ensemus.business-records/9';
 const SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION = 'ensemus.skill-upload-cleanup/10';
 const RESIDENCY_PORTABILITY_VERSION = 'ensemus.residency/11';
 const SKILL_BUNDLE_PORTABILITY_VERSION = 'ensemus.skill-bundles/12';
+const SANDBOX_HISTORY_PORTABILITY_VERSION = 'ensemus.sandbox-history/13';
+const carriesSkillBundleOriginals = (version: unknown) =>
+  version === SKILL_BUNDLE_PORTABILITY_VERSION || version === SANDBOX_HISTORY_PORTABILITY_VERSION;
 const carriesResidency = (version: unknown) =>
-  version === RESIDENCY_PORTABILITY_VERSION || version === SKILL_BUNDLE_PORTABILITY_VERSION;
+  version === RESIDENCY_PORTABILITY_VERSION || carriesSkillBundleOriginals(version);
 const carriesUploadCleanup = (version: unknown) =>
   version === SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION || carriesResidency(version);
 const carriesBusinessReferences = (version: unknown) =>
@@ -449,6 +452,25 @@ const BUSINESS_RECORD_KINDS = [
 ] as const;
 
 export const extensionRecordSchema = z.discriminatedUnion('kind', [
+  z.strictObject({
+    kind: z.literal('sandbox_run_receipt'),
+    id,
+    skill_version_id: id,
+    purpose: z.enum(['operator_test', 'skill_test']),
+    status: z.enum([
+      'succeeded',
+      'failed',
+      'timed_out',
+      'memory_exceeded',
+      'output_exceeded',
+      'denied',
+      'cancelled',
+      'runner_unavailable',
+    ]),
+    attempts: z.int().min(0).max(3),
+    created_at: moment,
+    finished_at: moment,
+  }),
   z.strictObject({
     kind: z.literal('skill_bundle_version'),
     id,
@@ -1002,6 +1024,7 @@ export const EXTENSION_SECTION_KINDS = {
     'skill_upload_cleanup_history',
     'skill_bundle_version',
     'skill_test_history',
+    'sandbox_run_receipt',
   ],
   'custom-objects': [
     'custom_object_type',
@@ -1061,8 +1084,10 @@ export function assertPortableExtensionProfile(
     throw new Error('RECORD_REFUSED');
   if (
     (kind === 'skill_bundle_version' || kind === 'skill_test_history') &&
-    inventoryVersion !== SKILL_BUNDLE_PORTABILITY_VERSION
+    !carriesSkillBundleOriginals(inventoryVersion)
   )
+    throw new Error('RECORD_REFUSED');
+  if (kind === 'sandbox_run_receipt' && inventoryVersion !== SANDBOX_HISTORY_PORTABILITY_VERSION)
     throw new Error('RECORD_REFUSED');
 }
 
@@ -1134,9 +1159,11 @@ const manifestV2Schema = manifestV1Schema.extend({
     SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION,
     RESIDENCY_PORTABILITY_VERSION,
     SKILL_BUNDLE_PORTABILITY_VERSION,
+    SANDBOX_HISTORY_PORTABILITY_VERSION,
   ]),
   record_max_bytes: z.literal(4 * 1024 * 1024).optional(),
   generated_bodies_excluded: z.int().min(0),
+  sandbox_receipts_excluded: z.int().min(0).optional(),
   inventory: z
     .array(
       z.strictObject({
@@ -1184,6 +1211,15 @@ export const exportManifestSchema = z
       )
     )
       ctx.addIssue({ code: 'custom', message: 'Legacy archives carry only core inert records' });
+    if (
+      value.schema_version === 2 &&
+      (value.inventory_version === SANDBOX_HISTORY_PORTABILITY_VERSION) !==
+        (value.sandbox_receipts_excluded !== undefined)
+    )
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Sandbox receipt exclusions differ from inventory profile',
+      });
     const joined = value.schema_version === 2 && isJoinedInventory(value.inventory_version);
     if (
       value.schema_version === 2 &&

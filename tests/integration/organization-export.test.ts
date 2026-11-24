@@ -9,7 +9,8 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join as joinPath } from 'node:path';
 import pg from 'pg';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Context } from '@temporalio/activity';
 import {
   acceptInvitation,
   addTrustedSigner,
@@ -18,6 +19,7 @@ import {
   approveMeetingProvider,
   applyBusinessRecordPage,
   beginExport,
+  cancelSandboxRun,
   SOURCE_PORTABILITY_SECTIONS,
   createClient,
   createInvitation,
@@ -49,6 +51,7 @@ import {
   requestMeetingNotesImport,
   requestOrganizationExport,
   requestOrganizationImport,
+  requestSandboxRun,
   runOrganizationImport,
   setResidencyRequirement,
   requestWorkReview,
@@ -61,6 +64,7 @@ import {
   type ObjectStore,
   type PortabilitySection,
 } from '@ensemus/application';
+import { createSandboxWorkerControl } from '@ensemus/application/sandbox-worker-control';
 import {
   exportManifestSchema,
   validatePortableRecord,
@@ -78,6 +82,7 @@ import {
   openAppDatabase,
   organizationExportParts,
   organizationExports,
+  sandboxRuns,
   sealedSecrets,
   skillBundleUploads,
   skillVersions,
@@ -105,6 +110,8 @@ import {
   MEETING_CONFIGURATION_PORTABILITY_VERSION,
   MEETING_HISTORY_PORTABILITY_INVENTORY,
   MEETING_HISTORY_PORTABILITY_VERSION,
+  SANDBOX_HISTORY_PORTABILITY_INVENTORY,
+  SANDBOX_HISTORY_PORTABILITY_VERSION,
   SKILL_BUNDLE_PORTABILITY_INVENTORY,
   SKILL_BUNDLE_PORTABILITY_VERSION,
   SKILL_METADATA_PORTABILITY_INVENTORY,
@@ -124,10 +131,12 @@ import {
   ORGANIZATION_EXPORT_READY,
   ORGANIZATION_EXPORT_REQUESTED,
 } from '@ensemus/domain/sovereign-events';
+import { createScriptedRunner } from '@ensemus/sandbox/testing';
 import { buildTestBundle, generateTestKey } from '@ensemus/skills/testing';
 import { open } from '@ensemus/sovereign/sealed';
 import { readTarEntries } from '@ensemus/sovereign/tar';
 import { createPortabilityActivities } from '@ensemus/workflows/portability-activities';
+import { createSandboxRunActivities } from '@ensemus/workflows/sandbox-run-activities';
 import { createSkillVerificationActivities } from '@ensemus/workflows/skill-verification-activities';
 import { and, eq, sql } from 'drizzle-orm';
 import {
@@ -170,6 +179,10 @@ class MemoryStore implements ObjectStore {
     }
     this.puts.push(key);
     this.objects.set(key, body);
+  }
+  async putSingleAttempt(key: string, body: Buffer) {
+    await this.put(key, body);
+    return { transport: 'written' } as const;
   }
   async get(key: string, maxBytes?: number) {
     this.gets.push(key);
@@ -1110,13 +1123,7 @@ describe('organization export', () => {
     });
     const { bytes } = buildTestBundle({ name: pkg.name, key });
     const store = new MemoryStore();
-    const uploadStore = Object.assign(store, {
-      async putSingleAttempt(objectKey: string, body: Buffer) {
-        await store.put(objectKey, body);
-        return { transport: 'written' } as const;
-      },
-    });
-    const upload = await uploadSkillBundle(db(), uploadStore, source, enabled, {
+    const upload = await uploadSkillBundle(db(), store, source, enabled, {
       packageId: pkg.id,
       bytes,
     });
@@ -1241,6 +1248,172 @@ describe('organization export', () => {
       state: 'failed',
       code: 'BYTES_CHANGED',
     });
+  });
+
+  it('archives settled Sandbox receipts and reports private runs only as a count', async () => {
+    const source = await newOrg();
+    const admin = await join(source, 'sandbox-trial-admin', 'admin');
+    const target = await newOrg();
+    const pkg = await seedPackage(db(), source);
+    const { signer } = await seedSigner(db(), source);
+    const { bytes } = buildTestBundle({
+      key: signer,
+      name: pkg.name,
+      source: 'process.stdout.write(JSON.stringify({sample: true}));',
+    });
+    const store = new MemoryStore();
+    const gate = { isEnabled: async () => true };
+    const ceilings = SANDBOX_DEFAULT_CEILINGS;
+    const version = await uploadSkillBundle(db(), store, source, gate, {
+      packageId: pkg.id,
+      bytes,
+    });
+    const input = { organizationId: source.organizationId, skillVersionId: version.id };
+    const verifier = createSkillVerificationActivities({
+      database: workerDb(),
+      store,
+      ceilings,
+      reviewKeys: new Map(),
+      sandboxGate: gate,
+    });
+    const verification = await verifier.checkSkillBundle(input);
+    if (verification.step !== 'run_fixtures') throw new Error('TEST_FIXTURE_NOT_QUEUED');
+    const [fixtureRunId] = verification.sandboxRunIds;
+    if (!fixtureRunId) throw new Error('TEST_FIXTURE_MISSING');
+    const runner = createScriptedRunner({
+      execute() {
+        const stdout = Buffer.from('{"sample":true}');
+        return {
+          ending: 'exited',
+          exitCode: 0,
+          wallMs: 10,
+          cpuMs: 2,
+          peakMemoryKb: 64,
+          stdout,
+          stdoutBytes: stdout.length,
+          stderrBytes: 0,
+          runtime: { name: 'scripted', version: 'test' },
+        };
+      },
+    });
+    const activity = createSandboxRunActivities({
+      control: await createSandboxWorkerControl(workerDb()),
+      gate,
+      ceilings,
+      store,
+      runner,
+      maxConcurrentPerTenant: 1,
+      probeMaxAgeMs: 30_000,
+    });
+    const activityContext = vi.spyOn(Context, 'current').mockReturnValue({
+      heartbeat() {},
+      cancellationSignal: new AbortController().signal,
+    } as Context);
+    try {
+      await expect(
+        activity.executeSandboxRun({
+          organizationId: source.organizationId,
+          sandboxRunId: fixtureRunId,
+        }),
+      ).resolves.toEqual({ step: 'settled', outcome: 'succeeded' });
+    } finally {
+      activityContext.mockRestore();
+    }
+    await expect(verifier.finishSkillVerification(input)).resolves.toBe('verified');
+
+    const canary = `private sandbox input ${randomUUID()}`;
+    const trial = {
+      purpose: 'operator_test' as const,
+      classification: 'internal' as const,
+      input: { note: canary },
+      ceilings,
+      skillVersionId: version.id,
+    };
+    const ownerRun = await requestSandboxRun(db(), source, { gate, agentGuard: null }, trial);
+    const privateRun = await requestSandboxRun(db(), admin, { gate, agentGuard: null }, trial);
+    expect(await drive(source, store, await request(source))).toEqual({
+      state: 'failed',
+      code: 'RECORD_REFUSED',
+    });
+    await cancelSandboxRun(db(), source, ownerRun.id);
+    await cancelSandboxRun(db(), admin, privateRun.id);
+    const exportId = await request(source);
+    expect(await drive(source, store, exportId)).toMatchObject({ state: 'finished' });
+    const opened = await downloadAndOpen(source, store, exportId);
+    expect(opened.manifest).toMatchObject({
+      inventory_version: SANDBOX_HISTORY_PORTABILITY_VERSION,
+      inventory: SANDBOX_HISTORY_PORTABILITY_INVENTORY,
+      sandbox_receipts_excluded: 1,
+    });
+    const receipts = recordsOf(opened, 'sandbox_run_receipt');
+    expect(receipts).toHaveLength(2);
+    expect(receipts).toEqual(
+      expect.arrayContaining([
+        {
+          kind: 'sandbox_run_receipt',
+          id: fixtureRunId,
+          skill_version_id: version.id,
+          purpose: 'skill_test',
+          status: 'succeeded',
+          attempts: 1,
+          created_at: expect.any(String),
+          finished_at: expect.any(String),
+        },
+        {
+          kind: 'sandbox_run_receipt',
+          id: ownerRun.id,
+          skill_version_id: version.id,
+          purpose: 'operator_test',
+          status: 'cancelled',
+          attempts: 0,
+          created_at: expect.any(String),
+          finished_at: expect.any(String),
+        },
+      ]),
+    );
+    expect(opened.text).not.toContain(canary);
+    expect(opened.text).not.toContain(privateRun.id);
+    expect(opened.parts.get(skillBundlePartPath(version.id))).toEqual(bytes);
+    expect(() =>
+      validatePortableRecord('skills', receipts[0], SKILL_BUNDLE_PORTABILITY_VERSION),
+    ).toThrow('RECORD_REFUSED');
+
+    const targetStore = new MemoryStore();
+    const bound = await requestOrganizationImport(db(), target);
+    const result = await runOrganizationImport(
+      workerDb(),
+      worker(target),
+      {
+        importId: bound.id,
+        archive: archiveReader(opened.bytes),
+        recipientPrivateKeyPem: recipient.privateKeyPem,
+      },
+      { sections: SOURCE_PORTABILITY_SECTIONS, ledger: targetStore, store: targetStore },
+    );
+    expect(result).toMatchObject({
+      status: 'completed_with_warnings',
+      failureCode: null,
+      appliedCounts: { sandbox_run_receipt: 2, skill_bundle_version: 1 },
+      warningCounts: { SANDBOX_RECEIPTS_EXCLUDED_AT_SOURCE: 1 },
+    });
+    const targetAdmin = await join(target, 'sandbox-review-admin', 'admin');
+    expect(await listImportedDefinitions(db(), target)).toEqual(
+      expect.arrayContaining(
+        receipts.map((record) =>
+          expect.objectContaining({
+            section: 'skills',
+            record_kind: 'sandbox_run_receipt',
+            record,
+          }),
+        ),
+      ),
+    );
+    expect(await listImportedDefinitions(db(), targetAdmin)).not.toContainEqual(
+      expect.objectContaining({ record_kind: 'sandbox_run_receipt' }),
+    );
+    expect(
+      await withTenantTx(workerDb(), worker(target), (tx) => tx.select().from(sandboxRuns)),
+    ).toEqual([]);
   });
 
   it('carries meeting settings and provider decisions as review records without activating them', async () => {

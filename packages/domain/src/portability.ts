@@ -59,6 +59,7 @@ export const BUSINESS_RECORD_PORTABILITY_VERSION = 'ensemus.business-records/9' 
 export const SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION = 'ensemus.skill-upload-cleanup/10' as const;
 export const RESIDENCY_PORTABILITY_VERSION = 'ensemus.residency/11' as const;
 export const SKILL_BUNDLE_PORTABILITY_VERSION = 'ensemus.skill-bundles/12' as const;
+export const SANDBOX_HISTORY_PORTABILITY_VERSION = 'ensemus.sandbox-history/13' as const;
 export type JoinedPortabilityVersion =
   | typeof PORTABILITY_INVENTORY_VERSION
   | typeof FEDERATION_PORTABILITY_VERSION
@@ -69,7 +70,8 @@ export type JoinedPortabilityVersion =
   | typeof BUSINESS_RECORD_PORTABILITY_VERSION
   | typeof SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION
   | typeof RESIDENCY_PORTABILITY_VERSION
-  | typeof SKILL_BUNDLE_PORTABILITY_VERSION;
+  | typeof SKILL_BUNDLE_PORTABILITY_VERSION
+  | typeof SANDBOX_HISTORY_PORTABILITY_VERSION;
 export function isJoinedPortabilityVersion(profile: unknown): profile is JoinedPortabilityVersion {
   return (
     profile === PORTABILITY_INVENTORY_VERSION ||
@@ -81,7 +83,8 @@ export function isJoinedPortabilityVersion(profile: unknown): profile is JoinedP
     profile === BUSINESS_RECORD_PORTABILITY_VERSION ||
     profile === SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION ||
     profile === RESIDENCY_PORTABILITY_VERSION ||
-    profile === SKILL_BUNDLE_PORTABILITY_VERSION
+    profile === SKILL_BUNDLE_PORTABILITY_VERSION ||
+    profile === SANDBOX_HISTORY_PORTABILITY_VERSION
   );
 }
 export const PORTABLE_SOURCE_SECTIONS = [
@@ -451,6 +454,17 @@ export const SKILL_BUNDLE_PORTABILITY_INVENTORY = [
   inventory('skills.test_runs', 'skills', 'quarantined'),
 ] as const;
 
+export const SANDBOX_HISTORY_PORTABILITY_INVENTORY = [
+  ...SKILL_BUNDLE_PORTABILITY_INVENTORY,
+  inventory('sandbox.runs', 'skills', 'quarantined'),
+] as const;
+
+export function carriesSkillBundleOriginals(profile: unknown) {
+  return (
+    profile === SKILL_BUNDLE_PORTABILITY_VERSION || profile === SANDBOX_HISTORY_PORTABILITY_VERSION
+  );
+}
+
 export const PORTABILITY_INVENTORY_PROFILES = {
   [LEGACY_PORTABILITY_INVENTORY_VERSION]: PORTABILITY_INVENTORY_V1,
   [PORTABILITY_INVENTORY_V2_VERSION]: PORTABILITY_INVENTORY_V2,
@@ -464,6 +478,7 @@ export const PORTABILITY_INVENTORY_PROFILES = {
   [SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION]: SKILL_UPLOAD_CLEANUP_PORTABILITY_INVENTORY,
   [RESIDENCY_PORTABILITY_VERSION]: RESIDENCY_PORTABILITY_INVENTORY,
   [SKILL_BUNDLE_PORTABILITY_VERSION]: SKILL_BUNDLE_PORTABILITY_INVENTORY,
+  [SANDBOX_HISTORY_PORTABILITY_VERSION]: SANDBOX_HISTORY_PORTABILITY_INVENTORY,
 } as const;
 
 export function matchesPortabilityInventory(
@@ -652,6 +667,7 @@ export type ImportFailureCode = (typeof IMPORT_FAILURE_CODES)[number];
 /** Things the person who imported needs to look at. Recorded with counts, and never as a silent loss. */
 export const IMPORT_WARNING_CODES = [
   'RESTRICTED_EXCLUDED_AT_SOURCE',
+  'SANDBOX_RECEIPTS_EXCLUDED_AT_SOURCE',
   'TOMBSTONED_SKIPPED',
   'PERSON_NOT_LINKED',
   'CONNECTION_NEEDS_CREDENTIAL',

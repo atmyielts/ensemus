@@ -357,8 +357,8 @@
     },
     {
       "path": "05-operations/sovereign/archive-format.md",
-      "size_bytes": 8093,
-      "sha256": "5e66b82aa5a2d5b71501597b36049c838d9a187855f50fcb3a88729bf33da9e7"
+      "size_bytes": 8128,
+      "sha256": "2bd87bfd724247ebcd7ca6ae83cf25a8b755d0ca1935cb915b83bb405edaff0f"
     },
     {
       "path": "05-operations/sovereign/backup-and-restore.md",
@@ -1087,8 +1087,8 @@
     },
     {
       "path": "07-commercial/03-data-portability-and-exit.md",
-      "size_bytes": 5877,
-      "sha256": "55c2b39c7b9db0f99ba3e51602b8eb37935146e0f3853f896c291edc4452d9b1"
+      "size_bytes": 6273,
+      "sha256": "d1e1779b30183232f414fd25023bd066032c6054ab949a6ffec5d77732ec5849"
     },
     {
       "path": "07-commercial/04-deployment-and-support-matrix.md",

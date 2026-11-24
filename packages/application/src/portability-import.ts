@@ -32,7 +32,7 @@ import {
   artifactPartPath,
   knowledgePartPath,
   skillBundlePartPath,
-  SKILL_BUNDLE_PORTABILITY_VERSION,
+  carriesSkillBundleOriginals,
   matchesPortabilityInventory,
   PORTABILITY_INVENTORY_PROFILES,
   assertPortabilitySections,
@@ -413,7 +413,7 @@ function assertPartsAreExact(entries: ReadonlyMap<string, TarEntry>, manifest: E
       isBinaryPart(part) &&
       (part.records !== 0 ||
         manifest.schema_version !== 2 ||
-        manifest.inventory_version !== SKILL_BUNDLE_PORTABILITY_VERSION)
+        !carriesSkillBundleOriginals(manifest.inventory_version))
     )
       throw new ImportFailure('MANIFEST_INVALID');
     listed.add(part.path);
@@ -1440,6 +1440,8 @@ export async function runOrganizationImport(
       manifest.excluded.restricted_artifacts +
       manifest.excluded.restricted_clients;
     if (excluded > 0) state.warnings.RESTRICTED_EXCLUDED_AT_SOURCE = excluded;
+    if (manifest.schema_version === 2 && manifest.sandbox_receipts_excluded)
+      state.warnings.SANDBOX_RECEIPTS_EXCLUDED_AT_SOURCE = manifest.sandbox_receipts_excluded;
 
     const status = totalOf(state.warnings) > 0 ? 'completed_with_warnings' : 'completed';
     await settle(database, context, state, status, null);

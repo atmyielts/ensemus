@@ -23,7 +23,8 @@ import {
   EXPORT_SECTIONS,
   matchesPortabilityInventory,
   PORTABILITY_INVENTORY_PROFILES,
-  SKILL_BUNDLE_PORTABILITY_VERSION,
+  SANDBOX_HISTORY_PORTABILITY_VERSION,
+  carriesSkillBundleOriginals,
   type ImportFailureCode,
 } from '@ensemus/domain/portability';
 import {
@@ -137,7 +138,7 @@ function readManifest(plain: Buffer) {
       part.section === 'skills' &&
       part.path.endsWith('.bin.sealed') &&
       (manifest.schema_version !== 2 ||
-        manifest.inventory_version !== SKILL_BUNDLE_PORTABILITY_VERSION ||
+        !carriesSkillBundleOriginals(manifest.inventory_version) ||
         part.records !== 0)
     )
       throw new Refused('MANIFEST_INVALID');
@@ -172,6 +173,15 @@ function readManifest(plain: Buffer) {
     }
     const profile = manifest.inventory_version;
     const joined = isJoinedPortabilityVersion(profile);
+    const sandboxExclusions = manifest.sandbox_receipts_excluded;
+    if (
+      profile === SANDBOX_HISTORY_PORTABILITY_VERSION
+        ? typeof sandboxExclusions !== 'number' ||
+          !Number.isSafeInteger(sandboxExclusions) ||
+          sandboxExclusions < 0
+        : sandboxExclusions !== undefined
+    )
+      throw new Refused('MANIFEST_INVALID');
     const carriesSkillRecords =
       joined &&
       PORTABILITY_INVENTORY_PROFILES[profile].some((entry) => entry.table === 'skills.packages');

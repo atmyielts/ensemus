@@ -27,6 +27,8 @@ const STATUS: Record<ImportStatus, { label: string; tone: string }> = {
 const WARNING_WORDS: Record<ImportWarningCode, string> = {
   RESTRICTED_EXCLUDED_AT_SOURCE:
     'restricted records were left out when the archive was made, so they are not here.',
+  SANDBOX_RECEIPTS_EXCLUDED_AT_SOURCE:
+    'Sandbox run receipts stayed private in the source workspace.',
   TOMBSTONED_SKIPPED:
     'files had been deleted at the source, so they were not brought back, and they stay deleted here.',
   PERSON_NOT_LINKED:

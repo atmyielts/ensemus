@@ -6,7 +6,6 @@ export const PENDING_PORTABILITY_TABLES = [
   'marketplace.listings',
   'marketplace.security_reviews',
   'marketplace.submissions',
-  'sandbox.runs',
   'skills.packages',
   'skills.trusted_signers',
   'federation.org_settings',

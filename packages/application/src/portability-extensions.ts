@@ -13,8 +13,10 @@ import {
   MEETING_HISTORY_PORTABILITY_VERSION,
   MARKETPLACE_PUBLISHER_PORTABILITY_VERSION,
   SKILL_METADATA_PORTABILITY_VERSION,
-  SKILL_BUNDLE_PORTABILITY_INVENTORY,
+  SANDBOX_HISTORY_PORTABILITY_INVENTORY,
+  SANDBOX_HISTORY_PORTABILITY_VERSION,
   SKILL_BUNDLE_PORTABILITY_VERSION,
+  carriesSkillBundleOriginals,
   RESIDENCY_PORTABILITY_VERSION,
   SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION,
   PORTABILITY_INVENTORY_PROFILES,
@@ -100,6 +102,19 @@ const publisherHistoryReader: PortableReader = {
   },
 };
 const publisherReaders = [...catalogReaders, publisherHistoryReader];
+const sandboxRunReceiptReader: PortableReader = {
+  table: 'sovereign.portable_sandbox_run_receipts',
+  kind: 'sandbox_run_receipt',
+  fields: {
+    id: 't.id',
+    skill_version_id: 't.skill_version_id',
+    purpose: 't.purpose',
+    status: 't.status',
+    attempts: 't.attempts',
+    created_at: instant('t.created_at'),
+    finished_at: instant('t.finished_at'),
+  },
+};
 const skillReadersByProfile: Partial<Record<JoinedPortabilityVersion, readonly PortableReader[]>> =
   {
     [SKILL_METADATA_PORTABILITY_VERSION]: catalogReaders,
@@ -110,6 +125,7 @@ const skillReadersByProfile: Partial<Record<JoinedPortabilityVersion, readonly P
     [SKILL_UPLOAD_CLEANUP_PORTABILITY_VERSION]: publisherReaders,
     [RESIDENCY_PORTABILITY_VERSION]: publisherReaders,
     [SKILL_BUNDLE_PORTABILITY_VERSION]: publisherReaders,
+    [SANDBOX_HISTORY_PORTABILITY_VERSION]: [...publisherReaders, sandboxRunReceiptReader],
   };
 const residencyRequirementReader: PortableReader = {
   table: 'sovereign.portable_residency_requirements',
@@ -530,7 +546,7 @@ export async function assertJoinedPortabilitySchema(
       AND schemaname NOT IN ('information_schema','drizzle')`,
   );
   const known = new Set<string>([
-    ...SKILL_BUNDLE_PORTABILITY_INVENTORY.map((entry) => entry.table),
+    ...SANDBOX_HISTORY_PORTABILITY_INVENTORY.map((entry) => entry.table),
     ...PENDING_PORTABILITY_TABLES,
   ]);
   if (present.some((row) => !known.has(row.table_name))) throw new RecordRefused();
@@ -584,7 +600,7 @@ function exporter(section: ExportSection): PortabilitySection['exportPage'] {
   return async (tx, context, { cursor, limit, inventoryVersion }): Promise<ExportPage> => {
     await assertJoinedPortabilitySchema(tx, inventoryVersion);
     const exportViewer = await assertExportViewer(tx);
-    const includesSkillBundles = inventoryVersion === SKILL_BUNDLE_PORTABILITY_VERSION;
+    const includesSkillBundles = carriesSkillBundleOriginals(inventoryVersion);
     const includesResidency =
       inventoryVersion === RESIDENCY_PORTABILITY_VERSION || includesSkillBundles;
     const includesUploadCleanup =
