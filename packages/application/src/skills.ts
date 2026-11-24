@@ -10,6 +10,7 @@ export {
   updateSkillPackage,
 } from './skill-packages';
 export { listSkillVersions, getSkillVersion } from './skill-version-reads';
+export { uploadSkillBundle } from './skill-bundle-upload';
 // Owned by the skill-catalog slice (EXP-04). See docs/06-delivery/m11b-slices.md and ADR-034 D1, D2, D4.
 // Managing skills needs skill.manage, publishing needs skill.publish, and reading needs only membership.
 import type { AppDatabase, TenantContext } from '@ensemus/database';
@@ -24,7 +25,6 @@ import type {
   SkillYankCode,
   TrustedSignerState,
 } from '@ensemus/domain/skill';
-import type { ObjectStore } from './artifacts';
 import type { SkillFeatureGate } from './skill-ports';
 
 export type SkillSignerView = {
@@ -110,24 +110,6 @@ export function revokeTrustedSigner(
   input: { signerId: string; expectedVersion: number },
 ): Promise<void> {
   return revokeSigner(database, context, input);
-}
-
-/**
- * The web tier's whole job with a bundle: count it, hash it, store it, write the row and the event. It parses
- * nothing and believes nothing (ADR-034 D2). Bytes over the limit are refused with SKILL_BUNDLE_TOO_LARGE. The
- * same bytes sent again find the same row, and store nothing twice. Follows addArtifact's order, with the
- * version's ID as the blob's: a `blob_lifecycle` row marked `uploading` first, then the bytes, then the version
- * row, the event and removing the marker in one transaction. So no row ever names bytes that are not there, and
- * a crash leaves bytes the existing upkeep sweep already removes.
- */
-export function uploadSkillBundle(
-  _database: AppDatabase,
-  _store: ObjectStore,
-  _context: TenantContext,
-  _gate: SkillFeatureGate,
-  _input: { packageId: string; bytes: Buffer },
-): Promise<SkillVersionView> {
-  throw new Error('NOT_IMPLEMENTED');
 }
 
 /**

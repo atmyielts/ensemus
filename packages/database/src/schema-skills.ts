@@ -236,6 +236,40 @@ export const skillVersions = skillsSchema.table(
   ],
 );
 
+/** A reserved key and its write outcome. A superseded key remains in the inventory. */
+export const skillBundleUploads = skillsSchema.table(
+  'bundle_uploads',
+  {
+    organizationId: tenantId(),
+    id: uuid().notNull(),
+    packageId: uuid().notNull(),
+    membershipId: uuid().notNull(),
+    bundleSha256: text().notNull(),
+    sizeBytes: integer().notNull(),
+    state: text().notNull().default('writing'),
+    createdAt: timestamp({ withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+  },
+  (t) => [
+    primaryKey({ columns: [t.organizationId, t.id] }),
+    foreignKey({
+      columns: [t.organizationId, t.packageId],
+      foreignColumns: [skillPackages.organizationId, skillPackages.id],
+    }),
+    foreignKey({
+      columns: [t.organizationId, t.membershipId],
+      foreignColumns: [memberships.organizationId, memberships.id],
+    }),
+    uniqueIndex('skill_bundle_upload_one_writer')
+      .on(t.organizationId, t.packageId, t.bundleSha256)
+      .where(sql`${t.state} = 'writing'`),
+    check('bundle_uploads_bundle_sha256_check', sql`${t.bundleSha256} ~ '^[0-9a-f]{64}$'`),
+    check('bundle_uploads_size_bytes_check', sql`${t.sizeBytes} between 1 and 8388608`),
+    check('bundle_uploads_state_check', sql`${t.state} in ('writing','attached','superseded')`),
+  ],
+);
+
 /** One pass of a version's own tests. Append-only: a result is never edited, only followed by another. */
 export const skillTestRuns = skillsSchema.table(
   'test_runs',

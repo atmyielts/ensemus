@@ -141,6 +141,7 @@ export type ErrorCode =
   | 'SKILL_SIGNER_KEY_INVALID'
   | 'SKILL_SIGNER_EXISTS'
   | 'SKILL_BUNDLE_TOO_LARGE'
+  | 'SKILL_UPLOAD_PENDING'
   | 'SKILL_VERSION_NOT_PUBLISHABLE'
   | 'SKILL_PUBLISH_SAME_PERSON'
   | 'SKILL_VERSION_NOT_USABLE'
@@ -336,6 +337,8 @@ const MESSAGES: Record<ErrorCode, string> = {
   SKILL_SIGNER_EXISTS:
     'That key is already on file. A key that was revoked cannot be trusted again.',
   SKILL_BUNDLE_TOO_LARGE: 'That bundle is larger than 8 MiB, so it was not stored.',
+  SKILL_UPLOAD_PENDING:
+    'This bundle upload is still being checked. Wait a moment, then select the same file and retry.',
   SKILL_VERSION_NOT_PUBLISHABLE:
     'This version cannot be published. It has to be verified, and its signer still trusted.',
   SKILL_PUBLISH_SAME_PERSON: 'Someone other than whoever uploaded this version has to publish it.',
@@ -527,6 +530,7 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   SKILL_SIGNER_KEY_INVALID: 400,
   SKILL_SIGNER_EXISTS: 409,
   SKILL_BUNDLE_TOO_LARGE: 413,
+  SKILL_UPLOAD_PENDING: 409,
   SKILL_VERSION_NOT_PUBLISHABLE: 409,
   SKILL_PUBLISH_SAME_PERSON: 403,
   SKILL_VERSION_NOT_USABLE: 409,

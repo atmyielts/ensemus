@@ -1,18 +1,27 @@
 'use server';
 
-import { AppError, createSkillPackage, idSchema, updateSkillPackage } from '@ensemus/application';
+import {
+  AppError,
+  createSkillPackage,
+  idSchema,
+  refusalFromDatabase,
+  updateSkillPackage,
+  uploadSkillBundle,
+} from '@ensemus/application';
 import { createSkillPackageSchema, updateSkillPackageSchema } from '@ensemus/contracts/skills';
+import { SKILL_BUNDLE_MAX_BYTES } from '@ensemus/domain/skill';
 import { errorCode } from '@ensemus/telemetry';
 import { revalidatePath } from 'next/cache';
 import { notFound, redirect } from 'next/navigation';
 import { stepUpPath } from '@/lib/step-up';
 import { redirectForSsoRefusal } from '@/server/interactive-refusal';
-import { getRuntime } from '@/server/runtime';
+import { getRuntime, getStore } from '@/server/runtime';
 import { getSkillFeatureGate } from '@/server/skill-runtime';
 import { requireTenant } from '@/server/tenant';
 
 type FormValues = { name: string; displayName: string; classification: string; state: string };
 export type PackageFormState = { code?: string; values?: FormValues; stepUp?: string };
+export type UploadFormState = { code?: string; stepUp?: string };
 
 function text(form: FormData, name: string): string | undefined {
   const value = form.get(name);
@@ -91,4 +100,39 @@ export async function saveSkillPackageAction(
   revalidatePath(base);
   revalidatePath(destination);
   redirect(destination);
+}
+
+export async function uploadSkillBundleAction(
+  _previous: UploadFormState,
+  form: FormData,
+): Promise<UploadFormState> {
+  const organization = idSchema.safeParse(text(form, 'organizationId'));
+  const packageId = idSchema.safeParse(text(form, 'packageId'));
+  if (!organization.success || !packageId.success) notFound();
+  const { database, context } = await requireTenant(organization.data);
+  const base = `/o/${organization.data}/skills`;
+  const path = `${base}/${packageId.data}`;
+  const bundle = form.get('bundle');
+  if (!(bundle instanceof File) || bundle.size === 0) return { code: 'INVALID_INPUT' };
+  if (bundle.size > SKILL_BUNDLE_MAX_BYTES) return { code: 'SKILL_BUNDLE_TOO_LARGE' };
+  let versionId: string;
+  try {
+    const version = await uploadSkillBundle(database, getStore(), context, getSkillFeatureGate(), {
+      packageId: packageId.data,
+      bytes: Buffer.from(await bundle.arrayBuffer()),
+    });
+    versionId = version.id;
+  } catch (error) {
+    redirectForSsoRefusal(error);
+    const failure = error instanceof AppError ? error : refusalFromDatabase(error);
+    if (failure?.code === 'NOT_FOUND') notFound();
+    if (failure?.code === 'RESTORE_PENDING') redirect('/restoring');
+    if (failure?.code === 'MFA_REQUIRED')
+      return { code: failure.code, stepUp: stepUpPath(organization.data, path) };
+    if (failure) return { code: failure.code };
+    getRuntime().log.error('skill_version.upload_failed', { errorCode: errorCode(error) });
+    return { code: 'UNEXPECTED' };
+  }
+  revalidatePath(path);
+  redirect(`${base}/versions/${versionId}`);
 }

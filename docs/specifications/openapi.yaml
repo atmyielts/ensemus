@@ -9739,7 +9739,6 @@ paths:
         "503":
           $ref: "#/components/responses/RestorePending"
     post:
-      x-ensemus-status: planned
       tags:
         - skills
       summary: Store a signed bundle. Nothing in it is believed until a worker has

@@ -39,7 +39,7 @@ export interface ObjectStore {
   /** Installed only by the actual native raw storage composition; absence refuses mutation. */
   rawKnowledge?: RawKnowledgeObjectPort;
   put(key: string, body: Buffer, mimeType: string): Promise<void>;
-  /** Native raw Knowledge protocol only: exactly one mutation transport. Rejection/timeout is
+  /** Exactly one mutation transport for a durable write admission. Rejection/timeout is
    * unknown, never evidence that the key is absent or that a second PUT is safe. */
   putSingleAttempt?(
     key: string,

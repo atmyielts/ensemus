@@ -75,6 +75,7 @@ import { createLogger, errorCode } from '@ensemus/telemetry';
 import { z } from 'zod';
 import { noteClientAddress } from './client-address';
 import { getRestoreGate, getRuntime } from './runtime';
+import { readBoundedBody } from '@/lib/webhook-limiter';
 
 // The shared wrapper for /api/v1 (API-10). Every route gets the same order of checks: who is this,
 // did the browser send this from our own origin, is the input well formed, and are they in this
@@ -111,6 +112,20 @@ const originRefused = () =>
 const tooLarge = () => new ApiFailure(413, 'PAYLOAD_TOO_LARGE', 'The request body is too large.');
 const wrongMediaType = () =>
   new ApiFailure(415, 'UNSUPPORTED_MEDIA_TYPE', 'Send the request body as application/json.');
+
+/** Authenticated binary routes count bytes before handing a body to an application service. */
+export async function readSkillBundleBody(
+  request: Request,
+  contentType: string,
+  maxBytes: number,
+): Promise<Buffer> {
+  if (request.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase() !== contentType)
+    throw new ApiFailure(415, 'UNSUPPORTED_MEDIA_TYPE', `Send the bundle as ${contentType}.`);
+  const body = await readBoundedBody(request, { maxBytes, deadlineMs: 15_000 });
+  if (body.kind === 'too_large') throw new AppError('SKILL_BUNDLE_TOO_LARGE');
+  if (body.kind === 'too_slow') throw invalidInput();
+  return Buffer.from(body.bytes.buffer, body.bytes.byteOffset, body.bytes.byteLength);
+}
 const versionRequired = () =>
   new ApiFailure(
     428,

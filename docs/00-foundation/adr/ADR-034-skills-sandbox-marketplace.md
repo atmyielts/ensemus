@@ -8,7 +8,15 @@
 and administrators can create packages when the catalog is enabled and update existing package
 metadata. Creation is idempotent over HTTP. Updates check the displayed version before writing.
 Marketplace copies retain their content classification. This slice covers metadata administration.
-Bundle upload, durable verification, and publication remain separate release gates.
+
+**Bundle admission update, 2026-11-24.** The native platform worker verifies signed declarative
+bundles. A tenant upload reserves a canonical skill key in PostgreSQL before its one storage
+attempt. The version, audit event, and outbox event become visible in one transaction after a
+successful write. The uploader can recover a lost response by resending the same file. Recovery
+matches the stored bytes against the file before attaching that reservation. An unresolved
+attempt older than two minutes can be replaced with a new key. The superseded key stays recorded
+for physical cleanup. The artifact sweep handles artifact keys. Skill bundle cleanup and
+two-person publication remain separate release gates.
 
 **Date:** 2026-11-06
 **Deciders:** Project owner; security owner for D2, D3, D5 and D6.

@@ -355,6 +355,10 @@ const MESSAGE_FOR = new Map<string, string>([
   ],
   ['SKILL_BUNDLE_TOO_LARGE', 'That bundle is larger than 8 MiB, so it was not stored.'],
   [
+    'SKILL_UPLOAD_PENDING',
+    'This upload is still being checked. Wait a moment, then select the same file and retry.',
+  ],
+  [
     'SKILL_VERSION_NOT_PUBLISHABLE',
     'This version cannot be published. It has to be verified, and its signer still trusted.',
   ],

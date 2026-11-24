@@ -10,7 +10,9 @@ import {
 } from '@/components/ui';
 import { verificationError } from '@/lib/skill-version-copy';
 import { orNotFound, requireTenant } from '@/server/tenant';
+import { getSkillFeatureGate } from '@/server/skill-runtime';
 import Link from 'next/link';
+import { SkillBundleForm } from '../skill-bundle-form';
 import { SkillPackageForm } from '../skill-package-form';
 
 export const metadata = { title: 'Skill package | Ensemus' };
@@ -26,6 +28,12 @@ export default async function SkillPackagePage({
   const { database, context } = await requireTenant(organizationId);
   const pkg = await orNotFound(getSkillPackage(database, context, id.data));
   const versions = await orNotFound(listSkillVersions(database, context, pkg.id));
+  const canManage = can(context.role, 'skill.manage');
+  const canUpload =
+    canManage &&
+    pkg.origin === 'tenant' &&
+    pkg.state === 'active' &&
+    (await getSkillFeatureGate().isEnabled(context, 'skill_catalog'));
   return (
     <>
       <BackLink href={`/o/${organizationId}/skills`}>Skill catalog</BackLink>
@@ -71,8 +79,9 @@ export default async function SkillPackagePage({
         ) : (
           <p className="muted">No versions have been recorded for this package.</p>
         )}
+        {canUpload && <SkillBundleForm organizationId={organizationId} packageId={pkg.id} />}
       </section>
-      {can(context.role, 'skill.manage') && (
+      {canManage && (
         <section className="card" aria-labelledby="package-settings">
           <h2 id="package-settings">Package settings</h2>
           <SkillPackageForm organizationId={organizationId} pkg={pkg} />

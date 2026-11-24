@@ -1322,3 +1322,22 @@ Fifty PostgreSQL cases, two live Temporal runs, both captured history replays, a
 worker build passed. The live runs used generated bundles and an in-memory object store.
 Durable bundle upload, two-person publishing, and live object storage qualification remain open.
 Executable bundles are rejected until the sandbox is qualified.
+
+### Workspace skill bundle upload (EXP-04)
+
+Workspace owners and administrators can upload a signed bundle from an active workspace package
+when the catalog is enabled. The form and the API admit at most 8 MiB. The server stores opaque
+bytes and queues verification. The worker still decides what the bundle contains and whether
+it can be verified.
+
+Migration 0767 adds the before-write record, scoped to the package, tenant, and uploader. A lost
+response can be recovered from the original key when its bytes match. After two minutes an
+unresolved attempt can be replaced with a new key while its original record remains visible in
+the cleanup inventory. Late writers cannot attach a superseded key. Full erasure and archive
+coverage for bundle storage and outside security review remain open.
+
+Fifty-five native PostgreSQL skill cases passed. Coverage included a late writer, a lost
+storage response, a concurrent repeat, a disable during upload, and a denied cross-tenant
+upload. A separate proof stored a generated bundle in the local S3-compatible service, replayed
+the upload without creating another version, and verified the stored bytes with the native
+worker. The API contract has 17 planned operations remaining.

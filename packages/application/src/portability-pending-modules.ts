@@ -20,6 +20,7 @@ export const PENDING_PORTABILITY_TABLES = [
   'marketplace.security_reviews',
   'marketplace.submissions',
   'sandbox.runs',
+  'skills.bundle_uploads',
   'skills.packages',
   'skills.test_runs',
   'skills.package_versions',
