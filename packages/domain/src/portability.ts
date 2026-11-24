@@ -51,10 +51,17 @@ export const LEGACY_PORTABILITY_INVENTORY_VERSION = 'ensemus.m3-m5/1' as const;
 export const PORTABILITY_INVENTORY_V2_VERSION = 'ensemus.m3-m5/2' as const;
 export const PORTABILITY_INVENTORY_VERSION = 'ensemus.m3-m7/3' as const;
 export const FEDERATION_PORTABILITY_VERSION = 'ensemus.m3-m7-federation/4' as const;
+export const SKILL_METADATA_PORTABILITY_VERSION = 'ensemus.skill-metadata/5' as const;
 export type JoinedPortabilityVersion =
-  typeof PORTABILITY_INVENTORY_VERSION | typeof FEDERATION_PORTABILITY_VERSION;
+  | typeof PORTABILITY_INVENTORY_VERSION
+  | typeof FEDERATION_PORTABILITY_VERSION
+  | typeof SKILL_METADATA_PORTABILITY_VERSION;
 export function isJoinedPortabilityVersion(profile: unknown): profile is JoinedPortabilityVersion {
-  return profile === PORTABILITY_INVENTORY_VERSION || profile === FEDERATION_PORTABILITY_VERSION;
+  return (
+    profile === PORTABILITY_INVENTORY_VERSION ||
+    profile === FEDERATION_PORTABILITY_VERSION ||
+    profile === SKILL_METADATA_PORTABILITY_VERSION
+  );
 }
 export const PORTABLE_SOURCE_SECTIONS = [
   ...LEGACY_PORTABLE_SOURCE_SECTIONS,
@@ -371,11 +378,19 @@ export const FEDERATION_PORTABILITY_INVENTORY = [
   inventory('marketplace.listing_object_reservations', 'policy', 'operational_excluded'),
 ] as const;
 
+export const SKILL_METADATA_PORTABILITY_INVENTORY = [
+  ...FEDERATION_PORTABILITY_INVENTORY,
+  inventory('skills.packages', 'skills', 'quarantined'),
+  inventory('skills.trusted_signers', 'skills', 'quarantined'),
+  inventory('marketplace.installations', 'skills', 'quarantined'),
+] as const;
+
 export const PORTABILITY_INVENTORY_PROFILES = {
   [LEGACY_PORTABILITY_INVENTORY_VERSION]: PORTABILITY_INVENTORY_V1,
   [PORTABILITY_INVENTORY_V2_VERSION]: PORTABILITY_INVENTORY_V2,
   [PORTABILITY_INVENTORY_VERSION]: PORTABILITY_INVENTORY,
   [FEDERATION_PORTABILITY_VERSION]: FEDERATION_PORTABILITY_INVENTORY,
+  [SKILL_METADATA_PORTABILITY_VERSION]: SKILL_METADATA_PORTABILITY_INVENTORY,
 } as const;
 
 export function matchesPortabilityInventory(

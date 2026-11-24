@@ -30,6 +30,7 @@ import {
   knowledgePartPath,
   assertPortabilitySections,
   FEDERATION_PORTABILITY_VERSION,
+  SKILL_METADATA_PORTABILITY_VERSION,
   isJoinedPortabilityVersion,
   PORTABILITY_INVENTORY_PROFILES,
   PORTABILITY_INVENTORY_VERSION,
@@ -517,12 +518,19 @@ export async function beginExport(
   return withTenantTx(database, context, async (tx) => {
     const row = await findExport(tx, context, id, true);
     if (row.status !== 'requested') return stepOf(row);
-    const [legacy] = await queryRows<{ clear: boolean }>(
+    const [admitted] = await queryRows<{ profile: JoinedPortabilityVersion | null }>(
       tx,
-      sql`select sovereign.portable_profile_clear(${PORTABILITY_INVENTORY_VERSION}) as clear`,
+      sql`select case
+        when sovereign.portable_profile_clear(${PORTABILITY_INVENTORY_VERSION}) then ${PORTABILITY_INVENTORY_VERSION}
+        when sovereign.portable_profile_clear(${FEDERATION_PORTABILITY_VERSION}) then ${FEDERATION_PORTABILITY_VERSION}
+        when sovereign.portable_profile_clear(${SKILL_METADATA_PORTABILITY_VERSION}) then ${SKILL_METADATA_PORTABILITY_VERSION}
+        else null end as profile`,
     );
-    const profile =
-      legacy?.clear === true ? PORTABILITY_INVENTORY_VERSION : FEDERATION_PORTABILITY_VERSION;
+    const profile = admitted?.profile;
+    if (!profile) {
+      await recordFailure(tx, context, row, 'RECORD_REFUSED');
+      return { state: 'failed', code: 'RECORD_REFUSED' };
+    }
     try {
       await assertJoinedPortabilitySchema(tx, profile);
     } catch (error) {
@@ -534,7 +542,7 @@ export async function beginExport(
       .update(organizationExports)
       .set({
         status: 'running',
-        inventoryVersion: profile === FEDERATION_PORTABILITY_VERSION ? profile : undefined,
+        inventoryVersion: profile === PORTABILITY_INVENTORY_VERSION ? undefined : profile,
         exportEpoch: sql`(select epoch from sovereign.export_epochs where organization_id=${context.organizationId}::uuid)`,
         // The database's own clock, because every row this is compared with was stamped by it.
         snapshotAt: sql`now()`,

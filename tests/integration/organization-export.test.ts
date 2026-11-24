@@ -62,6 +62,8 @@ import {
   EXPORT_OBJECT_PREFIX,
   FEDERATION_PORTABILITY_INVENTORY,
   FEDERATION_PORTABILITY_VERSION,
+  SKILL_METADATA_PORTABILITY_INVENTORY,
+  SKILL_METADATA_PORTABILITY_VERSION,
   isArchivePath,
 } from '@ensemus/domain/portability';
 import {
@@ -87,7 +89,7 @@ import {
   setDeploymentProfile,
 } from '../helpers/federation';
 import { seedConnection, seedExternalAction } from '../helpers/integrations';
-import { seedSigner } from '../helpers/skills';
+import { seedPackage, seedSigner } from '../helpers/skills';
 import { urls } from '../helpers/stack';
 import { archiveReader } from './fixtures/archive-builder';
 
@@ -328,13 +330,77 @@ describe('organization export', () => {
         code: 'EXPORT_SUPERSEDED',
       });
       const next = await request(source);
-      expect(await beginExport(workerDb(), worker(source), { exportId: next }, deps)).toEqual({
-        state: 'failed',
-        code: 'RECORD_REFUSED',
+      expect(await drive(source, store, next)).toMatchObject({ state: 'finished' });
+      expect((await downloadAndOpen(source, store, next)).manifest).toMatchObject({
+        inventory_version: SKILL_METADATA_PORTABILITY_VERSION,
       });
     } finally {
       await clearDeploymentProfile();
     }
+  });
+
+  it('carries catalog metadata as review records and leaves live package and key authority behind', async () => {
+    const source = await newOrg(),
+      target = await newOrg(),
+      unrelated = await newOrg();
+    const pkg = await seedPackage(db(), source);
+    const { signer, id: signerId } = await seedSigner(db(), source);
+    const privateCatalog = await seedPackage(db(), unrelated);
+    const store = new MemoryStore();
+    const exportId = await request(source);
+    expect(await drive(source, store, exportId)).toMatchObject({ state: 'finished' });
+    const opened = await downloadAndOpen(source, store, exportId);
+    expect(opened.manifest).toMatchObject({
+      inventory_version: SKILL_METADATA_PORTABILITY_VERSION,
+      inventory: SKILL_METADATA_PORTABILITY_INVENTORY,
+    });
+    expect(recordsOf(opened, 'skill_package_metadata')).toMatchObject([
+      { id: pkg.id, name: pkg.name, state: 'active' },
+    ]);
+    expect(recordsOf(opened, 'skill_signer_metadata')).toMatchObject([
+      { id: signerId, key_id: signer.keyId, public_key_hex: signer.publicKey.toString('hex') },
+    ]);
+    expect(opened.text).not.toContain(privateCatalog.name);
+    expect(opened.text).not.toContain('PRIVATE KEY');
+
+    const targetStore = new MemoryStore();
+    const bound = await requestOrganizationImport(db(), target);
+    const result = await runOrganizationImport(
+      workerDb(),
+      worker(target),
+      {
+        importId: bound.id,
+        archive: archiveReader(opened.bytes),
+        recipientPrivateKeyPem: recipient.privateKeyPem,
+      },
+      { sections: SOURCE_PORTABILITY_SECTIONS, ledger: targetStore, store: targetStore },
+    );
+    expect(result.status).toBe('completed_with_warnings');
+    expect(result.appliedCounts).toMatchObject({
+      skill_package_metadata: 1,
+      skill_signer_metadata: 1,
+    });
+    const quarantine = await su.query(
+      "select record_kind from sovereign.imported_definitions where organization_id=$1 and section='skills' order by record_kind",
+      [target.organizationId],
+    );
+    expect(quarantine.rows.map(({ record_kind }) => record_kind)).toEqual([
+      'skill_package_metadata',
+      'skill_signer_metadata',
+    ]);
+    const live = await su.query(
+      'select (select count(*)::int from skills.packages where organization_id=$1) as packages, ' +
+        '(select count(*)::int from skills.trusted_signers where organization_id=$1) as trust',
+      [target.organizationId],
+    );
+    expect(live.rows[0]).toEqual({ packages: 0, trust: 0 });
+
+    await seedPackage(db(), source, { contentClassification: 'restricted' });
+    const refused = await request(source);
+    expect(await beginExport(workerDb(), worker(source), { exportId: refused }, deps)).toEqual({
+      state: 'failed',
+      code: 'RECORD_REFUSED',
+    });
   });
 
   /** Every record of one kind in an opened archive. */

@@ -34,11 +34,12 @@ import {
 } from '@ensemus/database/marketplace-operator';
 import { createServiceContext } from '@ensemus/database/service';
 import { listingObjectKey, REVIEW_CHECKS } from '@ensemus/domain/marketplace';
+import { SKILL_METADATA_PORTABILITY_VERSION } from '@ensemus/domain/portability';
 import { SANDBOX_DEFAULT_CEILINGS } from '@ensemus/domain/sandbox';
 import { skillBundleObjectKey } from '@ensemus/domain/skill';
 import { buildTestBundle, generateTestKey } from '@ensemus/skills/testing';
 import { createMarketplaceInstallActivities } from '@ensemus/workflows/marketplace-install-activities';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { createSkillVerificationActivities } from '@ensemus/workflows/skill-verification-activities';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { marketplaceCommand } from '../../workers/workflow/src/marketplace-command';
@@ -433,8 +434,17 @@ describe('marketplace tenant actions and signed offline publication', () => {
         outcome: { ok: false, code: 'LISTING_NOT_AVAILABLE' },
       }),
     ).resolves.toBe('failed');
+    const metadataProfile = () =>
+      withTenantTx(web.db, buyer, async (native) => {
+        const result = await native.execute<{ admitted: boolean }>(
+          sql`select sovereign.portable_profile_clear(${SKILL_METADATA_PORTABILITY_VERSION}) as admitted`,
+        );
+        return result.rows[0]?.admitted;
+      });
+    await expect(metadataProfile()).resolves.toBe(true);
 
     const queued = await request();
+    await expect(metadataProfile()).resolves.toBe(false);
     const install = installInput(queued.id);
     tenantKey = skillBundleObjectKey(buyer.organizationId, queued.id);
     await expect(installActivities.materializeListing(install)).rejects.toMatchObject({

@@ -8,6 +8,8 @@ import { assertPortableDefinitionIntegrity } from './portable-definition';
 import {
   FEDERATION_PORTABILITY_INVENTORY,
   FEDERATION_PORTABILITY_VERSION,
+  SKILL_METADATA_PORTABILITY_INVENTORY,
+  SKILL_METADATA_PORTABILITY_VERSION,
   matchesPortabilityInventory,
   portableRecordByteLimit,
   PORTABILITY_INVENTORY,
@@ -157,7 +159,21 @@ describe('the joined inventory names every migrated table', () => {
       portableRecordByteLimit(PORTABILITY_INVENTORY_VERSION),
     );
   });
-  const named = new Set(FEDERATION_PORTABILITY_INVENTORY.map((entry) => entry.table));
+  it('admits catalog records only in a separate frozen profile', () => {
+    expect(
+      matchesPortabilityInventory(
+        SKILL_METADATA_PORTABILITY_INVENTORY,
+        SKILL_METADATA_PORTABILITY_VERSION,
+      ),
+    ).toBe(true);
+    expect(
+      matchesPortabilityInventory(
+        SKILL_METADATA_PORTABILITY_INVENTORY,
+        FEDERATION_PORTABILITY_VERSION,
+      ),
+    ).toBe(false);
+  });
+  const named = new Set(SKILL_METADATA_PORTABILITY_INVENTORY.map((entry) => entry.table));
   it('has a reviewed line for each table a migration creates, and none for a table that is gone', () => {
     const tables = migratedTables();
     expect(tables.size).toBeGreaterThan(200);

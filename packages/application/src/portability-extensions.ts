@@ -5,10 +5,12 @@ import {
   extensionRecordSchema,
   EXTENSION_SECTION_KINDS,
   M7_PORTABLE_RECORD_KINDS,
+  SKILL_METADATA_RECORD_KINDS,
   type ExtensionRecord,
 } from '@ensemus/contracts/portability-records';
 import {
-  FEDERATION_PORTABILITY_INVENTORY,
+  SKILL_METADATA_PORTABILITY_INVENTORY,
+  SKILL_METADATA_PORTABILITY_VERSION,
   PORTABILITY_INVENTORY_PROFILES,
   PORTABILITY_INVENTORY_VERSION,
   isJoinedPortabilityVersion,
@@ -35,6 +37,49 @@ const instant = (column: string) =>
 const nullableInstant = (column: string) =>
   `CASE WHEN ${column} IS NULL THEN NULL ELSE ${instant(column)} END`;
 const viewer = `sovereign.portable_export_viewer()`;
+const catalogReaders: readonly PortableReader[] = [
+  {
+    table: 'skills.packages',
+    kind: 'skill_package_metadata',
+    fields: {
+      id: 't.id',
+      name: 't.name',
+      display_name: 't.display_name',
+      classification: 't.content_classification',
+      state: 't.state',
+      owner_membership_id: 't.owner_membership_id',
+      version: 't.version',
+      created_at: instant('t.created_at'),
+      updated_at: instant('t.updated_at'),
+    },
+  },
+  {
+    table: 'skills.trusted_signers',
+    kind: 'skill_signer_metadata',
+    fields: {
+      id: 't.id',
+      display_name: 't.display_name',
+      key_id: 't.key_id',
+      public_key_hex: "encode(t.public_key, 'hex')",
+      state: 't.state',
+      created_at: instant('t.created_at'),
+      revoked_at: nullableInstant('t.revoked_at'),
+    },
+  },
+  {
+    table: 'marketplace.installations',
+    kind: 'marketplace_failed_installation',
+    fields: {
+      id: 't.id',
+      listing_id: 't.listing_id',
+      requested_by_membership_id: 't.requested_by_membership_id',
+      failure_code: 't.failure_code',
+      state: 't.state',
+      created_at: instant('t.created_at'),
+      updated_at: instant('t.updated_at'),
+    },
+  },
+];
 const readableSource = (column: string) => `${column} IN (SELECT s.id FROM knowledge.sources s
   WHERE s.organization_id=app.current_organization_id() AND s.state='active' AND s.classification<>'restricted'
   AND s.id IN (SELECT knowledge.readable_source_ids(${viewer})))`;
@@ -410,7 +455,7 @@ export async function assertJoinedPortabilitySchema(
       AND schemaname NOT IN ('information_schema','drizzle')`,
   );
   const known = new Set<string>([
-    ...FEDERATION_PORTABILITY_INVENTORY.map((entry) => entry.table),
+    ...SKILL_METADATA_PORTABILITY_INVENTORY.map((entry) => entry.table),
     ...PENDING_PORTABILITY_TABLES,
   ]);
   if (present.some((row) => !known.has(row.table_name))) throw new RecordRefused();
@@ -433,8 +478,14 @@ function exporter(section: ExportSection): PortabilitySection['exportPage'] {
   return async (tx, context, { cursor, limit, inventoryVersion }): Promise<ExportPage> => {
     await assertJoinedPortabilitySchema(tx, inventoryVersion);
     await assertExportViewer(tx);
-    const list = [...(readers[section] ?? []), ...(M7_PORTABLE_READERS[section] ?? [])];
-    if (section === 'skills') return { recordKind: 'skills', records: [], nextCursor: null };
+    const list =
+      section === 'skills'
+        ? inventoryVersion === SKILL_METADATA_PORTABILITY_VERSION
+          ? catalogReaders
+          : []
+        : [...(readers[section] ?? []), ...(M7_PORTABLE_READERS[section] ?? [])];
+    if (section === 'skills' && !list.length)
+      return { recordKind: 'skills', records: [], nextCursor: null };
     const state =
       cursor === null
         ? { index: 0, key: null as string | null }
@@ -537,6 +588,11 @@ export async function quarantinePortableRecord(
   if (
     (M7_PORTABLE_RECORD_KINDS as readonly string[]).includes(checked.kind) &&
     !isJoinedPortabilityVersion(scope.inventoryVersion)
+  )
+    throw new RecordRefused();
+  if (
+    (SKILL_METADATA_RECORD_KINDS as readonly string[]).includes(checked.kind) &&
+    scope.inventoryVersion !== SKILL_METADATA_PORTABILITY_VERSION
   )
     throw new RecordRefused();
   assertPortableDefinitionIntegrity(checked);

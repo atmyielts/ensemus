@@ -1331,6 +1331,13 @@
       "when": 1794201807662,
       "tag": "0782_sandbox_verification_fixtures",
       "breakpoints": true
+    },
+    {
+      "idx": 190,
+      "version": "7",
+      "when": 1794201807663,
+      "tag": "0783_skill_catalog_portability",
+      "breakpoints": true
     }
   ]
 }

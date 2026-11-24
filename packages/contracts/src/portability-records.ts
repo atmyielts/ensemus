@@ -29,8 +29,11 @@ const EXPORT_SECTIONS = [
 ] as const;
 
 const FEDERATION_PROFILE = 'ensemus.m3-m7-federation/4';
+const SKILL_METADATA_PORTABILITY_VERSION = 'ensemus.skill-metadata/5';
 const isJoinedInventory = (value: string) =>
-  value === 'ensemus.m3-m7/3' || value === FEDERATION_PROFILE;
+  value === 'ensemus.m3-m7/3' ||
+  value === FEDERATION_PROFILE ||
+  value === SKILL_METADATA_PORTABILITY_VERSION;
 
 const id = z.uuid().refine((value) => value === value.toLowerCase());
 const moment = z.iso.datetime({ offset: true });
@@ -392,7 +395,54 @@ const m7PortableRecords = [
     classification,
   }),
 ] as const;
+export const SKILL_METADATA_RECORD_KINDS = [
+  'skill_package_metadata',
+  'skill_signer_metadata',
+  'marketplace_failed_installation',
+] as const;
+
 export const extensionRecordSchema = z.discriminatedUnion('kind', [
+  z.strictObject({
+    kind: z.literal('skill_package_metadata'),
+    id,
+    name: z.string().regex(/^[a-z][a-z0-9-]{1,63}$/),
+    display_name: z.string().min(1).max(120),
+    classification,
+    state: z.enum(['active', 'disabled']),
+    owner_membership_id: id.nullable(),
+    version: z.int().min(1),
+    created_at: moment,
+    updated_at: moment,
+  }),
+  z.strictObject({
+    kind: z.literal('skill_signer_metadata'),
+    id,
+    display_name: z.string().min(1).max(120),
+    key_id: sha256,
+    public_key_hex: sha256,
+    state: z.enum(['active', 'revoked']),
+    created_at: moment,
+    revoked_at: moment.nullable(),
+  }),
+  z.strictObject({
+    kind: z.literal('marketplace_failed_installation'),
+    id,
+    listing_id: id,
+    requested_by_membership_id: id,
+    failure_code: z.enum([
+      'LISTING_NOT_AVAILABLE',
+      'ATTESTATION_INVALID',
+      'SIGNATURE_INVALID',
+      'BUNDLE_HASH_MISMATCH',
+      'BUNDLE_UNAVAILABLE',
+      'NAME_TAKEN',
+      'VERIFICATION_REJECTED',
+      'INSTALL_ERROR',
+    ]),
+    state: z.literal('failed'),
+    created_at: moment,
+    updated_at: moment,
+  }),
   z.strictObject({
     kind: z.literal('service_identity'),
     ...definitionBase,
@@ -676,6 +726,7 @@ export const EXTENSION_SECTION_KINDS = {
     'pack_item',
   ],
   policy: ['budget', 'usage_entry', 'policy_definition', 'security_settings'],
+  skills: SKILL_METADATA_RECORD_KINDS,
   'custom-objects': [
     'custom_object_type',
     'custom_object_version',
@@ -708,6 +759,11 @@ export function validatePortableRecord(
   if (
     (M7_PORTABLE_RECORD_KINDS as readonly string[]).includes(extension.kind) &&
     !isJoinedInventory(inventoryVersion)
+  )
+    throw new Error('RECORD_REFUSED');
+  if (
+    (SKILL_METADATA_RECORD_KINDS as readonly string[]).includes(extension.kind) &&
+    inventoryVersion !== SKILL_METADATA_PORTABILITY_VERSION
   )
     throw new Error('RECORD_REFUSED');
   const allowed = EXTENSION_SECTION_KINDS[section as keyof typeof EXTENSION_SECTION_KINDS] as
@@ -761,6 +817,7 @@ const manifestV2Schema = manifestV1Schema.extend({
     'ensemus.m3-m5/2',
     'ensemus.m3-m7/3',
     FEDERATION_PROFILE,
+    SKILL_METADATA_PORTABILITY_VERSION,
   ]),
   record_max_bytes: z.literal(4 * 1024 * 1024).optional(),
   generated_bodies_excluded: z.int().min(0),
@@ -820,7 +877,9 @@ export const exportManifestSchema = z
       ctx.addIssue({ code: 'custom', message: 'Record bound differs from inventory profile' });
     if (
       (!joined && value.sections['custom-objects']?.parts !== 0) ||
-      value.sections.skills?.parts !== 0
+      ((value.schema_version !== 2 ||
+        value.inventory_version !== SKILL_METADATA_PORTABILITY_VERSION) &&
+        value.sections.skills?.parts !== 0)
     )
       ctx.addIssue({ code: 'custom', message: 'Section absent from this inventory profile' });
   });
