@@ -45,7 +45,8 @@ const inspection: Partial<Record<IsolationCheck, string>> = {
   ].join('\n'),
   root_filesystem_read_only: "done(readOnly('/') && refusedWrite('/ensemus-probe'));",
   skill_directory_read_only: [
-    "done(readOnly('/skill') && refusedWrite('/skill/ensemus-probe') && refusedWrite('/skill/probe.cjs'));",
+    // The bind mount must be read-only. File modes may reject an attempted write before the mount does.
+    "done(readOnly('/skill') && refusedWrite('/skill/ensemus-probe', true) && refusedWrite('/skill/probe.cjs', true));",
   ].join('\n'),
   scratch_size_limited: [
     "const info = fs.statfsSync('/tmp');",
@@ -114,9 +115,9 @@ export function probePayload(check: IsolationCheck, limits: Record<string, numbe
       'const attempt = () => fs.writeSync(1, JSON.stringify({ check, attempted: true }));',
       "const readOnly = path => fs.readFileSync('/proc/self/mountinfo', 'utf8').split('\\n')",
       "  .some(line => { const part = line.split(' '); return part[4] === path && part[5].split(',').includes('ro'); });",
-      'const refusedWrite = path => {',
+      'const refusedWrite = (path, allowPermissionMode = false) => {',
       "  try { fs.closeSync(fs.openSync(path, 'a')); return false; }",
-      "  catch (error) { return error.code === 'EROFS'; }",
+      "  catch (error) { return error.code === 'EROFS' || (allowPermissionMode && error.code === 'EACCES'); }",
       '};',
       '(function () {',
       inspection[check] ?? limitScripts[check],

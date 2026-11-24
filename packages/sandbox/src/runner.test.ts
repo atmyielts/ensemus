@@ -4,6 +4,7 @@ import { access, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink } from 'n
 import { request as httpRequest, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { runInNewContext } from 'node:vm';
 import {
   compileSandboxPolicy,
   ISOLATION_CHECKS,
@@ -14,6 +15,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildOciSpec, SANDBOX_JOB_ENVIRONMENT } from './oci';
 import { runIsolationProbe } from './probe';
+import { probePayload } from './probe-jobs';
 import { RUNNER_MAX_REQUEST_BYTES, runnerProbeResponseSchema } from './protocol';
 import {
   createOciCliRuntime,
@@ -379,6 +381,37 @@ describe('runner HTTP admission', () => {
 });
 
 describe('native probe interpretation', () => {
+  it('requires a read-only skill mount and denied creation and writes', () => {
+    function observe(mount: 'ro' | 'rw', writablePath?: string) {
+      const output: string[] = [];
+      const checks: string[] = [];
+      const fs = {
+        readFileSync: () => '1 2 3:4 / /skill ' + mount + ',nosuid,nodev,noexec',
+        openSync(path: string) {
+          checks.push(path);
+          if (path === writablePath) return 3;
+          throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+        },
+        closeSync() {},
+        writeSync(_fd: number, data: string) {
+          output.push(data);
+        },
+      };
+      runInNewContext(probePayload('skill_directory_read_only', ceilings).toString(), {
+        process: { versions: { node: '24.0.0' } },
+        require: () => fs,
+      });
+      return { passed: JSON.parse(output[0]!).passed, checks };
+    }
+
+    expect(observe('ro')).toEqual({
+      passed: true,
+      checks: ['/skill/ensemus-probe', '/skill/probe.cjs'],
+    });
+    expect(observe('rw').passed).toBe(false);
+    expect(observe('ro', '/skill/probe.cjs').passed).toBe(false);
+  });
+
   it('fails on a crash, missing attempt, forbidden success or extra output', async () => {
     const runtime = createScriptedRuntime({
       async run(input) {
