@@ -251,10 +251,12 @@ describe('CI disk preparation preserves the full Linux gate workflow', () => {
       expect(preflight).toBeLessThan(build);
     }
   });
-  it('cancels an obsolete PR run while retaining independent branches', () => {
+  it('cancels obsolete runs except for the repository release candidate', () => {
     expect(workflow).toContain(
       'group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}',
     );
-    expect(workflow).toContain('cancel-in-progress: true');
+    expect(workflow).toContain(
+      "cancel-in-progress: ${{ github.head_ref != 'codex/release-candidate' || github.event.pull_request.head.repo.full_name != github.repository }}",
+    );
   });
 });
